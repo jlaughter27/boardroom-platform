@@ -1,5 +1,6 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -24,7 +25,9 @@ const port = process.env.BOARDROOM_PORT || 3001;
 app.use(helmet());
 const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
+  : process.env.NODE_ENV === 'production'
+    ? [] // Same-origin in production — no cross-origin needed
+    : ['http://localhost:5173', 'http://localhost:3000'];
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -88,6 +91,20 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     message: process.env.NODE_ENV === 'production' ? 'An internal error occurred' : err.message,
   });
 });
+
+// Serve React client in production
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.resolve(__dirname, '../../client/dist');
+  app.use(express.static(clientDist));
+  // SPA fallback — serve index.html for any non-API route
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/auth')) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 // Graceful shutdown
 const server = app.listen(port, () => {
