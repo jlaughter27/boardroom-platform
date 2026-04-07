@@ -213,6 +213,27 @@ export function createSynthesisStream(sessionId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Ambiguity check
+// ---------------------------------------------------------------------------
+
+export function checkAmbiguity(sessionId: string) {
+  return request<import('@boardroom/shared').SufficiencyScore>(
+    `/sessions/${sessionId}/check-ambiguity`,
+    { method: 'POST' },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+export function exportSession(sessionId: string, format: 'json' | 'pdf' = 'json') {
+  return request<Record<string, unknown>>(
+    `/sessions/${sessionId}/export?format=${format}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Entity reads
 // ---------------------------------------------------------------------------
 
