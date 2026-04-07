@@ -5,6 +5,7 @@ import { CEOOrchestrator, type SessionState } from '../agents/orchestrator';
 import { checkSufficiency } from '../agents/sufficiency';
 import { omnimindClient } from '../services/omnimind-client';
 import { proposeExtractions, confirmExtractions } from '../services/extraction.service';
+import { exportSession } from '../services/export.service';
 import { getPersonasForMode, shouldIncludeCEO } from '../personas/mode-router';
 import type { PersonaId, UserMode, MemoryProposal } from '@boardroom/shared';
 import Anthropic from '@anthropic-ai/sdk';
@@ -208,6 +209,22 @@ router.post('/:id/confirm-memories', async (req: AuthRequest, res, next) => {
     );
     res.json(result);
   } catch (err) { next(err); }
+});
+
+// GET /sessions/:id/export
+router.get('/:id/export', (req: AuthRequest, res) => {
+  const session = sessions.get(req.params.id);
+  if (!session || session.userId !== req.auth!.userId) {
+    res.status(404).json({ error: 'not_found', message: 'Session not found' });
+    return;
+  }
+  const format = (req.query.format as string) ?? 'json';
+  if (format === 'pdf') {
+    res.status(501).json({ error: 'not_implemented', message: 'PDF export coming in Phase 2' });
+    return;
+  }
+  const exported = exportSession(session);
+  res.json(exported);
 });
 
 export const sessionsRouter = router;
