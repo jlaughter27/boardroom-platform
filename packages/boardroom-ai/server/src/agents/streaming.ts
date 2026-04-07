@@ -3,6 +3,14 @@
 
 import type { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import type { BoardRoomSSEEvent } from '@boardroom/shared';
+
+/**
+ * Send a typed SSE event to the client.
+ */
+export const sendSSE = (res: Response, event: BoardRoomSSEEvent): void => {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+};
 
 /**
  * Initialize an SSE response with proper headers.
@@ -46,15 +54,15 @@ export const streamClaudeResponse = async (
         event.delta.type === 'text_delta'
       ) {
         fullResponse += event.delta.text;
-        res.write(`data: ${JSON.stringify({ type: 'delta', text: event.delta.text })}\n\n`);
+        sendSSE(res, { type: 'delta', text: event.delta.text });
       }
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    sendSSE(res, { type: 'done' });
     res.end();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error occurred';
-    res.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`);
+    sendSSE(res, { type: 'error', error: message });
     res.end();
   }
 

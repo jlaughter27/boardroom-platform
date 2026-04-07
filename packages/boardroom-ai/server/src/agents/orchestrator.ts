@@ -5,7 +5,7 @@ import { SynthesisReportSchema, QuestionnaireResponseSchema, DoerTaskBreakdownSc
 import { PERSONA_CONFIGS, MODEL_MAP } from '@boardroom/shared';
 import { MODE_CONFIGS, type UserMode } from '@boardroom/shared';
 import { Agent } from './agent';
-import { initSSE } from './streaming';
+import { initSSE, sendSSE } from './streaming';
 import { loadPrompt } from '../lib/prompt-loader';
 import type { OmniMindClient } from '../services/omnimind-client';
 import { toolRegistry } from '../tools';
@@ -88,16 +88,16 @@ export class CEOOrchestrator {
         const toolExecutor = (name: string, input: Record<string, unknown>) =>
           toolRegistry.execute(name, input, session.id);
 
-        res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId, model: config.model })}\n\n`);
+        sendSSE(res, { type: 'persona_start', personaId, model: config.model });
         try {
           const { response, toolInvocations } = await agent.reasonWithTools(
             session.question, contextRes.items, tools, toolExecutor
           );
-          res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId, response, toolInvocations })}\n\n`);
+          sendSSE(res, { type: 'persona_complete', personaId, response, toolInvocations });
           return response;
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
-          res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId, error: message })}\n\n`);
+          sendSSE(res, { type: 'persona_error', personaId, error: message });
           return null;
         }
       }
@@ -174,7 +174,7 @@ export class CEOOrchestrator {
     }
 
     const durationMs = Date.now() - start;
-    res.write(`data: ${JSON.stringify({ type: 'dispatch_complete', personaCount, durationMs })}\n\n`);
+    sendSSE(res, { type: 'dispatch_complete', personaCount, durationMs });
     res.end();
   }
 
@@ -216,7 +216,7 @@ export class CEOOrchestrator {
     const model = MODEL_MAP[PERSONA_CONFIGS.ceo.model];
     let fullText = '';
 
-    res.write(`data: ${JSON.stringify({ type: 'synthesis_start', model: 'sonnet' })}\n\n`);
+    sendSSE(res, { type: 'synthesis_start', model: 'sonnet' });
 
     // CEO has tool access — use tool-enabled path if tools available
     const ceoTools = toolRegistry.getToolsForPersona('ceo');
@@ -267,7 +267,7 @@ export class CEOOrchestrator {
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           fullText += event.delta.text;
-          res.write(`data: ${JSON.stringify({ type: 'delta', text: event.delta.text })}\n\n`);
+          sendSSE(res, { type: 'delta', text: event.delta.text });
         }
       }
 
@@ -279,10 +279,10 @@ export class CEOOrchestrator {
       const qualityScore = scoreSynthesisQuality(report, Array.from(session.personaResponses.values()));
       logger.info('[Synthesis] Quality score', { sessionId: session.id, qualityScore });
 
-      res.write(`data: ${JSON.stringify({ type: 'synthesis_complete', report, qualityScore })}\n\n`);
+      sendSSE(res, { type: 'synthesis_complete', report, qualityScore });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Synthesis failed';
-      res.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`);
+      sendSSE(res, { type: 'error', error: message });
     }
 
     res.end();

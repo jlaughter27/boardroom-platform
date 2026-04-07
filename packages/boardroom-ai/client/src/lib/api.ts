@@ -76,7 +76,7 @@ export async function* streamSSE(
   url: string,
   method: string = 'POST',
   body?: unknown,
-): AsyncGenerator<{ type: string; [key: string]: unknown }> {
+): AsyncGenerator<import('@boardroom/shared').BoardRoomSSEEvent & Record<string, unknown>> {
   const response = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },

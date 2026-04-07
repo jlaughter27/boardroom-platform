@@ -20,6 +20,7 @@ export * from './types/simulation.types';
 export * from './types/widget.types';
 export * from './types/integration.types';
 export * from './types/internal.types';
+export * from './types/sse-events.types';
 
 // Validation schemas
 export * from './validation';
