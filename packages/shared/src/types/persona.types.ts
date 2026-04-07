@@ -1,7 +1,8 @@
 // Persona types — TASK-004 (DeepSeek)
 // Implement from: docs/MASTER-FRAMEWORK.md §3 Persona System
 
-export type PersonaId = 'optimist' | 'critic' | 'alternate' | 'technician' | 'questionnaire' | 'doer' | 'ceo';
+export type BuiltInPersonaId = 'optimist' | 'critic' | 'alternate' | 'technician' | 'questionnaire' | 'doer' | 'ceo';
+export type PersonaId = BuiltInPersonaId | (string & {});
 
 export type ModelTier = 'sonnet' | 'haiku';
 

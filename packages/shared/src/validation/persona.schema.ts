@@ -4,9 +4,11 @@ import { z } from 'zod';
 
 // ── Persona ID Schema ──
 
-export const PersonaIdSchema = z.enum([
+export const BuiltInPersonaIdSchema = z.enum([
   'optimist', 'critic', 'alternate', 'technician', 'questionnaire', 'doer', 'ceo',
-]).describe('Identifier for a boardroom persona');
+]).describe('Identifier for a built-in boardroom persona');
+
+export const PersonaIdSchema = z.string().describe('Identifier for a boardroom persona (built-in or custom)');
 
 // ── Persona Response Schema ──
 

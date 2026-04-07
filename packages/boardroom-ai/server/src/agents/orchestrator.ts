@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Response } from 'express';
-import type { PersonaId, PersonaResponse, SynthesisReport, QuestionnaireResponse } from '@boardroom/shared';
+import type { PersonaId, PersonaResponse, SynthesisReport, QuestionnaireResponse, CustomPersona } from '@boardroom/shared';
 import { SynthesisReportSchema, QuestionnaireResponseSchema } from '@boardroom/shared';
 import { PERSONA_CONFIGS, MODEL_MAP } from '@boardroom/shared';
 import { MODE_CONFIGS, type UserMode } from '@boardroom/shared';
@@ -36,49 +36,115 @@ export class CEOOrchestrator {
     const modeConfig = MODE_CONFIGS[session.mode];
     const personaIds = modeConfig.personas as PersonaId[];
 
-    const results = await Promise.allSettled(
-      personaIds.map(async (personaId) => {
-        const contextRes = await this.omnimind.getContextForPersona({
-          query: session.question,
-          persona: personaId,
-          userId: session.userId,
-        }) as { items: import('@boardroom/shared').ContextItem[] };
+    // Fetch custom personas for this user
+    let activeCustom: CustomPersona[] = [];
+    try {
+      const customPersonas = await this.omnimind.getCustomPersonas(session.userId) as CustomPersona[];
+      activeCustom = customPersonas.filter((p: CustomPersona) => p.isActive);
+    } catch {
+      // If custom personas fetch fails, continue with built-in only
+    }
 
-        const config = PERSONA_CONFIGS[personaId];
-        const prompt = loadPrompt(personaId);
-        const agent = new Agent(config, this.client, prompt);
+    // Built-in persona promises
+    const builtInPromises = personaIds.map(async (personaId) => {
+      const contextRes = await this.omnimind.getContextForPersona({
+        query: session.question,
+        persona: personaId,
+        userId: session.userId,
+      }) as { items: import('@boardroom/shared').ContextItem[] };
 
-        // Check if this persona has tool permissions
-        const tools = toolRegistry.getToolsForPersona(personaId);
-        if (tools.length > 0) {
-          // Use tool-enabled non-streaming path
-          const toolExecutor = (name: string, input: Record<string, unknown>) =>
-            toolRegistry.execute(name, input, session.id);
+      const config = PERSONA_CONFIGS[personaId];
+      const prompt = loadPrompt(personaId);
+      const agent = new Agent(config, this.client, prompt);
 
-          res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId, model: config.model })}\n\n`);
-          try {
-            const { response, toolInvocations } = await agent.reasonWithTools(
-              session.question, contextRes.items, tools, toolExecutor
-            );
-            res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId, response, toolInvocations })}\n\n`);
-            return response;
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId, error: message })}\n\n`);
-            return null;
-          }
+      // Check if this persona has tool permissions
+      const tools = toolRegistry.getToolsForPersona(personaId);
+      if (tools.length > 0) {
+        // Use tool-enabled non-streaming path
+        const toolExecutor = (name: string, input: Record<string, unknown>) =>
+          toolRegistry.execute(name, input, session.id);
+
+        res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId, model: config.model })}\n\n`);
+        try {
+          const { response, toolInvocations } = await agent.reasonWithTools(
+            session.question, contextRes.items, tools, toolExecutor
+          );
+          res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId, response, toolInvocations })}\n\n`);
+          return response;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId, error: message })}\n\n`);
+          return null;
         }
+      }
 
-        // No tools — use existing streaming path (unchanged)
-        return agent.reasonStreaming(session.question, contextRes.items, res, personaId);
-      })
-    );
+      // No tools — use existing streaming path (unchanged)
+      return agent.reasonStreaming(session.question, contextRes.items, res, personaId);
+    });
+
+    // Custom persona promises
+    const customPromises = activeCustom.map(async (cp: CustomPersona) => {
+      const contextRes = await this.omnimind.getContextForPersona({
+        query: session.question,
+        persona: cp.personaId,
+        userId: session.userId,
+      }) as { items: import('@boardroom/shared').ContextItem[] };
+
+      const config = {
+        id: cp.personaId as PersonaId,
+        name: cp.name,
+        model: cp.modelTier as 'haiku' | 'sonnet',
+        maxOutputTokens: cp.maxOutputTokens,
+        systemPromptPath: '',
+      };
+
+      // Append output schema instruction to custom prompt
+      const promptWithSchema = `${cp.systemPrompt}\n\nRespond with valid JSON matching this schema:\n{"personaId":"${cp.personaId}","situationReading":"...","keyAssumptions":["..."],"analysis":"...","recommendation":"...","uncertainties":["..."],"sourceMemoryIds":["..."],"confidence":0.0-1.0,"dissentFlag":false}`;
+
+      const agent = new Agent(config, this.client, promptWithSchema);
+
+      // Check tool permissions — custom personas only get tools they've been granted
+      const tools = toolRegistry.getToolsForPersona(cp.personaId as PersonaId);
+      const allowedTools = tools.filter(t => cp.toolPermissions.includes(t.name));
+
+      if (allowedTools.length > 0) {
+        const toolExecutor = (name: string, input: Record<string, unknown>) =>
+          toolRegistry.execute(name, input, session.id);
+
+        res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId: cp.personaId, model: cp.modelTier, isCustom: true })}\n\n`);
+        try {
+          const { response, toolInvocations } = await agent.reasonWithTools(
+            session.question, contextRes.items, allowedTools, toolExecutor
+          );
+          res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId: cp.personaId, response, toolInvocations, isCustom: true })}\n\n`);
+          return response;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId: cp.personaId, error: message, isCustom: true })}\n\n`);
+          return null;
+        }
+      }
+
+      return agent.reasonStreaming(session.question, contextRes.items, res, cp.personaId as PersonaId);
+    });
+
+    // Combine all promises
+    const results = await Promise.allSettled([...builtInPromises, ...customPromises]);
 
     let personaCount = 0;
+    // Map built-in results
     for (let i = 0; i < personaIds.length; i++) {
       const result = results[i];
       if (result.status === 'fulfilled' && result.value) {
         session.personaResponses.set(personaIds[i], result.value);
+        personaCount++;
+      }
+    }
+    // Map custom persona results
+    for (let i = 0; i < activeCustom.length; i++) {
+      const result = results[personaIds.length + i];
+      if (result.status === 'fulfilled' && result.value) {
+        session.personaResponses.set(activeCustom[i].personaId as PersonaId, result.value);
         personaCount++;
       }
     }
@@ -92,7 +158,11 @@ export class CEOOrchestrator {
     initSSE(res);
 
     const personaOutputs = Array.from(session.personaResponses.entries())
-      .map(([id, resp]) => `## ${PERSONA_CONFIGS[id].name}\n${JSON.stringify(resp, null, 2)}`)
+      .map(([id, resp]) => {
+        const builtIn = PERSONA_CONFIGS[id as keyof typeof PERSONA_CONFIGS];
+        const label = builtIn ? builtIn.name : `${(resp as PersonaResponse).personaId} (custom)`;
+        return `## ${label}\n${JSON.stringify(resp, null, 2)}`;
+      })
       .join('\n\n');
 
     const prompt = loadPrompt('ceo');

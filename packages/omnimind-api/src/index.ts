@@ -21,6 +21,7 @@ import { outcomeReviewRouter } from './routes/outcome-review.routes';
 import { cortexRouter } from './routes/cortex.routes';
 import { oauthRouter } from './routes/oauth.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
+import { customPersonasRouter } from './routes/custom-personas.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
 
 const app: Express = express();
@@ -51,6 +52,7 @@ app.use('/outcome-reviews', outcomeReviewRouter);
 app.use('/cortex', cortexRouter);
 app.use('/oauth', oauthRouter);
 app.use('/subscription', subscriptionRouter);
+app.use('/custom-personas', customPersonasRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);

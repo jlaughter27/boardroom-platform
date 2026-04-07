@@ -7,7 +7,7 @@ import { SynthesisPanel } from '../components/decision/SynthesisPanel';
 import { SufficiencyBanner } from '../components/decision/SufficiencyBanner';
 import { MODE_CONFIGS, PERSONA_CONFIGS } from '@boardroom/shared';
 import * as api from '../lib/api';
-import type { UserMode, PersonaId } from '@boardroom/shared';
+import type { UserMode, PersonaId, CustomPersona } from '@boardroom/shared';
 
 export default function DecisionSessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +16,14 @@ export default function DecisionSessionPage() {
 
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<UserMode>('decide');
+  const [customPersonas, setCustomPersonas] = useState<CustomPersona[]>([]);
+
+  // Load custom personas
+  useEffect(() => {
+    api.getCustomPersonas()
+      .then(personas => setCustomPersonas(personas.filter(p => p.isActive)))
+      .catch(() => { /* Custom personas unavailable, continue without */ });
+  }, []);
 
   const {
     currentSession,
@@ -243,6 +251,20 @@ export default function DecisionSessionPage() {
                 streamingText={personaStreaming[pid]}
                 isStreaming={streamingPersonas.has(pid)}
               />
+            ))}
+            {/* Custom persona cards */}
+            {customPersonas.map(cp => (
+              <div key={cp.personaId} className="relative">
+                <span className="absolute top-2 right-2 z-10 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-900/50 text-purple-400 border border-purple-800">
+                  Custom
+                </span>
+                <PersonaCard
+                  personaId={cp.personaId as PersonaId}
+                  response={personaResponses[cp.personaId]}
+                  streamingText={personaStreaming[cp.personaId]}
+                  isStreaming={streamingPersonas.has(cp.personaId)}
+                />
+              </div>
             ))}
           </div>
 

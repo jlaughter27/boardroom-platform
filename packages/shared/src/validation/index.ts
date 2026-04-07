@@ -10,3 +10,4 @@ export * from './tool.schema';
 export * from './cortex.schema';
 export * from './calendar.schema';
 export * from './subscription.schema';
+export * from './custom-persona.schema';

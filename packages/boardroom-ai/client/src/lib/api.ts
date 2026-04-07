@@ -551,6 +551,34 @@ export function cancelSubscription() {
 }
 
 // ---------------------------------------------------------------------------
+// Custom Personas
+// ---------------------------------------------------------------------------
+
+import type { CustomPersona, CreateCustomPersonaRequest, UpdateCustomPersonaRequest } from '@boardroom/shared';
+
+export function getCustomPersonas() {
+  return request<CustomPersona[]>('/custom-personas');
+}
+
+export function createCustomPersona(input: CreateCustomPersonaRequest) {
+  return request<CustomPersona>('/custom-personas', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCustomPersona(id: string, input: UpdateCustomPersonaRequest) {
+  return request<CustomPersona>(`/custom-personas/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteCustomPersona(id: string) {
+  return request<void>(`/custom-personas/${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
 // User Profile mutations
 // ---------------------------------------------------------------------------
 

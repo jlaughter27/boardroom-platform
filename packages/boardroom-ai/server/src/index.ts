@@ -12,6 +12,7 @@ import { onboardingRouter } from './routes/onboarding.routes';
 import { cortexRouter } from './routes/cortex.routes';
 import { calendarRouter } from './routes/calendar.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
+import { customPersonasRouter } from './routes/custom-personas.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 
 const app = express();
@@ -39,6 +40,7 @@ app.use('/onboarding', onboardingRouter);
 app.use('/', entitiesRouter);
 app.use('/cortex', cortexRouter);
 app.use('/calendar', calendarRouter);
+app.use('/custom-personas', customPersonasRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
 // Error handler (must be last)

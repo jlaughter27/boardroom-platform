@@ -2,7 +2,7 @@
 // REFERENCE VALUES from: docs/MASTER-FRAMEWORK.md §3 Persona System
 // Model assignments, token budgets, and prompt file paths for each persona.
 
-import type { PersonaId, PersonaConfig } from '../types/persona.types';
+import type { BuiltInPersonaId, PersonaConfig } from '../types/persona.types';
 
 /**
  * Configuration for each BoardRoom persona.
@@ -10,7 +10,7 @@ import type { PersonaId, PersonaConfig } from '../types/persona.types';
  *
  * Source: docs/MASTER-FRAMEWORK.md §3 Persona System
  */
-export const PERSONA_CONFIGS: Readonly<Record<PersonaId, PersonaConfig>> = {
+export const PERSONA_CONFIGS: Readonly<Record<BuiltInPersonaId, PersonaConfig>> & Readonly<Record<string, PersonaConfig>> = {
   optimist: { id: 'optimist', name: 'The Optimist', model: 'haiku', maxOutputTokens: 2000, systemPromptPath: 'docs/prompts/optimist.system.md' },
   critic: { id: 'critic', name: 'The Critic', model: 'haiku', maxOutputTokens: 2000, systemPromptPath: 'docs/prompts/critic.system.md' },
   alternate: { id: 'alternate', name: 'The Alternate', model: 'sonnet', maxOutputTokens: 2000, systemPromptPath: 'docs/prompts/alternate.system.md' },

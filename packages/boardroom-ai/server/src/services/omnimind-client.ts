@@ -275,6 +275,23 @@ export class OmniMindClient {
     return this.request('PATCH', '/subscription', userId, data);
   }
 
+  // Custom Personas
+  async getCustomPersonas(userId: string) {
+    return this.request('GET', '/custom-personas', userId);
+  }
+
+  async createCustomPersona(userId: string, input: unknown) {
+    return this.request('POST', '/custom-personas', userId, input);
+  }
+
+  async updateCustomPersona(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/custom-personas/${id}`, userId, input);
+  }
+
+  async deleteCustomPersona(userId: string, id: string) {
+    return this.request('DELETE', `/custom-personas/${id}`, userId);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

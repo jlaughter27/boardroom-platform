@@ -631,6 +631,30 @@ model OutcomeReviewNudge {
 }
 
 // ============================================================
+// NEW: Custom Personas (User-created personas for dispatch)
+// ============================================================
+
+model CustomPersona {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  name            String
+  personaId       String   @map("persona_id")
+  systemPrompt    String   @map("system_prompt")
+  modelTier       String   @default("haiku") @map("model_tier")
+  maxOutputTokens Int      @default(1500) @map("max_output_tokens")
+  toolPermissions String[] @default([]) @map("tool_permissions")
+  isActive        Boolean  @default(true) @map("is_active")
+  description     String?
+  icon            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, personaId])
+  @@index([userId, isActive])
+  @@map("custom_personas")
+}
+
+// ============================================================
 // NEW: Subscription & OAuth (Phase 3)
 // ============================================================
 

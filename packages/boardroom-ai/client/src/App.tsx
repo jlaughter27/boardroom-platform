@@ -9,6 +9,7 @@ import DecisionSessionPage from './pages/DecisionSessionPage';
 import MemoryExplorerPage from './pages/MemoryExplorerPage';
 import PeopleDirectoryPage from './pages/PeopleDirectoryPage';
 import SettingsPage from './pages/SettingsPage';
+import CustomPersonasPage from './pages/CustomPersonasPage';
 import OnboardingPage from './pages/OnboardingPage';
 import * as api from './lib/api';
 
@@ -92,6 +93,7 @@ export default function App() {
               <Route path="/memory" element={<MemoryExplorerPage />} />
               <Route path="/people" element={<PeopleDirectoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/personas" element={<CustomPersonasPage />} />
             </Route>
           </Route>
         </Route>

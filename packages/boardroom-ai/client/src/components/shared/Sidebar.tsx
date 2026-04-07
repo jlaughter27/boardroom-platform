@@ -13,6 +13,7 @@ const memoryItems = [
 ];
 
 const bottomItems = [
+  { to: '/personas', label: 'Custom Personas', icon: '\u{1F9E0}' },
   { to: '/settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' },
 ];
 
