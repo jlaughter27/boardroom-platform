@@ -89,9 +89,12 @@ router.patch('/contradictions/:id', async (req, res, next) => {
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
     const { status, resolution } = req.body as { status: string; resolution?: string };
     if (!status) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'status', message: 'Required' }] }); return; }
-    const updated = await contradictionService.updateContradiction(req.params.id, status, resolution, prisma);
+    const updated = await contradictionService.updateContradiction(req.params.id, userId, status, resolution, prisma);
     res.json(updated);
-  } catch (err) { next(err); }
+  } catch (err: any) {
+    if (err.status === 404) { res.status(404).json({ error: 'not_found', message: err.message }); return; }
+    next(err);
+  }
 });
 
 // Simulation

@@ -110,8 +110,12 @@ export async function getContradictions(
 }
 
 export async function updateContradiction(
-  id: string, status: string, resolution: string | undefined, prisma: PrismaClient
+  id: string, userId: string, status: string, resolution: string | undefined, prisma: PrismaClient
 ) {
+  // Verify ownership
+  const existing = await prisma.contradictionAlert.findFirst({ where: { id, userId } });
+  if (!existing) throw Object.assign(new Error('Not found'), { status: 404 });
+
   return prisma.contradictionAlert.update({
     where: { id },
     data: {
