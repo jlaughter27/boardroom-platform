@@ -235,6 +235,20 @@ export class OmniMindClient {
     return this.request('POST', '/cortex/memo/generate', userId);
   }
 
+  // Cortex — Contradictions
+  async getContradictions(userId: string, filters?: Record<string, string>) {
+    const qs = filters ? '?' + new URLSearchParams(filters).toString() : '';
+    return this.request('GET', `/cortex/contradictions${qs}`, userId);
+  }
+
+  async scanContradictions(userId: string) {
+    return this.request('POST', '/cortex/contradictions/scan', userId);
+  }
+
+  async updateContradiction(userId: string, id: string, data: unknown) {
+    return this.request('PATCH', `/cortex/contradictions/${id}`, userId, data);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

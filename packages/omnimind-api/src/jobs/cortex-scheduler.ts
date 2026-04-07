@@ -4,9 +4,11 @@ import { logger } from '../lib/logger';
 import { CORTEX_CONFIG } from '@boardroom/shared';
 import { generateWeeklyMemo } from '../services/cortex-memo.service';
 import { detectPatterns } from '../services/cortex-patterns.service';
+import { scanContradictions } from '../services/cortex-contradictions.service';
 
 let memoJob: ScheduledTask | null = null;
 let patternJob: ScheduledTask | null = null;
+let contradictionJob: ScheduledTask | null = null;
 
 export function startCortexScheduler(): void {
   // Weekly memo — Sunday 6 PM
@@ -45,11 +47,34 @@ export function startCortexScheduler(): void {
     }
   });
 
-  logger.info('Cortex scheduler started', { memoSchedule: CORTEX_CONFIG.memoSchedule, patternSchedule: CORTEX_CONFIG.patternScanSchedule });
+  // Contradiction scan — Monday 4 AM
+  contradictionJob = schedule(CORTEX_CONFIG.contradictionScanSchedule, async () => {
+    logger.info('Running contradiction detection scan...');
+    try {
+      const users = await prisma.user.findMany({ select: { id: true } });
+      for (const user of users) {
+        try {
+          await scanContradictions(user.id, prisma);
+        } catch (err) {
+          logger.error('Contradiction scan failed for user', { userId: user.id, error: (err as Error).message });
+        }
+      }
+      logger.info('Contradiction scan complete', { userCount: users.length });
+    } catch (err) {
+      logger.error('Contradiction scheduler error', { error: (err as Error).message });
+    }
+  });
+
+  logger.info('Cortex scheduler started', {
+    memoSchedule: CORTEX_CONFIG.memoSchedule,
+    patternSchedule: CORTEX_CONFIG.patternScanSchedule,
+    contradictionSchedule: CORTEX_CONFIG.contradictionScanSchedule,
+  });
 }
 
 export function stopCortexScheduler(): void {
   memoJob?.stop();
   patternJob?.stop();
+  contradictionJob?.stop();
   logger.info('Cortex scheduler stopped');
 }

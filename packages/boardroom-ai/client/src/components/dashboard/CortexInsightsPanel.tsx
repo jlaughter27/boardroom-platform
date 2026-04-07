@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useCortexStore } from '../../stores/cortex.store';
 import type { ThinkingPattern } from '@boardroom/shared';
+import { ContradictionCard } from './ContradictionCard';
 
 const TYPE_BADGE: Record<string, { label: string; color: string }> = {
   BIAS: { label: 'Bias', color: 'bg-red-900/60 text-red-300' },
@@ -46,14 +47,17 @@ function PatternRow({ pattern }: { pattern: ThinkingPattern }) {
 }
 
 export function CortexInsightsPanel() {
-  const { patterns, isLoadingPatterns, fetchPatterns } = useCortexStore();
-  const { latestMemo } = useCortexStore();
+  const {
+    patterns, isLoadingPatterns, fetchPatterns,
+    contradictions, contradictionsTotal, isLoadingContradictions, isScanningContradictions,
+    fetchContradictions, scanContradictions,
+    resolveContradiction, dismissContradiction, acceptTension,
+  } = useCortexStore();
 
   useEffect(() => {
     fetchPatterns();
+    fetchContradictions();
   }, []);
-
-  const contradictionCount = latestMemo?.activeContradictions?.length ?? 0;
 
   return (
     <div className="bg-gray-900 rounded-lg p-4">
@@ -82,16 +86,46 @@ export function CortexInsightsPanel() {
         </>
       )}
 
-      {contradictionCount > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-800">
+      {/* Active Contradictions */}
+      <div className="mt-3 pt-3 border-t border-gray-800">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="text-xs text-gray-300">
-              {contradictionCount} active contradiction{contradictionCount !== 1 ? 's' : ''}
-            </span>
+            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+              Active Contradictions
+            </h4>
+            {contradictionsTotal > 0 && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300">
+                {contradictionsTotal}
+              </span>
+            )}
           </div>
+          <button
+            onClick={() => scanContradictions()}
+            disabled={isScanningContradictions}
+            className="text-[10px] px-2 py-1 rounded bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+          >
+            {isScanningContradictions ? 'Scanning...' : 'Scan Now'}
+          </button>
         </div>
-      )}
+
+        {isLoadingContradictions ? (
+          <div className="space-y-2 animate-pulse">
+            <div className="h-10 bg-gray-800 rounded" />
+          </div>
+        ) : contradictions.length === 0 ? (
+          <p className="text-xs text-gray-500">No active contradictions detected.</p>
+        ) : (
+          contradictions.slice(0, 3).map(c => (
+            <ContradictionCard
+              key={c.id}
+              contradiction={c}
+              onResolve={resolveContradiction}
+              onDismiss={dismissContradiction}
+              onAcceptTension={acceptTension}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }

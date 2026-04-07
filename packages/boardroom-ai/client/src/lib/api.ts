@@ -448,7 +448,7 @@ export function skipReview(nudgeId: string) {
 // Cortex — Patterns & Memos
 // ---------------------------------------------------------------------------
 
-import type { WeeklyMemo, ThinkingPattern } from '@boardroom/shared';
+import type { WeeklyMemo, ThinkingPattern, ContradictionAlert } from '@boardroom/shared';
 
 export function getPatterns(limit = 20, offset = 0) {
   return request<{ items: ThinkingPattern[]; total: number; offset: number; limit: number }>(
@@ -478,6 +478,32 @@ export function generateMemo() {
     '/cortex/memo/generate',
     { method: 'POST' },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Cortex — Contradictions
+// ---------------------------------------------------------------------------
+
+export function getContradictions(status?: string, limit = 20, offset = 0) {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (status) qs.set('status', status);
+  return request<{ items: ContradictionAlert[]; total: number; offset: number; limit: number }>(
+    `/cortex/contradictions?${qs.toString()}`,
+  );
+}
+
+export function scanContradictions() {
+  return request<{ contradictions: ContradictionAlert[]; newCount: number }>(
+    '/cortex/contradictions/scan',
+    { method: 'POST' },
+  );
+}
+
+export function updateContradiction(id: string, status: string, resolution?: string) {
+  return request<ContradictionAlert>(`/cortex/contradictions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, resolution }),
+  });
 }
 
 // ---------------------------------------------------------------------------

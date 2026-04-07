@@ -55,4 +55,31 @@ router.post('/memo/generate', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// Contradictions
+// ---------------------------------------------------------------------------
+
+router.get('/contradictions', async (req: AuthRequest, res, next) => {
+  try {
+    const qs = new URL(req.url, 'http://localhost').search.slice(1);
+    const filters = qs ? Object.fromEntries(new URLSearchParams(qs)) : undefined;
+    const data = await omnimindClient.getContradictions(req.auth!.userId, filters);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/contradictions/scan', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.scanContradictions(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/contradictions/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateContradiction(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 export const cortexRouter: IRouter = router;
