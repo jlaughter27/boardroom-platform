@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SufficiencyScore } from '@boardroom/shared';
-import { MODEL_MAP } from '@boardroom/shared';
+import { MODEL_MAP, SufficiencyScoreLLMSchema } from '@boardroom/shared';
 
 export async function checkSufficiency(
   question: string,
@@ -22,5 +22,5 @@ canProceed = true if score < 0.6.`,
   }
 
   const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return JSON.parse(jsonStr) as SufficiencyScore;
+  return SufficiencyScoreLLMSchema.parse(JSON.parse(jsonStr));
 }

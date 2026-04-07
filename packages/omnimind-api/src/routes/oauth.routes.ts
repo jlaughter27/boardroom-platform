@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { prisma } from '../lib/db';
+import { encrypt, decrypt } from '../lib/crypto';
 
 const router: IRouter = Router();
 
@@ -9,9 +10,12 @@ router.get('/token/:provider', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
-    const token = await prisma.oAuthToken.findUnique({
+    let token = await prisma.oAuthToken.findUnique({
       where: { userId_provider: { userId, provider: req.params.provider } },
     });
+    if (token) {
+      token = { ...token, accessToken: decrypt(token.accessToken), refreshToken: token.refreshToken ? decrypt(token.refreshToken) : null };
+    }
     res.json(token);
   } catch (err) { next(err); }
 });
@@ -22,10 +26,12 @@ router.post('/token', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
     const { provider, accessToken, refreshToken, expiresAt, scope, calendarId } = req.body;
+    const encAccessToken = encrypt(accessToken);
+    const encRefreshToken = refreshToken ? encrypt(refreshToken) : null;
     const token = await prisma.oAuthToken.upsert({
       where: { userId_provider: { userId, provider } },
-      create: { userId, provider, accessToken, refreshToken, expiresAt: expiresAt ? new Date(expiresAt) : null, scope, calendarId },
-      update: { accessToken, refreshToken, expiresAt: expiresAt ? new Date(expiresAt) : null, scope, calendarId },
+      create: { userId, provider, accessToken: encAccessToken, refreshToken: encRefreshToken, expiresAt: expiresAt ? new Date(expiresAt) : null, scope, calendarId },
+      update: { accessToken: encAccessToken, refreshToken: encRefreshToken, expiresAt: expiresAt ? new Date(expiresAt) : null, scope, calendarId },
     });
     res.json(token);
   } catch (err) { next(err); }

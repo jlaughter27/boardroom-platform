@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
-import { CORTEX_CONFIG } from '@boardroom/shared';
+import { CORTEX_CONFIG, WeeklyMemoLLMResponseSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 
 const MODEL = 'claude-sonnet-4-6-20250514';
@@ -72,7 +72,7 @@ Be specific. Reference actual decisions, goals, deadlines by name. The memo shou
   const text = response.content[0];
   if (!text || text.type !== 'text') throw new Error('Empty memo response');
   const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const memoData = JSON.parse(jsonStr);
+  const memoData = WeeklyMemoLLMResponseSchema.parse(JSON.parse(jsonStr));
 
   // Calculate score change from last memo
   const lastMemo = await prisma.weeklyMemo.findFirst({ where: { userId }, orderBy: { weekStart: 'desc' } });

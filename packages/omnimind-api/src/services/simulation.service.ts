@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
+import { SimulationLLMResponseSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 
 const MODEL = 'claude-sonnet-4-6-20250514';
@@ -65,5 +66,5 @@ ${recentDecisions.map(d => `- "${d.title}": ${d.outcome} (${d.outcomeRating}/5)`
   const text = response.content[0];
   if (!text || text.type !== 'text') throw new Error('Empty simulation response');
   const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return JSON.parse(jsonStr);
+  return SimulationLLMResponseSchema.parse(JSON.parse(jsonStr));
 }

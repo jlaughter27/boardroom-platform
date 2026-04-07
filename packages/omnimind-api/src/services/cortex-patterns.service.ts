@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
-import { CORTEX_CONFIG } from '@boardroom/shared';
+import { CORTEX_CONFIG, DetectedPatternsLLMSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 
 const MODEL = 'claude-sonnet-4-6-20250514';
@@ -45,7 +45,7 @@ Be specific. Reference actual decisions. Min confidence ${CORTEX_CONFIG.patternC
   const text = response.content[0];
   if (!text || text.type !== 'text') return [];
   const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const detected = JSON.parse(jsonStr) as { pattern: string; patternType: string; confidence: number }[];
+  const detected = DetectedPatternsLLMSchema.parse(JSON.parse(jsonStr));
 
   // Upsert patterns
   const results = [];

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
-import { CORTEX_CONFIG } from '@boardroom/shared';
+import { CORTEX_CONFIG, ContradictionDetectionsLLMSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 
 const MODEL = 'claude-haiku-4-5-20251001'; // Haiku for cheap batch checks
@@ -64,7 +64,7 @@ If no contradiction found for a pair, omit it from the array. Only flag genuine 
     if (text?.type === 'text') {
       try {
         const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const detected = JSON.parse(jsonStr) as { description: string; severity: string; entityATitle: string; entityBTitle: string }[];
+        const detected = ContradictionDetectionsLLMSchema.parse(JSON.parse(jsonStr));
 
         for (const d of detected) {
           // Dedup: check if similar contradiction exists
