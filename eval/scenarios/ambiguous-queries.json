@@ -1,9 +1,22 @@
 [
   {
-    "id": "ambiguous-queries-001",
-    "description": "TODO: Implement from MASTER-FRAMEWORK.md stress test scenarios",
-    "query": "",
-    "expected_behavior": "",
-    "seed_memories": []
+    "name": "ambiguous-hire-question",
+    "description": "User asks about hiring without specifying role, budget, or timeline",
+    "seedMemories": [
+      { "title": "Team capacity concern", "content": "Feeling overwhelmed with current workload. Need help.", "domain": "business", "tags": ["team", "capacity"], "memoryClass": "EPISODIC", "importance": 0.7, "confidence": "HIGH", "sourceType": "MANUAL" },
+      { "title": "Revenue milestone", "content": "Hit $8K MRR last month. Runway is 12 months.", "domain": "business", "tags": ["revenue", "financial"], "memoryClass": "SEMANTIC", "importance": 0.9, "confidence": "HIGH", "sourceType": "MANUAL" }
+    ],
+    "seedEntities": {},
+    "query": "Should I hire someone?",
+    "mode": "decide",
+    "expectedBehavior": {
+      "shouldRetrieve": ["Team capacity concern", "Revenue milestone"],
+      "shouldNotRetrieve": [],
+      "personaChecks": {
+        "critic": { "mustMention": ["budget", "runway"] },
+        "technician": { "mustMention": ["timeline", "role"] }
+      },
+      "sufficiencyScore": { "minScore": 0.3, "maxScore": 0.7 }
+    }
   }
 ]

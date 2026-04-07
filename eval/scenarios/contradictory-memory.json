@@ -1,9 +1,21 @@
 [
   {
-    "id": "contradictory-memory-001",
-    "description": "TODO: Implement from MASTER-FRAMEWORK.md stress test scenarios",
-    "query": "",
-    "expected_behavior": "",
-    "seed_memories": []
+    "name": "strategy-pivot-contradiction",
+    "description": "Old memory says 'targeting enterprise', recent memory says 'pivoted to SMB'",
+    "seedMemories": [
+      { "title": "Enterprise strategy", "content": "Decision: Target enterprise clients with custom onboarding. ACV target $50K.", "domain": "business", "tags": ["strategy", "enterprise"], "memoryClass": "DECISION", "importance": 0.8, "confidence": "HIGH", "sourceType": "BOARDROOM_SESSION" },
+      { "title": "SMB pivot", "content": "After Q1 results, pivoting to SMB segment. Self-serve onboarding. Target $500 MRR per customer.", "domain": "business", "tags": ["strategy", "pivot", "SMB"], "memoryClass": "DECISION", "importance": 0.9, "confidence": "HIGH", "sourceType": "BOARDROOM_SESSION" }
+    ],
+    "seedEntities": {},
+    "query": "What pricing strategy should we use for our new product tier?",
+    "mode": "decide",
+    "expectedBehavior": {
+      "shouldRetrieve": ["Enterprise strategy", "SMB pivot"],
+      "shouldNotRetrieve": [],
+      "personaChecks": {
+        "critic": { "mustMention": ["contradiction", "pivot", "enterprise"] },
+        "alternate": { "mustMention": ["SMB", "enterprise", "hybrid"] }
+      }
+    }
   }
 ]

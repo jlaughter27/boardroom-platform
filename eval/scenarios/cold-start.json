@@ -1,9 +1,33 @@
 [
   {
-    "id": "cold-start-001",
-    "description": "TODO: Implement from MASTER-FRAMEWORK.md stress test scenarios",
-    "query": "",
-    "expected_behavior": "",
-    "seed_memories": []
+    "name": "cold-start-simple-decision",
+    "description": "New user with no memories asks a simple pricing decision",
+    "seedMemories": [],
+    "seedEntities": {},
+    "query": "Should I price my SaaS product at $29 or $49 per month?",
+    "mode": "decide",
+    "expectedBehavior": {
+      "shouldRetrieve": [],
+      "shouldNotRetrieve": [],
+      "personaChecks": {
+        "optimist": { "mustMention": ["revenue", "growth"] },
+        "critic": { "mustMention": ["churn", "price sensitivity"] }
+      },
+      "sufficiencyScore": { "minScore": 0.4, "maxScore": 0.8 }
+    }
+  },
+  {
+    "name": "cold-start-vague-question",
+    "description": "New user asks extremely vague question with no context",
+    "seedMemories": [],
+    "seedEntities": {},
+    "query": "Help me figure out my business",
+    "mode": "clarify",
+    "expectedBehavior": {
+      "shouldRetrieve": [],
+      "shouldNotRetrieve": [],
+      "personaChecks": {},
+      "sufficiencyScore": { "minScore": 0.7, "maxScore": 1.0 }
+    }
   }
 ]

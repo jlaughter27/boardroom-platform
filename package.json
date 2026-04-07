@@ -12,7 +12,11 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "eval:retrieval": "tsx eval/runners/eval-retrieval.ts",
+    "eval:personas": "tsx eval/runners/eval-personas.ts",
+    "eval:e2e": "tsx eval/runners/eval-e2e.ts",
+    "eval:all": "npm run eval:retrieval && npm run eval:personas && npm run eval:e2e"
   },
   "devDependencies": {
     "turbo": "^2.4.0",

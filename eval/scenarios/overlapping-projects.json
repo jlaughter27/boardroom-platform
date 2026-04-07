@@ -1,9 +1,24 @@
 [
   {
-    "id": "overlapping-projects-001",
-    "description": "TODO: Implement from MASTER-FRAMEWORK.md stress test scenarios",
-    "query": "",
-    "expected_behavior": "",
-    "seed_memories": []
+    "name": "shared-resource-conflict",
+    "description": "Two projects competing for the same resource (developer time)",
+    "seedMemories": [
+      { "title": "Project Alpha deadline", "content": "Project Alpha must ship by June 15. Sarah is the lead developer.", "domain": "business", "tags": ["deadline", "project-alpha"], "memoryClass": "SEMANTIC", "importance": 0.9, "confidence": "HIGH", "sourceType": "MANUAL" },
+      { "title": "Project Beta kickoff", "content": "Project Beta needs to start by May 1. Requires full-stack developer - Sarah is the best candidate.", "domain": "business", "tags": ["project-beta", "staffing"], "memoryClass": "SEMANTIC", "importance": 0.8, "confidence": "HIGH", "sourceType": "MANUAL" },
+      { "title": "Sarah's availability", "content": "Sarah mentioned she can only handle one major project at a time.", "domain": "business", "tags": ["team", "capacity", "constraint"], "memoryClass": "EPISODIC", "importance": 0.7, "confidence": "MEDIUM", "sourceType": "BOARDROOM_SESSION" }
+    ],
+    "seedEntities": {
+      "people": [{ "name": "Sarah", "role": "Lead Developer", "domains": ["business"] }]
+    },
+    "query": "How should I staff Project Beta without derailing Project Alpha?",
+    "mode": "decide",
+    "expectedBehavior": {
+      "shouldRetrieve": ["Project Alpha deadline", "Project Beta kickoff", "Sarah's availability"],
+      "shouldNotRetrieve": [],
+      "personaChecks": {
+        "critic": { "mustMention": ["Sarah", "conflict", "capacity"] },
+        "alternate": { "mustMention": ["contractor", "defer", "alternative"] }
+      }
+    }
   }
 ]

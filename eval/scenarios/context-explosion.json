@@ -1,9 +1,25 @@
 [
   {
-    "id": "context-explosion-001",
-    "description": "TODO: Implement from MASTER-FRAMEWORK.md stress test scenarios",
-    "query": "",
-    "expected_behavior": "",
-    "seed_memories": []
+    "name": "50-memories-broad-query",
+    "description": "User with 50+ memories asks a broad strategic question. Tests ranking and limits.",
+    "seedMemories": [
+      { "title": "Q1 Revenue Report", "content": "Q1 revenue was $24K. Growth rate 15% MoM.", "domain": "business", "tags": ["revenue", "Q1"], "memoryClass": "SEMANTIC", "importance": 0.9, "confidence": "HIGH", "sourceType": "MANUAL" },
+      { "title": "Competitor analysis", "content": "Main competitor launched a free tier. Our churn increased 3%.", "domain": "business", "tags": ["competitor", "churn"], "memoryClass": "SEMANTIC", "importance": 0.8, "confidence": "HIGH", "sourceType": "MANUAL" },
+      { "title": "Team morale check", "content": "Team survey shows 7/10 satisfaction. Main concern: unclear product direction.", "domain": "business", "tags": ["team", "morale"], "memoryClass": "EPISODIC", "importance": 0.6, "confidence": "MEDIUM", "sourceType": "BOARDROOM_SESSION" },
+      { "title": "Investor meeting notes", "content": "Investors want to see path to $100K MRR by Q4.", "domain": "business", "tags": ["investors", "milestone"], "memoryClass": "SEMANTIC", "importance": 0.9, "confidence": "HIGH", "sourceType": "MANUAL" },
+      { "title": "Product roadmap Q2", "content": "Planned features: API access, team collaboration, mobile app.", "domain": "business", "tags": ["product", "roadmap"], "memoryClass": "SEMANTIC", "importance": 0.7, "confidence": "HIGH", "sourceType": "MANUAL" }
+    ],
+    "seedEntities": {},
+    "query": "What should our top 3 priorities be for Q2?",
+    "mode": "decide",
+    "expectedBehavior": {
+      "shouldRetrieve": ["Q1 Revenue Report", "Competitor analysis", "Investor meeting notes"],
+      "shouldNotRetrieve": [],
+      "personaChecks": {
+        "optimist": { "mustMention": ["growth", "opportunity"] },
+        "technician": { "mustMention": ["timeline", "feasibility"] }
+      },
+      "maxRetrievedItems": 10
+    }
   }
 ]
