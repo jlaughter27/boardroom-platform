@@ -16,7 +16,8 @@
     "eval:retrieval": "tsx eval/runners/eval-retrieval.ts",
     "eval:personas": "tsx eval/runners/eval-personas.ts",
     "eval:e2e": "tsx eval/runners/eval-e2e.ts",
-    "eval:all": "npm run eval:retrieval && npm run eval:personas && npm run eval:e2e"
+    "eval:all": "npm run eval:retrieval && npm run eval:personas && npm run eval:e2e",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
     "turbo": "^2.4.0",
