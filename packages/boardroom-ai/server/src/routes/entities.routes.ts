@@ -225,4 +225,38 @@ router.post('/memories/:id/archive', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// Outcome Reviews
+// ---------------------------------------------------------------------------
+
+router.get('/outcome-reviews', async (req: AuthRequest, res, next) => {
+  try {
+    const qs = new URL(req.url, 'http://localhost').search.slice(1);
+    const filters = qs ? Object.fromEntries(new URLSearchParams(qs)) : undefined;
+    const data = await omnimindClient.getOutcomeReviews(req.auth!.userId, filters);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/outcome-reviews/pending', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getPendingReviews(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/outcome-reviews/:id/complete', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.completeReview(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/outcome-reviews/:id/skip', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.skipReview(req.auth!.userId, req.params.id);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 export const entitiesRouter: IRouter = router;

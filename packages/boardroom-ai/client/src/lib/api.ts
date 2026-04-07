@@ -419,6 +419,32 @@ export function createMemory(input: Record<string, unknown>) {
 }
 
 // ---------------------------------------------------------------------------
+// Outcome Reviews
+// ---------------------------------------------------------------------------
+
+import type { OutcomeReviewNudge } from '@boardroom/shared';
+
+export function getPendingReviews() {
+  return request<OutcomeReviewNudge[]>('/outcome-reviews/pending');
+}
+
+export function completeReview(
+  nudgeId: string,
+  data: { outcome: string; outcomeRating: number; wouldDecideSame: boolean },
+) {
+  return request<OutcomeReviewNudge>(`/outcome-reviews/${nudgeId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function skipReview(nudgeId: string) {
+  return request<OutcomeReviewNudge>(`/outcome-reviews/${nudgeId}/skip`, {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
 // User Profile mutations
 // ---------------------------------------------------------------------------
 

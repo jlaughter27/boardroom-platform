@@ -3,6 +3,7 @@ import type { Router as IRouter } from 'express';
 import { CreateDecisionRequestSchema, UpdateDecisionRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as decisionService from '../services/decision.service';
+import { scheduleReviews } from '../services/outcome-review.service';
 
 const router: IRouter = Router();
 
@@ -72,6 +73,11 @@ router.patch('/:id', async (req, res, next) => {
 
     const decision = await decisionService.updateDecision(userId, req.params.id, parseResult.data, prisma);
     if (!decision) { res.status(404).json({ error: 'not_found', message: 'Decision not found' }); return; }
+
+    // When a decision moves to DECIDED, schedule 30-day and 90-day review nudges
+    if (decision.status === 'DECIDED') {
+      await scheduleReviews(userId, decision.id, decision.title, prisma);
+    }
 
     res.json(decision);
   } catch (err) { next(err); }

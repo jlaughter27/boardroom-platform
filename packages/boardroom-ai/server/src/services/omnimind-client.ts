@@ -193,6 +193,24 @@ export class OmniMindClient {
     return this.request('GET', `/memories/search?q=${encodeURIComponent(query)}&limit=${limit}`, userId);
   }
 
+  // Outcome Reviews
+  async getOutcomeReviews(userId: string, filters?: Record<string, string>) {
+    const qs = filters ? '?' + new URLSearchParams(filters).toString() : '';
+    return this.request('GET', `/outcome-reviews${qs}`, userId);
+  }
+
+  async getPendingReviews(userId: string) {
+    return this.request('GET', '/outcome-reviews/pending', userId);
+  }
+
+  async completeReview(userId: string, nudgeId: string, data: unknown) {
+    return this.request('POST', `/outcome-reviews/${nudgeId}/complete`, userId, data);
+  }
+
+  async skipReview(userId: string, nudgeId: string) {
+    return this.request('POST', `/outcome-reviews/${nudgeId}/skip`, userId);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');
