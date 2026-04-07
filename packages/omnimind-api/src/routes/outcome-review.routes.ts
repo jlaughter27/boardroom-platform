@@ -47,6 +47,11 @@ router.get('/pending', async (req, res, next) => {
 // POST /outcome-reviews/:id/complete
 router.post('/:id/complete', async (req, res, next) => {
   try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] });
+      return;
+    }
     const { outcome, outcomeRating, wouldDecideSame } = req.body;
     if (!outcome || outcomeRating === undefined) {
       res.status(422).json({
@@ -57,13 +62,15 @@ router.post('/:id/complete', async (req, res, next) => {
     }
     const nudge = await reviewService.completeReview(
       req.params.id,
+      userId,
       outcome,
       outcomeRating,
       wouldDecideSame ?? true,
       prisma,
     );
     res.json(nudge);
-  } catch (err) {
+  } catch (err: any) {
+    if (err.status === 404) { res.status(404).json({ error: 'not_found', message: err.message }); return; }
     next(err);
   }
 });
@@ -71,9 +78,15 @@ router.post('/:id/complete', async (req, res, next) => {
 // POST /outcome-reviews/:id/skip
 router.post('/:id/skip', async (req, res, next) => {
   try {
-    const nudge = await reviewService.skipReview(req.params.id, prisma);
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] });
+      return;
+    }
+    const nudge = await reviewService.skipReview(req.params.id, userId, prisma);
     res.json(nudge);
-  } catch (err) {
+  } catch (err: any) {
+    if (err.status === 404) { res.status(404).json({ error: 'not_found', message: err.message }); return; }
     next(err);
   }
 });

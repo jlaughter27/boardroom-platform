@@ -37,11 +37,18 @@ export async function getPendingNudges(userId: string, prisma: PrismaClient) {
 
 export async function completeReview(
   nudgeId: string,
+  userId: string,
   outcome: string,
   rating: number,
   wouldRepeat: boolean,
   prisma: PrismaClient,
 ) {
+  // Verify ownership
+  const existing = await prisma.outcomeReviewNudge.findFirst({
+    where: { id: nudgeId, userId },
+  });
+  if (!existing) throw Object.assign(new Error('Not found'), { status: 404 });
+
   const nudge = await prisma.outcomeReviewNudge.update({
     where: { id: nudgeId },
     data: { status: 'completed', completedAt: new Date() },
@@ -60,7 +67,13 @@ export async function completeReview(
   return nudge;
 }
 
-export async function skipReview(nudgeId: string, prisma: PrismaClient) {
+export async function skipReview(nudgeId: string, userId: string, prisma: PrismaClient) {
+  // Verify ownership
+  const existing = await prisma.outcomeReviewNudge.findFirst({
+    where: { id: nudgeId, userId },
+  });
+  if (!existing) throw Object.assign(new Error('Not found'), { status: 404 });
+
   return prisma.outcomeReviewNudge.update({
     where: { id: nudgeId },
     data: { status: 'skipped' },
