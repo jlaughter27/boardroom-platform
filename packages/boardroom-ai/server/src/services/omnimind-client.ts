@@ -200,11 +200,11 @@ export class OmniMindClient {
   }
 
   async archiveMemory(userId: string, id: string) {
-    return this.request('POST', `/memories/${id}/archive`, userId);
+    return this.request('DELETE', `/memories/${id}`, userId);
   }
 
   async searchMemories(userId: string, query: string, limit: number = 20) {
-    return this.request('GET', `/memories/search?q=${encodeURIComponent(query)}&limit=${limit}`, userId);
+    return this.request('GET', `/memories?q=${encodeURIComponent(query)}&limit=${limit}`, userId);
   }
 
   // Outcome Reviews
