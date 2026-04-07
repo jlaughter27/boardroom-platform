@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SynthesisReport, PersonaResponse } from '@boardroom/shared';
-import { MODEL_MAP } from '@boardroom/shared';
+import { MODEL_MAP, ExtractedCommitmentsSchema } from '@boardroom/shared';
 import type { OmniMindClient } from './omnimind-client';
 
 interface DetectedCommitment {
@@ -39,7 +39,7 @@ Only include clear, explicit commitments. If none found, return [].`,
 
   try {
     const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    return JSON.parse(jsonStr);
+    return ExtractedCommitmentsSchema.parse(JSON.parse(jsonStr));
   } catch {
     return [];
   }

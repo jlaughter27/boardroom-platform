@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import type { EmailSummary, EmailExtraction, EmailMemoryProposal } from '@boardroom/shared';
-import { MODEL_MAP } from '@boardroom/shared';
+import { MODEL_MAP, EmailMemoryProposalsSchema } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -157,8 +157,8 @@ export async function extractMemoriesFromEmail(userId: string, emailId: string):
   if (text?.type === 'text') {
     try {
       const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      proposals = JSON.parse(jsonStr);
-    } catch { /* parse error */ }
+      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(jsonStr));
+    } catch { /* parse or validation error */ }
   }
 
   return { emailId, subject, from, date: new Date(dateStr), proposedMemories: proposals };

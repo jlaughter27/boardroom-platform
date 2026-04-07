@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Response } from 'express';
 import type { PersonaId, BuiltInPersonaId, PersonaResponse, SynthesisReport, QuestionnaireResponse, CustomPersona } from '@boardroom/shared';
-import { SynthesisReportSchema, QuestionnaireResponseSchema } from '@boardroom/shared';
+import { SynthesisReportSchema, QuestionnaireResponseSchema, DoerTaskBreakdownSchema } from '@boardroom/shared';
 import { PERSONA_CONFIGS, MODEL_MAP } from '@boardroom/shared';
 import { MODE_CONFIGS, type UserMode } from '@boardroom/shared';
 import { Agent } from './agent';
@@ -324,6 +324,6 @@ export class CEOOrchestrator {
     const text = response.content[0];
     if (!text || text.type !== 'text') throw new Error('Empty doer response');
     const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    return JSON.parse(jsonStr);
+    return DoerTaskBreakdownSchema.parse(JSON.parse(jsonStr));
   }
 }

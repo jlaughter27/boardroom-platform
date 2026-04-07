@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { IRouter } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import type { AuthRequest } from '../middleware/auth';
-import { MODEL_MAP } from '@boardroom/shared';
+import { MODEL_MAP, ExtractedGoalsSchema, ExtractedProjectsSchema } from '@boardroom/shared';
 import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
@@ -30,7 +30,7 @@ router.post('/extract-goals', async (req: AuthRequest, res, next) => {
     const output = response.content[0];
     if (output?.type === 'text') {
       const jsonStr = output.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      res.json(JSON.parse(jsonStr));
+      res.json(ExtractedGoalsSchema.parse(JSON.parse(jsonStr)));
     } else {
       res.json([]);
     }
@@ -60,7 +60,7 @@ router.post('/extract-projects', async (req: AuthRequest, res, next) => {
     const output = response.content[0];
     if (output?.type === 'text') {
       const jsonStr = output.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      res.json(JSON.parse(jsonStr));
+      res.json(ExtractedProjectsSchema.parse(JSON.parse(jsonStr)));
     } else {
       res.json([]);
     }
