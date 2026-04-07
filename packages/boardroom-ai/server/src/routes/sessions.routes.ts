@@ -4,8 +4,9 @@ import type { AuthRequest } from '../middleware/auth';
 import { CEOOrchestrator, type SessionState } from '../agents/orchestrator';
 import { checkSufficiency } from '../agents/sufficiency';
 import { omnimindClient } from '../services/omnimind-client';
+import { proposeExtractions, confirmExtractions } from '../services/extraction.service';
 import { getPersonasForMode, shouldIncludeCEO } from '../personas/mode-router';
-import type { PersonaId, UserMode } from '@boardroom/shared';
+import type { PersonaId, UserMode, MemoryProposal } from '@boardroom/shared';
 import Anthropic from '@anthropic-ai/sdk';
 
 const router: IRouter = Router();
@@ -168,6 +169,43 @@ router.post('/:id/plan', async (req: AuthRequest, res, next) => {
     }
     const orchestrator = getOrchestrator();
     const result = await orchestrator.runDoer(session);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// POST /sessions/:id/extract-memories
+router.post('/:id/extract-memories', async (req: AuthRequest, res, next) => {
+  try {
+    const session = sessions.get(req.params.id);
+    if (!session || session.userId !== req.auth!.userId) {
+      res.status(404).json({ error: 'not_found', message: 'Session not found' });
+      return;
+    }
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+    const client = new Anthropic({ apiKey });
+
+    const result = await proposeExtractions(session, client);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// POST /sessions/:id/confirm-memories
+router.post('/:id/confirm-memories', async (req: AuthRequest, res, next) => {
+  try {
+    const session = sessions.get(req.params.id);
+    if (!session || session.userId !== req.auth!.userId) {
+      res.status(404).json({ error: 'not_found', message: 'Session not found' });
+      return;
+    }
+    const { accepted, modified, rejected } = req.body as {
+      accepted: number[];
+      modified: { index: number; changes: Partial<MemoryProposal> }[];
+      rejected: number[];
+    };
+    const result = await confirmExtractions(
+      session.id, req.auth!.userId, accepted ?? [], modified ?? [], rejected ?? [], omnimindClient
+    );
     res.json(result);
   } catch (err) { next(err); }
 });
