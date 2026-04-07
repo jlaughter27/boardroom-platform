@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import type { AuthRequest } from '../middleware/auth';
+import { checkSessionLimit } from '../middleware/session-rate-limiter';
 import { CEOOrchestrator, type SessionState } from '../agents/orchestrator';
 import { checkSufficiency } from '../agents/sufficiency';
 import { omnimindClient } from '../services/omnimind-client';
@@ -11,6 +12,7 @@ import type { PersonaId, UserMode, MemoryProposal } from '@boardroom/shared';
 import Anthropic from '@anthropic-ai/sdk';
 
 const router: IRouter = Router();
+router.use(checkSessionLimit);
 
 // In-memory session store (Phase 1 -- will persist to OmniMind later)
 const sessions = new Map<string, SessionState>();
