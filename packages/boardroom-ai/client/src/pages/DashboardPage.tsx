@@ -1,11 +1,13 @@
 import { GoalHierarchy } from '../components/dashboard/GoalHierarchy';
+import { ProactiveQuestions } from '../components/dashboard/ProactiveQuestions';
+import { WeekCalendarStrip } from '../components/dashboard/WeekCalendarStrip';
 
 export default function DashboardPage() {
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-3xl font-bold text-white mb-6">Dashboard</h1>
-      {/* ProactiveQuestions will go here in Task 3 */}
-      {/* WeekCalendarStrip will go here in Task 3 */}
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+      <ProactiveQuestions />
+      <WeekCalendarStrip />
       <GoalHierarchy />
     </div>
   );
