@@ -24,6 +24,7 @@ export interface UserProfile {
   valueHierarchy: string[];
   cognitivePatterns: CognitivePattern[];
   decisionHistorySummary: string | null;
+  onboardingComplete: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

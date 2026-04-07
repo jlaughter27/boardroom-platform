@@ -1,0 +1,228 @@
+// Proxy routes for OmniMind entity CRUD
+// BoardRoom client calls these; they forward to OmniMind with x-user-id
+
+import { Router } from 'express';
+import type { IRouter } from 'express';
+import type { AuthRequest } from '../middleware/auth';
+import { omnimindClient } from '../services/omnimind-client';
+
+const router: IRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+
+router.get('/goals', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.listGoals(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/goals', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createGoal(req.auth!.userId, req.body);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/goals/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateGoal(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.delete('/goals/:id', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.deleteGoal(req.auth!.userId, req.params.id);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+router.get('/projects', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.listProjects(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/projects', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createProject(req.auth!.userId, req.body);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/projects/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateProject(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.delete('/projects/:id', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.deleteProject(req.auth!.userId, req.params.id);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+router.get('/tasks', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.listTasks(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/tasks', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createTask(req.auth!.userId, req.body);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/tasks/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateTask(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.delete('/tasks/:id', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.deleteTask(req.auth!.userId, req.params.id);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
+
+router.get('/people', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.listPeople(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/people', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createPerson(req.auth!.userId, req.body);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/people/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updatePerson(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.delete('/people/:id', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.deletePerson(req.auth!.userId, req.params.id);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Decisions
+// ---------------------------------------------------------------------------
+
+router.get('/decisions', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.listDecisions(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Commitments
+// ---------------------------------------------------------------------------
+
+router.get('/commitments', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.listCommitments(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// User Profile
+// ---------------------------------------------------------------------------
+
+router.get('/profile', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getUserProfile(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/profile', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateUserProfile(req.auth!.userId, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Memories
+// ---------------------------------------------------------------------------
+
+router.get('/memories', async (req: AuthRequest, res, next) => {
+  try {
+    const qs = new URL(req.url, 'http://localhost').search.slice(1);
+    const data = await omnimindClient.listMemories(req.auth!.userId, qs || undefined);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/memories/search', async (req: AuthRequest, res, next) => {
+  try {
+    const q = req.query.q as string || '';
+    const limit = parseInt(req.query.limit as string) || 20;
+    const data = await omnimindClient.searchMemories(req.auth!.userId, q, limit);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/memories/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getMemoryById(req.auth!.userId, req.params.id);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/memories', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createMemory(req.auth!.userId, req.body);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+router.patch('/memories/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateMemory(req.auth!.userId, req.params.id, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/memories/:id/archive', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.archiveMemory(req.auth!.userId, req.params.id);
+    res.json({ status: 'ok' });
+  } catch (err) { next(err); }
+});
+
+export const entitiesRouter: IRouter = router;

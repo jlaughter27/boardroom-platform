@@ -93,6 +93,106 @@ export class OmniMindClient {
     );
   }
 
+  // Entity CRUD (proxy for BoardRoom server routes)
+  async createGoal(userId: string, input: unknown) {
+    return this.request('POST', '/goals', userId, input);
+  }
+
+  async createProject(userId: string, input: unknown) {
+    return this.request('POST', '/projects', userId, input);
+  }
+
+  async createPerson(userId: string, input: unknown) {
+    return this.request('POST', '/people', userId, input);
+  }
+
+  async createTask(userId: string, input: unknown) {
+    return this.request('POST', '/tasks', userId, input);
+  }
+
+  async listGoals(userId: string) {
+    return this.request('GET', '/goals', userId);
+  }
+
+  async listProjects(userId: string) {
+    return this.request('GET', '/projects', userId);
+  }
+
+  async listPeople(userId: string) {
+    return this.request('GET', '/people', userId);
+  }
+
+  async listTasks(userId: string) {
+    return this.request('GET', '/tasks', userId);
+  }
+
+  async listDecisions(userId: string) {
+    return this.request('GET', '/decisions', userId);
+  }
+
+  async listCommitments(userId: string) {
+    return this.request('GET', '/commitments', userId);
+  }
+
+  async updateGoal(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/goals/${id}`, userId, input);
+  }
+
+  async updateProject(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/projects/${id}`, userId, input);
+  }
+
+  async updatePerson(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/people/${id}`, userId, input);
+  }
+
+  async updateTask(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/tasks/${id}`, userId, input);
+  }
+
+  async deleteGoal(userId: string, id: string) {
+    return this.request('DELETE', `/goals/${id}`, userId);
+  }
+
+  async deleteProject(userId: string, id: string) {
+    return this.request('DELETE', `/projects/${id}`, userId);
+  }
+
+  async deletePerson(userId: string, id: string) {
+    return this.request('DELETE', `/people/${id}`, userId);
+  }
+
+  async deleteTask(userId: string, id: string) {
+    return this.request('DELETE', `/tasks/${id}`, userId);
+  }
+
+  // User profile
+  async updateUserProfile(userId: string, data: unknown) {
+    return this.request('PATCH', '/user-profile', userId, data);
+  }
+
+  // Memories
+  async listMemories(userId: string, params?: string) {
+    const qs = params ? `?${params}` : '';
+    return this.request('GET', `/memories${qs}`, userId);
+  }
+
+  async getMemoryById(userId: string, id: string) {
+    return this.request('GET', `/memories/${id}`, userId);
+  }
+
+  async updateMemory(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/memories/${id}`, userId, input);
+  }
+
+  async archiveMemory(userId: string, id: string) {
+    return this.request('POST', `/memories/${id}/archive`, userId);
+  }
+
+  async searchMemories(userId: string, query: string, limit: number = 20) {
+    return this.request('GET', `/memories/search?q=${encodeURIComponent(query)}&limit=${limit}`, userId);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

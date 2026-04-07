@@ -7,6 +7,8 @@ import { authMiddleware } from './middleware/auth';
 import { authRouter } from './routes/auth.routes';
 import { healthRouter } from './routes/health.routes';
 import { sessionsRouter } from './routes/sessions.routes';
+import { entitiesRouter } from './routes/entities.routes';
+import { onboardingRouter } from './routes/onboarding.routes';
 
 const app = express();
 const port = process.env.BOARDROOM_PORT || 3001;
@@ -26,6 +28,8 @@ app.use(authMiddleware);
 
 // Protected routes
 app.use('/sessions', sessionsRouter);
+app.use('/onboarding', onboardingRouter);
+app.use('/', entitiesRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
 // Error handler (must be last)

@@ -1,0 +1,78 @@
+import { Router } from 'express';
+import type { IRouter } from 'express';
+import Anthropic from '@anthropic-ai/sdk';
+import type { AuthRequest } from '../middleware/auth';
+import { MODEL_MAP } from '@boardroom/shared';
+import { omnimindClient } from '../services/omnimind-client';
+
+const router: IRouter = Router();
+
+// POST /onboarding/extract-goals — parse goals from freeform text
+router.post('/extract-goals', async (req: AuthRequest, res, next) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      res.status(400).json({ error: 'text is required' });
+      return;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+    const client = new Anthropic({ apiKey });
+
+    const response = await client.messages.create({
+      model: MODEL_MAP.haiku,
+      max_tokens: 500,
+      system: 'Extract 2-4 goals from the user text. Return ONLY a JSON array, no other text. Format: [{"title":"...","level":0,"domain":"business"}]. Levels: 0=life goal, 1=annual, 2=quarterly, 3=monthly. Domain should be one of: business, personal, health, financial, career, relationships.',
+      messages: [{ role: 'user', content: text }],
+    });
+
+    const output = response.content[0];
+    if (output?.type === 'text') {
+      const jsonStr = output.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      res.json(JSON.parse(jsonStr));
+    } else {
+      res.json([]);
+    }
+  } catch (err) { next(err); }
+});
+
+// POST /onboarding/extract-projects — parse projects from freeform text
+router.post('/extract-projects', async (req: AuthRequest, res, next) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      res.status(400).json({ error: 'text is required' });
+      return;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+    const client = new Anthropic({ apiKey });
+
+    const response = await client.messages.create({
+      model: MODEL_MAP.haiku,
+      max_tokens: 500,
+      system: 'Extract 2-4 active projects from the user text. Return ONLY a JSON array, no other text. Format: [{"title":"...","domain":"business","status":"active"}]. Domain should be one of: business, personal, health, financial, career, relationships. Status should be one of: active, planning, paused.',
+      messages: [{ role: 'user', content: text }],
+    });
+
+    const output = response.content[0];
+    if (output?.type === 'text') {
+      const jsonStr = output.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      res.json(JSON.parse(jsonStr));
+    } else {
+      res.json([]);
+    }
+  } catch (err) { next(err); }
+});
+
+// POST /onboarding/complete — marks onboarding done
+router.post('/complete', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.updateUserProfile(req.auth!.userId, { onboardingComplete: true });
+    res.json({ status: 'ok' });
+  } catch (err) { next(err); }
+});
+
+export const onboardingRouter: IRouter = router;

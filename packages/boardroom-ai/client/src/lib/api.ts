@@ -410,3 +410,57 @@ export function updateMemory(id: string, input: Record<string, unknown>) {
 export function archiveMemory(id: string) {
   return request<void>(`/memories/${id}/archive`, { method: 'POST' });
 }
+
+export function createMemory(input: Record<string, unknown>) {
+  return request<Memory>('/memories', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// User Profile mutations
+// ---------------------------------------------------------------------------
+
+export function updateUserProfile(data: Record<string, unknown>) {
+  return request<UserProfile>('/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------
+
+interface ExtractedGoal {
+  title: string;
+  level: number;
+  domain: string;
+}
+
+interface ExtractedProject {
+  title: string;
+  domain: string;
+  status: string;
+}
+
+export function extractOnboardingGoals(text: string) {
+  return request<ExtractedGoal[]>('/onboarding/extract-goals', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export function extractOnboardingProjects(text: string) {
+  return request<ExtractedProject[]>('/onboarding/extract-projects', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export function completeOnboarding() {
+  return request<{ status: string }>('/onboarding/complete', {
+    method: 'POST',
+  });
+}

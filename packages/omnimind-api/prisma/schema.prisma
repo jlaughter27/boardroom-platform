@@ -434,6 +434,7 @@ model UserProfile {
   valueHierarchy         String[] @default([]) @map("value_hierarchy")
   cognitivePatterns      Json     @default("[]") @map("cognitive_patterns")
   decisionHistorySummary String?  @map("decision_history_summary")
+  onboardingComplete     Boolean  @default(false) @map("onboarding_complete")
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
