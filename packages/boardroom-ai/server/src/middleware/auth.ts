@@ -5,8 +5,14 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start.');
+let _jwtSecret: string | undefined;
+function getJwtSecret(): string {
+  if (!_jwtSecret) {
+    _jwtSecret = process.env.JWT_SECRET;
+    if (!_jwtSecret) throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start.');
+  }
+  return _jwtSecret;
+}
 const TOKEN_EXPIRY = '7d';
 
 export interface AuthPayload {
@@ -28,12 +34,12 @@ export const verifyPassword = async (password: string, hash: string): Promise<bo
 };
 
 export const createToken = (payload: AuthPayload): string => {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: TOKEN_EXPIRY });
 };
 
 export const verifyToken = (token: string): AuthPayload | null => {
   try {
-    return jwt.verify(token, JWT_SECRET) as AuthPayload;
+    return jwt.verify(token, getJwtSecret()) as AuthPayload;
   } catch {
     return null;
   }

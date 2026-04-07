@@ -1,14 +1,27 @@
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
-const OMNIMIND_KEY = process.env.OMNIMIND_API_KEY;
-if (!OMNIMIND_KEY) throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set.');
+let _omnimindKey: string | undefined;
+function getOmnimindKey(): string {
+  if (!_omnimindKey) {
+    _omnimindKey = process.env.OMNIMIND_API_KEY;
+    if (!_omnimindKey) throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set.');
+  }
+  return _omnimindKey;
+}
 
 export class OmniMindClient {
   private baseUrl: string;
-  private apiKey: string;
+  private _apiKey: string | undefined;
 
   constructor(baseUrl?: string, apiKey?: string) {
     this.baseUrl = baseUrl ?? OMNIMIND_URL;
-    this.apiKey = apiKey ?? OMNIMIND_KEY;
+    this._apiKey = apiKey;
+  }
+
+  private get apiKey(): string {
+    if (!this._apiKey) {
+      this._apiKey = getOmnimindKey();
+    }
+    return this._apiKey;
   }
 
   private async request<T>(method: string, path: string, userId?: string, body?: unknown): Promise<T> {
