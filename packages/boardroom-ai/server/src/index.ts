@@ -15,6 +15,7 @@ import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { integrationsRouter } from './routes/integrations.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
+import { logger } from './lib/logger';
 
 const app = express();
 const port = process.env.BOARDROOM_PORT || 3001;
@@ -61,7 +62,7 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     return;
   }
 
-  console.error('Unhandled error:', {
+  logger.error('Unhandled error', {
     message: err.message,
     path: req.path,
     method: req.method,
@@ -80,7 +81,7 @@ const server = app.listen(port, () => {
 });
 
 const shutdown = () => {
-  console.log('Shutting down BoardRoom AI...');
+  logger.info('Shutting down BoardRoom AI...');
   server.close(() => {
     process.exit(0);
   });

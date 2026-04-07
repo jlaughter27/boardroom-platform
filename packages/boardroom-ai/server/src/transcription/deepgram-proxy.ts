@@ -3,6 +3,7 @@
 // BOOKMARKED: This is Phase 3+ functionality. Preserved as working code.
 
 import WebSocket from 'ws';
+import { logger } from '../lib/logger';
 
 export interface TranscriptEntry {
   speaker: number;
@@ -60,7 +61,7 @@ export const createDeepgramProxy = (
   });
 
   dgWs.on('open', () => {
-    console.log('[Deepgram] Connected');
+    logger.info('[Deepgram] Connected');
   });
 
   dgWs.on('message', (data: WebSocket.Data) => {
@@ -85,12 +86,12 @@ export const createDeepgramProxy = (
   });
 
   dgWs.on('error', (err) => {
-    console.error('[Deepgram] Error:', err.message);
+    logger.error('[Deepgram] Error', { detail: err.message });
     onError(err.message);
   });
 
   dgWs.on('close', (code, reason) => {
-    console.log(`[Deepgram] Closed: ${code} ${reason.toString()}`);
+    logger.info('[Deepgram] Closed', { code, reason: reason.toString() });
     onClose();
   });
 

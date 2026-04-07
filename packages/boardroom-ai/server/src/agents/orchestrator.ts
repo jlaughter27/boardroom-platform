@@ -9,6 +9,7 @@ import { initSSE } from './streaming';
 import { loadPrompt } from '../lib/prompt-loader';
 import type { OmniMindClient } from '../services/omnimind-client';
 import { toolRegistry } from '../tools';
+import { logger } from '../lib/logger';
 
 function formatPersonaForCEO(name: string, response: PersonaResponse, isCustom: boolean = false): string {
   const confidenceLabel = response.confidence >= 0.7 ? 'high' : response.confidence >= 0.4 ? 'medium' : 'low';
@@ -276,7 +277,7 @@ export class CEOOrchestrator {
       session.synthesis = report;
 
       const qualityScore = scoreSynthesisQuality(report, Array.from(session.personaResponses.values()));
-      console.log('[Synthesis] Quality score', { sessionId: session.id, qualityScore });
+      logger.info('[Synthesis] Quality score', { sessionId: session.id, qualityScore });
 
       res.write(`data: ${JSON.stringify({ type: 'synthesis_complete', report, qualityScore })}\n\n`);
     } catch (error) {

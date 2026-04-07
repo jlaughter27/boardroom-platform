@@ -470,3 +470,160 @@ The `/context/for-persona` endpoint internally uses a 4-layer retrieval pipeline
 - maxItemsCEO: 15
 - tokenBudgetPerPersona: 2000
 - tokenBudgetCEO: 3000
+
+---
+
+## Cortex — Thinking Patterns
+
+### GET /cortex/patterns
+List detected thinking patterns for the user.
+Query params: limit (default 20), offset (default 0)
+Response 200: PaginatedResponse<ThinkingPattern>
+
+### POST /cortex/patterns/scan
+Trigger pattern detection scan. Requires 10+ decisions.
+Response 200: { patterns: ThinkingPattern[], newCount: number }
+
+---
+
+## Cortex — Contradictions
+
+### GET /cortex/contradictions
+Query params: status (ACTIVE|RESOLVED|DISMISSED), limit, offset
+Response 200: PaginatedResponse<ContradictionAlert>
+
+### POST /cortex/contradictions/scan
+Trigger cross-project contradiction scan.
+Response 200: { contradictions: ContradictionAlert[], newCount: number }
+
+### PATCH /cortex/contradictions/:id
+Update contradiction status.
+Request: { status: ContradictionStatus, resolution?: string }
+Response 200: ContradictionAlert
+
+---
+
+## Cortex — Weekly Memo
+
+### GET /cortex/memo/latest
+Response 200: WeeklyMemo | null
+
+### GET /cortex/memo/history
+Query params: limit, offset
+Response 200: PaginatedResponse<WeeklyMemo>
+
+### POST /cortex/memo/generate
+Trigger on-demand memo generation. Requires 5+ decisions.
+Response 200: WeeklyMemo
+
+---
+
+## Cortex — Simulation
+
+### POST /cortex/simulate
+Run decision simulation for a chosen path.
+Request: { chosenPath: string, sessionQuestion: string }
+Response 200: SimulationResult
+
+---
+
+## Outcome Reviews
+
+### GET /outcome-reviews
+Query params: status, limit, offset
+Response 200: PaginatedResponse<OutcomeReviewNudge>
+
+### GET /outcome-reviews/pending
+Returns nudges where scheduledFor <= now AND status = pending.
+Response 200: OutcomeReviewNudge[]
+
+### POST /outcome-reviews/:id/complete
+Request: { outcome: string, outcomeRating: number, wouldDecideSame: boolean }
+Response 200: OutcomeReviewNudge
+
+### POST /outcome-reviews/:id/skip
+Response 200: OutcomeReviewNudge
+
+---
+
+## Custom Personas
+
+### GET /custom-personas
+List user's custom personas.
+Response 200: CustomPersona[]
+
+### POST /custom-personas
+Create custom persona. Max 3 per user.
+Request: CreateCustomPersonaRequest
+Response 201: CustomPersona
+Response 422: If limit exceeded
+
+### PATCH /custom-personas/:id
+Update custom persona.
+Response 200: CustomPersona
+
+### DELETE /custom-personas/:id
+Hard delete.
+Response 200: { status: "deleted" }
+
+---
+
+## Relationships
+
+### GET /relationships/graph
+Returns pre-computed relationship graph.
+Response 200: { nodes: GraphNode[], edges: GraphEdge[] }
+
+---
+
+## Memory Entity Links
+
+### POST /memories/:id/links
+Create link between memory and entity.
+Request: { entityType: string, entityId: string, linkType: string }
+Response 201: MemoryEntityLink
+
+### GET /memories/:id/links
+List links for a memory.
+Response 200: MemoryEntityLink[]
+
+### DELETE /memories/:id/links/:linkId
+Remove a link.
+Response 200: { status: "deleted" }
+
+---
+
+## OAuth Token Management (Internal)
+
+### GET /oauth/token/:provider
+Get OAuth token for user + provider.
+Response 200: OAuthToken (decrypted) | null
+
+### POST /oauth/token
+Save/update OAuth token.
+Request: { provider, accessToken, refreshToken, expiresAt, scope, calendarId }
+Response 200: OAuthToken
+
+### DELETE /oauth/token/:provider
+Remove OAuth token.
+Response 200: { status: "deleted" }
+
+---
+
+## Subscription
+
+### GET /subscription
+Get subscription by userId.
+Response 200: Subscription | null
+
+### POST /subscription
+Create subscription.
+Response 201: Subscription
+
+### PATCH /subscription
+Update subscription.
+Response 200: Subscription
+
+### DELETE /subscription
+Cancel subscription (soft).
+Response 200: { status: "canceled" }
