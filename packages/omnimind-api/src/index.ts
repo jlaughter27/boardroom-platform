@@ -7,6 +7,7 @@ import { apiKeyAuth } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limiter';
 import { errorHandler } from './middleware/error-handler';
 import { healthRouter } from './routes/health.routes';
+import { memoriesRouter } from './routes/memories.routes';
 
 const app: Express = express();
 const port = parseInt(process.env.OMNIMIND_PORT || '3333', 10);
@@ -21,8 +22,8 @@ app.use(rateLimiter);
 // Routes
 app.use('/health', healthRouter);
 
-// TODO: Entity routes (Task 5-6)
-// app.use('/memories', memoriesRouter);
+// Entity routes
+app.use('/memories', memoriesRouter);
 // app.use('/people', peopleRouter);
 // app.use('/goals', goalsRouter);
 // app.use('/projects', projectsRouter);
