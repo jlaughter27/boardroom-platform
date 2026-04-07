@@ -11,6 +11,8 @@ import type {
   UserProfile,
   Memory,
   PaginatedResponse,
+  CalendarEvent,
+  CalendarSyncStatus,
 } from '@boardroom/shared';
 import type { UserMode } from '@boardroom/shared';
 
@@ -504,6 +506,28 @@ export function updateContradiction(id: string, status: string, resolution?: str
     method: 'PATCH',
     body: JSON.stringify({ status, resolution }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Calendar
+// ---------------------------------------------------------------------------
+
+export function getCalendarStatus() {
+  return request<CalendarSyncStatus>('/calendar/status');
+}
+
+export function getCalendarAuthUrl() {
+  return request<{ url: string | null; message?: string }>('/calendar/auth-url');
+}
+
+export function getCalendarEvents(start: Date, end: Date) {
+  return request<CalendarEvent[]>(
+    `/calendar/events?start=${start.toISOString()}&end=${end.toISOString()}`,
+  );
+}
+
+export function disconnectCalendar() {
+  return request<{ status: string }>('/calendar/disconnect', { method: 'POST' });
 }
 
 // ---------------------------------------------------------------------------

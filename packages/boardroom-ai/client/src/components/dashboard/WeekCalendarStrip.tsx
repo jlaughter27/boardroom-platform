@@ -1,8 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { isOverdue } from '@boardroom/shared';
+import { getCalendarEvents } from '../../lib/api';
 import { DayColumn } from './DayColumn';
 import type { DayItem } from './DayColumn';
+import type { CalendarEvent } from '@boardroom/shared';
 
 // ---------------------------------------------------------------------------
 // Week helpers
@@ -44,12 +46,26 @@ function formatWeekRange(days: Date[]): string {
 // Component
 // ---------------------------------------------------------------------------
 
+function formatEventTime(date: Date): string {
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
 export function WeekCalendarStrip() {
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const { tasks, commitments } = useEntitiesStore();
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
 
   const days = useMemo(() => getWeekDays(weekStart), [weekStart]);
   const today = useMemo(() => new Date(), []);
+
+  // Fetch calendar events when the week changes
+  useEffect(() => {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    getCalendarEvents(weekStart, weekEnd)
+      .then(setCalendarEvents)
+      .catch(() => setCalendarEvents([]));
+  }, [weekStart]);
 
   // Build a map of date-string -> items for fast lookup
   const itemsByDay = useMemo(() => {
@@ -89,8 +105,24 @@ export function WeekCalendarStrip() {
       }
     }
 
+    // Merge calendar events
+    for (const event of calendarEvents) {
+      const start = new Date(event.startTime);
+      if (start >= weekStart && start < weekEnd) {
+        const k = key(start);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push({
+          id: event.id,
+          title: event.title,
+          type: 'calendar',
+          isOverdue: false,
+          time: event.allDay ? undefined : formatEventTime(start),
+        });
+      }
+    }
+
     return map;
-  }, [tasks, commitments, weekStart]);
+  }, [tasks, commitments, calendarEvents, weekStart]);
 
   function prevWeek() {
     setWeekStart((prev) => {

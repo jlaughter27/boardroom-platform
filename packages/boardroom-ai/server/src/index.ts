@@ -10,6 +10,7 @@ import { sessionsRouter } from './routes/sessions.routes';
 import { entitiesRouter } from './routes/entities.routes';
 import { onboardingRouter } from './routes/onboarding.routes';
 import { cortexRouter } from './routes/cortex.routes';
+import { calendarRouter } from './routes/calendar.routes';
 
 const app = express();
 const port = process.env.BOARDROOM_PORT || 3001;
@@ -23,6 +24,8 @@ app.use(cookieParser());
 // Public routes (no auth required)
 app.use('/health', healthRouter);
 app.use('/auth', authRouter);
+// OAuth callback must be accessible without auth (Google redirects here)
+app.get('/calendar/callback', calendarRouter);
 
 // Auth wall — all routes below require valid JWT
 app.use(authMiddleware);
@@ -32,6 +35,7 @@ app.use('/sessions', sessionsRouter);
 app.use('/onboarding', onboardingRouter);
 app.use('/', entitiesRouter);
 app.use('/cortex', cortexRouter);
+app.use('/calendar', calendarRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
 // Error handler (must be last)

@@ -249,6 +249,19 @@ export class OmniMindClient {
     return this.request('PATCH', `/cortex/contradictions/${id}`, userId, data);
   }
 
+  // OAuth tokens
+  async getOAuthToken(userId: string, provider: string) {
+    return this.request('GET', `/oauth/token/${provider}`, userId);
+  }
+
+  async saveOAuthToken(userId: string, data: { provider: string; accessToken: string; refreshToken: string | null; expiresAt: string | null; scope: string | null; calendarId: string | null }) {
+    return this.request('POST', '/oauth/token', userId, data);
+  }
+
+  async deleteOAuthToken(userId: string, provider: string) {
+    return this.request('DELETE', `/oauth/token/${provider}`, userId);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

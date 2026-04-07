@@ -1,8 +1,10 @@
 export interface DayItem {
   id: string;
   title: string;
-  type: 'task' | 'commitment';
+  type: 'task' | 'commitment' | 'calendar';
   isOverdue: boolean;
+  /** Display time for calendar events, e.g. "10:00 AM" */
+  time?: string;
 }
 
 interface DayColumnProps {
@@ -62,11 +64,13 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
             className={`text-xs truncate ${
               item.isOverdue
                 ? 'text-red-400'
-                : item.type === 'commitment'
-                  ? 'text-purple-400'
-                  : past
-                    ? 'text-gray-600'
-                    : 'text-gray-300'
+                : item.type === 'calendar'
+                  ? 'text-blue-400'
+                  : item.type === 'commitment'
+                    ? 'text-purple-400'
+                    : past
+                      ? 'text-gray-600'
+                      : 'text-gray-300'
             }`}
             title={item.title}
           >
@@ -75,7 +79,12 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
                 &#x26A0;&#xFE0F;
               </span>
             )}
-            {item.title}
+            {item.type === 'calendar' && (
+              <svg className="inline-block w-3 h-3 mr-0.5 -mt-px" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 011 1v3a1 1 0 01-2 0V8a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+            )}
+            {item.time ? `${item.time} — ${item.title}` : item.title}
           </div>
         ))}
         {overflow > 0 && (

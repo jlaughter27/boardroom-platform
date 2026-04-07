@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { getUserProfile, updateUserProfile } from '../lib/api';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
+import { CalendarSettings } from '../components/settings/CalendarSettings';
 import type { UserProfile, RiskProfile } from '@boardroom/shared';
 
 const DECISION_FREQUENCY_OPTIONS = [
@@ -268,6 +269,9 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {/* Calendar Integration */}
+      <CalendarSettings />
 
       {/* Account Section */}
       <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
