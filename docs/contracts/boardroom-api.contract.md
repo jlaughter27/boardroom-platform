@@ -440,3 +440,254 @@ Every session records:
 - Total input/output tokens per call
 - Total cost estimate (from `MODEL_COSTS` in shared constants)
 - Stored per-session for dashboard reporting
+
+---
+
+## Onboarding
+
+### POST /onboarding/extract-goals
+
+Extract goals from freeform user text during onboarding.
+
+**Request:**
+```typescript
+{ text: string }
+```
+
+**Response 200:**
+```typescript
+{ title: string, level: number, domain: string }[]
+```
+
+### POST /onboarding/extract-projects
+
+Extract projects from freeform user text during onboarding.
+
+**Request:**
+```typescript
+{ text: string }
+```
+
+**Response 200:**
+```typescript
+{ title: string, domain: string, status: "active" | "planning" | "paused" }[]
+```
+
+### POST /onboarding/complete
+
+Mark onboarding as done. Updates user profile in OmniMind.
+
+**Response 200:** `{ status: "ok" }`
+
+---
+
+## Calendar
+
+### GET /calendar/status
+
+Returns Google Calendar connection status.
+
+**Response 200:** Integration status object from Gmail service.
+
+### GET /calendar/auth-url
+
+Returns OAuth URL for Google Calendar authorization.
+
+**Response 200:**
+```typescript
+{ url: string } | { url: null, message: string }
+```
+
+### GET /calendar/callback
+
+**No auth required.** OAuth callback from Google. Redirects to `/settings?calendar=connected`.
+
+**Query params:** `code`, `state`
+
+**Response 302:** Redirect
+
+### GET /calendar/events
+
+Fetch upcoming calendar events.
+
+**Query params:** `start` (ISO date, default: now), `end` (ISO date, default: +7 days)
+
+**Response 200:** `CalendarEvent[]`
+
+### POST /calendar/disconnect
+
+Disconnect Google Calendar integration.
+
+**Response 200:** `{ status: "disconnected" }`
+
+---
+
+## Integrations
+
+### GET /integrations
+
+List all integration statuses (Gmail, Google Calendar).
+
+**Response 200:**
+```typescript
+{ type: string, status: "connected" | "disconnected", error?: string }[]
+```
+
+### GET /integrations/gmail/auth-url
+
+Returns OAuth URL for Gmail authorization.
+
+**Response 200:**
+```typescript
+{ url: string } | { url: null, message: string }
+```
+
+### GET /integrations/gmail/callback
+
+**No auth required.** OAuth callback from Google. Redirects to `/integrations?gmail=connected`.
+
+**Query params:** `code`, `state`
+
+**Response 302:** Redirect
+
+### POST /integrations/gmail/disconnect
+
+Disconnect Gmail integration.
+
+**Response 200:** `{ status: "disconnected" }`
+
+### GET /integrations/gmail/emails
+
+Fetch recent emails from connected Gmail account.
+
+**Response 200:** `EmailSummary[]`
+
+### POST /integrations/gmail/extract
+
+Extract memory proposals from a specific email.
+
+**Request:**
+```typescript
+{ emailId: string }
+```
+
+**Response 200:** `EmailExtraction` (proposals with metadata)
+
+### POST /integrations/gmail/confirm
+
+Confirm extracted email memories for creation.
+
+**Request:**
+```typescript
+{
+  proposals: {
+    title: string,
+    content: string,
+    domain?: string,
+    tags?: string[],
+    memoryClass?: string,
+    importance?: number,
+    emailId?: string
+  }[]
+}
+```
+
+**Response 200:**
+```typescript
+{ created: number, rejected: number }
+```
+
+---
+
+## Entity Proxies
+
+All entity endpoints proxy to OmniMind API with the authenticated user's
+`userId` forwarded as `x-user-id` header.
+
+### Goals — `/entities/goals`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/goals` | `Goal[]` |
+| POST | `/entities/goals` | `Goal` (201) |
+| PATCH | `/entities/goals/:id` | `Goal` |
+| DELETE | `/entities/goals/:id` | 204 |
+
+### Projects — `/entities/projects`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/projects` | `Project[]` |
+| POST | `/entities/projects` | `Project` (201) |
+| PATCH | `/entities/projects/:id` | `Project` |
+| DELETE | `/entities/projects/:id` | 204 |
+
+### Tasks — `/entities/tasks`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/tasks` | `Task[]` |
+| POST | `/entities/tasks` | `Task` (201) |
+| PATCH | `/entities/tasks/:id` | `Task` |
+| DELETE | `/entities/tasks/:id` | 204 |
+
+### People — `/entities/people`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/people` | `Person[]` |
+| POST | `/entities/people` | `Person` (201) |
+| PATCH | `/entities/people/:id` | `Person` |
+| DELETE | `/entities/people/:id` | 204 |
+
+### Decisions — `/entities/decisions` (read-only)
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/decisions` | `Decision[]` |
+
+### Commitments — `/entities/commitments` (read-only)
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/commitments` | `Commitment[]` |
+
+### User Profile — `/entities/profile`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/profile` | `UserProfile` |
+| PATCH | `/entities/profile` | `UserProfile` |
+
+### Memories — `/entities/memories`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/memories` | `Memory[]` (supports query filters) |
+| GET | `/entities/memories/:id` | `Memory` |
+| POST | `/entities/memories` | `CreateMemoryResponse` (201) |
+| PATCH | `/entities/memories/:id` | `Memory` |
+| DELETE | `/entities/memories/:id` | `{ status: "deleted" }` |
+
+### Memory Links — `/entities/memories/:id/links`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/memories/:id/links` | `MemoryEntityLink[]` |
+| POST | `/entities/memories/:id/links` | `MemoryEntityLink` (201) |
+| DELETE | `/entities/memories/:id/links/:linkId` | `{ status: "deleted" }` |
+
+### Outcome Reviews — `/entities/outcome-reviews`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/outcome-reviews` | Paginated reviews (supports `?status=` filter) |
+| GET | `/entities/outcome-reviews/pending` | `OutcomeReviewNudge[]` |
+| POST | `/entities/outcome-reviews/:id/complete` | Updated nudge |
+| POST | `/entities/outcome-reviews/:id/skip` | Updated nudge |
+
+### Relationships — `/entities/relationships`
+
+| Method | Path | Response |
+|--------|------|----------|
+| GET | `/entities/relationships/graph` | Relationship graph object |
