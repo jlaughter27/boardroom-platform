@@ -13,6 +13,9 @@ import type {
   PaginatedResponse,
   CalendarEvent,
   CalendarSyncStatus,
+  EmailSummary,
+  EmailExtraction,
+  EmailMemoryProposal,
 } from '@boardroom/shared';
 import type { UserMode } from '@boardroom/shared';
 
@@ -578,6 +581,40 @@ export function getCalendarEvents(start: Date, end: Date) {
 
 export function disconnectCalendar() {
   return request<{ status: string }>('/calendar/disconnect', { method: 'POST' });
+}
+
+// ---------------------------------------------------------------------------
+// Integrations
+// ---------------------------------------------------------------------------
+
+export function getIntegrations() {
+  return request<Array<{ type: string; status: string; lastSyncAt: string | null; error: string | null }>>('/integrations');
+}
+
+export function getGmailAuthUrl() {
+  return request<{ url: string | null; message?: string }>('/integrations/gmail/auth-url');
+}
+
+export function disconnectGmail() {
+  return request<{ status: string }>('/integrations/gmail/disconnect', { method: 'POST' });
+}
+
+export function getGmailEmails() {
+  return request<EmailSummary[]>('/integrations/gmail/emails');
+}
+
+export function extractGmailMemories(emailId: string) {
+  return request<EmailExtraction>('/integrations/gmail/extract', {
+    method: 'POST',
+    body: JSON.stringify({ emailId }),
+  });
+}
+
+export function confirmGmailExtraction(proposals: EmailMemoryProposal[]) {
+  return request<{ created: number; rejected: number }>('/integrations/gmail/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ proposals }),
+  });
 }
 
 // ---------------------------------------------------------------------------

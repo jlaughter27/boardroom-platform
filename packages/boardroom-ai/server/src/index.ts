@@ -13,6 +13,7 @@ import { cortexRouter } from './routes/cortex.routes';
 import { calendarRouter } from './routes/calendar.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
+import { integrationsRouter } from './routes/integrations.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 
 const app = express();
@@ -27,8 +28,9 @@ app.use(cookieParser());
 // Public routes (no auth required)
 app.use('/health', healthRouter);
 app.use('/auth', authRouter);
-// OAuth callback must be accessible without auth (Google redirects here)
+// OAuth callbacks must be accessible without auth (Google redirects here)
 app.get('/calendar/callback', calendarRouter);
+app.get('/integrations/gmail/callback', integrationsRouter);
 
 // Auth wall — all routes below require valid JWT
 app.use(authMiddleware);
@@ -41,6 +43,7 @@ app.use('/', entitiesRouter);
 app.use('/cortex', cortexRouter);
 app.use('/calendar', calendarRouter);
 app.use('/custom-personas', customPersonasRouter);
+app.use('/integrations', integrationsRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
 // Error handler (must be last)

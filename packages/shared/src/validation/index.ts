@@ -12,3 +12,4 @@ export * from './calendar.schema';
 export * from './subscription.schema';
 export * from './custom-persona.schema';
 export * from './simulation.schema';
+export * from './integration.schema';
