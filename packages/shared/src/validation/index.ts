@@ -6,3 +6,7 @@ export * from './persona.schema';
 export * from './entities.schema';
 export * from './decision.schema';
 export * from './commitment.schema';
+export * from './tool.schema';
+export * from './cortex.schema';
+export * from './calendar.schema';
+export * from './subscription.schema';

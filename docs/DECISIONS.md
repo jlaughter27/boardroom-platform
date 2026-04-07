@@ -34,7 +34,24 @@ All architectural decisions are logged here with rationale. Check before proposi
 **Decision:** Single monorepo (packages/shared, packages/omnimind-api, packages/boardroom-ai).
 **Rationale:** 1-2 devs. Single PR shows full picture. Shared types as binding contract. Independent Dockerfiles for independent deployment. Revisit when team exceeds 3 devs.
 
-## ADR-007: Two-Agent Build Workflow
+## ADR-007: Two-Agent Build Workflow (Retired)
+**Date:** 2026-04-07 | **Status:** Retired
+**Decision:** Originally split between Claude Code + DeepSeek. As of 2026-04-07, Claude Code owns everything. DeepSeek split retired for speed.
+
+## ADR-008: Tool Execution via Anthropic SDK Native Tool Use
 **Date:** 2026-04-07 | **Status:** Accepted
-**Decision:** Claude Code (Opus) handles architecture + business logic. DeepSeek v3.2 (OpenCode) handles types, schemas, utils, tests, eval data.
-**Rationale:** Parallel work lanes with zero file conflicts. DeepSeek tasks completable from task file alone. Claude reviews all DeepSeek output before building on it. Contract-first prevents drift.
+**Decision:** Tools are plain TypeScript functions registered in the agent runtime. Persona calls include tool definitions in the Anthropic API request. The agent handles tool_use content blocks, executes the function, returns tool_result, and continues the conversation turn.
+**Rationale:** NOT using MCP protocol for v1. MCP is a future migration path for v2. Native tool_use is simpler, fully supported by the Anthropic SDK, and doesn't require a separate server process per tool.
+**Alternatives rejected:** MCP servers (operational overhead, premature for 3 tools).
+
+## ADR-009: Background Jobs via node-cron
+**Date:** 2026-04-07 | **Status:** Accepted
+**Decision:** Weekly memo, pattern detection, and contradiction scan run as cron jobs within the OmniMind Express process. No separate worker. No Redis.
+**Rationale:** Sufficient for <100 users. Graceful shutdown via cron.stop() on SIGTERM. Job duration expected <30s per user. Revisit when job duration exceeds 30s or user count exceeds 500.
+**Alternatives rejected:** BullMQ + Redis (operational overhead), separate worker process (deployment complexity).
+
+## ADR-010: Google Calendar via OAuth 2.0 + googleapis SDK
+**Date:** 2026-04-07 | **Status:** Accepted
+**Decision:** Standard OAuth 2.0 authorization code flow. Tokens stored encrypted in a dedicated OAuthToken Prisma model. Refresh token rotation handled automatically by googleapis client. Calendar data is read-only for v1.
+**Rationale:** Direct integration via googleapis SDK is well-documented and reliable. Tokens encrypted at rest with ENCRYPTION_KEY env var. Read-only avoids write-permission complexity.
+**Alternatives rejected:** iCal import (no real-time sync), CalDAV (complex, less adoption).

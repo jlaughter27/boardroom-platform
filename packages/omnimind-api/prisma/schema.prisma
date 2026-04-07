@@ -542,3 +542,136 @@ model TaskDependency {
   @@unique([taskId, dependsOnTaskId])
   @@map("task_dependencies")
 }
+
+// ============================================================
+// NEW: Cortex Intelligence Layer (Phase 3)
+// ============================================================
+
+model ThinkingPattern {
+  id             String      @id @default(cuid())
+  userId         String      @map("user_id")
+  pattern        String
+  patternType    PatternType @map("pattern_type")
+  evidenceCount  Int         @default(1) @map("evidence_count")
+  confidence     Float       @default(0.5)
+  firstDetected  DateTime    @default(now()) @map("first_detected")
+  lastDetected   DateTime    @default(now()) @map("last_detected")
+  trend          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("thinking_patterns")
+}
+
+enum PatternType {
+  BIAS
+  STRENGTH
+  BEHAVIORAL_CYCLE
+  DECISION_STYLE
+}
+
+model ContradictionAlert {
+  id          String              @id @default(cuid())
+  userId      String              @map("user_id")
+  description String
+  entityA     Json                @map("entity_a")
+  entityB     Json                @map("entity_b")
+  severity    String              @default("medium")
+  status      ContradictionStatus @default(ACTIVE)
+  detectedAt  DateTime            @default(now()) @map("detected_at")
+  resolvedAt  DateTime?           @map("resolved_at")
+  resolution  String?
+
+  @@index([userId])
+  @@map("contradiction_alerts")
+}
+
+enum ContradictionStatus {
+  ACTIVE
+  ACCEPTED_TENSION
+  RESOLVED
+  DISMISSED
+}
+
+model WeeklyMemo {
+  id                     String   @id @default(cuid())
+  userId                 String   @map("user_id")
+  weekStart              DateTime @map("week_start")
+  weekEnd                DateTime @map("week_end")
+  decisionsMade          Int      @default(0) @map("decisions_made")
+  decisionsByCategory    Json     @default("{}") @map("decisions_by_category")
+  patternsNoticed        String[] @default([]) @map("patterns_noticed")
+  activeContradictions   String[] @default([]) @map("active_contradictions")
+  upcomingPressurePoints String[] @default([]) @map("upcoming_pressure_points")
+  thinkingQualityScore   Float    @default(0) @map("thinking_quality_score")
+  scoreChange            Float    @default(0) @map("score_change")
+  recommendedFocus       String[] @default([]) @map("recommended_focus")
+  fullMemoText           String   @map("full_memo_text")
+  generatedAt            DateTime @default(now()) @map("generated_at")
+
+  @@index([userId])
+  @@map("weekly_memos")
+}
+
+model OutcomeReviewNudge {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  decisionId    String    @map("decision_id")
+  decisionTitle String    @map("decision_title")
+  nudgeType     String    @map("nudge_type")
+  scheduledFor  DateTime  @map("scheduled_for")
+  sentAt        DateTime? @map("sent_at")
+  completedAt   DateTime? @map("completed_at")
+  status        String    @default("pending")
+
+  @@index([userId])
+  @@map("outcome_review_nudges")
+}
+
+// ============================================================
+// NEW: Subscription & OAuth (Phase 3)
+// ============================================================
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique @map("user_id")
+  stripeCustomerId     String             @map("stripe_customer_id")
+  stripeSubscriptionId String             @map("stripe_subscription_id")
+  status               SubscriptionStatus @default(TRIALING)
+  plan                 String             @default("pro")
+  priceMonthly         Int                @default(0) @map("price_monthly")
+  trialEndsAt          DateTime?          @map("trial_ends_at")
+  currentPeriodEnd     DateTime           @map("current_period_end")
+  canceledAt           DateTime?          @map("canceled_at")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+model OAuthToken {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  provider     String
+  accessToken  String    @map("access_token")
+  refreshToken String?   @map("refresh_token")
+  expiresAt    DateTime? @map("expires_at")
+  scope        String?
+  calendarId   String?   @map("calendar_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@unique([userId, provider])
+  @@index([userId])
+  @@map("oauth_tokens")
+}
