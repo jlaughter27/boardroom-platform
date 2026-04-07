@@ -57,13 +57,6 @@ export async function createMemory(
     );
   });
 
-  // Fire-and-forget embedding generation
-  setImmediate(() => {
-    embedMemory(memory.id).catch(err =>
-      logger.error('Async embedding failed', { memoryId: memory.id, error: (err as Error).message })
-    );
-  });
-
   return {
     success: true as const,
     data: {

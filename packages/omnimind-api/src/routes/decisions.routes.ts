@@ -83,4 +83,16 @@ router.patch('/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// DELETE /decisions/:id — soft delete
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
+    const existing = await prisma.decision.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    if (!existing) { res.status(404).json({ error: 'not_found', message: 'Decision not found' }); return; }
+    await prisma.decision.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } });
+    res.json({ id: req.params.id, status: 'deleted' });
+  } catch (err) { next(err); }
+});
+
 export const decisionsRouter: IRouter = router;

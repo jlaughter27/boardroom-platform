@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { hashPassword, verifyPassword, createToken, authMiddleware, type AuthRequest } from '../middleware/auth';
+import { loginLimiter, registerLimiter } from '../middleware/auth-rate-limiter';
 import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
 
 // POST /auth/register
-router.post('/register', async (req, res, next) => {
+router.post('/register', registerLimiter, async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
     if (!email || !password || !name) {
@@ -19,7 +20,7 @@ router.post('/register', async (req, res, next) => {
     const passwordHash = await hashPassword(password);
     const user = await omnimindClient.registerUser(email, passwordHash, name);
     const token = createToken({ userId: user.id, email: user.email, teamId: user.teamId });
-    res.cookie('boardroom_token', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie('boardroom_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.status(201).json({ userId: user.id, name: user.name });
   } catch (err: unknown) {
     const error = err as Error & { status?: number; upstream?: { error?: string } };
@@ -35,7 +36,7 @@ router.post('/register', async (req, res, next) => {
 });
 
 // POST /auth/login
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -56,7 +57,7 @@ router.post('/login', async (req, res, next) => {
       return;
     }
     const token = createToken({ userId: user.id, email: user.email, teamId: user.teamId });
-    res.cookie('boardroom_token', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie('boardroom_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.json({ userId: user.id, name: user.name });
   } catch (err) { next(err); }
 });
