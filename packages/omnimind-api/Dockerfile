@@ -22,6 +22,10 @@ COPY --from=builder /app/packages/omnimind-api/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./node_modules/@boardroom/shared/dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
+COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
+COPY --from=builder /app/packages/omnimind-api/docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
+
 ENV NODE_ENV=production
 EXPOSE 3333
-CMD ["node", "dist/index.js"]
+CMD ["./docker-entrypoint.sh"]
