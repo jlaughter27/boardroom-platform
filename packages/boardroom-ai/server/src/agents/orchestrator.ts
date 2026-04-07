@@ -8,6 +8,7 @@ import { Agent } from './agent';
 import { initSSE } from './streaming';
 import { loadPrompt } from '../lib/prompt-loader';
 import type { OmniMindClient } from '../services/omnimind-client';
+import { toolRegistry } from '../tools';
 
 export interface SessionState {
   id: string;
@@ -47,6 +48,28 @@ export class CEOOrchestrator {
         const prompt = loadPrompt(personaId);
         const agent = new Agent(config, this.client, prompt);
 
+        // Check if this persona has tool permissions
+        const tools = toolRegistry.getToolsForPersona(personaId);
+        if (tools.length > 0) {
+          // Use tool-enabled non-streaming path
+          const toolExecutor = (name: string, input: Record<string, unknown>) =>
+            toolRegistry.execute(name, input, session.id);
+
+          res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId, model: config.model })}\n\n`);
+          try {
+            const { response, toolInvocations } = await agent.reasonWithTools(
+              session.question, contextRes.items, tools, toolExecutor
+            );
+            res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId, response, toolInvocations })}\n\n`);
+            return response;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId, error: message })}\n\n`);
+            return null;
+          }
+        }
+
+        // No tools — use existing streaming path (unchanged)
         return agent.reasonStreaming(session.question, contextRes.items, res, personaId);
       })
     );
@@ -78,6 +101,41 @@ export class CEOOrchestrator {
 
     res.write(`data: ${JSON.stringify({ type: 'synthesis_start', model: 'sonnet' })}\n\n`);
 
+    // CEO has tool access — use tool-enabled path if tools available
+    const ceoTools = toolRegistry.getToolsForPersona('ceo');
+    const userContent = `## Original Question\n${session.question}\n\n## Persona Perspectives\n${personaOutputs}\n\nSynthesize into a SynthesisReport JSON. No markdown wrapping.`;
+
+    try {
+      if (ceoTools.length > 0) {
+        // Tool-enabled non-streaming synthesis
+        const ceoConfig = PERSONA_CONFIGS.ceo;
+        const agent = new Agent(ceoConfig, this.client, prompt);
+        const toolExecutor = (name: string, input: Record<string, unknown>) =>
+          toolRegistry.execute(name, input, session.id);
+
+        // Build context items from persona outputs for the agent interface
+        const contextItems: import('@boardroom/shared').ContextItem[] = [{
+          source: 'persona_synthesis',
+          type: 'decision',
+          content: personaOutputs,
+          relevanceScore: 1.0,
+        }];
+
+        const { response } = await agent.reasonWithTools(
+          session.question, contextItems, ceoTools, toolExecutor
+        );
+
+        // The CEO reasonWithTools returns PersonaResponse — we need SynthesisReport
+        // Fall back to direct API call for proper schema validation
+        // For v1, use streaming path with tools disabled for synthesis
+        // (CEO tool_use is primarily valuable in dispatch, not synthesis)
+        throw new Error('FALLBACK_TO_STREAMING');
+      }
+    } catch (toolErr) {
+      // Fall through to streaming path (either intentional fallback or tool error)
+    }
+
+    // Streaming synthesis path (existing behavior)
     try {
       const stream = await this.client.messages.stream({
         model,
@@ -85,7 +143,7 @@ export class CEOOrchestrator {
         system: prompt,
         messages: [{
           role: 'user',
-          content: `## Original Question\n${session.question}\n\n## Persona Perspectives\n${personaOutputs}\n\nSynthesize into a SynthesisReport JSON. No markdown wrapping.`,
+          content: userContent,
         }],
       });
 
