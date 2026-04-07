@@ -17,7 +17,8 @@
     "eval:personas": "tsx eval/runners/eval-personas.ts",
     "eval:e2e": "tsx eval/runners/eval-e2e.ts",
     "eval:all": "npm run eval:retrieval && npm run eval:personas && npm run eval:e2e",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "pre-deploy": "bash scripts/pre-deploy-check.sh"
   },
   "devDependencies": {
     "turbo": "^2.4.0",
