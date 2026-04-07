@@ -25,6 +25,7 @@ export interface UserProfile {
   cognitivePatterns: CognitivePattern[];
   decisionHistorySummary: string | null;
   onboardingComplete: boolean;
+  dashboardLayout: unknown;
   createdAt: Date;
   updatedAt: Date;
 }

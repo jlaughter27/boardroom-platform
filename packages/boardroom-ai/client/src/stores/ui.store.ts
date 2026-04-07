@@ -8,6 +8,9 @@ interface UIState {
   closeModal: () => void;
   dismissedQuestions: Set<string>;
   dismissQuestion: (id: string) => void;
+  configuratorOpen: boolean;
+  openConfigurator: () => void;
+  closeConfigurator: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -26,4 +29,8 @@ export const useUIStore = create<UIState>((set) => ({
       next.add(id);
       return { dismissedQuestions: next };
     }),
+
+  configuratorOpen: false,
+  openConfigurator: () => set({ configuratorOpen: true }),
+  closeConfigurator: () => set({ configuratorOpen: false }),
 }));

@@ -1,28 +1,48 @@
-import { GoalHierarchy } from '../components/dashboard/GoalHierarchy';
-import { ProactiveQuestions } from '../components/dashboard/ProactiveQuestions';
-import { OutcomeReviewBanner } from '../components/dashboard/OutcomeReviewBanner';
-import { WeekCalendarStrip } from '../components/dashboard/WeekCalendarStrip';
-import { WeeklyMemoCard } from '../components/dashboard/WeeklyMemoCard';
-import { CortexInsightsPanel } from '../components/dashboard/CortexInsightsPanel';
-import { CognitiveLoadBanner } from '../components/dashboard/CognitiveLoadBanner';
+import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
+import { DashboardConfigurator } from '../components/dashboard/DashboardConfigurator';
+import { useWidgetLayout } from '../hooks/useWidgetLayout';
+import { useUIStore } from '../stores/ui.store';
+import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 
 export default function DashboardPage() {
-  return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-      <CognitiveLoadBanner />
-      <ProactiveQuestions />
-      <OutcomeReviewBanner />
-      <WeekCalendarStrip />
-      <WeeklyMemoCard />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <GoalHierarchy />
-        </div>
-        <div>
-          <CortexInsightsPanel />
-        </div>
+  const { visibleWidgets, widgets, isLoading, updateLayout, resetToDefault } =
+    useWidgetLayout();
+  const { configuratorOpen, openConfigurator, closeConfigurator } = useUIStore();
+
+  if (isLoading) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto flex items-center justify-center min-h-[50vh]">
+        <LoadingSpinner size="lg" />
       </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+        <button
+          onClick={openConfigurator}
+          className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+        >
+          Customize
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {visibleWidgets.map((widget) => (
+          <WidgetRenderer key={widget.id} config={widget} />
+        ))}
+      </div>
+
+      {configuratorOpen && (
+        <DashboardConfigurator
+          widgets={widgets}
+          onSave={updateLayout}
+          onReset={resetToDefault}
+          onClose={closeConfigurator}
+        />
+      )}
     </div>
   );
 }

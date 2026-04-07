@@ -17,6 +17,7 @@ export * from './types/subscription.types';
 export * from './types/embedding.types';
 export * from './types/custom-persona.types';
 export * from './types/simulation.types';
+export * from './types/widget.types';
 
 // Validation schemas
 export * from './validation';
