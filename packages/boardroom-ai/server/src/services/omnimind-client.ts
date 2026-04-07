@@ -262,6 +262,19 @@ export class OmniMindClient {
     return this.request('DELETE', `/oauth/token/${provider}`, userId);
   }
 
+  // Subscription
+  async getSubscription(userId: string) {
+    return this.request('GET', '/subscription', userId);
+  }
+
+  async createSubscription(userId: string, data: unknown) {
+    return this.request('POST', '/subscription', userId, data);
+  }
+
+  async updateSubscription(userId: string, data: unknown) {
+    return this.request('PATCH', '/subscription', userId, data);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

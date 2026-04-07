@@ -531,6 +531,26 @@ export function disconnectCalendar() {
 }
 
 // ---------------------------------------------------------------------------
+// Subscription
+// ---------------------------------------------------------------------------
+
+export function getSubscription() {
+  return request<Record<string, unknown> | null>('/subscription');
+}
+
+export function createCheckout() {
+  return request<{ checkoutUrl: string | null; message?: string }>('/subscription/checkout', {
+    method: 'POST',
+  });
+}
+
+export function cancelSubscription() {
+  return request<{ canceledAt: string; activeUntil: string } | null>('/subscription/cancel', {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
 // User Profile mutations
 // ---------------------------------------------------------------------------
 

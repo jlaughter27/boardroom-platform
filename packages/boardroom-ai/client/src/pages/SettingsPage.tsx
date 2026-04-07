@@ -4,6 +4,7 @@ import { getUserProfile, updateUserProfile } from '../lib/api';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { CalendarSettings } from '../components/settings/CalendarSettings';
+import { SubscriptionSettings } from '../components/settings/SubscriptionSettings';
 import type { UserProfile, RiskProfile } from '@boardroom/shared';
 
 const DECISION_FREQUENCY_OPTIONS = [
@@ -269,6 +270,9 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {/* Subscription */}
+      <SubscriptionSettings />
 
       {/* Calendar Integration */}
       <CalendarSettings />

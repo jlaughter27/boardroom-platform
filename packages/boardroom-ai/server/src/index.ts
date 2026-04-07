@@ -11,6 +11,8 @@ import { entitiesRouter } from './routes/entities.routes';
 import { onboardingRouter } from './routes/onboarding.routes';
 import { cortexRouter } from './routes/cortex.routes';
 import { calendarRouter } from './routes/calendar.routes';
+import { subscriptionRouter } from './routes/subscription.routes';
+import { requireSubscription } from './middleware/subscription.middleware';
 
 const app = express();
 const port = process.env.BOARDROOM_PORT || 3001;
@@ -31,7 +33,8 @@ app.get('/calendar/callback', calendarRouter);
 app.use(authMiddleware);
 
 // Protected routes
-app.use('/sessions', sessionsRouter);
+app.use('/subscription', subscriptionRouter);
+app.use('/sessions', requireSubscription, sessionsRouter);
 app.use('/onboarding', onboardingRouter);
 app.use('/', entitiesRouter);
 app.use('/cortex', cortexRouter);
