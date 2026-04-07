@@ -25,9 +25,11 @@ services:
       - "3333:3333"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/boardroom_dev
-      OMNIMIND_PORT: "3333"
+      OMNIMIND_API_KEY: ${OMNIMIND_API_KEY:-dev-key-local-only}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OMNIMIND_PORT: "3333"
+      NODE_ENV: production
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,13 +40,14 @@ services:
       dockerfile: packages/boardroom-ai/Dockerfile
     ports:
       - "3001:3001"
-      - "5173:5173"
     environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-local-only}
       OMNIMIND_API_URL: http://omnimind-api:3333
-      OMNIMIND_API_KEY: ${OMNIMIND_API_KEY}
-      BOARDROOM_PORT: "3001"
-      JWT_SECRET: ${JWT_SECRET}
+      OMNIMIND_API_KEY: ${OMNIMIND_API_KEY:-dev-key-local-only}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      BOARDROOM_PORT: "3001"
+      CORS_ORIGINS: http://localhost:3001,http://localhost:5173
+      NODE_ENV: production
     depends_on:
       - omnimind-api
 
