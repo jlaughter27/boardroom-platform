@@ -17,6 +17,11 @@ import { customPersonasRouter } from './routes/custom-personas.routes';
 import { integrationsRouter } from './routes/integrations.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { logger } from './lib/logger';
+import { validateBoardRoomEnv } from './lib/env';
+
+if (process.env.NODE_ENV !== 'test') {
+  validateBoardRoomEnv();
+}
 
 const app = express();
 const port = process.env.BOARDROOM_PORT || 3001;

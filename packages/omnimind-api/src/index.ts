@@ -24,6 +24,11 @@ import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { relationshipsRouter } from './routes/relationships.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
+import { validateOmniMindEnv } from './lib/env';
+
+if (process.env.NODE_ENV !== 'test') {
+  validateOmniMindEnv();
+}
 
 const app: Express = express();
 const port = parseInt(process.env.OMNIMIND_PORT || '3333', 10);

@@ -36,3 +36,4 @@ export * from './constants/cortex-config';
 export * from './utils/hashing';
 export * from './utils/temporal';
 export * from './utils/token-counter';
+export * from './utils/env-validator';
