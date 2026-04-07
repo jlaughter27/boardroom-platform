@@ -1,0 +1,358 @@
+// Typed API client for BoardRoom AI
+// All calls go through Vite proxy: /api → localhost:3001
+
+import type {
+  Goal,
+  Project,
+  Task,
+  Person,
+  Decision,
+  Commitment,
+  UserProfile,
+  Memory,
+  PaginatedResponse,
+} from '@boardroom/shared';
+import type { UserMode } from '@boardroom/shared';
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public body?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!res.ok) {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      /* empty */
+    }
+    const msg =
+      body && typeof body === 'object' && 'message' in body
+        ? (body as { message: string }).message
+        : `Request failed: ${res.status}`;
+    throw new ApiError(msg, res.status, body);
+  }
+
+  // 204 No Content
+  if (res.status === 204) return undefined as T;
+
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// SSE streaming helper (POST endpoints returning text/event-stream)
+// ---------------------------------------------------------------------------
+
+export async function* streamSSE(
+  url: string,
+  method: string = 'POST',
+  body?: unknown,
+): AsyncGenerator<{ type: string; [key: string]: unknown }> {
+  const response = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new ApiError(
+      `SSE request failed: ${response.status}`,
+      response.status,
+    );
+  }
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          yield JSON.parse(line.slice(6));
+        } catch {
+          /* skip malformed events */
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+interface AuthUser {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+interface LoginResponse {
+  userId: string;
+  name: string;
+}
+
+export function login(email: string, password: string) {
+  return request<LoginResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function register(email: string, password: string, name: string) {
+  return request<LoginResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, name }),
+  });
+}
+
+export function logout() {
+  return request<{ status: string }>('/auth/logout', { method: 'POST' });
+}
+
+export function getMe() {
+  return request<AuthUser>('/auth/me');
+}
+
+// ---------------------------------------------------------------------------
+// Decision Sessions
+// ---------------------------------------------------------------------------
+
+interface CreateSessionRequest {
+  question: string;
+  mode: UserMode;
+  roomId?: string;
+}
+
+interface CreateSessionResponse {
+  sessionId: string;
+  question: string;
+  mode: UserMode;
+  personasToFire: string[];
+  includesCEO: boolean;
+}
+
+interface SessionDetail {
+  id: string;
+  question: string;
+  mode: UserMode;
+  personaResponses: Record<string, unknown>;
+  ceoSynthesis: unknown | null;
+  sufficiencyScore: unknown | null;
+  createdAt: string;
+}
+
+interface SessionSummary {
+  id: string;
+  question: string;
+  mode: UserMode;
+  personaCount: number;
+  hasSynthesis: boolean;
+  createdAt: string;
+}
+
+export function createSession(input: CreateSessionRequest) {
+  return request<CreateSessionResponse>('/sessions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function getSession(id: string) {
+  return request<SessionDetail>(`/sessions/${id}`);
+}
+
+export function listSessions(limit = 20, offset = 0) {
+  return request<PaginatedResponse<SessionSummary>>(
+    `/sessions?limit=${limit}&offset=${offset}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SSE stream endpoints (POST — use streamSSE helper)
+// ---------------------------------------------------------------------------
+
+export function createDispatchStream(sessionId: string) {
+  return streamSSE(`/api/sessions/${sessionId}/dispatch`);
+}
+
+export function createSynthesisStream(sessionId: string) {
+  return streamSSE(`/api/sessions/${sessionId}/synthesize`);
+}
+
+// ---------------------------------------------------------------------------
+// Entity reads
+// ---------------------------------------------------------------------------
+
+export function getGoals() {
+  return request<Goal[]>('/goals');
+}
+
+export function getProjects() {
+  return request<Project[]>('/projects');
+}
+
+export function getTasks() {
+  return request<Task[]>('/tasks');
+}
+
+export function getPeople() {
+  return request<Person[]>('/people');
+}
+
+export function getDecisions() {
+  return request<Decision[]>('/decisions');
+}
+
+export function getCommitments() {
+  return request<Commitment[]>('/commitments');
+}
+
+export function getUserProfile() {
+  return request<UserProfile>('/profile');
+}
+
+// ---------------------------------------------------------------------------
+// Entity mutations — Goals
+// ---------------------------------------------------------------------------
+
+export function createGoal(input: Record<string, unknown>) {
+  return request<Goal>('/goals', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateGoal(id: string, input: Record<string, unknown>) {
+  return request<Goal>(`/goals/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteGoal(id: string) {
+  return request<void>(`/goals/${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
+// Entity mutations — Projects
+// ---------------------------------------------------------------------------
+
+export function createProject(input: Record<string, unknown>) {
+  return request<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateProject(id: string, input: Record<string, unknown>) {
+  return request<Project>(`/projects/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteProject(id: string) {
+  return request<void>(`/projects/${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
+// Entity mutations — Tasks
+// ---------------------------------------------------------------------------
+
+export function createTask(input: Record<string, unknown>) {
+  return request<Task>('/tasks', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateTask(id: string, input: Record<string, unknown>) {
+  return request<Task>(`/tasks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteTask(id: string) {
+  return request<void>(`/tasks/${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
+// Entity mutations — People
+// ---------------------------------------------------------------------------
+
+export function createPerson(input: Record<string, unknown>) {
+  return request<Person>('/people', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePerson(id: string, input: Record<string, unknown>) {
+  return request<Person>(`/people/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deletePerson(id: string) {
+  return request<void>(`/people/${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+export function searchMemories(query: string, limit = 20) {
+  return request<Memory[]>(
+    `/memories/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+  );
+}
+
+export function getMemory(id: string) {
+  return request<Memory>(`/memories/${id}`);
+}
+
+export function updateMemory(id: string, input: Record<string, unknown>) {
+  return request<Memory>(`/memories/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveMemory(id: string) {
+  return request<void>(`/memories/${id}/archive`, { method: 'POST' });
+}
