@@ -1,0 +1,9 @@
+[
+  {
+    "id": "stress-c-followup-abandonment-001",
+    "description": "TODO: Implement from MASTER-FRAMEWORK.md stress test scenarios",
+    "query": "",
+    "expected_behavior": "",
+    "seed_memories": []
+  }
+]

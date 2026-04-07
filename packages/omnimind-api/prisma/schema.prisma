@@ -1,0 +1,543 @@
+// BoardRoom Platform — Unified Prisma Schema
+// Ported from boardroom-ai (9 original models) + extended with OmniMind entities
+// See docs/MASTER-FRAMEWORK.md Section 4 for complete data model spec
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// PORTED FROM BOARDROOM AI (working models, proven in production)
+// ============================================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  teamMemberships TeamMember[]
+  sessions        Session[]         @relation("SessionCreator")
+  profile         UserProfile?
+
+  @@map("users")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  deepgramApiKey  String? @map("deepgram_api_key")
+  anthropicApiKey String? @map("anthropic_api_key")
+  slackWebhookUrl String? @map("slack_webhook_url")
+  slackBotToken   String? @map("slack_bot_token")
+
+  members TeamMember[]
+  rooms   Room[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id     String         @id @default(cuid())
+  role   TeamMemberRole @default(MEMBER)
+  userId String         @map("user_id")
+  teamId String         @map("team_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+  @@map("team_members")
+}
+
+enum TeamMemberRole {
+  OWNER
+  MEMBER
+  VIEWER
+}
+
+model Room {
+  id        String    @id @default(cuid())
+  name      String
+  teamName  String    @default("") @map("team_name")
+  teamId    String    @map("team_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  team         Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  participants Participant[]
+  sessions     Session[]
+  memoryBank   MemoryEntry[]
+
+  @@map("rooms")
+}
+
+model Participant {
+  id           String  @id @default(cuid())
+  name         String
+  role         String  @default("")
+  email        String?
+  speakerIndex Int?    @map("speaker_index")
+  roomId       String  @map("room_id")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("participants")
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  title     String
+  roomId    String    @map("room_id")
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  wordCount Int       @default(0) @map("word_count")
+
+  room              Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  creator           User?             @relation("SessionCreator", fields: [createdBy], references: [id])
+  transcriptEntries TranscriptEntry[]
+  advisorMessages   AdvisorMessage[]
+  meetingOutput     MeetingOutput?
+  decisions         Decision[]
+  commitments       Commitment[]
+
+  @@map("sessions")
+}
+
+model TranscriptEntry {
+  id          String   @id @default(cuid())
+  sessionId   String   @map("session_id")
+  speaker     Int
+  speakerName String?  @map("speaker_name")
+  text        String
+  isFinal     Boolean  @default(true) @map("is_final")
+  timestamp   DateTime @default(now())
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("transcript_entries")
+}
+
+model AdvisorMessage {
+  id           String   @id @default(cuid())
+  sessionId    String   @map("session_id")
+  personaId    String   @map("persona_id")
+  personaName  String   @map("persona_name")
+  personaColor String   @map("persona_color")
+  question     String?
+  response     String   @default("")
+  isPinned     Boolean  @default(false) @map("is_pinned")
+  rating       String?
+  parentId     String?  @map("parent_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  parent  AdvisorMessage?  @relation("AdvisorThread", fields: [parentId], references: [id])
+  replies AdvisorMessage[] @relation("AdvisorThread")
+
+  @@index([sessionId, createdAt])
+  @@map("advisor_messages")
+}
+
+model MeetingOutput {
+  id               String   @id @default(cuid())
+  sessionId        String   @unique @map("session_id")
+  decisions        String[] @default([])
+  actionItems      Json     @default("[]") @map("action_items")
+  unresolvedIssues String[] @default([]) @map("unresolved_issues")
+  risks            String[] @default([])
+  advisorInsights  String[] @default([]) @map("advisor_insights")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("meeting_outputs")
+}
+
+// ============================================================
+// NEW: OmniMind Memory Layer (MASTER-FRAMEWORK.md Section 4)
+// ============================================================
+
+model MemoryEntry {
+  id             String        @id @default(cuid())
+  userId         String        @map("user_id")
+  title          String
+  content        String
+  domain         String
+  sector         String        @default("")
+  tags           String[]      @default([])
+  memoryClass    MemoryClass   @default(SEMANTIC) @map("memory_class")
+  importance     Float         @default(0.5)
+  confidence     Confidence    @default(MEDIUM)
+  status         MemoryStatus  @default(DRAFT)
+  sourceType     SourceType    @default(MANUAL) @map("source_type")
+  sourceRef      String?       @map("source_ref")
+  sourceWeight   Float         @default(1.0) @map("source_weight")
+  validAt        DateTime      @default(now()) @map("valid_at")
+  invalidAt      DateTime?     @map("invalid_at")
+  supersededBy   String?       @map("superseded_by")
+  version        Int           @default(1)
+  metadata       Json          @default("{}")
+  lastAccessedAt DateTime?     @map("last_accessed_at")
+  deletedAt      DateTime?     @map("deleted_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  // Relations via join table
+  entityLinks    MemoryEntityLink[]
+
+  // Legacy relation (Room-scoped memories from ported BoardRoom)
+  roomId         String?       @map("room_id")
+  room           Room?         @relation(fields: [roomId], references: [id])
+
+  @@index([userId, domain])
+  @@index([userId, memoryClass])
+  @@index([userId, status])
+  @@map("memory_entries")
+}
+
+enum MemoryClass {
+  WORKING
+  EPISODIC
+  SEMANTIC
+  DECISION
+}
+
+enum MemoryStatus {
+  DRAFT
+  CONFIRMED
+  SUPERSEDED
+  ARCHIVED
+  REJECTED
+}
+
+enum Confidence {
+  HIGH
+  MEDIUM
+  LOW
+  SPECULATIVE
+}
+
+enum SourceType {
+  MANUAL
+  BOARDROOM_SESSION
+  API_IMPORT
+  AGENT_EXTRACTED
+}
+
+// ============================================================
+// NEW: First-Class Decision Entity
+// ============================================================
+
+model Decision {
+  id           String         @id @default(cuid())
+  userId       String         @map("user_id")
+  title        String
+  question     String
+  options      Json           @default("[]")
+  chosenPath   String?        @map("chosen_path")
+  rationale    String?
+  constraints  String[]       @default([])
+  status       DecisionStatus @default(OPEN)
+  reviewAt     DateTime?      @map("review_at")
+  outcome      String?
+  outcomeRating Int?          @map("outcome_rating")
+  sessionId    String?        @map("session_id")
+  version      Int            @default(1)
+  deletedAt    DateTime?      @map("deleted_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  session      Session?       @relation(fields: [sessionId], references: [id])
+  assumptions  DecisionAssumption[]
+  projectLinks DecisionProjectLink[]
+
+  @@index([userId, status])
+  @@map("decisions")
+}
+
+enum DecisionStatus {
+  OPEN
+  DECIDED
+  REVIEWED
+  REVISED
+}
+
+model DecisionAssumption {
+  id           String   @id @default(cuid())
+  decisionId   String   @map("decision_id")
+  text         String
+  confidence   Confidence @default(MEDIUM)
+  reviewAt     DateTime?  @map("review_at")
+  status       String     @default("ACTIVE")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@map("decision_assumptions")
+}
+
+// ============================================================
+// NEW: Commitment Tracking
+// ============================================================
+
+model Commitment {
+  id              String           @id @default(cuid())
+  userId          String           @map("user_id")
+  description     String
+  stakeholderId   String?          @map("stakeholder_id")
+  deadline        DateTime?
+  status          CommitmentStatus @default(OPEN)
+  sourceSessionId String?          @map("source_session_id")
+  linkedProjectId String?          @map("linked_project_id")
+  deletedAt       DateTime?        @map("deleted_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  completedAt     DateTime?        @map("completed_at")
+
+  session         Session?         @relation(fields: [sourceSessionId], references: [id])
+  stakeholder     Person?          @relation(fields: [stakeholderId], references: [id])
+  project         Project?         @relation(fields: [linkedProjectId], references: [id])
+
+  @@index([userId, status])
+  @@map("commitments")
+}
+
+enum CommitmentStatus {
+  OPEN
+  COMPLETED
+  MISSED
+  DEFERRED
+}
+
+// ============================================================
+// NEW: Entities (People, Goals, Projects, Tasks)
+// ============================================================
+
+model Person {
+  id                  String   @id @default(cuid())
+  userId              String   @map("user_id")
+  name                String
+  role                String?
+  domains             String[] @default([])
+  importance          Float    @default(0.5)
+  relationshipToUser  String?  @map("relationship_to_user")
+  lastContactAt       DateTime? @map("last_contact_at")
+  notes               String?
+  interactionFrequency Int     @default(0) @map("interaction_frequency")
+  version             Int      @default(1)
+  deletedAt           DateTime? @map("deleted_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  commitments    Commitment[]
+  projectLinks   ProjectPersonLink[]
+
+  @@index([userId])
+  @@map("people")
+}
+
+model Goal {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  title          String
+  level          Int       @default(0)
+  parentGoalId   String?   @map("parent_goal_id")
+  successMetrics String[]  @default([]) @map("success_metrics")
+  deadline       DateTime?
+  status         String    @default("active")
+  domain         String    @default("")
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  parentGoal     Goal?     @relation("GoalHierarchy", fields: [parentGoalId], references: [id])
+  childGoals     Goal[]    @relation("GoalHierarchy")
+  projectLinks   GoalProjectLink[]
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model Project {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  title          String
+  status         String    @default("active")
+  deadline       DateTime?
+  successMetrics String[]  @default([]) @map("success_metrics")
+  domain         String    @default("")
+  version        Int       @default(1)
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  goalLinks      GoalProjectLink[]
+  personLinks    ProjectPersonLink[]
+  taskLinks      ProjectTaskLink[]
+  decisionLinks  DecisionProjectLink[]
+  commitments    Commitment[]
+
+  @@index([userId])
+  @@map("projects")
+}
+
+model Task {
+  id              String    @id @default(cuid())
+  userId          String    @map("user_id")
+  title           String
+  owner           String?
+  status          String    @default("pending")
+  deadline        DateTime?
+  priority        Int       @default(0)
+  estimatedEffort Float?    @map("estimated_effort")
+  actualEffort    Float?    @map("actual_effort")
+  version         Int       @default(1)
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  projectLinks    ProjectTaskLink[]
+  dependencies    TaskDependency[] @relation("TaskDependsOn")
+  dependedOnBy    TaskDependency[] @relation("TaskDependedOn")
+
+  @@index([userId])
+  @@map("tasks")
+}
+
+// ============================================================
+// NEW: User Profile (Personalization Engine)
+// ============================================================
+
+model UserProfile {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique @map("user_id")
+  role                   String?
+  industry               String?
+  decisionFrequency      String?  @map("decision_frequency")
+  riskProfile            Json     @default("{\"financial\":0.5,\"technical\":0.5,\"people\":0.5,\"strategic\":0.5}") @map("risk_profile")
+  valueHierarchy         String[] @default([]) @map("value_hierarchy")
+  cognitivePatterns      Json     @default("[]") @map("cognitive_patterns")
+  decisionHistorySummary String?  @map("decision_history_summary")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+// ============================================================
+// NEW: Context Capsules (Pre-Generated Summaries)
+// ============================================================
+
+model ContextCapsule {
+  id                  String   @id @default(cuid())
+  userId              String   @map("user_id")
+  entityType          String   @map("entity_type")
+  entityId            String   @map("entity_id")
+  summary             String
+  openRisks           String[] @default([]) @map("open_risks")
+  unresolvedQuestions  String[] @default([]) @map("unresolved_questions")
+  activeStakeholders  String[] @default([]) @map("active_stakeholders")
+  recentChanges       String[] @default([]) @map("recent_changes")
+  generatedAt         DateTime @default(now()) @map("generated_at")
+  staleAfter          DateTime @map("stale_after")
+
+  @@unique([userId, entityType, entityId])
+  @@map("context_capsules")
+}
+
+// ============================================================
+// JOIN TABLES (Normalized relationships, replacing JSONB arrays)
+// ============================================================
+
+model MemoryEntityLink {
+  id         String @id @default(cuid())
+  memoryId   String @map("memory_id")
+  entityType String @map("entity_type")
+  entityId   String @map("entity_id")
+  linkType   String @default("relates_to") @map("link_type")
+
+  memory MemoryEntry @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@unique([memoryId, entityType, entityId, linkType])
+  @@index([entityType, entityId])
+  @@map("memory_entity_links")
+}
+
+model GoalProjectLink {
+  id        String @id @default(cuid())
+  goalId    String @map("goal_id")
+  projectId String @map("project_id")
+
+  goal    Goal    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, projectId])
+  @@map("goal_project_links")
+}
+
+model ProjectPersonLink {
+  id        String @id @default(cuid())
+  projectId String @map("project_id")
+  personId  String @map("person_id")
+  role      String @default("")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  person  Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, personId])
+  @@map("project_person_links")
+}
+
+model ProjectTaskLink {
+  id        String @id @default(cuid())
+  projectId String @map("project_id")
+  taskId    String @map("task_id")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, taskId])
+  @@map("project_task_links")
+}
+
+model DecisionProjectLink {
+  id         String @id @default(cuid())
+  decisionId String @map("decision_id")
+  projectId  String @map("project_id")
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, projectId])
+  @@map("decision_project_links")
+}
+
+model TaskDependency {
+  id              String @id @default(cuid())
+  taskId          String @map("task_id")
+  dependsOnTaskId String @map("depends_on_task_id")
+
+  task      Task @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("TaskDependedOn", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@map("task_dependencies")
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.turbo/
+*.env
+!.env.example
+.DS_Store
+coverage/
+*.log
+backups/
+packages/omnimind-api/prisma/migrations/*_migration.sql
+!packages/omnimind-api/prisma/migrations/migration_lock.toml

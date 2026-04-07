@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: boardroom_dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  omnimind-api:
+    build:
+      context: .
+      dockerfile: packages/omnimind-api/Dockerfile
+    ports:
+      - "3333:3333"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/boardroom_dev
+      OMNIMIND_PORT: "3333"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  boardroom-ai:
+    build:
+      context: .
+      dockerfile: packages/boardroom-ai/Dockerfile
+    ports:
+      - "3001:3001"
+      - "5173:5173"
+    environment:
+      OMNIMIND_API_URL: http://omnimind-api:3333
+      OMNIMIND_API_KEY: ${OMNIMIND_API_KEY}
+      BOARDROOM_PORT: "3001"
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - omnimind-api
+
+volumes:
+  pgdata:
