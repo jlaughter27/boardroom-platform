@@ -363,6 +363,39 @@ export function searchMemories(query: string, limit = 20) {
   );
 }
 
+export interface ListMemoriesParams {
+  q?: string;
+  domain?: string;
+  tags?: string;
+  memoryClass?: string;
+  status?: string;
+  since?: string;
+  sortBy?: string;
+  sortOrder?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListMemoriesResponse {
+  items: Memory[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export function listMemories(params: ListMemoriesParams = {}) {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '' && value !== null) {
+      qs.set(key, String(value));
+    }
+  }
+  const queryString = qs.toString();
+  return request<ListMemoriesResponse>(
+    `/memories${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
 export function getMemory(id: string) {
   return request<Memory>(`/memories/${id}`);
 }
