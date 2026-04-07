@@ -10,7 +10,7 @@ export function useWidgetLayout() {
   useEffect(() => {
     api
       .getUserProfile()
-      .then((profile: any) => {
+      .then((profile) => {
         if (
           profile?.dashboardLayout &&
           Array.isArray(profile.dashboardLayout) &&

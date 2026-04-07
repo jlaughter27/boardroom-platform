@@ -1,17 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
+import type { ScoredResult } from '@boardroom/shared';
 
-export interface ScoredResult {
-  id: string;
-  type: 'memory' | 'person' | 'goal' | 'project' | 'decision';
-  content: string;
-  title: string;
-  relevanceScore: number;
-  source: 'structured' | 'fts' | 'trigram' | 'semantic';
-  whyIncluded: string;
-  tags?: string[];
-  importance?: number;
-  lastAccessedAt?: Date | null;
-}
+export type { ScoredResult };
 
 export async function structuredFilter(
   userId: string,

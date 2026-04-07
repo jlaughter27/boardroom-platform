@@ -1,9 +1,5 @@
 import { CreateMemoryRequestSchema } from '@boardroom/shared';
-
-export interface ValidationResult {
-  valid: boolean;
-  errors: { field: string; message: string }[];
-}
+import type { ValidationResult } from '@boardroom/shared';
 
 export function validateMemorySchema(input: unknown): ValidationResult {
   const result = CreateMemoryRequestSchema.safeParse(input);

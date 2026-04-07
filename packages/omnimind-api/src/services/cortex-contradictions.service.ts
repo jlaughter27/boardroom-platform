@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 import { CORTEX_CONFIG, ContradictionDetectionsLLMSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 
@@ -99,12 +99,12 @@ If no contradiction found for a pair, omit it from the array. Only flag genuine 
 export async function getContradictions(
   userId: string, status: string | undefined, limit: number, offset: number, prisma: PrismaClient
 ) {
-  const where: Record<string, unknown> = { userId };
-  if (status) where.status = status;
+  const where: Prisma.ContradictionAlertWhereInput = { userId };
+  if (status) where.status = status as Prisma.ContradictionAlertWhereInput['status'];
 
   const [items, total] = await Promise.all([
-    prisma.contradictionAlert.findMany({ where: where as any, orderBy: { detectedAt: 'desc' }, take: limit, skip: offset }),
-    prisma.contradictionAlert.count({ where: where as any }),
+    prisma.contradictionAlert.findMany({ where, orderBy: { detectedAt: 'desc' }, take: limit, skip: offset }),
+    prisma.contradictionAlert.count({ where }),
   ]);
   return { items, total, offset, limit };
 }
@@ -115,7 +115,7 @@ export async function updateContradiction(
   return prisma.contradictionAlert.update({
     where: { id },
     data: {
-      status: status as any,
+      status: status as Prisma.ContradictionAlertUpdateInput['status'],
       resolution: resolution ?? null,
       resolvedAt: ['RESOLVED', 'DISMISSED'].includes(status) ? new Date() : null,
     },

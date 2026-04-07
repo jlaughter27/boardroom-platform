@@ -1,7 +1,9 @@
 import type { ScoredResult } from './structured-filter';
-import type { PersonaId } from '@boardroom/shared';
+import type { PersonaId, ContextPackage } from '@boardroom/shared';
 import { RETRIEVAL_CONFIG } from '@boardroom/shared';
 import { estimateTokens } from '@boardroom/shared';
+
+export type { ContextPackage };
 
 const PERSONA_TAG_BOOSTS: Record<string, string[]> = {
   optimist: ['success', 'opportunity', 'resource', 'strength', 'win'],
@@ -14,22 +16,6 @@ const PERSONA_TAG_BOOSTS: Record<string, string[]> = {
 };
 
 const TAG_BOOST_AMOUNT = 0.15;
-
-export interface ContextPackage {
-  items: {
-    type: ScoredResult['type'];
-    id: string;
-    content: string;
-    relevanceScore: number;
-    source: ScoredResult['source'];
-    whyIncluded: string;
-  }[];
-  tokenEstimate: number;
-  retrievalMetadata: {
-    totalCandidates: number;
-    layersUsed: string[];
-  };
-}
 
 export function packageForPersona(
   results: ScoredResult[],

@@ -19,6 +19,7 @@ export * from './types/custom-persona.types';
 export * from './types/simulation.types';
 export * from './types/widget.types';
 export * from './types/integration.types';
+export * from './types/internal.types';
 
 // Validation schemas
 export * from './validation';

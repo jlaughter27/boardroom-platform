@@ -65,7 +65,7 @@ Be specific. Reference actual decisions. Min confidence ${CORTEX_CONFIG.patternC
       results.push(updated);
     } else {
       const created = await prisma.thinkingPattern.create({
-        data: { userId, pattern: p.pattern, patternType: p.patternType as any, confidence: p.confidence },
+        data: { userId, pattern: p.pattern, patternType: p.patternType, confidence: p.confidence },
       });
       results.push(created);
     }

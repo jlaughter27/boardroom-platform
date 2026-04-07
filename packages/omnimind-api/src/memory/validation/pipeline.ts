@@ -1,13 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
+import type { PipelineResult } from '@boardroom/shared';
 import { validateMemorySchema } from './schema-validator';
 import { validateTemporalConsistency } from './temporal-validator';
 import { enforceBudget } from './budget-enforcer';
-
-export interface PipelineResult {
-  valid: boolean;
-  errors: { field: string; message: string }[];
-  durationMs: number;
-}
 
 export async function runValidationPipeline(
   input: unknown,
