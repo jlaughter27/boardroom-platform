@@ -16,6 +16,7 @@ import type {
   EmailSummary,
   EmailExtraction,
   EmailMemoryProposal,
+  CreateMemoryResponse,
 } from '@boardroom/shared';
 import type { UserMode } from '@boardroom/shared';
 
@@ -417,7 +418,7 @@ export function archiveMemory(id: string) {
 }
 
 export function createMemory(input: Record<string, unknown>) {
-  return request<Memory>('/memories', {
+  return request<CreateMemoryResponse>('/memories', {
     method: 'POST',
     body: JSON.stringify(input),
   });
