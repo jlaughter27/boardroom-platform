@@ -15,3 +15,4 @@ export * from './simulation.schema';
 export * from './integration.schema';
 export * from './cortex-llm-response.schema';
 export * from './boardroom-llm-response.schema';
+export * from './request-body.schema';

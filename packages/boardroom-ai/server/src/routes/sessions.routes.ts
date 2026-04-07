@@ -9,6 +9,8 @@ import { proposeExtractions, confirmExtractions } from '../services/extraction.s
 import { exportSession } from '../services/export.service';
 import { getPersonasForMode, shouldIncludeCEO } from '../personas/mode-router';
 import type { PersonaId, UserMode, MemoryProposal } from '@boardroom/shared';
+import { CreateSessionBodySchema } from '@boardroom/shared';
+import { validateBody } from '../middleware/validate';
 import Anthropic from '@anthropic-ai/sdk';
 
 const router: IRouter = Router();
@@ -25,13 +27,9 @@ function getOrchestrator(): CEOOrchestrator {
 }
 
 // POST /sessions -- create
-router.post('/', (req: AuthRequest, res, next) => {
+router.post('/', validateBody(CreateSessionBodySchema), (req: AuthRequest, res, next) => {
   try {
     const { question, mode } = req.body as { question: string; mode: UserMode; roomId?: string };
-    if (!question || !mode) {
-      res.status(422).json({ error: 'validation_failed', details: [{ field: 'body', message: 'question and mode required' }] });
-      return;
-    }
 
     const id = `session_${++sessionCounter}_${Date.now()}`;
     const session: SessionState = {

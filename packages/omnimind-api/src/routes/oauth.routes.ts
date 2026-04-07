@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { IRouter } from 'express';
 import { prisma } from '../lib/db';
 import { encrypt, decrypt } from '../lib/crypto';
+import { SaveOAuthTokenBodySchema } from '@boardroom/shared';
+import { validateBody } from '../middleware/validate';
 
 const router: IRouter = Router();
 
@@ -21,7 +23,7 @@ router.get('/token/:provider', async (req, res, next) => {
 });
 
 // POST /oauth/token — save/update token
-router.post('/token', async (req, res, next) => {
+router.post('/token', validateBody(SaveOAuthTokenBodySchema), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }

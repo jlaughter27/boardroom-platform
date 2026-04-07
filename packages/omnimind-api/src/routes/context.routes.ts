@@ -3,11 +3,13 @@ import type { Router as IRouter } from 'express';
 import { prisma } from '../lib/db';
 import { assembleContextForPersona } from '../services/context-assembler.service';
 import type { PersonaId } from '@boardroom/shared';
+import { ContextForPersonaBodySchema } from '@boardroom/shared';
+import { validateBody } from '../middleware/validate';
 
 const router: IRouter = Router();
 
 // POST /context/for-persona
-router.post('/for-persona', async (req, res, next) => {
+router.post('/for-persona', validateBody(ContextForPersonaBodySchema), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) {
@@ -24,17 +26,6 @@ router.post('/for-persona', async (req, res, next) => {
       maxItems?: number;
       includeEntities?: string[];
     };
-
-    if (!query || !persona) {
-      res.status(422).json({
-        error: 'validation_failed',
-        details: [
-          ...(!query ? [{ field: 'query', message: 'query is required' }] : []),
-          ...(!persona ? [{ field: 'persona', message: 'persona is required' }] : []),
-        ],
-      });
-      return;
-    }
 
     const result = await assembleContextForPersona(userId, query, persona, prisma, {
       maxItems,

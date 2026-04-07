@@ -2,21 +2,16 @@ import { Router } from 'express';
 import type { IRouter } from 'express';
 import { hashPassword, verifyPassword, createToken, authMiddleware, type AuthRequest } from '../middleware/auth';
 import { loginLimiter, registerLimiter } from '../middleware/auth-rate-limiter';
+import { validateBody } from '../middleware/validate';
+import { RegisterBodySchema, LoginBodySchema } from '@boardroom/shared';
 import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
 
 // POST /auth/register
-router.post('/register', registerLimiter, async (req, res, next) => {
+router.post('/register', registerLimiter, validateBody(RegisterBodySchema), async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
-    if (!email || !password || !name) {
-      res.status(422).json({
-        error: 'validation_failed',
-        details: [{ field: 'body', message: 'email, password, and name required' }],
-      });
-      return;
-    }
     const passwordHash = await hashPassword(password);
     const user = await omnimindClient.registerUser(email, passwordHash, name);
     const token = createToken({ userId: user.id, email: user.email, teamId: user.teamId });
@@ -36,16 +31,9 @@ router.post('/register', registerLimiter, async (req, res, next) => {
 });
 
 // POST /auth/login
-router.post('/login', loginLimiter, async (req, res, next) => {
+router.post('/login', loginLimiter, validateBody(LoginBodySchema), async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      res.status(422).json({
-        error: 'validation_failed',
-        details: [{ field: 'body', message: 'email and password required' }],
-      });
-      return;
-    }
     const user = await omnimindClient.getUserByEmail(email);
     if (!user) {
       res.status(401).json({ error: 'unauthorized', message: 'Invalid email or password' });
