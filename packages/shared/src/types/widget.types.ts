@@ -9,7 +9,8 @@ export type WidgetType =
   | 'recent_decisions'
   | 'outcome_reviews'
   | 'cognitive_load'
-  | 'quick_take';
+  | 'quick_take'
+  | 'relationship_map';
 
 export interface WidgetConfig {
   id: string;
@@ -46,4 +47,5 @@ export const WIDGET_LABELS: Record<WidgetType, string> = {
   outcome_reviews: 'Outcome Reviews',
   cognitive_load: 'Cognitive Load',
   quick_take: 'Quick Take',
+  relationship_map: 'Relationship Map',
 };

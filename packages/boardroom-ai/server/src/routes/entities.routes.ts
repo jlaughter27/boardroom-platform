@@ -259,4 +259,40 @@ router.post('/outcome-reviews/:id/skip', async (req: AuthRequest, res, next) => 
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// Relationships
+// ---------------------------------------------------------------------------
+
+router.get('/relationships/graph', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getRelationshipGraph(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Memory Entity Links
+// ---------------------------------------------------------------------------
+
+router.post('/memories/:id/links', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createMemoryLink(req.auth!.userId, req.params.id, req.body);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/memories/:id/links', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getMemoryLinks(req.auth!.userId, req.params.id);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.delete('/memories/:id/links/:linkId', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.deleteMemoryLink(req.auth!.userId, req.params.id, req.params.linkId);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
 export const entitiesRouter: IRouter = router;

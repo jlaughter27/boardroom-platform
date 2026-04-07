@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Memory } from '@boardroom/shared';
 import { MemoryClass, MemoryStatus, Confidence } from '@boardroom/shared';
 import { useMemoryStore } from '../../stores/memory.store';
+import * as api from '../../lib/api';
+import type { MemoryEntityLink } from '../../lib/api';
+import { EntityLinker } from './EntityLinker';
 
 interface MemoryDetailProps {
   memory: Memory;
@@ -35,6 +38,12 @@ function formatDate(date: Date | string | null): string {
   });
 }
 
+const ENTITY_TYPE_COLORS: Record<string, string> = {
+  person: 'bg-blue-900/50 text-blue-400 border-blue-800',
+  goal: 'bg-green-900/50 text-green-400 border-green-800',
+  project: 'bg-purple-900/50 text-purple-400 border-purple-800',
+};
+
 export function MemoryDetail({ memory }: MemoryDetailProps) {
   const { updateMemory, archiveMemory } = useMemoryStore();
   const [editing, setEditing] = useState(false);
@@ -45,12 +54,57 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
   const [saving, setSaving] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
 
+  // Related memories state
+  const [relatedMemories, setRelatedMemories] = useState<Memory[]>([]);
+  const [loadingRelated, setLoadingRelated] = useState(false);
+
+  // Linked entities state
+  const [entityLinks, setEntityLinks] = useState<MemoryEntityLink[]>([]);
+  const [loadingLinks, setLoadingLinks] = useState(false);
+  const [showLinker, setShowLinker] = useState(false);
+
   // Reset form when memory changes
   if (title !== memory.title && !editing) {
     setTitle(memory.title);
     setContent(memory.content);
     setImportance(memory.importance);
     setTags(memory.tags.join(', '));
+  }
+
+  // Fetch related memories
+  useEffect(() => {
+    if (!memory.domain) return;
+    setLoadingRelated(true);
+    api.listMemories({ domain: memory.domain, limit: 5 }).then(result => {
+      // Filter out the current memory
+      const related = (result.items || []).filter((m: Memory) => m.id !== memory.id);
+      setRelatedMemories(related.slice(0, 5));
+      setLoadingRelated(false);
+    }).catch(() => setLoadingRelated(false));
+  }, [memory.id, memory.domain]);
+
+  // Fetch entity links
+  useEffect(() => {
+    setLoadingLinks(true);
+    api.getMemoryLinks(memory.id).then(links => {
+      setEntityLinks(links);
+      setLoadingLinks(false);
+    }).catch(() => setLoadingLinks(false));
+  }, [memory.id]);
+
+  function refreshLinks() {
+    api.getMemoryLinks(memory.id).then(links => {
+      setEntityLinks(links);
+    }).catch(() => { /* ignore */ });
+  }
+
+  async function handleDeleteLink(linkId: string) {
+    try {
+      await api.deleteMemoryLink(memory.id, linkId);
+      setEntityLinks(prev => prev.filter(l => l.id !== linkId));
+    } catch {
+      // ignore
+    }
   }
 
   async function handleSave() {
@@ -343,6 +397,79 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             ) : (
               <span className="text-sm text-gray-500">No tags</span>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Linked Entities */}
+      <div className="border-t border-gray-700 pt-3">
+        <div className="flex items-center justify-between mb-2">
+          <p className={labelClass}>Linked Entities</p>
+          <button
+            onClick={() => setShowLinker(!showLinker)}
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            {showLinker ? 'Cancel' : 'Link to...'}
+          </button>
+        </div>
+
+        {loadingLinks ? (
+          <p className="text-xs text-gray-500">Loading links...</p>
+        ) : entityLinks.length === 0 ? (
+          <p className="text-xs text-gray-500">No linked entities</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {entityLinks.map(link => (
+              <span
+                key={link.id}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${
+                  ENTITY_TYPE_COLORS[link.entityType] ?? 'bg-gray-800 text-gray-400 border-gray-700'
+                }`}
+              >
+                {link.entityType}: {link.entityId.slice(0, 8)}...
+                <button
+                  onClick={() => handleDeleteLink(link.id)}
+                  className="ml-0.5 hover:opacity-70"
+                  title="Remove link"
+                >
+                  x
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {showLinker && (
+          <div className="mt-2">
+            <EntityLinker
+              memoryId={memory.id}
+              onLink={() => {
+                refreshLinks();
+                setShowLinker(false);
+              }}
+              onClose={() => setShowLinker(false)}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Related Memories */}
+      <div className="border-t border-gray-700 pt-3">
+        <p className={labelClass}>Related Memories</p>
+        {loadingRelated ? (
+          <p className="text-xs text-gray-500 mt-1">Loading related...</p>
+        ) : relatedMemories.length === 0 ? (
+          <p className="text-xs text-gray-500 mt-1">No related memories found</p>
+        ) : (
+          <div className="mt-1 space-y-1.5">
+            {relatedMemories.map(rm => (
+              <div key={rm.id} className="p-2 bg-gray-800 rounded text-xs">
+                <p className="text-gray-200 font-medium">{rm.title}</p>
+                <p className="text-gray-500 mt-0.5">
+                  {rm.domain} &bull; {rm.tags.slice(0, 3).join(', ') || 'no tags'}
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </div>

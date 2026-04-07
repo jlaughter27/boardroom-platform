@@ -297,6 +297,24 @@ export class OmniMindClient {
     return this.request('POST', '/cortex/simulate', userId, data);
   }
 
+  // Relationships
+  async getRelationshipGraph(userId: string) {
+    return this.request('GET', '/relationships/graph', userId);
+  }
+
+  // Memory Entity Links
+  async createMemoryLink(userId: string, memoryId: string, data: { entityType: string; entityId: string; linkType?: string }) {
+    return this.request('POST', `/memories/${memoryId}/links`, userId, data);
+  }
+
+  async getMemoryLinks(userId: string, memoryId: string) {
+    return this.request('GET', `/memories/${memoryId}/links`, userId);
+  }
+
+  async deleteMemoryLink(userId: string, memoryId: string, linkId: string) {
+    return this.request('DELETE', `/memories/${memoryId}/links/${linkId}`, userId);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

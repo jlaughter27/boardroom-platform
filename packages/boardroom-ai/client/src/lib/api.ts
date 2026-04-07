@@ -421,6 +421,43 @@ export function createMemory(input: Record<string, unknown>) {
 }
 
 // ---------------------------------------------------------------------------
+// Relationships
+// ---------------------------------------------------------------------------
+
+export function getRelationshipGraph() {
+  return request<{ nodes: Array<{ id: string; type: 'person' | 'project'; label: string; size: number; domain: string }>; edges: Array<{ source: string; target: string; weight: number; type: string }> }>(
+    '/relationships/graph',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Memory Entity Links
+// ---------------------------------------------------------------------------
+
+export interface MemoryEntityLink {
+  id: string;
+  memoryId: string;
+  entityType: string;
+  entityId: string;
+  linkType: string;
+}
+
+export function createMemoryLink(memoryId: string, data: { entityType: string; entityId: string; linkType?: string }) {
+  return request<MemoryEntityLink>(`/memories/${memoryId}/links`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function getMemoryLinks(memoryId: string) {
+  return request<MemoryEntityLink[]>(`/memories/${memoryId}/links`);
+}
+
+export function deleteMemoryLink(memoryId: string, linkId: string) {
+  return request<void>(`/memories/${memoryId}/links/${linkId}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
 // Outcome Reviews
 // ---------------------------------------------------------------------------
 

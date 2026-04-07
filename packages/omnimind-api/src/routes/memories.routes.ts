@@ -127,4 +127,73 @@ router.delete('/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// Memory Entity Links
+// ---------------------------------------------------------------------------
+
+// POST /memories/:id/links — create a MemoryEntityLink
+router.post('/:id/links', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const { entityType, entityId, linkType } = req.body as { entityType: string; entityId: string; linkType?: string };
+    if (!entityType || !entityId) {
+      res.status(422).json({ error: 'validation_failed', details: [{ field: 'entityType/entityId', message: 'entityType and entityId are required' }] });
+      return;
+    }
+
+    // Verify memory belongs to user
+    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
+
+    const link = await prisma.memoryEntityLink.create({
+      data: {
+        memoryId: req.params.id,
+        entityType,
+        entityId,
+        linkType: linkType ?? 'relates_to',
+      },
+    });
+
+    res.status(201).json(link);
+  } catch (err) { next(err); }
+});
+
+// GET /memories/:id/links — list links for a memory
+router.get('/:id/links', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    // Verify memory belongs to user
+    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
+
+    const links = await prisma.memoryEntityLink.findMany({
+      where: { memoryId: req.params.id },
+    });
+
+    res.json(links);
+  } catch (err) { next(err); }
+});
+
+// DELETE /memories/:id/links/:linkId — remove a link
+router.delete('/:id/links/:linkId', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    // Verify memory belongs to user
+    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
+
+    const link = await prisma.memoryEntityLink.findFirst({ where: { id: req.params.linkId, memoryId: req.params.id } });
+    if (!link) { res.status(404).json({ error: 'not_found', message: 'Link not found' }); return; }
+
+    await prisma.memoryEntityLink.delete({ where: { id: req.params.linkId } });
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
 export const memoriesRouter: IRouter = router;
