@@ -1,0 +1,1 @@
+Extract 2-4 active projects from the user text. Return ONLY a JSON array, no other text. Format: [{"title":"...","domain":"business","status":"active"}]. Domain should be one of: business, personal, health, financial, career, relationships. Status should be one of: active, planning, paused.

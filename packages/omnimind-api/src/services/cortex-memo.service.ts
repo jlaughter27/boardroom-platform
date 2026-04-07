@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
 import { CORTEX_CONFIG, WeeklyMemoLLMResponseSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 
 const MODEL = 'claude-sonnet-4-6-20250514';
 
@@ -54,18 +55,7 @@ ${contradictions.map(c => `- ${c.description} (${c.severity})`).join('\n') || 'N
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 2000,
-    system: `You generate a weekly "State of Your Thinking" memo. Analyze the user's week and return JSON:
-{
-  "decisionsMade": number,
-  "decisionsByCategory": { "strategic": N, "operational": N, ... },
-  "patternsNoticed": ["pattern1", "pattern2"],
-  "activeContradictions": ["contradiction1"],
-  "upcomingPressurePoints": ["pressure1"],
-  "thinkingQualityScore": number (0-10),
-  "recommendedFocus": ["focus1", "focus2"],
-  "fullMemoText": "markdown formatted memo text"
-}
-Be specific. Reference actual decisions, goals, deadlines by name. The memo should feel personal and insightful.`,
+    system: loadSystemPrompt('cortex-memo'),
     messages: [{ role: 'user', content: context }],
   });
 

@@ -3,6 +3,7 @@ import type { IRouter } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import type { AuthRequest } from '../middleware/auth';
 import { MODEL_MAP, ExtractedGoalsSchema, ExtractedProjectsSchema } from '@boardroom/shared';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
@@ -23,7 +24,7 @@ router.post('/extract-goals', async (req: AuthRequest, res, next) => {
     const response = await client.messages.create({
       model: MODEL_MAP.haiku,
       max_tokens: 500,
-      system: 'Extract 2-4 goals from the user text. Return ONLY a JSON array, no other text. Format: [{"title":"...","level":0,"domain":"business"}]. Levels: 0=life goal, 1=annual, 2=quarterly, 3=monthly. Domain should be one of: business, personal, health, financial, career, relationships.',
+      system: loadSystemPrompt('onboarding-goals'),
       messages: [{ role: 'user', content: text }],
     });
 
@@ -53,7 +54,7 @@ router.post('/extract-projects', async (req: AuthRequest, res, next) => {
     const response = await client.messages.create({
       model: MODEL_MAP.haiku,
       max_tokens: 500,
-      system: 'Extract 2-4 active projects from the user text. Return ONLY a JSON array, no other text. Format: [{"title":"...","domain":"business","status":"active"}]. Domain should be one of: business, personal, health, financial, career, relationships. Status should be one of: active, planning, paused.',
+      system: loadSystemPrompt('onboarding-projects'),
       messages: [{ role: 'user', content: text }],
     });
 

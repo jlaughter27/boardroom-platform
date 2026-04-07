@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SufficiencyScore } from '@boardroom/shared';
 import { MODEL_MAP, SufficiencyScoreLLMSchema } from '@boardroom/shared';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 
 export async function checkSufficiency(
   question: string,
@@ -9,10 +10,7 @@ export async function checkSufficiency(
   const response = await client.messages.create({
     model: MODEL_MAP.haiku,
     max_tokens: 500,
-    system: `You assess whether a user's question has enough context for multi-perspective analysis.
-Rate from 0 (fully clear) to 1 (extremely ambiguous).
-Return JSON: { "score": number, "missingDimensions": string[], "suggestedQuestions": string[], "inferredIntent": string, "canProceed": boolean }
-canProceed = true if score < 0.6.`,
+    system: loadSystemPrompt('sufficiency-check'),
     messages: [{ role: 'user', content: question }],
   });
 

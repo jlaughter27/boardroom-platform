@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { CORTEX_CONFIG, ContradictionDetectionsLLMSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 
 const MODEL = 'claude-haiku-4-5-20251001'; // Haiku for cheap batch checks
 
@@ -54,9 +55,7 @@ export async function scanContradictions(userId: string, prisma: PrismaClient): 
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 1000,
-      system: `Detect contradictions between project pairs. For each pair, check if assumptions, timelines, resource plans, or strategies conflict. Return JSON array:
-[{"pairIndex": 0, "hasContradiction": true, "description": "...", "severity": "low|medium|high", "entityATitle": "...", "entityBTitle": "..."}]
-If no contradiction found for a pair, omit it from the array. Only flag genuine conflicts, not minor differences.`,
+      system: loadSystemPrompt('cortex-contradictions'),
       messages: [{ role: 'user', content: batch.map((p, idx) => `[${idx}] ${p}`).join('\n\n') }],
     });
 

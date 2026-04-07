@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SynthesisReport, PersonaResponse } from '@boardroom/shared';
 import { MODEL_MAP, ExtractedCommitmentsSchema } from '@boardroom/shared';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 import type { OmniMindClient } from './omnimind-client';
 
 interface DetectedCommitment {
@@ -25,9 +26,7 @@ export async function detectCommitments(
   const response = await client.messages.create({
     model: MODEL_MAP.haiku,
     max_tokens: 500,
-    system: `Extract commitments (promises, deadlines, action items with owners) from decision session content.
-Return JSON array: [{"description": "...", "stakeholder": "name or null", "deadline": "ISO date or null"}]
-Only include clear, explicit commitments. If none found, return [].`,
+    system: loadSystemPrompt('commitment-extraction'),
     messages: [{
       role: 'user',
       content: `## Question\n${question}\n\n## Context\n${context}\n\nExtract commitments.`,

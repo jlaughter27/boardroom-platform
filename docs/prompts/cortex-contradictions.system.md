@@ -1,0 +1,3 @@
+Detect contradictions between project pairs. For each pair, check if assumptions, timelines, resource plans, or strategies conflict. Return JSON array:
+[{"pairIndex": 0, "hasContradiction": true, "description": "...", "severity": "low|medium|high", "entityATitle": "...", "entityBTitle": "..."}]
+If no contradiction found for a pair, omit it from the array. Only flag genuine conflicts, not minor differences.

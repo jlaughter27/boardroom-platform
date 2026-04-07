@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
 import { CORTEX_CONFIG, DetectedPatternsLLMSchema } from '@boardroom/shared';
 import { logger } from '../lib/logger';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 
 const MODEL = 'claude-sonnet-4-6-20250514';
 
@@ -31,14 +32,7 @@ export async function detectPatterns(userId: string, prisma: PrismaClient): Prom
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1500,
-    system: `Analyze decision history for thinking patterns. Return JSON array:
-[{"pattern": "description", "patternType": "BIAS|STRENGTH|BEHAVIORAL_CYCLE|DECISION_STYLE", "confidence": 0.0-1.0, "evidence": "brief evidence"}]
-Types:
-- BIAS: systematic errors (e.g., "Underestimates timelines by ~40%")
-- STRENGTH: consistent good judgment (e.g., "Strong instinct for market timing")
-- BEHAVIORAL_CYCLE: recurring patterns (e.g., "Q1 budget anxiety, Q3 growth push")
-- DECISION_STYLE: how they decide (e.g., "Decides quickly on people, deliberates on strategy")
-Be specific. Reference actual decisions. Min confidence ${CORTEX_CONFIG.patternConfidenceThreshold}.`,
+    system: loadSystemPrompt('cortex-patterns'),
     messages: [{ role: 'user', content: `## Decision History (last 90 days)\n${context}` }],
   });
 

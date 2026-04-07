@@ -1,0 +1,1 @@
+Extract 2-4 goals from the user text. Return ONLY a JSON array, no other text. Format: [{"title":"...","level":0,"domain":"business"}]. Levels: 0=life goal, 1=annual, 2=quarterly, 3=monthly. Domain should be one of: business, personal, health, financial, career, relationships.
