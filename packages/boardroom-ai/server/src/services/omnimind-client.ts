@@ -1,5 +1,6 @@
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
-const OMNIMIND_KEY = process.env.OMNIMIND_API_KEY ?? 'dev-api-key-change-in-production';
+const OMNIMIND_KEY = process.env.OMNIMIND_API_KEY;
+if (!OMNIMIND_KEY) throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set.');
 
 export class OmniMindClient {
   private baseUrl: string;

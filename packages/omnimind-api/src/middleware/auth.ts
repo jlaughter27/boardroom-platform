@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../lib/logger';
 
-const API_KEY = process.env.OMNIMIND_API_KEY ?? 'dev-api-key-change-in-production';
+const API_KEY = process.env.OMNIMIND_API_KEY;
+if (!API_KEY) throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set. Server cannot start.');
 
 export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): void => {
   // Skip auth for health endpoint
