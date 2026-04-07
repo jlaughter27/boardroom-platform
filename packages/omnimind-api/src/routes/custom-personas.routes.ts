@@ -119,7 +119,7 @@ router.delete('/:id', async (req, res, next) => {
     if (!existing) { res.status(404).json({ error: 'not_found', message: 'Custom persona not found' }); return; }
 
     await prisma.customPersona.delete({ where: { id: req.params.id } });
-    res.status(204).end();
+    res.json({ status: 'deleted' });
   } catch (err) { next(err); }
 });
 

@@ -82,7 +82,7 @@ router.delete('/', async (req, res, next) => {
       data: { canceledAt: new Date(), status: 'CANCELED' },
     });
 
-    res.json(subscription);
+    res.json({ status: 'canceled', subscription });
   } catch (err) { next(err); }
 });
 

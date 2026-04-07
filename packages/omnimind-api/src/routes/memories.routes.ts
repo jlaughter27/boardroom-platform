@@ -192,7 +192,7 @@ router.delete('/:id/links/:linkId', async (req, res, next) => {
     if (!link) { res.status(404).json({ error: 'not_found', message: 'Link not found' }); return; }
 
     await prisma.memoryEntityLink.delete({ where: { id: req.params.linkId } });
-    res.status(204).end();
+    res.json({ status: 'deleted' });
   } catch (err) { next(err); }
 });
 
