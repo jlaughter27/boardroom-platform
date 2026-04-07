@@ -2,6 +2,8 @@ import { GoalHierarchy } from '../components/dashboard/GoalHierarchy';
 import { ProactiveQuestions } from '../components/dashboard/ProactiveQuestions';
 import { OutcomeReviewBanner } from '../components/dashboard/OutcomeReviewBanner';
 import { WeekCalendarStrip } from '../components/dashboard/WeekCalendarStrip';
+import { WeeklyMemoCard } from '../components/dashboard/WeeklyMemoCard';
+import { CortexInsightsPanel } from '../components/dashboard/CortexInsightsPanel';
 
 export default function DashboardPage() {
   return (
@@ -10,7 +12,15 @@ export default function DashboardPage() {
       <ProactiveQuestions />
       <OutcomeReviewBanner />
       <WeekCalendarStrip />
-      <GoalHierarchy />
+      <WeeklyMemoCard />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <GoalHierarchy />
+        </div>
+        <div>
+          <CortexInsightsPanel />
+        </div>
+      </div>
     </div>
   );
 }

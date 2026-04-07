@@ -18,6 +18,8 @@ import { userProfileRouter } from './routes/user-profile.routes';
 import { contextRouter } from './routes/context.routes';
 import { authRouter } from './routes/auth.routes';
 import { outcomeReviewRouter } from './routes/outcome-review.routes';
+import { cortexRouter } from './routes/cortex.routes';
+import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
 
 const app: Express = express();
 const port = parseInt(process.env.OMNIMIND_PORT || '3333', 10);
@@ -44,6 +46,7 @@ app.use('/user-profile', userProfileRouter);
 app.use('/context', contextRouter);
 app.use('/auth', authRouter);
 app.use('/outcome-reviews', outcomeReviewRouter);
+app.use('/cortex', cortexRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);
@@ -51,6 +54,7 @@ app.use(errorHandler);
 // Graceful shutdown
 const shutdown = async () => {
   logger.info('Shutting down OmniMind API...');
+  stopCortexScheduler();
   await prisma.$disconnect();
   process.exit(0);
 };
@@ -61,6 +65,7 @@ process.on('SIGINT', shutdown);
 // Start
 app.listen(port, () => {
   logger.info(`OmniMind API running on port ${port}`, { port });
+  startCortexScheduler();
 });
 
 export default app;

@@ -211,6 +211,30 @@ export class OmniMindClient {
     return this.request('POST', `/outcome-reviews/${nudgeId}/skip`, userId);
   }
 
+  // Cortex — Patterns
+  async getPatterns(userId: string, filters?: Record<string, string>) {
+    const qs = filters ? '?' + new URLSearchParams(filters).toString() : '';
+    return this.request('GET', `/cortex/patterns${qs}`, userId);
+  }
+
+  async triggerPatternScan(userId: string) {
+    return this.request('POST', '/cortex/patterns/scan', userId);
+  }
+
+  // Cortex — Memos
+  async getLatestMemo(userId: string) {
+    return this.request('GET', '/cortex/memo/latest', userId);
+  }
+
+  async getMemoHistory(userId: string, filters?: Record<string, string>) {
+    const qs = filters ? '?' + new URLSearchParams(filters).toString() : '';
+    return this.request('GET', `/cortex/memo/history${qs}`, userId);
+  }
+
+  async triggerMemoGeneration(userId: string) {
+    return this.request('POST', '/cortex/memo/generate', userId);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

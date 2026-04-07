@@ -445,6 +445,42 @@ export function skipReview(nudgeId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Cortex — Patterns & Memos
+// ---------------------------------------------------------------------------
+
+import type { WeeklyMemo, ThinkingPattern } from '@boardroom/shared';
+
+export function getPatterns(limit = 20, offset = 0) {
+  return request<{ items: ThinkingPattern[]; total: number; offset: number; limit: number }>(
+    `/cortex/patterns?limit=${limit}&offset=${offset}`,
+  );
+}
+
+export function triggerPatternScan() {
+  return request<{ patterns: ThinkingPattern[]; newCount: number }>(
+    '/cortex/patterns/scan',
+    { method: 'POST' },
+  );
+}
+
+export function getLatestMemo() {
+  return request<WeeklyMemo | null>('/cortex/memo/latest');
+}
+
+export function getMemoHistory(limit = 20, offset = 0) {
+  return request<{ items: WeeklyMemo[]; total: number; offset: number; limit: number }>(
+    `/cortex/memo/history?limit=${limit}&offset=${offset}`,
+  );
+}
+
+export function generateMemo() {
+  return request<WeeklyMemo | { message: string; minRequired: number }>(
+    '/cortex/memo/generate',
+    { method: 'POST' },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // User Profile mutations
 // ---------------------------------------------------------------------------
 
