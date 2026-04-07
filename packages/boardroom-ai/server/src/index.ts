@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import { authMiddleware } from './middleware/auth';
 import { authRouter } from './routes/auth.routes';
 import { healthRouter } from './routes/health.routes';
+import { sessionsRouter } from './routes/sessions.routes';
 
 const app = express();
 const port = process.env.BOARDROOM_PORT || 3001;
@@ -23,9 +24,9 @@ app.use('/auth', authRouter);
 // Auth wall — all routes below require valid JWT
 app.use(authMiddleware);
 
-// TODO: Wire protected routes (Phase 1)
-// app.use('/sessions', sessionsRouter);
-// app.use('/rooms', roomsRouter);
+// Protected routes
+app.use('/sessions', sessionsRouter);
+// app.use('/rooms', roomsRouter); // TODO: Phase 2
 
 // Error handler (must be last)
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
