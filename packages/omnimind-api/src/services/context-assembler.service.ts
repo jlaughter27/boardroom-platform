@@ -6,6 +6,7 @@ import { trigramSearch } from '../retrieval/trigram-search';
 import { semanticSearch } from '../retrieval/semantic-search';
 import { rankAndDeduplicate } from '../retrieval/ranker';
 import { packageForPersona, type ContextPackage } from '../retrieval/context-packager';
+import { generateEmbedding } from './embedding.service';
 import type { ScoredResult } from '../retrieval/structured-filter';
 
 export async function assembleContextForPersona(
@@ -20,12 +21,15 @@ export async function assembleContextForPersona(
 ): Promise<ContextPackage> {
   const includeEntities = options?.includeEntities ?? ['memories', 'people', 'goals', 'projects', 'decisions'];
 
+  // Generate query embedding for semantic search
+  const queryEmbedding = await generateEmbedding(query);
+
   // Run all retrieval layers in parallel
   const [structured, fts, trigram, semantic] = await Promise.all([
     includeEntities.includes('memories') ? structuredFilter(userId, query, { limit: 20 }, prisma) : [],
     includeEntities.includes('memories') ? fulltextSearch(userId, query, { limit: 20 }, prisma) : [],
     includeEntities.includes('memories') ? trigramSearch(userId, query, { limit: 20 }, prisma) : [],
-    semanticSearch(userId, [], { limit: 20 }, prisma), // stub
+    queryEmbedding ? semanticSearch(userId, queryEmbedding, { limit: 20 }, prisma) : Promise.resolve([]),
   ]);
 
   // Also search entity tables

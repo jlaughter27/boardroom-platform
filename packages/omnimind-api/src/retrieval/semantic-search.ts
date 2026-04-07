@@ -1,22 +1,46 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
 
-/**
- * Semantic search using pgvector embeddings.
- * STUB: Returns empty array in Phase 0. Will use cosine similarity in Phase 1.
- *
- * TODO (Phase 1): Implementation will look like:
- * SELECT id, title, content, 1 - (embedding <=> $queryEmbedding) as similarity
- * FROM memory_entries
- * WHERE user_id = $userId AND deleted_at IS NULL
- * ORDER BY embedding <=> $queryEmbedding
- * LIMIT $limit
- */
 export async function semanticSearch(
-  _userId: string,
-  _queryEmbedding: number[],
-  _options: { limit?: number },
-  _prisma: PrismaClient
+  userId: string,
+  queryEmbedding: number[],
+  options: { limit?: number },
+  prisma: PrismaClient
 ): Promise<ScoredResult[]> {
-  return [];
+  if (!queryEmbedding || queryEmbedding.length === 0) return [];
+
+  const limit = options.limit ?? 10;
+
+  try {
+    const results = await prisma.$queryRaw<Array<{
+      id: string; title: string; content: string; tags: string[];
+      importance: number; last_accessed_at: Date | null; similarity: number;
+    }>>`
+      SELECT id, title, content, tags, importance, last_accessed_at,
+             1 - (embedding <=> ${queryEmbedding}::vector) as similarity
+      FROM "memory_entries"
+      WHERE "user_id" = ${userId}
+        AND embedding IS NOT NULL
+        AND "deleted_at" IS NULL
+        AND status != 'ARCHIVED'
+      ORDER BY embedding <=> ${queryEmbedding}::vector
+      LIMIT ${limit}
+    `;
+
+    return results.map(r => ({
+      id: r.id,
+      type: 'memory' as const,
+      title: r.title,
+      content: r.content,
+      relevanceScore: Math.max(0, Math.min(1, r.similarity)),
+      source: 'semantic' as const,
+      whyIncluded: `Semantic similarity: ${(r.similarity * 100).toFixed(1)}%`,
+      tags: r.tags,
+      importance: r.importance,
+      lastAccessedAt: r.last_accessed_at,
+    }));
+  } catch (err) {
+    // pgvector may not be enabled or no embeddings exist
+    return [];
+  }
 }

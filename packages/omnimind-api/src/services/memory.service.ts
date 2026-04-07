@@ -1,6 +1,8 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { runValidationPipeline } from '../memory/validation/pipeline';
 import { SOURCE_WEIGHTS } from '@boardroom/shared';
+import { embedMemory } from './embedding.service';
+import { logger } from '../lib/logger';
 
 // Create memory — validate first, then write
 export async function createMemory(
@@ -46,6 +48,20 @@ export async function createMemory(
       status: 'DRAFT', // All new memories start as DRAFT
       metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
     },
+  });
+
+  // Fire-and-forget embedding generation
+  setImmediate(() => {
+    embedMemory(memory.id).catch(err =>
+      logger.error('Async embedding failed', { memoryId: memory.id, error: (err as Error).message })
+    );
+  });
+
+  // Fire-and-forget embedding generation
+  setImmediate(() => {
+    embedMemory(memory.id).catch(err =>
+      logger.error('Async embedding failed', { memoryId: memory.id, error: (err as Error).message })
+    );
   });
 
   return {
@@ -144,6 +160,15 @@ export async function updateMemory(
       version: { increment: 1 },
     },
   });
+
+  // Re-embed if content or title changed
+  if ('content' in input || 'title' in input) {
+    setImmediate(() => {
+      embedMemory(memory.id).catch(err =>
+        logger.error('Async embedding failed', { memoryId: memory.id, error: (err as Error).message })
+      );
+    });
+  }
 
   return memory;
 }

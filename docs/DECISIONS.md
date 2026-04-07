@@ -55,3 +55,19 @@ All architectural decisions are logged here with rationale. Check before proposi
 **Decision:** Standard OAuth 2.0 authorization code flow. Tokens stored encrypted in a dedicated OAuthToken Prisma model. Refresh token rotation handled automatically by googleapis client. Calendar data is read-only for v1.
 **Rationale:** Direct integration via googleapis SDK is well-documented and reliable. Tokens encrypted at rest with ENCRYPTION_KEY env var. Read-only avoids write-permission complexity.
 **Alternatives rejected:** iCal import (no real-time sync), CalDAV (complex, less adoption).
+
+## ADR-011: Embedding Provider — OpenAI text-embedding-3-small
+**Date:** 2026-04-07 | **Status:** Accepted
+**Decision:** 1536-dimensional embeddings via OpenAI API. Cost: ~$0.02/1M tokens (~$0.00002 per memory). Embeddings generated async on memory write (fire-and-forget, don't block write response). Stored as vector(1536) in PostgreSQL via pgvector.
+**Rationale:** Cheapest production-quality embedding model. pgvector keeps everything in one DB. IVFFlat index with 100 lists sufficient for <100K vectors.
+**Alternatives rejected:** Voyage AI (fewer docs), local models (no GPU in prod), separate vector DB (operational overhead).
+
+## ADR-012: Custom Persona Storage + Dispatch
+**Date:** 2026-04-07 | **Status:** Accepted
+**Decision:** Custom personas stored in CustomPersona Prisma model with system prompt, model tier, tool permissions, activation status. At dispatch time, orchestrator loads both built-in (from .md files) and custom (from DB). Custom personas always use Haiku by default (cost control). Max 3 custom personas per user.
+**Rationale:** Extends the persona system without modifying built-in prompts. Custom personas are additive — they fire alongside built-in ones. CEO synthesis receives all outputs.
+
+## ADR-013: Widget System — JSON Config, Not Code
+**Date:** 2026-04-07 | **Status:** Accepted
+**Decision:** Dashboard widgets defined as JSON configuration objects stored in UserProfile.dashboardLayout. Each widget has type (enum), position, size, and visibility. Rendered by a WidgetRenderer that maps type → built-in component. No user-uploaded code. Max 8 visible widgets.
+**Rationale:** Simple, secure, extensible. New widget types added by devs, configuration by users. Default layout matches current hardcoded dashboard for zero-change upgrade.

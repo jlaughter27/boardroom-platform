@@ -3,6 +3,7 @@ import type { Router as IRouter } from 'express';
 import { CreateMemoryRequestSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
+import { backfillEmbeddings } from '../services/embedding.service';
 
 const router: IRouter = Router();
 
@@ -28,6 +29,16 @@ router.post('/', async (req, res, next) => {
     }
 
     res.status(201).json(result.data);
+  } catch (err) { next(err); }
+});
+
+// POST /memories/backfill-embeddings
+router.post('/backfill-embeddings', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+    const result = await backfillEmbeddings(userId);
+    res.json(result);
   } catch (err) { next(err); }
 });
 

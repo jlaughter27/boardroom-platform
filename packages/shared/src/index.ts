@@ -14,6 +14,7 @@ export * from './types/tool.types';
 export * from './types/cortex.types';
 export * from './types/calendar.types';
 export * from './types/subscription.types';
+export * from './types/embedding.types';
 
 // Validation schemas
 export * from './validation';
