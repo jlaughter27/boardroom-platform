@@ -292,6 +292,11 @@ export class OmniMindClient {
     return this.request('DELETE', `/custom-personas/${id}`, userId);
   }
 
+  // Cortex — Simulation
+  async runSimulation(userId: string, data: { chosenPath: string; sessionQuestion: string }) {
+    return this.request('POST', '/cortex/simulate', userId, data);
+  }
+
   // Health
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');

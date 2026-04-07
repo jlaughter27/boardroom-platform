@@ -82,4 +82,15 @@ router.patch('/contradictions/:id', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// Simulation
+// ---------------------------------------------------------------------------
+
+router.post('/simulate', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.runSimulation(req.auth!.userId, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 export const cortexRouter: IRouter = router;

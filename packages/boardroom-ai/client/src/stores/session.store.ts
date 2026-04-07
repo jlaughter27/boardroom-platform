@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
-import type { PersonaId, PersonaResponse, SynthesisReport } from '@boardroom/shared';
+import type { PersonaId, PersonaResponse, SynthesisReport, SimulationResult } from '@boardroom/shared';
 import type { SufficiencyScore, UserMode } from '@boardroom/shared';
 
 interface SessionState {
@@ -13,12 +13,15 @@ interface SessionState {
   isDispatching: boolean;
   isSynthesizing: boolean;
   sufficiency: SufficiencyScore | null;
+  simulation: SimulationResult | null;
+  isSimulating: boolean;
   error: string | null;
 
   createSession: (question: string, mode: UserMode) => Promise<void>;
   dispatch: () => Promise<void>;
   synthesize: () => Promise<void>;
   checkAmbiguity: () => Promise<void>;
+  runSimulation: (chosenPath: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -32,6 +35,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isDispatching: false,
   isSynthesizing: false,
   sufficiency: null,
+  simulation: null,
+  isSimulating: false,
   error: null,
 
   createSession: async (question, mode) => {
@@ -143,6 +148,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ sufficiency: score });
   },
 
+  runSimulation: async (chosenPath: string) => {
+    const { currentSession } = get();
+    if (!currentSession) return;
+
+    set({ isSimulating: true, simulation: null, error: null });
+
+    try {
+      const result = await api.runSimulation(
+        currentSession.id,
+        chosenPath,
+        currentSession.question,
+      );
+      set({ simulation: result, isSimulating: false });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Simulation failed';
+      set({ error: message, isSimulating: false });
+    }
+  },
+
   reset: () => set({
     currentSession: null,
     personaResponses: {},
@@ -153,6 +177,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     isDispatching: false,
     isSynthesizing: false,
     sufficiency: null,
+    simulation: null,
+    isSimulating: false,
     error: null,
   }),
 }));

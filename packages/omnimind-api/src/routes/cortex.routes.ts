@@ -5,6 +5,7 @@ import { prisma } from '../lib/db';
 import * as memoService from '../services/cortex-memo.service';
 import * as patternService from '../services/cortex-patterns.service';
 import * as contradictionService from '../services/cortex-contradictions.service';
+import * as simulationService from '../services/simulation.service';
 
 const router: IRouter = Router();
 
@@ -90,6 +91,21 @@ router.patch('/contradictions/:id', async (req, res, next) => {
     if (!status) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'status', message: 'Required' }] }); return; }
     const updated = await contradictionService.updateContradiction(req.params.id, status, resolution, prisma);
     res.json(updated);
+  } catch (err) { next(err); }
+});
+
+// Simulation
+router.post('/simulate', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
+    const { chosenPath, sessionQuestion } = req.body;
+    if (!chosenPath || !sessionQuestion) {
+      res.status(422).json({ error: 'validation_failed', details: [{ field: 'body', message: 'chosenPath and sessionQuestion required' }] });
+      return;
+    }
+    const result = await simulationService.runSimulation(userId, chosenPath, sessionQuestion, prisma);
+    res.json(result);
   } catch (err) { next(err); }
 });
 

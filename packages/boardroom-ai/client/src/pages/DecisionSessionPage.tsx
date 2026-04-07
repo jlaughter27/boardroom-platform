@@ -5,6 +5,8 @@ import { ModeSelector } from '../components/decision/ModeSelector';
 import { PersonaCard } from '../components/decision/PersonaCard';
 import { SynthesisPanel } from '../components/decision/SynthesisPanel';
 import { SufficiencyBanner } from '../components/decision/SufficiencyBanner';
+import { SimulationButton } from '../components/decision/SimulationButton';
+import { SimulationPanel } from '../components/decision/SimulationPanel';
 import { MODE_CONFIGS, PERSONA_CONFIGS } from '@boardroom/shared';
 import * as api from '../lib/api';
 import type { UserMode, PersonaId, CustomPersona } from '@boardroom/shared';
@@ -35,11 +37,14 @@ export default function DecisionSessionPage() {
     isDispatching,
     isSynthesizing,
     sufficiency,
+    simulation,
+    isSimulating,
     error,
     createSession,
     dispatch,
     synthesize,
     checkAmbiguity,
+    runSimulation,
     reset,
   } = useSessionStore();
 
@@ -227,6 +232,18 @@ export default function DecisionSessionPage() {
                 New Decision
               </button>
             </div>
+          )}
+
+          {/* Simulation — available after synthesis */}
+          {phase === 'synthesis' && synthesis && (
+            <>
+              <SimulationButton
+                defaultPath={synthesis.recommendation}
+                isSimulating={isSimulating}
+                onSimulate={runSimulation}
+              />
+              {simulation && <SimulationPanel result={simulation} />}
+            </>
           )}
 
           {/* Synthesize button */}

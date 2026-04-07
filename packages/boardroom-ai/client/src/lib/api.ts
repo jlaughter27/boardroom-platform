@@ -494,6 +494,19 @@ export function getContradictions(status?: string, limit = 20, offset = 0) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Cortex — Simulation
+// ---------------------------------------------------------------------------
+
+import type { SimulationResult } from '@boardroom/shared';
+
+export function runSimulation(sessionId: string, chosenPath: string, sessionQuestion: string) {
+  return request<SimulationResult>('/cortex/simulate', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId, chosenPath, sessionQuestion }),
+  });
+}
+
 export function scanContradictions() {
   return request<{ contradictions: ContradictionAlert[]; newCount: number }>(
     '/cortex/contradictions/scan',
