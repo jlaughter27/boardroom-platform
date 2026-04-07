@@ -64,7 +64,11 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 
 // POST /auth/logout
 router.post('/logout', (_req, res) => {
-  res.clearCookie('boardroom_token');
+  res.clearCookie('boardroom_token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+  });
   res.json({ status: 'ok' });
 });
 

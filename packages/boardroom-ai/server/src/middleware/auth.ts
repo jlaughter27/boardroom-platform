@@ -49,13 +49,13 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   const token = req.cookies?.boardroom_token as string | undefined;
 
   if (!token) {
-    res.status(401).json({ error: 'Authentication required' });
+    res.status(401).json({ error: 'unauthorized', message: 'Authentication required' });
     return;
   }
 
   const payload = verifyToken(token);
   if (!payload) {
-    res.status(401).json({ error: 'Invalid or expired token' });
+    res.status(401).json({ error: 'unauthorized', message: 'Invalid or expired token' });
     return;
   }
 
