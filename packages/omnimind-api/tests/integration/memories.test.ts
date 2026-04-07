@@ -1,6 +1,8 @@
 // Integration tests for Memory CRUD routes.
 // Requires a running PostgreSQL database with DATABASE_URL set.
 // These tests will be skipped if DATABASE_URL is not configured.
+// To run: DATABASE_URL=postgresql://... npx vitest run tests/integration/memories.test.ts
+// Known skip reason: No test database in default CI/local — intentional guard, not a bug.
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
