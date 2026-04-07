@@ -16,6 +16,7 @@ import { decisionsRouter } from './routes/decisions.routes';
 import { commitmentsRouter } from './routes/commitments.routes';
 import { userProfileRouter } from './routes/user-profile.routes';
 import { contextRouter } from './routes/context.routes';
+import { authRouter } from './routes/auth.routes';
 
 const app: Express = express();
 const port = parseInt(process.env.OMNIMIND_PORT || '3333', 10);
@@ -40,6 +41,7 @@ app.use('/decisions', decisionsRouter);
 app.use('/commitments', commitmentsRouter);
 app.use('/user-profile', userProfileRouter);
 app.use('/context', contextRouter);
+app.use('/auth', authRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);

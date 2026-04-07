@@ -39,7 +39,7 @@ export const verifyToken = (token: string): AuthPayload | null => {
 };
 
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction): void => {
-  const token = req.cookies?.token as string | undefined;
+  const token = req.cookies?.boardroom_token as string | undefined;
 
   if (!token) {
     res.status(401).json({ error: 'Authentication required' });
