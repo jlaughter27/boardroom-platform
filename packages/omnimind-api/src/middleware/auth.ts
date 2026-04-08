@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { logger } from '../lib/logger';
 
 let _apiKey: string | undefined;
@@ -18,7 +19,12 @@ export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): voi
   }
 
   const apiKey = req.headers['x-api-key'] as string | undefined;
-  if (!apiKey || apiKey !== getApiKey()) {
+  const expected = getApiKey();
+  const isValid = apiKey != null
+    && apiKey.length === expected.length
+    && timingSafeEqual(Buffer.from(apiKey), Buffer.from(expected));
+
+  if (!isValid) {
     logger.warn('Unauthorized request', { path: req.path, ip: req.ip });
     res.status(401).json({ error: 'unauthorized', message: 'Invalid or missing API key' });
     return;
