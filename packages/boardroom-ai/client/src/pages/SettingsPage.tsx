@@ -2,50 +2,46 @@ import { useEffect, useState } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useAuthStore } from '../stores/auth.store';
 import { getUserProfile, updateUserProfile } from '../lib/api';
-import { LoadingSpinner } from '../components/shared/LoadingSpinner';
-import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { CalendarSettings } from '../components/settings/CalendarSettings';
 import { SubscriptionSettings } from '../components/settings/SubscriptionSettings';
+import { PageWrapper, Card, Button, Input, Badge, Skeleton, useToastStore } from '../components/ui';
+import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { UserProfile, RiskProfile } from '@boardroom/shared';
 
 const DECISION_FREQUENCY_OPTIONS = [
-  'Daily',
-  'Several times a week',
-  'Weekly',
-  'A few times a month',
-  'Monthly',
-  'Rarely',
+  'Daily', 'Several times a week', 'Weekly', 'A few times a month', 'Monthly', 'Rarely',
+];
+
+const SECTIONS = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'integrations', label: 'Integrations' },
+  { id: 'subscription', label: 'Subscription' },
+  { id: 'account', label: 'Account' },
 ];
 
 export default function SettingsPage() {
   usePageTitle('Settings');
   const { user, logout } = useAuthStore();
+  const addToast = useToastStore((s) => s.addToast);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState('profile');
 
-  // Profile form state
   const [role, setRole] = useState('');
   const [industry, setIndustry] = useState('');
   const [decisionFrequency, setDecisionFrequency] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(false);
 
-  // Risk profile state
   const [riskProfile, setRiskProfile] = useState<RiskProfile>({
-    financial: 0.5,
-    technical: 0.5,
-    people: 0.5,
-    strategic: 0.5,
+    financial: 0.5, technical: 0.5, people: 0.5, strategic: 0.5,
   });
   const [riskSaving, setRiskSaving] = useState(false);
-  const [riskSaved, setRiskSaved] = useState(false);
 
-  // Values state
   const [valuesText, setValuesText] = useState('');
   const [valuesSaving, setValuesSaving] = useState(false);
-  const [valuesSaved, setValuesSaved] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -68,14 +64,12 @@ export default function SettingsPage() {
 
   async function saveProfile() {
     setProfileSaving(true);
-    setProfileSaved(false);
     try {
       const updated = await updateUserProfile({ role, industry, decisionFrequency });
       setProfile(updated);
-      setProfileSaved(true);
-      setTimeout(() => setProfileSaved(false), 2000);
+      addToast('Profile saved', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save profile');
+      addToast(err instanceof Error ? err.message : 'Failed to save', 'error');
     } finally {
       setProfileSaving(false);
     }
@@ -83,14 +77,12 @@ export default function SettingsPage() {
 
   async function saveRiskProfile() {
     setRiskSaving(true);
-    setRiskSaved(false);
     try {
       const updated = await updateUserProfile({ riskProfile });
       setProfile(updated);
-      setRiskSaved(true);
-      setTimeout(() => setRiskSaved(false), 2000);
+      addToast('Risk profile saved', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save risk profile');
+      addToast(err instanceof Error ? err.message : 'Failed to save', 'error');
     } finally {
       setRiskSaving(false);
     }
@@ -98,18 +90,13 @@ export default function SettingsPage() {
 
   async function saveValues() {
     setValuesSaving(true);
-    setValuesSaved(false);
     try {
-      const valueHierarchy = valuesText
-        .split(',')
-        .map((v) => v.trim())
-        .filter(Boolean);
+      const valueHierarchy = valuesText.split(',').map((v) => v.trim()).filter(Boolean);
       const updated = await updateUserProfile({ valueHierarchy });
       setProfile(updated);
-      setValuesSaved(true);
-      setTimeout(() => setValuesSaved(false), 2000);
+      addToast('Values saved', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save values');
+      addToast(err instanceof Error ? err.message : 'Failed to save', 'error');
     } finally {
       setValuesSaving(false);
     }
@@ -119,196 +106,168 @@ export default function SettingsPage() {
     setRiskProfile((prev) => ({ ...prev, [key]: value }));
   }
 
+  function scrollToSection(id: string) {
+    setActiveSection(id);
+    document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth' });
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <LoadingSpinner size="lg" />
-      </div>
+      <PageWrapper>
+        <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
+          <Skeleton className="h-8 w-32" />
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-48 rounded-lg" />
+          ))}
+        </div>
+      </PageWrapper>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
-      <h1 className="text-2xl font-bold text-white">Settings</h1>
+    <PageWrapper>
+      <div className="max-w-4xl mx-auto py-8 px-4 flex gap-8">
+        {/* Section nav */}
+        <nav className="hidden md:block w-48 shrink-0 sticky top-8 self-start">
+          <ul className="space-y-1">
+            {SECTIONS.map((s) => (
+              <li key={s.id}>
+                <button
+                  onClick={() => scrollToSection(s.id)}
+                  className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                    activeSection === s.id
+                      ? 'text-accent font-medium border-l-2 border-accent bg-accent-muted'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
 
-      {error && (
-        <ErrorBanner message={error} onDismiss={() => setError(null)} />
-      )}
+        {/* Content */}
+        <div className="flex-1 space-y-6">
+          <h1 className="text-2xl font-semibold text-text-primary">Settings</h1>
 
-      {/* Profile Section */}
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Profile</h2>
-        <div className="space-y-4">
-          {/* Read-only fields */}
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Name</label>
-            <div className="text-white text-sm bg-gray-800 rounded-lg px-3 py-2">
-              {user?.name ?? '-'}
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Email</label>
-            <div className="text-white text-sm bg-gray-800 rounded-lg px-3 py-2">
-              {user?.email ?? '-'}
-            </div>
-          </div>
+          {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-          {/* Editable fields */}
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Role</label>
-            <input
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. CTO, Product Manager"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Industry</label>
-            <input
-              type="text"
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              placeholder="e.g. FinTech, Healthcare"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">
-              Decision Frequency
-            </label>
-            <select
-              value={decisionFrequency}
-              onChange={(e) => setDecisionFrequency(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-            >
-              <option value="">Select...</option>
-              {DECISION_FREQUENCY_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={saveProfile}
-            disabled={profileSaving}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
-          >
-            {profileSaving ? 'Saving...' : profileSaved ? 'Saved!' : 'Save Profile'}
-          </button>
-        </div>
-      </section>
-
-      {/* Risk Profile Section */}
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Risk Profile</h2>
-        <p className="text-gray-500 text-sm mb-4">
-          How comfortable are you with risk in each area? (0 = very risk-averse, 1 = very risk-tolerant)
-        </p>
-        <div className="space-y-4">
-          {(['financial', 'technical', 'people', 'strategic'] as const).map(
-            (key) => (
-              <div key={key}>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-sm text-gray-400 capitalize">
-                    {key}
-                  </label>
-                  <span className="text-sm text-gray-300 font-mono">
-                    {riskProfile[key].toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={riskProfile[key]}
-                  onChange={(e) => updateRisk(key, parseFloat(e.target.value))}
-                  className="w-full accent-blue-500"
-                />
+          {/* Profile */}
+          <Card id="settings-profile" className="p-6">
+            <h2 className="text-lg font-medium text-text-primary mb-4">Profile</h2>
+            <div className="space-y-4">
+              <Input label="Name" value={user?.name ?? ''} disabled />
+              <Input label="Email" value={user?.email ?? ''} disabled />
+              <Input label="Role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. CTO, Product Manager" />
+              <Input label="Industry" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g. FinTech, Healthcare" />
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-text-secondary">Decision Frequency</label>
+                <select
+                  value={decisionFrequency}
+                  onChange={(e) => setDecisionFrequency(e.target.value)}
+                  className="bg-bg-base border border-line rounded-md px-3 h-9 text-sm text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all duration-fast"
+                >
+                  <option value="">Select...</option>
+                  {DECISION_FREQUENCY_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
               </div>
-            ),
-          )}
+              <Button variant="primary" onClick={saveProfile} disabled={profileSaving}>
+                {profileSaving ? 'Saving...' : 'Save Profile'}
+              </Button>
+            </div>
+          </Card>
 
-          <button
-            onClick={saveRiskProfile}
-            disabled={riskSaving}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
-          >
-            {riskSaving ? 'Saving...' : riskSaved ? 'Saved!' : 'Save Risk Profile'}
-          </button>
+          {/* Preferences (Risk + Values) */}
+          <Card id="settings-preferences" className="p-6">
+            <h2 className="text-lg font-medium text-text-primary mb-4">Preferences</h2>
+
+            <h3 className="text-sm font-medium text-text-secondary mb-3">Risk Profile</h3>
+            <div className="space-y-4 mb-6">
+              {(['financial', 'technical', 'people', 'strategic'] as const).map((key) => (
+                <div key={key}>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-sm text-text-secondary capitalize">{key}</label>
+                    <Badge variant="default">{riskProfile[key].toFixed(2)}</Badge>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={riskProfile[key]}
+                    onChange={(e) => updateRisk(key, parseFloat(e.target.value))}
+                    className="w-full accent-[var(--color-accent-primary)]"
+                  />
+                </div>
+              ))}
+              <Button variant="primary" onClick={saveRiskProfile} disabled={riskSaving}>
+                {riskSaving ? 'Saving...' : 'Save Risk Profile'}
+              </Button>
+            </div>
+
+            <h3 className="text-sm font-medium text-text-secondary mb-3">Values</h3>
+            <div className="space-y-3">
+              {valuesText && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {valuesText.split(',').map((v) => v.trim()).filter(Boolean).map((v, i) => (
+                    <Badge key={i} variant="accent">{v}</Badge>
+                  ))}
+                </div>
+              )}
+              <Input
+                value={valuesText}
+                onChange={(e) => setValuesText(e.target.value)}
+                placeholder="e.g. Growth, Team wellbeing, Innovation"
+              />
+              <p className="text-xs text-text-tertiary">Separate values with commas, in order of priority.</p>
+              <Button variant="primary" onClick={saveValues} disabled={valuesSaving}>
+                {valuesSaving ? 'Saving...' : 'Save Values'}
+              </Button>
+            </div>
+          </Card>
+
+          {/* Integrations */}
+          <Card id="settings-integrations" className="p-6">
+            <h2 className="text-lg font-medium text-text-primary mb-2">Integrations</h2>
+            <p className="text-sm text-text-secondary mb-3">Manage connected tools and services.</p>
+            <Button variant="secondary" onClick={() => window.location.href = '/integrations'}>
+              Manage Integrations
+            </Button>
+          </Card>
+
+          {/* Subscription */}
+          <div id="settings-subscription">
+            <SubscriptionSettings />
+          </div>
+
+          {/* Calendar */}
+          <CalendarSettings />
+
+          {/* Account */}
+          <Card id="settings-account" className="p-6">
+            <h2 className="text-lg font-medium text-text-primary mb-4">Account</h2>
+            <div className="space-y-4">
+              <div className="border-b border-line pb-4">
+                <Button variant="secondary" onClick={() => logout()}>
+                  Logout
+                </Button>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-danger mb-1">Delete Account</h3>
+                <p className="text-xs text-text-tertiary mb-3">
+                  This action is irreversible. All your data will be permanently deleted.
+                </p>
+                <Button variant="danger" size="sm">
+                  Delete Account
+                </Button>
+              </div>
+            </div>
+          </Card>
         </div>
-      </section>
-
-      {/* Values Section */}
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Values</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">
-              What matters most to you?
-            </label>
-            <input
-              type="text"
-              value={valuesText}
-              onChange={(e) => setValuesText(e.target.value)}
-              placeholder="e.g. Growth, Team wellbeing, Innovation, Sustainability"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            />
-            <p className="text-xs text-gray-600 mt-1">
-              Separate values with commas, in order of priority.
-            </p>
-          </div>
-
-          <button
-            onClick={saveValues}
-            disabled={valuesSaving}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
-          >
-            {valuesSaving ? 'Saving...' : valuesSaved ? 'Saved!' : 'Save Values'}
-          </button>
-        </div>
-      </section>
-
-      {/* Subscription */}
-      <SubscriptionSettings />
-
-      {/* Calendar Integration */}
-      <CalendarSettings />
-
-      {/* Account Section */}
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Account</h2>
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-medium text-gray-300 mb-1">
-              Change Password
-            </h3>
-            <p className="text-xs text-gray-500">Coming soon</p>
-          </div>
-
-          <div className="border-t border-gray-800 pt-4">
-            <button
-              onClick={() => logout()}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
-            >
-              Logout
-            </button>
-          </div>
-
-          <div className="border-t border-gray-800 pt-4">
-            <h3 className="text-sm font-medium text-red-400 mb-1">
-              Delete Account
-            </h3>
-            <p className="text-xs text-gray-500">
-              To delete your account, please contact support.
-            </p>
-          </div>
-        </div>
-      </section>
-    </div>
+      </div>
+    </PageWrapper>
   );
 }
