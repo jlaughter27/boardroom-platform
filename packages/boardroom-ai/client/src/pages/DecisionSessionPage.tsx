@@ -9,7 +9,7 @@ import { SimulationButton } from '../components/decision/SimulationButton';
 import { SimulationPanel } from '../components/decision/SimulationPanel';
 import { MODE_CONFIGS, PERSONA_CONFIGS } from '@boardroom/shared';
 import * as api from '../lib/api';
-import type { UserMode, PersonaId, CustomPersona } from '@boardroom/shared';
+import type { UserMode, PersonaId, CustomPersona, PersonaResponse, SynthesisReport, SufficiencyScore } from '@boardroom/shared';
 
 export default function DecisionSessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -55,9 +55,9 @@ export default function DecisionSessionPage() {
         // Hydrate the store with existing session data
         useSessionStore.setState({
           currentSession: { id: session.id, question: session.question, mode: session.mode },
-          personaResponses: session.personaResponses as Record<string, any>,
-          synthesis: session.ceoSynthesis as any,
-          sufficiency: session.sufficiencyScore as any,
+          personaResponses: session.personaResponses as Record<string, PersonaResponse>,
+          synthesis: session.ceoSynthesis as SynthesisReport | null,
+          sufficiency: session.sufficiencyScore as SufficiencyScore | null,
         });
       }).catch(() => {
         // Session not found, redirect to new
