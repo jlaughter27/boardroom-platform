@@ -75,10 +75,12 @@ const shutdown = async () => {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-// Start
-app.listen(port, () => {
-  logger.info(`OmniMind API running on port ${port}`, { port });
-  startCortexScheduler();
-});
+// Start (skip in test — supertest binds its own port)
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(port, () => {
+    logger.info(`OmniMind API running on port ${port}`, { port });
+    startCortexScheduler();
+  });
+}
 
 export default app;
