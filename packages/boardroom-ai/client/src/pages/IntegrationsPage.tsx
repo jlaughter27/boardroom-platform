@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { IntegrationCard } from '../components/integrations/IntegrationCard';
 import { EmailScanner } from '../components/integrations/EmailScanner';
 import * as api from '../lib/api';
@@ -11,6 +12,7 @@ interface IntegrationStatus {
 }
 
 export default function IntegrationsPage() {
+  usePageTitle('Integrations');
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);

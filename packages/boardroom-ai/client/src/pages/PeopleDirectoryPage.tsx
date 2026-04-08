@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useEntitiesStore } from '../stores/entities.store';
 import { PersonCard } from '../components/memory/PersonCard';
 import { RelationshipGraph } from '../components/memory/RelationshipGraph';
@@ -9,6 +10,7 @@ import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 type Tab = 'directory' | 'map';
 
 export default function PeopleDirectoryPage() {
+  usePageTitle('People Directory');
   const { people, fetchPeople, createPerson, updatePerson, deletePerson, isLoading, error, clearError } =
     useEntitiesStore();
   const [search, setSearch] = useState('');

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../stores/session.store';
 import { ModeSelector } from '../components/decision/ModeSelector';
@@ -15,6 +16,7 @@ export default function DecisionSessionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isNew = !id || id === 'new';
+  usePageTitle(isNew ? 'New Decision' : 'Decision Session');
 
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<UserMode>('decide');

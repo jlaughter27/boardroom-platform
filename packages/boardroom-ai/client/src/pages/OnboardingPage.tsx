@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { WizardStep } from '../components/onboarding/WizardStep';
 import { AboutYouStep } from '../components/onboarding/steps/AboutYouStep';
@@ -8,6 +9,7 @@ import { PeopleStep } from '../components/onboarding/steps/PeopleStep';
 import { ContextStep } from '../components/onboarding/steps/ContextStep';
 
 export default function OnboardingPage() {
+  usePageTitle('Welcome');
   const {
     step,
     data,

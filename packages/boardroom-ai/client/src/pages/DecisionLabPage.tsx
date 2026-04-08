@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useNavigate } from 'react-router-dom';
 import * as api from '../lib/api';
 import { StatusBadge } from '../components/dashboard/StatusBadge';
@@ -14,6 +15,7 @@ const MODE_LABELS: Record<UserMode, string> = {
 };
 
 export default function DecisionLabPage() {
+  usePageTitle('Decision Lab');
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);

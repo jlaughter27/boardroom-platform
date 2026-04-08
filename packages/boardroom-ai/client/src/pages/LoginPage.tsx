@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate } from 'react-router-dom';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useAuthStore } from '../stores/auth.store';
 
 export default function LoginPage() {
+  usePageTitle('Login');
   const { isAuthenticated, isLoading, error, login, register, clearError } =
     useAuthStore();
 

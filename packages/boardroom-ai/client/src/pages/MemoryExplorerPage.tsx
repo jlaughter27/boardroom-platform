@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useMemoryStore } from '../stores/memory.store';
 import { MemorySearch } from '../components/memory/MemorySearch';
 import { MemoryList } from '../components/memory/MemoryList';
@@ -6,6 +7,7 @@ import { MemoryDetail } from '../components/memory/MemoryDetail';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 
 export default function MemoryExplorerPage() {
+  usePageTitle('Memory Explorer');
   const { selectedMemory, clearSelection, search, memories, error, clearError } = useMemoryStore();
 
   // Initial load

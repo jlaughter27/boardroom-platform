@@ -1,3 +1,4 @@
+import { usePageTitle } from '../hooks/usePageTitle';
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { DashboardConfigurator } from '../components/dashboard/DashboardConfigurator';
 import { useWidgetLayout } from '../hooks/useWidgetLayout';
@@ -11,6 +12,7 @@ export default function DashboardPage() {
   const { visibleWidgets, widgets, isLoading, updateLayout, resetToDefault } =
     useWidgetLayout();
   const { configuratorOpen, openConfigurator, closeConfigurator } = useUIStore();
+  usePageTitle('Dashboard');
   const { error: entitiesError, clearError: clearEntitiesError } = useEntitiesStore();
   const { error: cortexError, clearError: clearCortexError } = useCortexStore();
 

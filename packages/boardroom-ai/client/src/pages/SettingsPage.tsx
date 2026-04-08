@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { useAuthStore } from '../stores/auth.store';
 import { getUserProfile, updateUserProfile } from '../lib/api';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
@@ -17,6 +18,7 @@ const DECISION_FREQUENCY_OPTIONS = [
 ];
 
 export default function SettingsPage() {
+  usePageTitle('Settings');
   const { user, logout } = useAuthStore();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);

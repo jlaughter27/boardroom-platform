@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { getCustomPersonas, deleteCustomPersona, updateCustomPersona } from '../lib/api';
 import { PersonaEditor } from '../components/settings/PersonaEditor';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
@@ -6,6 +7,7 @@ import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { CustomPersona } from '@boardroom/shared';
 
 export default function CustomPersonasPage() {
+  usePageTitle('Custom Personas');
   const [personas, setPersonas] = useState<CustomPersona[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
