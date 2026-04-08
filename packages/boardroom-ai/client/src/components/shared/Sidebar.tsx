@@ -1,48 +1,126 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { useUIStore } from '../../stores/ui.store';
 import { useAuthStore } from '../../stores/auth.store';
+import { Avatar } from '../ui/Avatar';
+import { cn } from '../../lib/cn';
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: '\u{1F4CA}' },
-  { to: '/decisions', label: 'Decision Lab', icon: '\u{26A1}' },
-];
-
-const memoryItems = [
-  { to: '/memory', label: 'Explorer', icon: '\u{1F4DD}' },
-  { to: '/people', label: 'People', icon: '\u{1F465}' },
-];
-
-const bottomItems = [
-  { to: '/integrations', label: 'Integrations', icon: '\u{1F50C}' },
-  { to: '/personas', label: 'Custom Personas', icon: '\u{1F9E0}' },
-  { to: '/settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' },
-];
-
-function NavItem({
-  to,
-  label,
-  icon,
-  collapsed,
-}: {
+interface NavItemDef {
   to: string;
   label: string;
-  icon: string;
-  collapsed: boolean;
-}) {
+  icon: React.ReactNode;
+}
+
+const primaryNav: NavItemDef[] = [
+  {
+    to: '/',
+    label: 'Dashboard',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1" />
+      </svg>
+    ),
+  },
+  {
+    to: '/decisions',
+    label: 'Decisions',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/memory',
+    label: 'Memory',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+      </svg>
+    ),
+  },
+  {
+    to: '/people',
+    label: 'People',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+];
+
+const secondaryNav: NavItemDef[] = [
+  {
+    to: '/settings',
+    label: 'Settings',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/personas',
+    label: 'Personas',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/integrations',
+    label: 'Integrations',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+      </svg>
+    ),
+  },
+];
+
+function NavItem({ item, collapsed }: { item: NavItemDef; collapsed: boolean }) {
+  const location = useLocation();
+  const isActive = item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to);
+
   return (
     <NavLink
-      to={to}
-      end={to === '/'}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-          isActive
-            ? 'bg-gray-800 text-white'
-            : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
-        } ${collapsed ? 'justify-center' : ''}`
-      }
+      to={item.to}
+      end={item.to === '/'}
+      className="relative block"
     >
-      <span className="text-lg leading-none">{icon}</span>
-      {!collapsed && <span>{label}</span>}
+      <div
+        className={cn(
+          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors relative',
+          isActive
+            ? 'text-accent bg-accent-muted'
+            : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover',
+          collapsed && 'justify-center px-2'
+        )}
+      >
+        {isActive && (
+          <motion.div
+            layoutId="nav-indicator"
+            className="absolute left-0 top-1 bottom-1 w-0.5 bg-accent rounded-full"
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+          />
+        )}
+        <span className="flex-shrink-0">{item.icon}</span>
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.span
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 'auto' }}
+              exit={{ opacity: 0, width: 0 }}
+              className="overflow-hidden whitespace-nowrap"
+            >
+              {item.label}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </div>
     </NavLink>
   );
 }
@@ -52,81 +130,90 @@ export function Sidebar() {
   const { user, logout } = useAuthStore();
 
   return (
-    <aside
-      className={`flex flex-col bg-gray-900 border-r border-gray-800 transition-all duration-200 ${
-        sidebarCollapsed ? 'w-16' : 'w-60'
-      }`}
+    <motion.aside
+      animate={{ width: sidebarCollapsed ? 64 : 240 }}
+      transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+      className="flex flex-col bg-bg-base border-r border-line-subtle h-screen overflow-hidden flex-shrink-0"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-gray-800">
-        {!sidebarCollapsed && (
-          <span className="font-semibold text-white text-sm tracking-wide">
-            BOARDROOM AI
-          </span>
-        )}
+      {/* Brand */}
+      <div className="flex items-center justify-between h-14 px-4 border-b border-line-subtle">
+        <AnimatePresence>
+          {!sidebarCollapsed && (
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="font-display text-lg font-semibold bg-gradient-to-r from-accent to-accent-secondary bg-clip-text text-transparent"
+            >
+              BoardRoom
+            </motion.span>
+          )}
+        </AnimatePresence>
         <button
           onClick={toggleSidebar}
-          className="text-gray-400 hover:text-white p-1"
+          className="text-text-tertiary hover:text-text-primary p-1.5 rounded-md hover:bg-bg-hover transition-colors"
           aria-label="Toggle sidebar"
         >
-          <svg
-            className="w-5 h-5"
+          <motion.svg
+            animate={{ rotate: sidebarCollapsed ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="w-4 h-4"
             fill="none"
-            stroke="currentColor"
             viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 6h16M4 12h16M4 18h16"
-            />
-          </svg>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </motion.svg>
         </button>
       </div>
 
-      {/* Main nav */}
-      <nav className="flex-1 px-2 py-4 space-y-1">
-        {navItems.map((item) => (
-          <NavItem key={item.to} {...item} collapsed={sidebarCollapsed} />
+      {/* Primary navigation */}
+      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        {primaryNav.map((item) => (
+          <NavItem key={item.to} item={item} collapsed={sidebarCollapsed} />
         ))}
 
-        {/* Divider + Memory section */}
-        <div className="pt-4 pb-2">
-          <div className="border-t border-gray-800" />
-          {!sidebarCollapsed && (
-            <span className="block px-3 pt-3 pb-1 text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Memory
-            </span>
-          )}
+        {/* Separator */}
+        <div className="py-3">
+          <div className="border-t border-line-subtle" />
         </div>
 
-        {memoryItems.map((item) => (
-          <NavItem key={item.to} {...item} collapsed={sidebarCollapsed} />
+        {/* Secondary navigation */}
+        {secondaryNav.map((item) => (
+          <NavItem key={item.to} item={item} collapsed={sidebarCollapsed} />
         ))}
       </nav>
 
-      {/* Bottom section */}
-      <div className="px-2 pb-4 space-y-1 border-t border-gray-800 pt-2">
-        {bottomItems.map((item) => (
-          <NavItem key={item.to} {...item} collapsed={sidebarCollapsed} />
-        ))}
-
-        {/* User info + logout */}
-        {user && !sidebarCollapsed && (
-          <div className="flex items-center justify-between px-3 py-2 mt-2">
-            <span className="text-xs text-gray-500 truncate">
-              {user.name}
-            </span>
-            <button
-              onClick={() => logout()}
-              className="text-xs text-gray-500 hover:text-gray-300"
-            >
-              Logout
-            </button>
+      {/* User section */}
+      <div className="border-t border-line-subtle p-3">
+        {user && (
+          <div className={cn(
+            'flex items-center gap-3',
+            sidebarCollapsed && 'justify-center'
+          )}>
+            <Avatar name={user.name || 'User'} size="sm" />
+            <AnimatePresence>
+              {!sidebarCollapsed && (
+                <motion.div
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
+                  className="flex-1 overflow-hidden"
+                >
+                  <p className="text-sm font-medium text-text-primary truncate">{user.name}</p>
+                  <button
+                    onClick={() => logout()}
+                    className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+                  >
+                    Sign out
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
-    </aside>
+    </motion.aside>
   );
 }
