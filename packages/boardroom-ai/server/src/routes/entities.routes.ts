@@ -3,8 +3,25 @@
 
 import { Router } from 'express';
 import type { IRouter } from 'express';
+import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth';
+import { validateBody } from '../middleware/validate';
 import { omnimindClient } from '../services/omnimind-client';
+
+const UpdateProfileSchema = z.object({
+  role: z.string().max(200).optional(),
+  industry: z.string().max(200).optional(),
+  decisionFrequency: z.string().max(100).optional(),
+  riskProfile: z.object({
+    financial: z.number().min(0).max(1),
+    technical: z.number().min(0).max(1),
+    people: z.number().min(0).max(1),
+    strategic: z.number().min(0).max(1),
+  }).optional(),
+  valueHierarchy: z.array(z.string().max(200)).max(20).optional(),
+  dashboardLayout: z.record(z.unknown()).optional(),
+  onboardingComplete: z.boolean().optional(),
+}).strict();
 
 const router: IRouter = Router();
 
@@ -169,7 +186,7 @@ router.get('/profile', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.patch('/profile', async (req: AuthRequest, res, next) => {
+router.patch('/profile', validateBody(UpdateProfileSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateUserProfile(req.auth!.userId, req.body);
     res.json(data);
