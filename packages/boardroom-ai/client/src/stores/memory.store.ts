@@ -21,7 +21,9 @@ interface MemoryState {
   isLoading: boolean;
   total: number;
   offset: number;
+  error: string | null;
 
+  clearError: () => void;
   search: (filters?: MemoryFilters) => Promise<void>;
   loadMore: () => Promise<void>;
   select: (id: string) => void;
@@ -38,10 +40,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   isLoading: false,
   total: 0,
   offset: 0,
+  error: null,
+
+  clearError: () => set({ error: null }),
 
   search: async (overrideFilters) => {
     const filters = overrideFilters ?? get().filters;
-    set({ isLoading: true, offset: 0 });
+    set({ isLoading: true, offset: 0, error: null });
     try {
       const res = await api.listMemories({
         ...filters,
@@ -55,7 +60,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         filters,
       });
     } catch (err) {
-      console.error('Memory search failed:', err);
+      set({ error: (err as Error).message });
     } finally {
       set({ isLoading: false });
     }
@@ -77,7 +82,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         offset: offset + res.items.length,
       });
     } catch (err) {
-      console.error('Memory loadMore failed:', err);
+      set({ error: (err as Error).message });
     } finally {
       set({ isLoading: false });
     }
@@ -99,7 +104,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           state.selectedMemory?.id === id ? updated : state.selectedMemory,
       }));
     } catch (err) {
-      console.error('Memory update failed:', err);
+      set({ error: (err as Error).message });
       throw err;
     }
   },
@@ -114,7 +119,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         total: state.total - 1,
       }));
     } catch (err) {
-      console.error('Memory archive failed:', err);
+      set({ error: (err as Error).message });
       throw err;
     }
   },

@@ -13,7 +13,9 @@ interface CortexState {
   isLoadingContradictions: boolean;
   isGeneratingMemo: boolean;
   isScanningContradictions: boolean;
+  error: string | null;
 
+  clearError: () => void;
   fetchLatestMemo: () => Promise<void>;
   fetchPatterns: () => Promise<void>;
   fetchContradictions: () => Promise<void>;
@@ -36,89 +38,116 @@ export const useCortexStore = create<CortexState>((set) => ({
   isLoadingContradictions: false,
   isGeneratingMemo: false,
   isScanningContradictions: false,
+  error: null,
+
+  clearError: () => set({ error: null }),
 
   fetchLatestMemo: async () => {
-    set({ isLoadingMemo: true });
+    set({ isLoadingMemo: true, error: null });
     try {
       const memo = await api.getLatestMemo();
       set({ latestMemo: memo });
+    } catch (err) {
+      set({ error: (err as Error).message });
     } finally {
       set({ isLoadingMemo: false });
     }
   },
 
   fetchPatterns: async () => {
-    set({ isLoadingPatterns: true });
+    set({ isLoadingPatterns: true, error: null });
     try {
       const result = await api.getPatterns();
       set({ patterns: result.items, patternsTotal: result.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
     } finally {
       set({ isLoadingPatterns: false });
     }
   },
 
   generateMemo: async () => {
-    set({ isGeneratingMemo: true });
+    set({ isGeneratingMemo: true, error: null });
     try {
       const result = await api.generateMemo();
       // If it's a memo (has id), set it; otherwise it's a "not enough data" message
       if (result && 'id' in result) {
         set({ latestMemo: result as WeeklyMemo });
       }
+    } catch (err) {
+      set({ error: (err as Error).message });
     } finally {
       set({ isGeneratingMemo: false });
     }
   },
 
   triggerPatternScan: async () => {
-    set({ isLoadingPatterns: true });
+    set({ isLoadingPatterns: true, error: null });
     try {
-      const result = await api.triggerPatternScan();
+      await api.triggerPatternScan();
       // Refresh patterns list after scan
       const updated = await api.getPatterns();
       set({ patterns: updated.items, patternsTotal: updated.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
     } finally {
       set({ isLoadingPatterns: false });
     }
   },
 
   fetchContradictions: async () => {
-    set({ isLoadingContradictions: true });
+    set({ isLoadingContradictions: true, error: null });
     try {
       const result = await api.getContradictions('ACTIVE');
       set({ contradictions: result.items, contradictionsTotal: result.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
     } finally {
       set({ isLoadingContradictions: false });
     }
   },
 
   scanContradictions: async () => {
-    set({ isScanningContradictions: true });
+    set({ isScanningContradictions: true, error: null });
     try {
       await api.scanContradictions();
       // Refresh after scan
       const result = await api.getContradictions('ACTIVE');
       set({ contradictions: result.items, contradictionsTotal: result.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
     } finally {
       set({ isScanningContradictions: false });
     }
   },
 
   resolveContradiction: async (id: string, resolution: string) => {
-    await api.updateContradiction(id, 'RESOLVED', resolution);
-    const result = await api.getContradictions('ACTIVE');
-    set({ contradictions: result.items, contradictionsTotal: result.total });
+    try {
+      await api.updateContradiction(id, 'RESOLVED', resolution);
+      const result = await api.getContradictions('ACTIVE');
+      set({ contradictions: result.items, contradictionsTotal: result.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
   },
 
   dismissContradiction: async (id: string) => {
-    await api.updateContradiction(id, 'DISMISSED');
-    const result = await api.getContradictions('ACTIVE');
-    set({ contradictions: result.items, contradictionsTotal: result.total });
+    try {
+      await api.updateContradiction(id, 'DISMISSED');
+      const result = await api.getContradictions('ACTIVE');
+      set({ contradictions: result.items, contradictionsTotal: result.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
   },
 
   acceptTension: async (id: string) => {
-    await api.updateContradiction(id, 'ACCEPTED_TENSION');
-    const result = await api.getContradictions('ACTIVE');
-    set({ contradictions: result.items, contradictionsTotal: result.total });
+    try {
+      await api.updateContradiction(id, 'ACCEPTED_TENSION');
+      const result = await api.getContradictions('ACTIVE');
+      set({ contradictions: result.items, contradictionsTotal: result.total });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
   },
 }));
