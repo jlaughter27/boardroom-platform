@@ -17,5 +17,13 @@ export default defineConfig({
     commonjsOptions: {
       include: [/shared/, /node_modules/],
     },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'd3': ['d3-force', 'd3-selection', 'd3-zoom'],
+          'vendor': ['react', 'react-dom', 'react-router-dom', 'zustand'],
+        },
+      },
+    },
   },
 });

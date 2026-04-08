@@ -1,18 +1,23 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
 import { Layout } from './components/shared/Layout';
-import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import DecisionLabPage from './pages/DecisionLabPage';
-import DecisionSessionPage from './pages/DecisionSessionPage';
-import MemoryExplorerPage from './pages/MemoryExplorerPage';
-import PeopleDirectoryPage from './pages/PeopleDirectoryPage';
-import SettingsPage from './pages/SettingsPage';
-import CustomPersonasPage from './pages/CustomPersonasPage';
-import IntegrationsPage from './pages/IntegrationsPage';
-import OnboardingPage from './pages/OnboardingPage';
+import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import * as api from './lib/api';
+
+// Eager — needed immediately
+import LoginPage from './pages/LoginPage';
+import OnboardingPage from './pages/OnboardingPage';
+
+// Lazy — loaded on demand
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const DecisionLabPage = lazy(() => import('./pages/DecisionLabPage'));
+const DecisionSessionPage = lazy(() => import('./pages/DecisionSessionPage'));
+const MemoryExplorerPage = lazy(() => import('./pages/MemoryExplorerPage'));
+const PeopleDirectoryPage = lazy(() => import('./pages/PeopleDirectoryPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const CustomPersonasPage = lazy(() => import('./pages/CustomPersonasPage'));
+const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
 
 function ProtectedRoute() {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -71,6 +76,12 @@ function OnboardingGate() {
   return <Outlet />;
 }
 
+const PageFallback = (
+  <div className="flex items-center justify-center min-h-screen bg-gray-950">
+    <LoadingSpinner size="lg" />
+  </div>
+);
+
 export default function App() {
   const { checkAuth } = useAuthStore();
 
@@ -80,27 +91,29 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route element={<ProtectedRoute />}>
-          {/* Onboarding — no sidebar/layout */}
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          {/* Main app — with onboarding gate */}
-          <Route element={<OnboardingGate />}>
-            <Route element={<Layout />}>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/decisions" element={<DecisionLabPage />} />
-              <Route path="/decisions/:id" element={<DecisionSessionPage />} />
-              <Route path="/memory" element={<MemoryExplorerPage />} />
-              <Route path="/people" element={<PeopleDirectoryPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/personas" element={<CustomPersonasPage />} />
-              <Route path="/integrations" element={<IntegrationsPage />} />
+      <Suspense fallback={PageFallback}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route element={<ProtectedRoute />}>
+            {/* Onboarding — no sidebar/layout */}
+            <Route path="/onboarding" element={<OnboardingPage />} />
+            {/* Main app — with onboarding gate */}
+            <Route element={<OnboardingGate />}>
+              <Route element={<Layout />}>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/decisions" element={<DecisionLabPage />} />
+                <Route path="/decisions/:id" element={<DecisionSessionPage />} />
+                <Route path="/memory" element={<MemoryExplorerPage />} />
+                <Route path="/people" element={<PeopleDirectoryPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/personas" element={<CustomPersonasPage />} />
+                <Route path="/integrations" element={<IntegrationsPage />} />
+              </Route>
             </Route>
           </Route>
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
