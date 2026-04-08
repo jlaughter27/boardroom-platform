@@ -221,8 +221,17 @@ export function checkAmbiguity(sessionId: string) {
 // Export
 // ---------------------------------------------------------------------------
 
+interface SessionExport {
+  id: string;
+  question: string;
+  mode: UserMode;
+  personaResponses: Record<string, import('@boardroom/shared').PersonaResponse>;
+  synthesis: import('@boardroom/shared').SynthesisReport | null;
+  createdAt: string;
+}
+
 export function exportSession(sessionId: string, format: 'json' | 'pdf' = 'json') {
-  return request<Record<string, unknown>>(
+  return request<SessionExport>(
     `/sessions/${sessionId}/export?format=${format}`,
   );
 }
@@ -260,17 +269,30 @@ export function getUserProfile() {
 }
 
 // ---------------------------------------------------------------------------
+// Entity input types (omit system-managed fields)
+// ---------------------------------------------------------------------------
+
+type SystemFields = 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'version';
+
+export type GoalInput = Omit<Goal, SystemFields | 'parentGoalId'> & { parentGoalId?: string | null };
+export type ProjectInput = Omit<Project, SystemFields>;
+export type TaskInput = Omit<Task, SystemFields>;
+export type PersonInput = Omit<Person, SystemFields | 'interactionFrequency' | 'lastContactAt'> & {
+  lastContactAt?: Date | null;
+};
+
+// ---------------------------------------------------------------------------
 // Entity mutations — Goals
 // ---------------------------------------------------------------------------
 
-export function createGoal(input: Record<string, unknown>) {
+export function createGoal(input: Partial<GoalInput>) {
   return request<Goal>('/goals', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function updateGoal(id: string, input: Record<string, unknown>) {
+export function updateGoal(id: string, input: Partial<GoalInput>) {
   return request<Goal>(`/goals/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -285,14 +307,14 @@ export function deleteGoal(id: string) {
 // Entity mutations — Projects
 // ---------------------------------------------------------------------------
 
-export function createProject(input: Record<string, unknown>) {
+export function createProject(input: Partial<ProjectInput>) {
   return request<Project>('/projects', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function updateProject(id: string, input: Record<string, unknown>) {
+export function updateProject(id: string, input: Partial<ProjectInput>) {
   return request<Project>(`/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -307,14 +329,14 @@ export function deleteProject(id: string) {
 // Entity mutations — Tasks
 // ---------------------------------------------------------------------------
 
-export function createTask(input: Record<string, unknown>) {
+export function createTask(input: Partial<TaskInput>) {
   return request<Task>('/tasks', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function updateTask(id: string, input: Record<string, unknown>) {
+export function updateTask(id: string, input: Partial<TaskInput>) {
   return request<Task>(`/tasks/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -329,14 +351,14 @@ export function deleteTask(id: string) {
 // Entity mutations — People
 // ---------------------------------------------------------------------------
 
-export function createPerson(input: Record<string, unknown>) {
+export function createPerson(input: Partial<PersonInput>) {
   return request<Person>('/people', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function updatePerson(id: string, input: Record<string, unknown>) {
+export function updatePerson(id: string, input: Partial<PersonInput>) {
   return request<Person>(`/people/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -394,7 +416,7 @@ export function getMemory(id: string) {
   return request<Memory>(`/memories/${id}`);
 }
 
-export function updateMemory(id: string, input: Record<string, unknown>) {
+export function updateMemory(id: string, input: Partial<Omit<Memory, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>) {
   return request<Memory>(`/memories/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -405,7 +427,7 @@ export function archiveMemory(id: string) {
   return request<void>(`/memories/${id}/archive`, { method: 'POST' });
 }
 
-export function createMemory(input: Record<string, unknown>) {
+export function createMemory(input: import('@boardroom/shared').CreateMemoryRequest) {
   return request<CreateMemoryResponse>('/memories', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -658,7 +680,7 @@ export function deleteCustomPersona(id: string) {
 // User Profile mutations
 // ---------------------------------------------------------------------------
 
-export function updateUserProfile(data: Record<string, unknown>) {
+export function updateUserProfile(data: Partial<Omit<UserProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>) {
   return request<UserProfile>('/profile', {
     method: 'PATCH',
     body: JSON.stringify(data),

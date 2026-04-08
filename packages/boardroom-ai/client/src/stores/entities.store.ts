@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
+import type { GoalInput, ProjectInput, TaskInput, PersonInput } from '../lib/api';
 import type {
   Goal,
   Project,
@@ -29,20 +30,20 @@ interface EntitiesState {
   fetchCommitments: () => Promise<void>;
   fetchAll: () => Promise<void>;
 
-  createGoal: (input: Record<string, unknown>) => Promise<void>;
-  updateGoal: (id: string, input: Record<string, unknown>) => Promise<void>;
+  createGoal: (input: Partial<GoalInput>) => Promise<void>;
+  updateGoal: (id: string, input: Partial<GoalInput>) => Promise<void>;
   deleteGoal: (id: string) => Promise<void>;
 
-  createProject: (input: Record<string, unknown>) => Promise<void>;
-  updateProject: (id: string, input: Record<string, unknown>) => Promise<void>;
+  createProject: (input: Partial<ProjectInput>) => Promise<void>;
+  updateProject: (id: string, input: Partial<ProjectInput>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 
-  createTask: (input: Record<string, unknown>) => Promise<void>;
-  updateTask: (id: string, input: Record<string, unknown>) => Promise<void>;
+  createTask: (input: Partial<TaskInput>) => Promise<void>;
+  updateTask: (id: string, input: Partial<TaskInput>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
 
-  createPerson: (input: Record<string, unknown>) => Promise<void>;
-  updatePerson: (id: string, input: Record<string, unknown>) => Promise<void>;
+  createPerson: (input: Partial<PersonInput>) => Promise<void>;
+  updatePerson: (id: string, input: Partial<PersonInput>) => Promise<void>;
   deletePerson: (id: string) => Promise<void>;
 }
 
