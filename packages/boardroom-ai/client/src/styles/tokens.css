@@ -101,3 +101,59 @@
   --z-command-palette: 500;
   --z-toast: 600;
 }
+
+/* === GRADIENT MESH BACKGROUND === */
+@keyframes gradientMesh1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+}
+@keyframes gradientMesh2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-40px, 30px) scale(1.15); }
+  66% { transform: translate(25px, -35px) scale(0.95); }
+}
+@keyframes gradientMesh3 {
+  0%, 100% { transform: translate(0, 0) scale(1.05); }
+  33% { transform: translate(20px, 40px) scale(0.9); }
+  66% { transform: translate(-35px, -25px) scale(1.1); }
+}
+
+.gradient-mesh {
+  position: relative;
+  overflow: hidden;
+}
+.gradient-mesh::before,
+.gradient-mesh::after,
+.gradient-mesh > .mesh-blob {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+.gradient-mesh::before {
+  width: 400px;
+  height: 400px;
+  top: 10%;
+  left: 15%;
+  background: var(--color-accent-primary);
+  animation: gradientMesh1 12s ease-in-out infinite;
+}
+.gradient-mesh::after {
+  width: 350px;
+  height: 350px;
+  top: 50%;
+  right: 10%;
+  background: var(--color-accent-secondary);
+  animation: gradientMesh2 14s ease-in-out infinite;
+}
+.gradient-mesh > .mesh-blob {
+  width: 300px;
+  height: 300px;
+  bottom: 15%;
+  left: 40%;
+  background: linear-gradient(135deg, var(--color-accent-primary), var(--color-accent-secondary));
+  animation: gradientMesh3 16s ease-in-out infinite;
+}
