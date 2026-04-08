@@ -43,8 +43,8 @@ export function IntegrationCard({
         <div className="flex items-center gap-3">
           <span className="text-2xl">{icon}</span>
           <div>
-            <h3 className="text-text-primary font-semibold text-sm">{name}</h3>
-            <p className="text-text-secondary text-xs mt-0.5">{description}</p>
+            <h3 className="text-foreground font-semibold text-sm">{name}</h3>
+            <p className="text-muted-foreground text-xs mt-0.5">{description}</p>
           </div>
         </div>
         <Badge variant={STATUS_VARIANT[status] ?? 'default'}>
@@ -53,7 +53,7 @@ export function IntegrationCard({
       </div>
 
       {lastSyncAt && status === 'connected' && (
-        <p className="text-xs text-text-tertiary mt-3">
+        <p className="text-xs text-muted-foreground mt-3">
           Last synced: {new Date(lastSyncAt).toLocaleString()}
         </p>
       )}
@@ -75,7 +75,7 @@ export function IntegrationCard({
           </Button>
         )}
         {isComingSoon && (
-          <span className="text-xs text-text-tertiary">Available in a future update</span>
+          <span className="text-xs text-muted-foreground">Available in a future update</span>
         )}
       </div>
     </Card>

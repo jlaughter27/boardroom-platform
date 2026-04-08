@@ -94,8 +94,8 @@ export default function DecisionLabPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-semibold text-text-primary">Decision Lab</h1>
-            <p className="text-text-secondary text-sm mt-0.5">
+            <h1 className="text-2xl font-semibold text-foreground">Decision Lab</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">
               {sessions.length} decision{sessions.length !== 1 ? 's' : ''} analyzed
             </p>
           </div>
@@ -126,8 +126,8 @@ export default function DecisionLabPage() {
                   onClick={() => setFilter(tab.value)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     filter === tab.value
-                      ? 'bg-accent-muted text-accent'
-                      : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-muted-foreground hover:bg-muted'
                   }`}
                 >
                   {tab.label}
@@ -137,7 +137,7 @@ export default function DecisionLabPage() {
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
-              className="bg-bg-base border border-line rounded-md px-2 py-1 text-xs text-text-secondary outline-none focus:border-accent"
+              className="bg-background border border-border rounded-md px-2 py-1 text-xs text-muted-foreground outline-none focus:border-primary/40"
             >
               <option value="newest">Most Recent</option>
               <option value="oldest">Oldest</option>
@@ -170,7 +170,7 @@ export default function DecisionLabPage() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-text-primary font-medium line-clamp-2">
+                      <p className="text-sm text-foreground font-medium line-clamp-2">
                         {session.question}
                       </p>
                       <div className="flex items-center gap-2 mt-2">
@@ -182,13 +182,13 @@ export default function DecisionLabPage() {
                           {Array.from({ length: Math.min(3, session.personaCount) }, (_, i) => (
                             <div
                               key={i}
-                              className="w-5 h-5 rounded-full bg-bg-elevated border border-line flex items-center justify-center text-[8px] text-text-tertiary"
+                              className="w-5 h-5 rounded-full bg-card border border-border flex items-center justify-center text-[8px] text-muted-foreground"
                             >
                               P
                             </div>
                           ))}
                           {session.personaCount > 3 && (
-                            <div className="w-5 h-5 rounded-full bg-bg-elevated border border-line flex items-center justify-center text-[8px] text-text-tertiary">
+                            <div className="w-5 h-5 rounded-full bg-card border border-border flex items-center justify-center text-[8px] text-muted-foreground">
                               +{session.personaCount - 3}
                             </div>
                           )}
@@ -198,7 +198,7 @@ export default function DecisionLabPage() {
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-text-tertiary flex-shrink-0">
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
                       {timeAgo(session.createdAt)}
                     </span>
                   </div>
@@ -211,7 +211,7 @@ export default function DecisionLabPage() {
         {/* Filtered empty */}
         {!isLoading && sessions.length > 0 && filtered.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-text-tertiary text-sm">No {filter} sessions found</p>
+            <p className="text-muted-foreground text-sm">No {filter} sessions found</p>
           </div>
         )}
       </div>

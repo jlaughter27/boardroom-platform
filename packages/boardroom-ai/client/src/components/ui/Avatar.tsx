@@ -7,8 +7,8 @@ const sizes = {
 } as const;
 
 const bgColors = [
-  'bg-indigo-600', 'bg-violet-600', 'bg-emerald-600', 'bg-amber-600',
-  'bg-cyan-600', 'bg-rose-600', 'bg-blue-600', 'bg-purple-600',
+  'bg-blue-600', 'bg-emerald-600', 'bg-amber-600', 'bg-cyan-600',
+  'bg-rose-600', 'bg-sky-600', 'bg-teal-600', 'bg-orange-600',
 ];
 
 function hashName(name: string): number {

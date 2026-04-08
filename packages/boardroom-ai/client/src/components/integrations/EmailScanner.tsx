@@ -72,7 +72,7 @@ export function EmailScanner() {
 
   const DOMAIN_COLORS: Record<string, string> = {
     business: 'text-info',
-    personal: 'text-purple-400',
+    personal: 'text-primary',
     ministry: 'text-amber-400',
     'ai-systems': 'text-success',
   };
@@ -81,19 +81,19 @@ export function EmailScanner() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-text-secondary">Email Scanner</h3>
+        <h3 className="text-sm font-medium text-muted-foreground">Email Scanner</h3>
         <button
           onClick={scanEmails}
           disabled={loading}
-          className="px-3 py-1.5 text-xs bg-accent hover:bg-accent text-text-primary rounded-lg transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 text-xs bg-primary hover:bg-primary/90 text-foreground rounded-lg transition-colors disabled:opacity-50"
         >
           {loading ? 'Scanning...' : 'Scan Recent Emails'}
         </button>
       </div>
 
       {error && (
-        <div className="bg-danger-muted border border-red-800 rounded-lg p-3">
-          <p className="text-sm text-danger">{error}</p>
+        <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3">
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
@@ -107,27 +107,27 @@ export function EmailScanner() {
 
       {/* Extraction review panel */}
       {extraction && (
-        <div className="bg-bg-elevated rounded-lg border border-line p-4 space-y-3">
+        <div className="bg-card rounded-lg border border-borderp-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="text-sm font-medium text-text-primary">{extraction.subject}</h4>
-              <p className="text-xs text-text-secondary mt-0.5">
+              <h4 className="text-sm font-medium text-foreground">{extraction.subject}</h4>
+              <p className="text-xs text-muted-foreground mt-0.5">
                 From: {extraction.from} | {new Date(extraction.date).toLocaleDateString()}
               </p>
             </div>
             <button
               onClick={() => { setExtraction(null); setSelectedProposals(new Set()); }}
-              className="text-xs text-text-tertiary hover:text-text-secondary"
+              className="text-xs text-muted-foreground hover:text-muted-foreground"
             >
               Close
             </button>
           </div>
 
           {extraction.proposedMemories.length === 0 ? (
-            <p className="text-sm text-text-tertiary">No memories worth extracting from this email.</p>
+            <p className="text-sm text-muted-foreground">No memories worth extracting from this email.</p>
           ) : (
             <>
-              <p className="text-xs text-text-tertiary">
+              <p className="text-xs text-muted-foreground">
                 {extraction.proposedMemories.length} proposed {extraction.proposedMemories.length === 1 ? 'memory' : 'memories'} — select which to save:
               </p>
               <div className="space-y-2">
@@ -136,8 +136,8 @@ export function EmailScanner() {
                     key={i}
                     className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selectedProposals.has(i)
-                        ? 'bg-bg-hover/50 border-blue-700'
-                        : 'bg-bg-surface border-line opacity-60'
+                        ? 'bg-muted/50 border-primary/40'
+                        : 'bg-card border-border opacity-60'
                     }`}
                   >
                     <input
@@ -148,22 +148,22 @@ export function EmailScanner() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-primary">{proposal.title}</span>
-                        <span className={`text-xs ${DOMAIN_COLORS[proposal.domain] ?? 'text-text-secondary'}`}>
+                        <span className="text-sm font-medium text-foreground">{proposal.title}</span>
+                        <span className={`text-xs ${DOMAIN_COLORS[proposal.domain] ?? 'text-muted-foreground'}`}>
                           {proposal.domain}
                         </span>
                       </div>
-                      <p className="text-xs text-text-secondary mt-1 line-clamp-2">{proposal.content}</p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{proposal.content}</p>
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <span className="text-xs text-text-tertiary">{proposal.memoryClass}</span>
-                        <span className="text-xs text-bg-active">|</span>
-                        <span className="text-xs text-text-tertiary">
+                        <span className="text-xs text-muted-foreground">{proposal.memoryClass}</span>
+                        <span className="text-xs text-muted-foreground">|</span>
+                        <span className="text-xs text-muted-foreground">
                           Importance: {(proposal.importance * 10).toFixed(0)}/10
                         </span>
                         {proposal.linkedPeople.length > 0 && (
                           <>
-                            <span className="text-xs text-bg-active">|</span>
-                            <span className="text-xs text-text-tertiary">
+                            <span className="text-xs text-muted-foreground">|</span>
+                            <span className="text-xs text-muted-foreground">
                               {proposal.linkedPeople.join(', ')}
                             </span>
                           </>
@@ -172,7 +172,7 @@ export function EmailScanner() {
                       {proposal.tags.length > 0 && (
                         <div className="flex gap-1 mt-1.5 flex-wrap">
                           {proposal.tags.map(tag => (
-                            <span key={tag} className="text-xs bg-bg-elevated text-text-secondary px-1.5 py-0.5 rounded">
+                            <span key={tag} className="text-xs bg-card text-muted-foreground px-1.5 py-0.5 rounded">
                               {tag}
                             </span>
                           ))}
@@ -187,7 +187,7 @@ export function EmailScanner() {
                 <button
                   onClick={confirmSelected}
                   disabled={confirming || selectedProposals.size === 0}
-                  className="px-4 py-2 text-sm bg-accent hover:bg-accent text-text-primary rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-sm bg-primary hover:bg-primary/90 text-foreground rounded-lg transition-colors disabled:opacity-50"
                 >
                   {confirming
                     ? 'Saving...'
@@ -196,7 +196,7 @@ export function EmailScanner() {
                 </button>
                 <button
                   onClick={() => { setExtraction(null); setSelectedProposals(new Set()); }}
-                  className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+                  className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Cancel
                 </button>
@@ -212,19 +212,19 @@ export function EmailScanner() {
           {emails.map(email => (
             <div
               key={email.emailId}
-              className="flex items-center justify-between bg-bg-elevated rounded-lg px-4 py-3 hover:bg-bg-elevated transition-colors"
+              className="flex items-center justify-between bg-card rounded-lg px-4 py-3 hover:bg-card transition-colors"
             >
               <div className="flex-1 min-w-0 mr-3">
-                <p className="text-sm text-text-primary truncate">{email.subject}</p>
-                <p className="text-xs text-text-tertiary mt-0.5 truncate">
+                <p className="text-sm text-foreground truncate">{email.subject}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
                   {email.from} | {new Date(email.date).toLocaleDateString()}
                 </p>
-                <p className="text-xs text-bg-active mt-0.5 truncate">{email.snippet}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">{email.snippet}</p>
               </div>
               <button
                 onClick={() => extractFromEmail(email.emailId)}
                 disabled={scanning === email.emailId}
-                className="px-3 py-1.5 text-xs bg-bg-hover hover:bg-bg-active text-text-secondary rounded-lg transition-colors disabled:opacity-50 shrink-0"
+                className="px-3 py-1.5 text-xs bg-muted hover:bg-accent text-muted-foreground rounded-lg transition-colors disabled:opacity-50 shrink-0"
               >
                 {scanning === email.emailId ? 'Extracting...' : 'Extract'}
               </button>
@@ -234,7 +234,7 @@ export function EmailScanner() {
       )}
 
       {!loading && emails.length === 0 && !extraction && (
-        <p className="text-sm text-bg-active text-center py-6">
+        <p className="text-sm text-muted-foreground text-center py-6">
           Click "Scan Recent Emails" to load emails from the past 7 days.
         </p>
       )}

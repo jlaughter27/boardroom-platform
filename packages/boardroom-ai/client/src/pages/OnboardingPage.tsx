@@ -12,8 +12,8 @@ import { PeopleStep } from '../components/onboarding/steps/PeopleStep';
 import { ContextStep } from '../components/onboarding/steps/ContextStep';
 
 const CONFETTI_COLORS = [
-  'var(--color-accent-primary)',
-  'var(--color-accent-secondary)',
+  'var(--color-primary)',
+  'var(--color-primary-warm)',
   'var(--color-success)',
   'var(--color-warning)',
   'var(--color-info)',
@@ -72,7 +72,7 @@ function CelebrationScreen() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="text-2xl font-semibold text-text-primary mb-2"
+        className="text-2xl font-semibold text-foreground mb-2"
       >
         You're all set!
       </motion.h2>
@@ -80,7 +80,7 @@ function CelebrationScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
-        className="text-text-secondary"
+        className="text-muted-foreground"
       >
         Redirecting to your dashboard...
       </motion.p>
@@ -140,19 +140,18 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-bg-base gradient-mesh flex items-center justify-center p-4">
-      <div className="mesh-blob" />
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-2xl relative z-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="font-display text-3xl font-bold bg-gradient-to-r from-accent to-accent-secondary bg-clip-text text-transparent mb-2">
-            Welcome to BoardRoom
+          <h1 className="font-display text-3xl font-bold mb-2">
+            <span className="text-blue-600 dark:text-blue-400">Welcome</span> <span className="text-foreground">to BoardRoom</span>
           </h1>
-          <p className="text-text-secondary">Let's set up your AI advisory board in a few minutes.</p>
+          <p className="text-muted-foreground">Let's set up your AI advisory board in a few minutes.</p>
         </div>
 
         {showCelebration ? (
-          <div className="bg-bg-surface rounded-xl border border-line shadow-lg">
+          <div className="bg-card rounded-xl border border-border shadow-lg">
             <CelebrationScreen />
           </div>
         ) : (

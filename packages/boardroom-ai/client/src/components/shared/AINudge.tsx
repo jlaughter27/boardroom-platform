@@ -15,13 +15,13 @@ interface AINudgeProps {
 }
 
 const borderColors = {
-  info: 'border-l-accent',
+  info: 'border-l-primary',
   suggestion: 'border-l-success',
   warning: 'border-l-warning',
 } as const;
 
 const defaultIcon = (
-  <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+  <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
   </svg>
 );
@@ -57,11 +57,11 @@ export function AINudge({
             <div className="flex items-start gap-3">
               <span className="flex-shrink-0 mt-0.5">{icon || defaultIcon}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-accent uppercase tracking-wide font-medium mb-1">
+                <p className="text-xs text-primary uppercase tracking-wide font-medium mb-1">
                   AI Insight
                 </p>
-                <p className="text-sm font-medium text-text-primary">{title}</p>
-                <p className="text-xs text-text-secondary mt-0.5">{description}</p>
+                <p className="text-sm font-medium text-foreground">{title}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
                 {action && (
                   <Button
                     variant="ghost"
@@ -75,7 +75,7 @@ export function AINudge({
               </div>
               <button
                 onClick={handleDismiss}
-                className="flex-shrink-0 p-1 text-text-tertiary hover:text-text-secondary transition-colors"
+                className="flex-shrink-0 p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
                 aria-label="Dismiss nudge"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

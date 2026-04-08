@@ -27,8 +27,8 @@ function ProtectedRoute() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-bg-base">
-        <span className="text-text-tertiary">Loading...</span>
+      <div className="flex items-center justify-center h-screen bg-background">
+        <span className="text-muted-foreground">Loading...</span>
       </div>
     );
   }
@@ -66,8 +66,8 @@ function OnboardingGate() {
 
   if (!checked) {
     return (
-      <div className="flex items-center justify-center h-screen bg-bg-base">
-        <span className="text-text-tertiary">Loading...</span>
+      <div className="flex items-center justify-center h-screen bg-background">
+        <span className="text-muted-foreground">Loading...</span>
       </div>
     );
   }
@@ -80,7 +80,7 @@ function OnboardingGate() {
 }
 
 const PageFallback = (
-  <div className="flex items-center justify-center min-h-screen bg-bg-base">
+  <div className="flex items-center justify-center min-h-screen bg-background">
     <LoadingSpinner size="lg" />
   </div>
 );

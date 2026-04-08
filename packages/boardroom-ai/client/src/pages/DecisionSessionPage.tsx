@@ -123,8 +123,8 @@ export default function DecisionSessionPage() {
             <motion.div key="input" {...slideUp} className="space-y-6">
               <div className="max-w-2xl mx-auto space-y-6">
                 <div className="text-center">
-                  <h1 className="text-2xl font-semibold text-text-primary mb-1">New Decision</h1>
-                  <p className="text-text-secondary text-sm">
+                  <h1 className="text-2xl font-semibold text-foreground mb-1">New Decision</h1>
+                  <p className="text-muted-foreground text-sm">
                     Describe your question, choose a mode, then analyze.
                   </p>
                 </div>
@@ -135,12 +135,12 @@ export default function DecisionSessionPage() {
                     onChange={(e) => setQuestion(e.target.value)}
                     rows={4}
                     placeholder="What decision are you wrestling with?"
-                    className="w-full bg-bg-base border border-line rounded-lg p-4 text-lg text-text-primary placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none resize-y transition-all duration-fast"
+                    className="w-full bg-background border border-borderrounded-lg p-4 text-lg text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 outline-none resize-y transition-all duration-fast"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-3">
+                  <label className="block text-sm font-medium text-muted-foreground mb-3">
                     Analysis Mode
                   </label>
                   <ModeSelector selectedMode={mode} onSelect={setMode} />
@@ -171,7 +171,7 @@ export default function DecisionSessionPage() {
             {/* Question header */}
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-lg font-semibold text-text-primary">
+                <h1 className="text-lg font-semibold text-foreground">
                   {currentSession?.question}
                 </h1>
                 <Badge variant="accent" className="mt-1">
@@ -198,7 +198,7 @@ export default function DecisionSessionPage() {
 
             {/* Action bar */}
             {phase === 'synthesis' && synthesis && (
-              <div className="sticky bottom-0 z-10 bg-bg-surface/80 backdrop-blur border-t border-line -mx-6 px-6 py-3 flex items-center gap-3">
+              <div className="sticky bottom-0 z-10 bg-card/80 backdrop-blur border-t border-border-mx-6 px-6 py-3 flex items-center gap-3">
                 <Button variant="ghost" onClick={handleExport}>Export</Button>
                 <Button variant="secondary" onClick={handleNewDecision}>New Decision</Button>
                 <SimulationButton
@@ -269,7 +269,7 @@ export default function DecisionSessionPage() {
             </motion.div>
 
             {isDispatching && (
-              <div className="text-center text-sm text-text-tertiary">
+              <div className="text-center text-sm text-muted-foreground">
                 Dispatching personas...
               </div>
             )}

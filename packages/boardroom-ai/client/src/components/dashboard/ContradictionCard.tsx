@@ -34,16 +34,16 @@ export function ContradictionCard({ contradiction, onResolve, onDismiss, onAccep
   };
 
   return (
-    <div className={`py-3 border-b border-line last:border-0 ${bgClass} rounded-md px-2 my-1`}>
+    <div className={`py-3 border-b border-border last:border-0 ${bgClass} rounded-md px-2 my-1`}>
       <div className="flex items-start gap-2 mb-2">
         <Badge variant={variant}>{contradiction.severity}</Badge>
-        <p className="text-sm text-text-primary">{contradiction.description}</p>
+        <p className="text-sm text-foreground">{contradiction.description}</p>
       </div>
 
-      <div className="flex items-center gap-1 text-xs text-text-tertiary mb-2 ml-1">
-        <span className="font-medium text-text-secondary">{entityA.title}</span>
+      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2 ml-1">
+        <span className="font-medium text-muted-foreground">{entityA.title}</span>
         <span>vs</span>
-        <span className="font-medium text-text-secondary">{entityB.title}</span>
+        <span className="font-medium text-muted-foreground">{entityB.title}</span>
       </div>
 
       {showResolve ? (
@@ -52,7 +52,7 @@ export function ContradictionCard({ contradiction, onResolve, onDismiss, onAccep
             value={resolution}
             onChange={(e) => setResolution(e.target.value)}
             placeholder="How was this resolved?"
-            className="w-full bg-bg-base border border-line rounded-md px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary resize-none outline-none focus:border-accent"
+            className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground resize-none outline-none focus:border-primary/40"
             rows={2}
           />
           <div className="flex gap-2">

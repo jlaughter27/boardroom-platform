@@ -24,7 +24,7 @@ export function ProactiveQuestions() {
                 <span className={`mt-0.5 flex-shrink-0 ${iconColor}`}>
                   {isOverdueType ? '\u26A0' : '\u2139'}
                 </span>
-                <p className="flex-1 text-sm text-text-primary">{q.message}</p>
+                <p className="flex-1 text-sm text-foreground">{q.message}</p>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {q.actions.map((action) =>
                     action.action === 'dismiss' ? (

@@ -23,7 +23,7 @@ export default function MemoryExplorerPage() {
   return (
     <PageWrapper>
       <div className="p-6 h-full flex flex-col min-h-0">
-        <h1 className="text-2xl font-semibold text-text-primary mb-4">Memory Explorer</h1>
+        <h1 className="text-2xl font-semibold text-foreground mb-4">Memory Explorer</h1>
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
 
@@ -50,15 +50,15 @@ export default function MemoryExplorerPage() {
           </div>
 
           {/* Divider */}
-          <div className="hidden lg:block w-px bg-line-subtle" />
+          <div className="hidden lg:block w-px bg-border" />
 
           {/* Right panel: detail (45%) */}
           <div className="w-full lg:w-[45%] min-h-0">
-            <div className="bg-bg-surface border border-line rounded-lg p-4 h-full overflow-y-auto sticky top-0">
+            <div className="bg-card border border-border rounded-lg p-4 h-full overflow-y-auto sticky top-0">
               {selectedMemory ? (
                 <motion.div {...slideIn} key={selectedMemory.id}>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-medium text-text-tertiary uppercase tracking-wide">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       Memory Detail
                     </p>
                     <Button variant="ghost" size="sm" onClick={clearSelection}>
@@ -70,7 +70,7 @@ export default function MemoryExplorerPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center py-12">
                   <svg
-                    className="w-10 h-10 text-text-tertiary mb-3"
+                    className="w-10 h-10 text-muted-foreground mb-3"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -82,10 +82,10 @@ export default function MemoryExplorerPage() {
                       d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                     />
                   </svg>
-                  <p className="text-text-secondary text-sm font-medium">
+                  <p className="text-muted-foreground text-sm font-medium">
                     Select a memory to view details
                   </p>
-                  <p className="text-text-tertiary text-xs mt-1">
+                  <p className="text-muted-foreground text-xs mt-1">
                     Click on any memory card in the list
                   </p>
                 </div>

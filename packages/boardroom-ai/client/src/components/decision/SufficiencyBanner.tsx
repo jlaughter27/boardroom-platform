@@ -27,22 +27,22 @@ export function SufficiencyBanner({ score, onProceed }: SufficiencyBannerProps) 
     <Card className="bg-info-muted border-info/30 space-y-4">
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-sm font-medium text-text-primary">Ambiguity Score</span>
+          <span className="text-sm font-medium text-foreground">Ambiguity Score</span>
           <Badge variant={variant}>{pct}% — {label}</Badge>
         </div>
         <Progress value={pct} />
       </div>
 
       <div>
-        <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
           Inferred Intent
         </div>
-        <p className="text-sm text-text-secondary">{score.inferredIntent}</p>
+        <p className="text-sm text-muted-foreground">{score.inferredIntent}</p>
       </div>
 
       {score.missingDimensions.length > 0 && (
         <div>
-          <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
             Missing Dimensions
           </div>
           <ul className="space-y-1">
@@ -58,12 +58,12 @@ export function SufficiencyBanner({ score, onProceed }: SufficiencyBannerProps) 
 
       {score.suggestedQuestions.length > 0 && score.score > 0.6 && (
         <div>
-          <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
             Consider Clarifying
           </div>
           <ul className="space-y-1">
             {score.suggestedQuestions.map((q, i) => (
-              <li key={i} className="text-sm text-text-secondary flex items-start gap-2">
+              <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
                 <span className="flex-shrink-0 text-info">{'\u2753'}</span>
                 <span>{q}</span>
               </li>

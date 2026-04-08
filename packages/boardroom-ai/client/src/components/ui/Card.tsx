@@ -10,8 +10,8 @@ export function Card({ children, className, hover = false, ...props }: CardProps
   return (
     <div
       className={cn(
-        'rounded-lg border border-line bg-bg-surface p-4',
-        hover && 'transition-all duration-normal hover:border-accent/30 hover:shadow-glow cursor-pointer active:scale-[0.99]',
+        'rounded-xl border border-border bg-card p-4',
+        hover && 'transition-all duration-normal hover:shadow-md hover:border-transparent hover:-translate-y-0.5 cursor-pointer',
         className
       )}
       {...props}
@@ -39,7 +39,7 @@ function CardBody({ children, className, ...props }: HTMLAttributes<HTMLDivEleme
 
 function CardFooter({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('mt-3 flex items-center gap-2 border-t border-line pt-3', className)} {...props}>
+    <div className={cn('mt-3 flex items-center gap-2 border-t border-border pt-3', className)} {...props}>
       {children}
     </div>
   );

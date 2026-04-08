@@ -35,16 +35,16 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
   return (
     <div
       className={`flex-1 min-w-0 px-2 py-2 ${
-        isToday ? 'ring-1 ring-accent rounded-md bg-accent-muted' : ''
+        isToday ? 'ring-1 ring-primary rounded-md bg-primary/10' : ''
       }`}
     >
       <div className="text-center mb-2">
-        <div className={`text-xs ${past ? 'text-text-tertiary' : 'text-text-secondary'}`}>
+        <div className={`text-xs ${past ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
           {dayName}
         </div>
         <div
           className={`text-lg font-bold ${
-            isToday ? 'text-accent' : past ? 'text-text-tertiary' : 'text-text-primary'
+            isToday ? 'text-primary' : past ? 'text-muted-foreground' : 'text-foreground'
           }`}
         >
           {dayNum}
@@ -62,14 +62,14 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
             key={item.id}
             className={`text-xs truncate ${
               item.isOverdue
-                ? 'text-danger'
+                ? 'text-destructive'
                 : item.type === 'calendar'
                   ? 'text-info'
                   : item.type === 'commitment'
-                    ? 'text-accent-secondary'
+                    ? 'text-primary'
                     : past
-                      ? 'text-text-tertiary'
-                      : 'text-text-secondary'
+                      ? 'text-muted-foreground'
+                      : 'text-muted-foreground'
             }`}
             title={item.title}
           >
@@ -78,12 +78,12 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
           </div>
         ))}
         {overflow > 0 && (
-          <div className="text-[10px] text-text-tertiary">+{overflow} more</div>
+          <div className="text-[10px] text-muted-foreground">+{overflow} more</div>
         )}
       </div>
 
       {items.length === 0 && (
-        <div className="h-8 border border-dashed border-line-subtle rounded-sm" />
+        <div className="h-8 border border-dashed border-border rounded-sm" />
       )}
     </div>
   );

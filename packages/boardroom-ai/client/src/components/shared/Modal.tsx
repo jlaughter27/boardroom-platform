@@ -30,13 +30,13 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
       />
 
       {/* Content */}
-      <div role="dialog" aria-modal="true" aria-label={title} className="relative z-10 w-full max-w-lg bg-bg-surface rounded-xl border border-line-subtle shadow-xl">
+      <div role="dialog" aria-modal="true" aria-label={title} className="relative z-10 w-full max-w-lg bg-card rounded-xl border border-border shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line-subtle">
-          <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
           <button
             onClick={onClose}
-            className="text-text-secondary hover:text-text-primary"
+            className="text-muted-foreground hover:text-foreground"
             aria-label="Close modal"
           >
             <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">

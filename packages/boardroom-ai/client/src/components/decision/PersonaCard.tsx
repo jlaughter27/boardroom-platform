@@ -36,7 +36,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 text-xs font-medium text-text-tertiary hover:text-text-secondary transition-colors"
+        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-muted-foreground transition-colors"
       >
         <span className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}
@@ -50,7 +50,7 @@ function CollapsibleSection({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="mt-1.5 text-sm text-text-secondary">{children}</div>
+            <div className="mt-1.5 text-sm text-muted-foreground">{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -77,8 +77,8 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
               />
             ))}
           </div>
-          <span className="text-text-tertiary text-sm">Thinking...</span>
-          <span className="text-text-tertiary text-xs ml-auto">{config?.name ?? personaId}</span>
+          <span className="text-muted-foreground text-sm">Thinking...</span>
+          <span className="text-muted-foreground text-xs ml-auto">{config?.name ?? personaId}</span>
         </div>
       </Card>
     );
@@ -87,16 +87,16 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
   // Streaming state
   if (isStreaming && !response) {
     return (
-      <Card className={`border-t-[3px] ${colorClass} shadow-glow`}>
+      <Card className={`border-t-[3px] ${colorClass} shadow-md`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-text-primary text-sm">{config?.name ?? personaId}</span>
+            <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
           </div>
         </div>
-        <div className="text-sm text-text-secondary whitespace-pre-wrap">
+        <div className="text-sm text-muted-foreground whitespace-pre-wrap">
           {streamingText}
-          <span className="inline-block w-0.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom" />
+          <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
         </div>
       </Card>
     );
@@ -108,7 +108,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
       <Card className={`border-t-[3px] ${colorClass}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-text-primary text-sm">{config?.name ?? personaId}</span>
+            <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
             {response.dissentFlag && <Badge variant="warning">DISSENTS</Badge>}
           </div>
@@ -129,18 +129,18 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
         )}
 
         <div className="mt-3">
-          <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">Analysis</div>
-          <p className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">{response.analysis}</p>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Analysis</div>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{response.analysis}</p>
         </div>
 
-        <div className="mt-3 p-3 bg-accent-muted rounded-md">
-          <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">Recommendation</div>
-          <p className="text-sm text-text-primary">{response.recommendation}</p>
+        <div className="mt-3 p-3 bg-primary/10 rounded-md">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Recommendation</div>
+          <p className="text-sm text-foreground">{response.recommendation}</p>
         </div>
 
         {response.uncertainties.length > 0 && (
           <CollapsibleSection title="Uncertainties">
-            <ul className="list-disc list-inside space-y-1 text-text-secondary">
+            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
               {response.uncertainties.map((u, i) => (
                 <li key={i}>{u}</li>
               ))}
@@ -150,9 +150,9 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
 
         {/* Confidence */}
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-xs text-text-tertiary">Confidence</span>
+          <span className="text-xs text-muted-foreground">Confidence</span>
           <Progress value={response.confidence * 100} className="flex-1 h-1.5" />
-          <span className="text-xs text-text-secondary">{Math.round(response.confidence * 100)}%</span>
+          <span className="text-xs text-muted-foreground">{Math.round(response.confidence * 100)}%</span>
         </div>
       </Card>
     );

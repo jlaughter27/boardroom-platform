@@ -50,12 +50,12 @@ function getIcon(type: Notification['type']) {
 
 function getIconColor(type: Notification['type']) {
   switch (type) {
-    case 'outcome_review': return 'text-accent';
+    case 'outcome_review': return 'text-primary';
     case 'contradiction': return 'text-warning';
     case 'pattern': return 'text-info';
     case 'cognitive_load': return 'text-danger';
     case 'memo': return 'text-success';
-    default: return 'text-text-secondary';
+    default: return 'text-muted-foreground';
   }
 }
 
@@ -111,7 +111,7 @@ export function NotificationCenter() {
       {/* Bell button */}
       <button
         onClick={toggle}
-        className="relative p-2 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+        className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -135,12 +135,12 @@ export function NotificationCenter() {
             {...slideUp}
             role="region"
             aria-label="Notifications"
-            className="absolute right-0 top-full mt-2 w-[360px] rounded-xl border border-line bg-bg-elevated shadow-lg overflow-hidden z-[var(--z-dropdown)]"
+            className="absolute right-0 top-full mt-2 w-[360px] rounded-xl border border-border bg-card shadow-lg overflow-hidden z-[var(--z-dropdown)]"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium text-text-primary">Notifications</h3>
+                <h3 className="text-sm font-medium text-foreground">Notifications</h3>
                 {unreadCount > 0 && (
                   <Badge variant="accent" className="text-[10px]">
                     {unreadCount}
@@ -150,7 +150,7 @@ export function NotificationCenter() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-xs text-accent hover:text-accent-hover transition-colors"
+                  className="text-xs text-primary hover:text-primary/80 transition-colors"
                 >
                   Mark all read
                 </button>
@@ -160,7 +160,7 @@ export function NotificationCenter() {
             {/* Notification list */}
             <div className="max-h-[400px] overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-text-tertiary">
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
                   <svg className="w-8 h-8 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -174,22 +174,22 @@ export function NotificationCenter() {
                       {...staggerItem}
                       onClick={() => handleClick(n)}
                       className={cn(
-                        'flex items-start gap-3 px-4 py-3 border-b border-line-subtle cursor-pointer',
-                        'hover:bg-bg-hover transition-colors',
-                        !n.read && 'border-l-2 border-l-accent',
+                        'flex items-start gap-3 px-4 py-3 border-b border-border cursor-pointer',
+                        'hover:bg-muted transition-colors',
+                        !n.read && 'border-l-2 border-l-primary',
                       )}
                     >
                       <span className={cn('mt-0.5 flex-shrink-0', getIconColor(n.type))}>
                         {getIcon(n.type)}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className={cn('text-sm text-text-primary', !n.read && 'font-semibold')}>
+                        <p className={cn('text-sm text-foreground', !n.read && 'font-semibold')}>
                           {n.title}
                         </p>
-                        <p className="text-xs text-text-secondary truncate mt-0.5">
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {n.description}
                         </p>
-                        <p className="text-[10px] text-text-tertiary mt-1">
+                        <p className="text-[10px] text-muted-foreground mt-1">
                           {timeAgo(n.timestamp)}
                         </p>
                       </div>
@@ -198,7 +198,7 @@ export function NotificationCenter() {
                           e.stopPropagation();
                           dismiss(n.id);
                         }}
-                        className="flex-shrink-0 p-1 text-text-tertiary hover:text-text-secondary transition-colors"
+                        className="flex-shrink-0 p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
                         aria-label="Dismiss notification"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

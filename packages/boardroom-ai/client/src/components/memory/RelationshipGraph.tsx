@@ -98,12 +98,12 @@ export function RelationshipGraph({ data, compact }: { data: GraphData; compact?
   }, [data, height]);
 
   return (
-    <div className="bg-bg-surface rounded-lg p-4">
+    <div className="bg-card rounded-lg p-4">
       <svg ref={svgRef} className="w-full" style={{ height }} />
       {selectedNode && !compact && (
-        <div className="mt-4 p-3 bg-bg-elevated rounded-lg">
-          <p className="text-text-primary font-medium">{selectedNode.label}</p>
-          <p className="text-text-secondary text-sm">{selectedNode.type} &bull; {selectedNode.domain || 'no domain'}</p>
+        <div className="mt-4 p-3 bg-card rounded-lg">
+          <p className="text-foreground font-medium">{selectedNode.label}</p>
+          <p className="text-muted-foreground text-sm">{selectedNode.type} &bull; {selectedNode.domain || 'no domain'}</p>
         </div>
       )}
     </div>

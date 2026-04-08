@@ -39,9 +39,9 @@ function formatDate(date: Date | string | null): string {
 }
 
 const ENTITY_TYPE_COLORS: Record<string, string> = {
-  person: 'bg-blue-900/50 text-blue-400 border-blue-800',
-  goal: 'bg-green-900/50 text-green-400 border-green-800',
-  project: 'bg-purple-900/50 text-purple-400 border-purple-800',
+  person: 'bg-info-muted text-info border-info/30',
+  goal: 'bg-success-muted text-success border-success/30',
+  project: 'bg-primary/10 text-primary border-primary/30',
 };
 
 export function MemoryDetail({ memory }: MemoryDetailProps) {
@@ -149,8 +149,8 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
       ? `/decisions/${memory.sourceRef.slice(8)}`
       : null;
 
-  const labelClass = 'text-[11px] font-medium text-text-tertiary uppercase tracking-wider';
-  const valueClass = 'text-sm text-text-secondary';
+  const labelClass = 'text-[11px] font-medium text-muted-foreground uppercase tracking-wider';
+  const valueClass = 'text-sm text-muted-foreground';
 
   return (
     <div className="space-y-4 overflow-y-auto">
@@ -160,10 +160,10 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="flex-1 bg-bg-surface border border-line rounded px-3 py-1.5 text-lg font-bold text-text-primary focus:outline-none focus:border-accent"
+            className="flex-1 bg-card border border-border rounded px-3 py-1.5 text-lg font-bold text-foreground focus:outline-none focus:border-primary/40"
           />
         ) : (
-          <h2 className="text-lg font-bold text-text-primary flex-1">{memory.title}</h2>
+          <h2 className="text-lg font-bold text-foreground flex-1">{memory.title}</h2>
         )}
 
         <div className="flex gap-1.5 shrink-0">
@@ -172,13 +172,13 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-3 py-1 bg-accent hover:bg-accent-hover disabled:opacity-50 text-text-primary text-xs rounded transition-colors"
+                className="px-3 py-1 bg-primary hover:bg-primary/90 disabled:opacity-50 text-foreground text-xs rounded transition-colors"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={handleCancelEdit}
-                className="px-3 py-1 bg-bg-hover hover:bg-bg-active text-text-secondary text-xs rounded transition-colors"
+                className="px-3 py-1 bg-muted hover:bg-primary text-muted-foreground text-xs rounded transition-colors"
               >
                 Cancel
               </button>
@@ -187,14 +187,14 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             <>
               <button
                 onClick={() => setEditing(true)}
-                className="px-3 py-1 bg-bg-hover hover:bg-bg-active text-text-secondary text-xs rounded transition-colors"
+                className="px-3 py-1 bg-muted hover:bg-primary text-muted-foreground text-xs rounded transition-colors"
               >
                 Edit
               </button>
               {!confirmArchive ? (
                 <button
                   onClick={() => setConfirmArchive(true)}
-                  className="px-3 py-1 bg-bg-hover hover:bg-danger-muted text-text-secondary hover:text-danger text-xs rounded transition-colors"
+                  className="px-3 py-1 bg-muted hover:bg-destructive/10 text-muted-foreground hover:text-destructive text-xs rounded transition-colors"
                 >
                   Archive
                 </button>
@@ -202,13 +202,13 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
                 <div className="flex gap-1">
                   <button
                     onClick={handleArchive}
-                    className="px-3 py-1 bg-danger hover:bg-danger text-text-primary text-xs rounded transition-colors"
+                    className="px-3 py-1 bg-destructive hover:bg-destructive/90 text-foreground text-xs rounded transition-colors"
                   >
                     Confirm
                   </button>
                   <button
                     onClick={() => setConfirmArchive(false)}
-                    className="px-3 py-1 bg-bg-hover hover:bg-bg-active text-text-secondary text-xs rounded transition-colors"
+                    className="px-3 py-1 bg-muted hover:bg-primary text-muted-foreground text-xs rounded transition-colors"
                   >
                     No
                   </button>
@@ -227,10 +227,10 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={6}
-            className="w-full mt-1 bg-bg-surface border border-line rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent resize-y"
+            className="w-full mt-1 bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40 resize-y"
           />
         ) : (
-          <p className="text-sm text-text-secondary whitespace-pre-wrap mt-1">
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">
             {memory.content}
           </p>
         )}
@@ -252,14 +252,14 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
               {
                 [MemoryClass.WORKING]:
-                  'bg-purple-900/50 text-purple-400 border-purple-800',
+                  'bg-primary/10 text-primary border-primary/30',
                 [MemoryClass.EPISODIC]:
-                  'bg-blue-900/50 text-blue-400 border-blue-800',
+                  'bg-info-muted text-info border-info/30',
                 [MemoryClass.SEMANTIC]:
-                  'bg-cyan-900/50 text-cyan-400 border-cyan-800',
+                  'bg-info-muted text-info border-info/30',
                 [MemoryClass.DECISION]:
-                  'bg-amber-900/50 text-amber-400 border-amber-800',
-              }[memory.memoryClass] ?? 'bg-bg-elevated text-text-secondary border-line'
+                  'bg-warning-muted text-warning border-warning/30',
+              }[memory.memoryClass] ?? 'bg-card text-muted-foreground border-border'
             }`}
           >
             {memory.memoryClass}
@@ -271,16 +271,16 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
               {
                 [MemoryStatus.CONFIRMED]:
-                  'bg-green-900/50 text-green-400 border-green-800',
+                  'bg-success-muted text-success border-success/30',
                 [MemoryStatus.DRAFT]:
-                  'bg-yellow-900/50 text-yellow-400 border-yellow-800',
+                  'bg-warning-muted text-warning border-warning/30',
                 [MemoryStatus.ARCHIVED]:
-                  'bg-bg-elevated text-text-tertiary border-line',
+                  'bg-card text-muted-foreground border-border',
                 [MemoryStatus.SUPERSEDED]:
-                  'bg-orange-900/50 text-orange-400 border-orange-800',
+                  'bg-warning-muted text-warning border-warning/30',
                 [MemoryStatus.REJECTED]:
-                  'bg-red-900/50 text-red-400 border-red-800',
-              }[memory.status] ?? 'bg-bg-elevated text-text-secondary border-line'
+                  'bg-destructive/10 text-destructive border-destructive/30',
+              }[memory.status] ?? 'bg-card text-muted-foreground border-border'
             }`}
           >
             {memory.status}
@@ -294,8 +294,8 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
                 [Confidence.HIGH]: 'text-success',
                 [Confidence.MEDIUM]: 'text-warning',
                 [Confidence.LOW]: 'text-orange-400',
-                [Confidence.SPECULATIVE]: 'text-danger',
-              }[memory.confidence] ?? 'text-text-secondary'
+                [Confidence.SPECULATIVE]: 'text-destructive',
+              }[memory.confidence] ?? 'text-muted-foreground'
             }`}
           >
             {memory.confidence}
@@ -314,19 +314,19 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
                 onChange={(e) => setImportance(Number(e.target.value))}
                 className="flex-1 accent-blue-500"
               />
-              <span className="text-sm text-text-secondary w-10 text-right">
+              <span className="text-sm text-muted-foreground w-10 text-right">
                 {(importance * 100).toFixed(0)}%
               </span>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <div className="w-20 h-1.5 bg-bg-hover rounded-full overflow-hidden">
+              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-accent rounded-full"
+                  className="h-full bg-primary rounded-full"
                   style={{ width: `${memory.importance * 100}%` }}
                 />
               </div>
-              <span className="text-sm text-text-secondary">
+              <span className="text-sm text-muted-foreground">
                 {(memory.importance * 100).toFixed(0)}%
               </span>
             </div>
@@ -341,7 +341,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
           {sessionLink ? (
             <a
               href={sessionLink}
-              className="text-sm text-info hover:text-text-primary underline"
+              className="text-sm text-info hover:text-foreground underline"
             >
               Session {memory.sourceRef!.slice(8, 16)}...
             </a>
@@ -381,7 +381,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             value={tags}
             onChange={(e) => setTags(e.target.value)}
             placeholder="Comma-separated tags..."
-            className="w-full mt-1 bg-bg-surface border border-line rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+            className="w-full mt-1 bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40"
           />
         ) : (
           <div className="flex flex-wrap gap-1 mt-1">
@@ -389,41 +389,41 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
               memory.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-bg-hover text-text-secondary"
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground"
                 >
                   {tag}
                 </span>
               ))
             ) : (
-              <span className="text-sm text-text-tertiary">No tags</span>
+              <span className="text-sm text-muted-foreground">No tags</span>
             )}
           </div>
         )}
       </div>
 
       {/* Linked Entities */}
-      <div className="border-t border-line pt-3">
+      <div className="border-t border-border pt-3">
         <div className="flex items-center justify-between mb-2">
           <p className={labelClass}>Linked Entities</p>
           <button
             onClick={() => setShowLinker(!showLinker)}
-            className="text-xs text-info hover:text-text-primary transition-colors"
+            className="text-xs text-info hover:text-foreground transition-colors"
           >
             {showLinker ? 'Cancel' : 'Link to...'}
           </button>
         </div>
 
         {loadingLinks ? (
-          <p className="text-xs text-text-tertiary">Loading links...</p>
+          <p className="text-xs text-muted-foreground">Loading links...</p>
         ) : entityLinks.length === 0 ? (
-          <p className="text-xs text-text-tertiary">No linked entities</p>
+          <p className="text-xs text-muted-foreground">No linked entities</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {entityLinks.map(link => (
               <span
                 key={link.id}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${
-                  ENTITY_TYPE_COLORS[link.entityType] ?? 'bg-bg-elevated text-text-secondary border-line'
+                  ENTITY_TYPE_COLORS[link.entityType] ?? 'bg-card text-muted-foreground border-border'
                 }`}
               >
                 {link.entityType}: {link.entityId.slice(0, 8)}...
@@ -454,18 +454,18 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
       </div>
 
       {/* Related Memories */}
-      <div className="border-t border-line pt-3">
+      <div className="border-t border-border pt-3">
         <p className={labelClass}>Related Memories</p>
         {loadingRelated ? (
-          <p className="text-xs text-text-tertiary mt-1">Loading related...</p>
+          <p className="text-xs text-muted-foreground mt-1">Loading related...</p>
         ) : relatedMemories.length === 0 ? (
-          <p className="text-xs text-text-tertiary mt-1">No related memories found</p>
+          <p className="text-xs text-muted-foreground mt-1">No related memories found</p>
         ) : (
           <div className="mt-1 space-y-1.5">
             {relatedMemories.map(rm => (
-              <div key={rm.id} className="p-2 bg-bg-elevated rounded text-xs">
-                <p className="text-text-primary font-medium">{rm.title}</p>
-                <p className="text-text-tertiary mt-0.5">
+              <div key={rm.id} className="p-2 bg-card rounded text-xs">
+                <p className="text-foreground font-medium">{rm.title}</p>
+                <p className="text-muted-foreground mt-0.5">
                   {rm.domain} &bull; {rm.tags.slice(0, 3).join(', ') || 'no tags'}
                 </p>
               </div>
@@ -475,14 +475,14 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
       </div>
 
       {/* Timestamps */}
-      <div className="border-t border-line pt-3 space-y-1">
-        <p className="text-xs text-text-tertiary">
+      <div className="border-t border-border pt-3 space-y-1">
+        <p className="text-xs text-muted-foreground">
           Created: {formatDate(memory.createdAt)} ({relativeTime(memory.createdAt)})
         </p>
-        <p className="text-xs text-text-tertiary">
+        <p className="text-xs text-muted-foreground">
           Updated: {formatDate(memory.updatedAt)} ({relativeTime(memory.updatedAt)})
         </p>
-        <p className="text-xs text-text-tertiary">
+        <p className="text-xs text-muted-foreground">
           Last accessed: {memory.lastAccessedAt ? `${formatDate(memory.lastAccessedAt)} (${relativeTime(memory.lastAccessedAt)})` : 'Never'}
         </p>
       </div>
@@ -491,7 +491,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
       {memory.metadata && Object.keys(memory.metadata).length > 0 && (
         <div>
           <p className={labelClass}>Metadata</p>
-          <pre className="mt-1 bg-bg-surface border border-line rounded p-2 text-xs text-text-secondary overflow-x-auto">
+          <pre className="mt-1 bg-card border border-border rounded p-2 text-xs text-muted-foreground overflow-x-auto">
             {JSON.stringify(memory.metadata, null, 2)}
           </pre>
         </div>
@@ -499,11 +499,11 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
 
       {/* Session link */}
       {sessionLink && (
-        <p className="text-xs text-text-tertiary">
+        <p className="text-xs text-muted-foreground">
           Created during{' '}
           <a
             href={sessionLink}
-            className="text-info hover:text-text-primary underline"
+            className="text-info hover:text-foreground underline"
           >
             session {memory.sourceRef!.slice(8)}
           </a>

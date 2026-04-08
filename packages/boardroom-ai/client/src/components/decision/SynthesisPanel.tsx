@@ -24,7 +24,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 text-sm font-medium text-accent hover:text-accent-hover transition-colors"
+        className="flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/90 transition-colors"
       >
         <span className={`transition-transform text-xs ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}
@@ -49,14 +49,14 @@ function CollapsibleSection({
 export function SynthesisPanel({ report, streamingText, isStreaming }: SynthesisPanelProps) {
   if (isStreaming && !report) {
     return (
-      <Card className="border-t-2 border-t-transparent p-6" style={{ borderImage: 'linear-gradient(to right, var(--color-accent-primary), var(--color-accent-secondary)) 1' }}>
+      <Card className="border-t-2 border-primary p-6">
         <div className="flex items-center gap-2 mb-4">
-          <span className="text-lg font-semibold text-text-primary">{'\uD83D\uDCBC'} CEO Synthesis</span>
+          <span className="text-lg font-semibold text-foreground">{'\uD83D\uDCBC'} CEO Synthesis</span>
           <Badge variant="accent">sonnet</Badge>
         </div>
-        <div className="text-sm text-text-secondary whitespace-pre-wrap">
+        <div className="text-sm text-muted-foreground whitespace-pre-wrap">
           {streamingText}
-          <span className="inline-block w-0.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom" />
+          <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
         </div>
       </Card>
     );
@@ -65,32 +65,32 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
   if (!report) return null;
 
   return (
-    <Card className="border-t-2 border-t-transparent p-6" style={{ borderImage: 'linear-gradient(to right, var(--color-accent-primary), var(--color-accent-secondary)) 1' }}>
+    <Card className="border-t-2 border-primary p-6">
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-lg font-semibold text-text-primary">{'\uD83D\uDCBC'} CEO Synthesis</span>
+        <span className="text-lg font-semibold text-foreground">{'\uD83D\uDCBC'} CEO Synthesis</span>
         <Badge variant="accent">sonnet</Badge>
       </div>
 
       <CollapsibleSection title="Disagreement Map" defaultOpen={false}>
-        <p className="text-sm text-text-secondary whitespace-pre-wrap">{report.disagreementMap}</p>
+        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{report.disagreementMap}</p>
       </CollapsibleSection>
 
       <CollapsibleSection title="Decisive Tradeoff">
-        <div className="p-3 bg-accent-muted rounded-lg text-sm text-text-primary">
+        <div className="p-3 bg-primary/10 rounded-lg text-sm text-foreground">
           {report.decisiveTradeoff}
         </div>
       </CollapsibleSection>
 
-      <div className="mt-4 p-4 bg-accent-muted rounded-lg">
-        <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-2">Recommendation</div>
-        <p className="text-lg font-medium text-text-primary">{report.recommendation}</p>
+      <div className="mt-4 p-4 bg-primary/10 rounded-lg">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Recommendation</div>
+        <p className="text-lg font-medium text-foreground">{report.recommendation}</p>
       </div>
 
       <CollapsibleSection title="Next Actions">
         <ol className="space-y-2">
           {report.nextActions.map((action, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm text-text-secondary">
-              <span className="flex-shrink-0 w-5 h-5 rounded-md bg-bg-elevated text-text-tertiary text-xs flex items-center justify-center mt-0.5">
+            <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+              <span className="flex-shrink-0 w-5 h-5 rounded-md bg-card text-muted-foreground text-xs flex items-center justify-center mt-0.5">
                 {i + 1}
               </span>
               <span>{action}</span>
@@ -120,7 +120,7 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
       )}
 
       {report.sourceMemoryIds.length > 0 && (
-        <div className="mt-4 text-xs text-text-tertiary">
+        <div className="mt-4 text-xs text-muted-foreground">
           Sources: {report.sourceMemoryIds.join(', ')}
         </div>
       )}

@@ -46,14 +46,14 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
   return (
     <div className="ml-6">
       <div
-        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bg-elevated group transition-colors"
+        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-card group transition-colors"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         {/* Expand/collapse */}
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-text-tertiary hover:text-text-secondary transition-colors flex-shrink-0"
+          className="text-muted-foreground hover:text-muted-foreground transition-colors flex-shrink-0"
         >
           <svg
             className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -69,7 +69,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
         </button>
 
         {/* Project icon */}
-        <span className="text-text-tertiary flex-shrink-0">
+        <span className="text-muted-foreground flex-shrink-0">
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
           </svg>
@@ -83,12 +83,12 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
             onChange={(e) => setEditTitle(e.target.value)}
             onBlur={saveTitle}
             onKeyDown={handleKeyDown}
-            className="flex-1 bg-bg-elevated border border-line-strong rounded px-2 py-0.5 text-sm text-text-primary focus:outline-none focus:border-accent"
+            className="flex-1 bg-card border border-border rounded px-2 py-0.5 text-sm text-foreground focus:outline-none focus:border-primary/40"
           />
         ) : (
           <span
             onClick={() => setEditing(true)}
-            className="flex-1 text-sm text-text-primary cursor-pointer"
+            className="flex-1 text-sm text-foreground cursor-pointer"
           >
             {project.title}
           </span>
@@ -96,9 +96,9 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
 
         <DomainBadge domain={project.domain} />
         {deadlineStr && (
-          <span className="text-xs text-text-tertiary">{deadlineStr}</span>
+          <span className="text-xs text-muted-foreground">{deadlineStr}</span>
         )}
-        <span className="text-xs text-text-tertiary">
+        <span className="text-xs text-muted-foreground">
           {tasks.length} task{tasks.length !== 1 ? 's' : ''}
         </span>
         <StatusBadge status={project.status} />
@@ -128,7 +128,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
             </button>
             <button
               onClick={() => deleteProject(project.id)}
-              className="text-bg-active hover:text-danger transition-colors"
+              className="text-accent hover:text-destructive transition-colors"
               title="Delete project"
             >
               <svg

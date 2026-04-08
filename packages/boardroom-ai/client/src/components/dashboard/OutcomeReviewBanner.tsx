@@ -50,14 +50,14 @@ export function OutcomeReviewBanner() {
           const nudgeLabel = nudge.nudgeType === '30_day' ? '30-day' : '90-day';
 
           return (
-            <Card key={nudge.id} className="bg-accent-muted border-accent/30 flex items-start gap-3 p-3">
-              <span className="mt-0.5 flex-shrink-0 text-accent animate-pulse">{'\u25CF'}</span>
+            <Card key={nudge.id} className="bg-primary/10 border-primary/30 flex items-start gap-3 p-3">
+              <span className="mt-0.5 flex-shrink-0 text-primary animate-pulse">{'\u25CF'}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-text-primary">
+                <p className="text-sm text-foreground">
                   <Badge variant="accent" className="mr-2">{nudgeLabel} review</Badge>
                   {nudge.decisionTitle}
                 </p>
-                <p className="text-xs text-text-tertiary mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   {daysAgo > 0
                     ? `Scheduled ${daysAgo} day${daysAgo === 1 ? '' : 's'} ago`
                     : 'Due today'}

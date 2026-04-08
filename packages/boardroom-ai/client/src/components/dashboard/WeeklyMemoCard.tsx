@@ -14,7 +14,7 @@ export function WeeklyMemoCard() {
 
   if (isLoadingMemo) {
     return (
-      <Card className="border-t-2 border-t-accent">
+      <Card className="border-t-2 border-t-primary">
         <div className="space-y-3">
           <Skeleton className="h-5 w-48" />
           <Skeleton className="h-4 w-full" />
@@ -26,11 +26,11 @@ export function WeeklyMemoCard() {
 
   if (!latestMemo) {
     return (
-      <Card className="border-t-2 border-t-accent">
-        <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-2">
+      <Card className="border-t-2 border-t-primary">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2">
           Weekly Thinking Memo
         </h3>
-        <p className="text-text-tertiary text-sm">
+        <p className="text-muted-foreground text-sm">
           Keep making decisions! Weekly insights start after 5 sessions.
         </p>
         <Button variant="secondary" size="sm" onClick={() => generateMemo()} className="mt-3">
@@ -45,13 +45,13 @@ export function WeeklyMemoCard() {
   const weekLabel = `${new Date(latestMemo.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(latestMemo.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 
   return (
-    <Card className="border-t-2 border-t-transparent" style={{ borderImage: 'linear-gradient(to right, var(--color-accent-primary), var(--color-accent-secondary)) 1' }}>
+    <Card className="border-t-2 border-primary">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             Weekly Thinking Memo
           </h3>
-          <p className="text-xs text-text-tertiary">{weekLabel}</p>
+          <p className="text-xs text-muted-foreground">{weekLabel}</p>
         </div>
         <Button
           variant="secondary"
@@ -65,8 +65,8 @@ export function WeeklyMemoCard() {
 
       {/* Score */}
       <div className="flex items-baseline gap-2 mb-2">
-        <span className="text-2xl font-bold text-text-primary">{score.toFixed(1)}</span>
-        <span className="text-sm text-text-tertiary">/10</span>
+        <span className="text-2xl font-bold text-foreground">{score.toFixed(1)}</span>
+        <span className="text-sm text-muted-foreground">/10</span>
         {latestMemo.scoreChange !== 0 && (
           <Badge variant={latestMemo.scoreChange > 0 ? 'success' : 'danger'}>
             {latestMemo.scoreChange > 0 ? '\u2191' : '\u2193'} {Math.abs(latestMemo.scoreChange).toFixed(1)}
@@ -77,13 +77,13 @@ export function WeeklyMemoCard() {
 
       {latestMemo.recommendedFocus.length > 0 && (
         <div className="mb-3">
-          <h4 className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
             Recommended Focus
           </h4>
           <ul className="space-y-1">
             {latestMemo.recommendedFocus.slice(0, 3).map((focus, i) => (
-              <li key={i} className="text-sm text-text-primary flex items-start gap-2 leading-relaxed">
-                <span className="text-accent mt-0.5">{'\u2022'}</span>
+              <li key={i} className="text-sm text-foreground flex items-start gap-2 leading-relaxed">
+                <span className="text-primary mt-0.5">{'\u2022'}</span>
                 {focus}
               </li>
             ))}
@@ -105,7 +105,7 @@ export function WeeklyMemoCard() {
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="mt-3 p-3 bg-bg-base rounded-md text-sm text-text-primary whitespace-pre-wrap leading-relaxed">
+                <div className="mt-3 p-3 bg-background rounded-md text-sm text-foreground whitespace-pre-wrap leading-relaxed">
                   {latestMemo.fullMemoText}
                 </div>
               </motion.div>

@@ -54,17 +54,17 @@ export function RecentDecisions() {
   if (sessions.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-2">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-2">
           Recent Decisions
         </h3>
-        <p className="text-text-tertiary text-sm">No decisions yet</p>
+        <p className="text-muted-foreground text-sm">No decisions yet</p>
       </Card>
     );
   }
 
   return (
     <Card className="p-4">
-      <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-3">
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
         Recent Decisions
       </h3>
       <motion.div {...staggerContainer} className="space-y-2">
@@ -75,7 +75,7 @@ export function RecentDecisions() {
               className="px-3 py-2"
               onClick={() => navigate(`/decisions/${session.id}`)}
             >
-              <p className="text-sm text-text-primary font-medium truncate">
+              <p className="text-sm text-foreground font-medium truncate">
                 {session.question.length > 80
                   ? session.question.slice(0, 80) + '...'
                   : session.question}
@@ -84,10 +84,10 @@ export function RecentDecisions() {
                 <Badge variant={MODE_VARIANT[session.mode] ?? 'default'}>
                   {session.mode}
                 </Badge>
-                <span className="text-xs text-text-tertiary">
+                <span className="text-xs text-muted-foreground">
                   {timeAgo(session.createdAt)}
                 </span>
-                <span className="text-xs text-text-tertiary">
+                <span className="text-xs text-muted-foreground">
                   {session.personaCount} persona{session.personaCount !== 1 ? 's' : ''}
                 </span>
               </div>

@@ -62,7 +62,7 @@ export default function PeopleDirectoryPage() {
       <div className="p-6 max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-semibold text-text-primary">People Directory</h1>
+          <h1 className="text-2xl font-semibold text-foreground">People Directory</h1>
           <Button variant="primary" size="sm" onClick={() => setShowAdd(!showAdd)}>
             {showAdd ? 'Cancel' : '+ Add Person'}
           </Button>
@@ -81,15 +81,15 @@ export default function PeopleDirectoryPage() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-4 bg-bg-elevated rounded-lg p-1 w-fit">
+        <div className="flex gap-1 mb-4 bg-card rounded-lg p-1 w-fit">
           {(['directory', 'map'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
                 activeTab === tab
-                  ? 'bg-bg-surface text-text-primary font-medium shadow-sm'
-                  : 'text-text-tertiary hover:text-text-secondary'
+                  ? 'bg-card text-foreground font-medium shadow-sm'
+                  : 'text-muted-foreground hover:text-muted-foreground'
               }`}
             >
               {tab === 'directory' ? 'Directory' : 'Relationship Map'}
@@ -102,7 +102,7 @@ export default function PeopleDirectoryPage() {
           {showAdd && (
             <motion.div {...scaleIn} className="mb-4">
               <Card className="p-5">
-                <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-3">Add Person</h3>
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Add Person</h3>
                 <form onSubmit={handleCreate} className="space-y-3">
                   <Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name (required)" label="Name" />
                   <div className="flex flex-wrap gap-3">
@@ -114,7 +114,7 @@ export default function PeopleDirectoryPage() {
                     onChange={(e) => setNewNotes(e.target.value)}
                     placeholder="Notes"
                     rows={2}
-                    className="w-full bg-bg-base border border-line rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none resize-y"
+                    className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 outline-none resize-y"
                   />
                   <div className="flex gap-2">
                     <Button type="submit" variant="primary" size="sm" disabled={creating || !newName.trim()}>

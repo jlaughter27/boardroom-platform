@@ -80,18 +80,18 @@ export function DashboardConfigurator({
         {draft.map((widget, index) => (
           <div
             key={widget.id}
-            className="flex items-center gap-3 bg-bg-elevated rounded-lg px-3 py-2"
+            className="flex items-center gap-3 bg-card rounded-lg px-3 py-2"
           >
             {/* Visibility toggle */}
             <input
               type="checkbox"
               checked={widget.visible}
               onChange={() => toggleVisibility(widget.id)}
-              className="h-4 w-4 rounded border-line-strong bg-bg-hover text-accent focus:ring-accent focus:ring-offset-0"
+              className="h-4 w-4 rounded border-border bg-muted text-primary focus:ring-ring focus:ring-offset-0"
             />
 
             {/* Widget name */}
-            <span className="flex-1 text-sm text-text-primary truncate">
+            <span className="flex-1 text-sm text-foreground truncate">
               {WIDGET_LABELS[widget.type as WidgetType] ?? widget.type}
             </span>
 
@@ -101,7 +101,7 @@ export function DashboardConfigurator({
               onChange={(e) =>
                 changeSize(widget.id, e.target.value as WidgetConfig['size'])
               }
-              className="bg-bg-hover border border-line-strong text-text-secondary text-xs rounded px-2 py-1 focus:outline-none focus:border-accent"
+              className="bg-muted border border-border text-muted-foreground text-xs rounded px-2 py-1 focus:outline-none focus:border-primary/40"
             >
               {SIZE_OPTIONS.map((s) => (
                 <option key={s} value={s}>
@@ -115,7 +115,7 @@ export function DashboardConfigurator({
               <button
                 onClick={() => moveUp(index)}
                 disabled={index === 0}
-                className="text-text-secondary hover:text-text-primary disabled:text-bg-active text-xs leading-none"
+                className="text-muted-foreground hover:text-foreground disabled:text-accent text-xs leading-none"
                 aria-label="Move up"
               >
                 &#9650;
@@ -123,7 +123,7 @@ export function DashboardConfigurator({
               <button
                 onClick={() => moveDown(index)}
                 disabled={index === draft.length - 1}
-                className="text-text-secondary hover:text-text-primary disabled:text-bg-active text-xs leading-none"
+                className="text-muted-foreground hover:text-foreground disabled:text-accent text-xs leading-none"
                 aria-label="Move down"
               >
                 &#9660;
@@ -134,25 +134,25 @@ export function DashboardConfigurator({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-between mt-4 pt-4 border-t border-line-subtle">
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
         <button
           onClick={handleReset}
           disabled={saving}
-          className="text-sm text-text-secondary hover:text-text-primary disabled:text-bg-active"
+          className="text-sm text-muted-foreground hover:text-foreground disabled:text-accent"
         >
           Reset to Default
         </button>
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary"
+            className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-3 py-1.5 text-sm bg-accent hover:bg-accent disabled:bg-bg-hover text-text-primary rounded-lg transition-colors"
+            className="px-3 py-1.5 text-sm bg-primary hover:bg-primary/90 disabled:bg-muted text-foreground rounded-lg transition-colors"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>

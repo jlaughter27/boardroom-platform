@@ -38,7 +38,7 @@ export function PeopleStep({ data, onUpdate }: Props) {
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-text-secondary">
+      <p className="text-sm text-muted-foreground">
         Add 3-5 key people you work with regularly. BoardRoom will remember them and factor them into advice.
       </p>
 
@@ -48,7 +48,7 @@ export function PeopleStep({ data, onUpdate }: Props) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Avatar name={person.name || `Person ${i + 1}`} size="sm" />
-                <span className="text-xs text-text-tertiary">Person {i + 1}</span>
+                <span className="text-xs text-muted-foreground">Person {i + 1}</span>
               </div>
               {data.people.length > 1 && (
                 <Button variant="ghost" size="sm" onClick={() => removePerson(i)}>

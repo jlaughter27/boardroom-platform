@@ -61,17 +61,17 @@ export function Select({ options, value, onChange, placeholder = 'Select...', cl
         onClick={() => setOpen(!open)}
         onKeyDown={handleKeyDown}
         className={cn(
-          'flex w-full items-center justify-between h-9 px-3 rounded-md border border-line',
-          'bg-bg-base text-sm transition-all duration-fast',
-          'focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none',
-          selected ? 'text-text-primary' : 'text-text-tertiary'
+          'flex w-full items-center justify-between h-9 px-3 rounded-xl border border-border',
+          'bg-card text-sm transition-all duration-fast',
+          'focus:ring-2 focus:ring-ring focus:border-primary/40 outline-none',
+          selected ? 'text-foreground' : 'text-muted-foreground'
         )}
       >
         <span className="flex items-center gap-2 truncate">
           {selected?.icon}
           {selected?.label || placeholder}
         </span>
-        <svg className={cn('w-4 h-4 text-text-tertiary transition-transform', open && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={cn('w-4 h-4 text-muted-foreground transition-transform', open && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -83,7 +83,7 @@ export function Select({ options, value, onChange, placeholder = 'Select...', cl
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-[var(--z-dropdown)] mt-1 w-full rounded-md border border-line bg-bg-elevated shadow-lg overflow-hidden"
+            className="absolute z-[var(--z-dropdown)] mt-1 w-full rounded-xl border border-border bg-card shadow-lg overflow-hidden"
           >
             {options.map((option, i) => (
               <button
@@ -94,10 +94,10 @@ export function Select({ options, value, onChange, placeholder = 'Select...', cl
                 }}
                 className={cn(
                   'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors',
-                  'hover:bg-bg-hover',
-                  option.value === value && 'text-accent bg-accent-muted',
-                  i === focusIndex && 'bg-bg-hover',
-                  option.value !== value && 'text-text-primary'
+                  'hover:bg-muted',
+                  option.value === value && 'text-primary bg-primary/10',
+                  i === focusIndex && 'bg-muted',
+                  option.value !== value && 'text-foreground'
                 )}
               >
                 {option.icon}
