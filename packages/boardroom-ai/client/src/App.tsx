@@ -3,6 +3,8 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
 import { Layout } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
+import { Toaster } from './components/ui/Toast';
+import { CommandPalette } from './components/ui/CommandPalette';
 import * as api from './lib/api';
 
 // Eager — needed immediately
@@ -91,6 +93,8 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <Toaster />
+      <CommandPalette />
       <Suspense fallback={PageFallback}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
