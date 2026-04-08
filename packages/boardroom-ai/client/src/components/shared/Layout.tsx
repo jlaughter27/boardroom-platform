@@ -4,9 +4,11 @@ import { pageTransition } from '../../lib/motion';
 import { Sidebar } from './Sidebar';
 import { AppHeader } from './AppHeader';
 import { TrialBanner } from './TrialBanner';
+import { useNotificationAggregator } from '../../hooks/useNotificationAggregator';
 
 export function Layout() {
   const location = useLocation();
+  useNotificationAggregator();
   return (
     <div className="flex h-screen bg-bg-base font-sans text-text-primary">
       <Sidebar />
