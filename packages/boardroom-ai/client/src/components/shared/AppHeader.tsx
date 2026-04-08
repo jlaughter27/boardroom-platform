@@ -21,7 +21,7 @@ function getPageTitle(pathname: string): string {
 }
 
 
-export function AppHeader() {
+export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const location = useLocation();
   const title = getPageTitle(location.pathname);
   const currentSession = useSessionStore((s) => s.currentSession);
@@ -45,8 +45,20 @@ export function AppHeader() {
   })();
 
   return (
-    <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-6 border-b border-line-subtle bg-bg-base/80 backdrop-blur-md">
+    <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-4 md:px-6 border-b border-line-subtle bg-bg-base/80 backdrop-blur-md">
       <div className="flex items-center gap-3">
+        {/* Mobile hamburger */}
+        {onMenuToggle && (
+          <button
+            onClick={onMenuToggle}
+            className="md:hidden p-2 -ml-2 text-text-secondary hover:text-text-primary transition-colors"
+            aria-label="Open menu"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        )}
         <h1 className="text-lg font-semibold text-text-primary">{title}</h1>
         {breadcrumbs.length > 0 && (
           <div className="flex items-center gap-1.5 text-sm">
@@ -67,7 +79,17 @@ export function AppHeader() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Cmd+K hint */}
+        {/* Search icon (mobile) */}
+        <button
+          onClick={toggle}
+          className="sm:hidden p-2 text-text-tertiary hover:text-text-primary transition-colors"
+          aria-label="Search"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </button>
+        {/* Cmd+K hint (desktop) */}
         <button
           onClick={toggle}
           className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-line text-xs text-text-tertiary hover:text-text-secondary hover:border-line-strong transition-colors"
