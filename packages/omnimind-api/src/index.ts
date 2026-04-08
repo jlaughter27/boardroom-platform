@@ -31,7 +31,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 const app: Express = express();
-const port = parseInt(process.env.OMNIMIND_PORT || '3333', 10);
+const port = parseInt(process.env.PORT || process.env.OMNIMIND_PORT || '3333', 10);
 
 // Global middleware
 app.use(helmet());

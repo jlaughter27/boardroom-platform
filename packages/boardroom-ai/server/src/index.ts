@@ -24,7 +24,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 const app: ReturnType<typeof express> = express();
-const port = process.env.BOARDROOM_PORT || 3001;
+const port = process.env.PORT || process.env.BOARDROOM_PORT || 3001;
 
 // Global middleware
 app.use(helmet());
