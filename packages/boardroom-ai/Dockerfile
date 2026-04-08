@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 WORKDIR /app
-COPY package.json turbo.json tsconfig.base.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json turbo.json tsconfig.base.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/boardroom-ai/package.json packages/boardroom-ai/
 
@@ -13,6 +13,7 @@ COPY packages/shared/ packages/shared/
 COPY packages/boardroom-ai/ packages/boardroom-ai/
 COPY docs/prompts/ docs/prompts/
 
+# Build shared first (generates .d.ts declarations), then boardroom-ai
 RUN pnpm turbo run build --filter=@boardroom/boardroom-ai
 
 FROM node:20-alpine AS runner
@@ -23,6 +24,7 @@ WORKDIR /app
 COPY --from=builder /app/packages/boardroom-ai/dist ./dist
 COPY --from=builder /app/packages/boardroom-ai/client/dist ./client/dist
 COPY --from=builder /app/packages/shared/dist ./node_modules/@boardroom/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/shared/package.json
 COPY --from=builder /app/packages/boardroom-ai/node_modules ./node_modules
 COPY --from=builder /app/docs/prompts/ ./docs/prompts/
 
