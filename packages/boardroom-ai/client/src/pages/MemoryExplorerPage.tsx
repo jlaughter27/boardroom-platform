@@ -3,9 +3,10 @@ import { useMemoryStore } from '../stores/memory.store';
 import { MemorySearch } from '../components/memory/MemorySearch';
 import { MemoryList } from '../components/memory/MemoryList';
 import { MemoryDetail } from '../components/memory/MemoryDetail';
+import { ErrorBanner } from '../components/shared/ErrorBanner';
 
 export default function MemoryExplorerPage() {
-  const { selectedMemory, clearSelection, search, memories } = useMemoryStore();
+  const { selectedMemory, clearSelection, search, memories, error, clearError } = useMemoryStore();
 
   // Initial load
   useEffect(() => {
@@ -17,6 +18,8 @@ export default function MemoryExplorerPage() {
   return (
     <div className="p-6 h-full flex flex-col min-h-0">
       <h1 className="text-3xl font-bold text-white mb-4">Memory Explorer</h1>
+
+      {error && <ErrorBanner message={error} onDismiss={clearError} />}
 
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         {/* Left panel: search + list */}

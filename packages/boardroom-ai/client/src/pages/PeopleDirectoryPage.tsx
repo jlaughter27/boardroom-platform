@@ -3,11 +3,13 @@ import { useEntitiesStore } from '../stores/entities.store';
 import { PersonCard } from '../components/memory/PersonCard';
 import { RelationshipGraph } from '../components/memory/RelationshipGraph';
 import { useRelationshipData } from '../hooks/useRelationshipData';
+import { ErrorBanner } from '../components/shared/ErrorBanner';
+import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 
 type Tab = 'directory' | 'map';
 
 export default function PeopleDirectoryPage() {
-  const { people, fetchPeople, createPerson, updatePerson, deletePerson } =
+  const { people, fetchPeople, createPerson, updatePerson, deletePerson, isLoading, error, clearError } =
     useEntitiesStore();
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -71,6 +73,8 @@ export default function PeopleDirectoryPage() {
           {showAdd ? 'Cancel' : 'Add Person'}
         </button>
       </div>
+
+      {error && <ErrorBanner message={error} onDismiss={clearError} />}
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 bg-gray-800 rounded-lg p-1 w-fit">
@@ -143,6 +147,12 @@ export default function PeopleDirectoryPage() {
       {/* Directory Tab */}
       {activeTab === 'directory' && (
         <>
+          {isLoading && (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner />
+            </div>
+          )}
+
           {/* Search */}
           <div className="relative mb-4">
             <svg
