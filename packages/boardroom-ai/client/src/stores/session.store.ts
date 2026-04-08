@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
-import type { PersonaId, PersonaResponse, SynthesisReport, SimulationResult } from '@boardroom/shared';
-import type { SufficiencyScore, UserMode } from '@boardroom/shared';
+import type { PersonaResponse, SynthesisReport, SimulationResult } from '@boardroom/shared';
+import type { SufficiencyScore, UserMode, BoardRoomSSEEvent } from '@boardroom/shared';
 
 interface SessionState {
   currentSession: { id: string; question: string; mode: UserMode } | null;
@@ -24,6 +24,9 @@ interface SessionState {
   runSimulation: (chosenPath: string) => Promise<void>;
   reset: () => void;
 }
+
+// SSE dispatch events may include personaId on delta (server extension)
+type DispatchEvent = BoardRoomSSEEvent & Record<string, unknown>;
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   currentSession: null,
@@ -60,9 +63,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     try {
       for await (const event of api.streamSSE(`/api/sessions/${currentSession.id}/dispatch`)) {
-        switch (event.type) {
+        const typed = event as DispatchEvent;
+        switch (typed.type) {
           case 'persona_start': {
-            const personaId = event.personaId as string;
+            const { personaId } = typed;
             set(state => ({
               streamingPersonas: new Set([...state.streamingPersonas, personaId]),
               personaStreaming: { ...state.personaStreaming, [personaId]: '' },
@@ -70,32 +74,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             break;
           }
           case 'delta': {
-            const personaId = event.personaId as string;
+            // Server sends personaId on dispatch deltas (extension of SSEDelta)
+            const personaId = (typed as DispatchEvent).personaId as string | undefined;
             if (personaId) {
               set(state => ({
                 personaStreaming: {
                   ...state.personaStreaming,
-                  [personaId]: (state.personaStreaming[personaId] ?? '') + (event.text as string),
+                  [personaId]: (state.personaStreaming[personaId] ?? '') + typed.text,
                 },
               }));
             }
             break;
           }
           case 'persona_complete': {
-            const personaId = event.personaId as string;
-            const response = event.response as PersonaResponse;
+            const { personaId, response } = typed;
             set(state => {
               const streaming = new Set(state.streamingPersonas);
               streaming.delete(personaId);
               return {
-                personaResponses: { ...state.personaResponses, [personaId]: response },
+                personaResponses: { ...state.personaResponses, [personaId]: response as PersonaResponse },
                 streamingPersonas: streaming,
               };
             });
             break;
           }
           case 'persona_error': {
-            const personaId = event.personaId as string;
+            const { personaId } = typed;
             set(state => {
               const streaming = new Set(state.streamingPersonas);
               streaming.delete(personaId);
@@ -125,13 +129,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for await (const event of api.streamSSE(`/api/sessions/${currentSession.id}/synthesize`)) {
         switch (event.type) {
           case 'delta':
-            set(state => ({ synthesisStreaming: state.synthesisStreaming + (event.text as string) }));
+            set(state => ({ synthesisStreaming: state.synthesisStreaming + event.text }));
             break;
           case 'synthesis_complete':
             set({ synthesis: event.report as SynthesisReport, isSynthesizing: false });
             break;
           case 'error':
-            set({ error: event.error as string, isSynthesizing: false });
+            set({ error: event.error, isSynthesizing: false });
             break;
         }
       }
