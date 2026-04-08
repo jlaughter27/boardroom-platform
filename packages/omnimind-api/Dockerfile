@@ -20,10 +20,6 @@ RUN cd packages/omnimind-api && pnpm exec prisma generate
 RUN find /app/node_modules/.pnpm -path '*/.prisma/client/index.js' -exec dirname {} \; | head -1 | \
     xargs -I{} cp -rL {}/.. /app/prisma-client-generated
 
-# Copy Prisma CLI + engines to stable path (devDep not in prod deploy)
-RUN cp -rL /app/node_modules/.pnpm/prisma@*/node_modules/prisma /app/prisma-cli && \
-    cp -rL /app/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines /app/prisma-engines
-
 # Build shared package explicitly first — pnpm workspace symlinks in Docker
 # can prevent TypeScript from finding .d.ts files through node_modules resolution
 # Remove stale .tsbuildinfo to prevent composite/incremental skipping emit
@@ -64,9 +60,9 @@ COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/
 # (pnpm deploy --prod doesn't include the generated .prisma client)
 COPY --from=builder /app/prisma-client-generated ./node_modules/.prisma
 
-# Copy Prisma CLI from builder (devDep not in prod deploy, npx would pull latest 7.x which breaks schema)
-COPY --from=builder /app/prisma-cli ./node_modules/prisma
-COPY --from=builder /app/prisma-engines ./node_modules/@prisma/engines
+# Install pinned Prisma CLI for migrations at startup
+# (prisma is a devDep so pnpm deploy --prod excludes it; npx pulls latest 7.x which breaks schema)
+RUN npm install -g prisma@6.19.3
 
 COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
 COPY --from=builder /app/packages/omnimind-api/docker-entrypoint.sh .
