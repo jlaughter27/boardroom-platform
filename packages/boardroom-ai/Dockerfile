@@ -29,24 +29,22 @@ RUN rm -rf node_modules/@boardroom/shared 2>/dev/null; \
 # Build boardroom-ai server (tsc) + client (vite)
 RUN cd packages/boardroom-ai && pnpm exec tsc -p server/tsconfig.json && pnpm exec vite build --config client/vite.config.ts
 
-FROM node:20-alpine AS runner
+# Use pnpm deploy to create standalone production bundle with real deps
+# (pnpm workspace node_modules are symlinks that break in multi-stage builds)
+RUN pnpm --filter @boardroom/boardroom-ai deploy /app/deploy-output --prod
 
-RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy package manifests + lockfile for production install
-COPY --from=builder /app/packages/boardroom-ai/package.json ./package.json
-COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
-
-# Install production dependencies (real files, not pnpm workspace symlinks)
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts
+# Copy production node_modules from pnpm deploy (real files, not symlinks)
+COPY --from=builder /app/deploy-output/node_modules ./node_modules
 
 # Copy built artifacts
 COPY --from=builder /app/packages/boardroom-ai/dist ./dist
 COPY --from=builder /app/packages/boardroom-ai/client/dist ./client/dist
 
-# Overlay shared package (workspace dep not available in prod install)
+# Overlay shared package (workspace dep bundled by pnpm deploy may lack dist)
 COPY --from=builder /app/packages/shared/dist ./node_modules/@boardroom/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/shared/package.json
 

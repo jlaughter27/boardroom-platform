@@ -15,11 +15,6 @@ COPY packages/omnimind-api/ packages/omnimind-api/
 # Generate Prisma client BEFORE TypeScript build (needs the generated types)
 RUN cd packages/omnimind-api && pnpm exec prisma generate
 
-# pnpm stores .prisma inside .pnpm virtual store — copy to root node_modules
-# so the runner stage COPY can find it at /app/node_modules/.prisma
-RUN cp -rL /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma /app/node_modules/ 2>/dev/null || \
-    (echo "Finding .prisma..." && find /app/node_modules -path '*/.prisma/client/index.js' -exec dirname {} \; | head -1 | xargs -I{} cp -rL {}/../../.prisma /app/node_modules/)
-
 # Build shared package explicitly first — pnpm workspace symlinks in Docker
 # can prevent TypeScript from finding .d.ts files through node_modules resolution
 # Remove stale .tsbuildinfo to prevent composite/incremental skipping emit
@@ -37,30 +32,29 @@ RUN rm -rf node_modules/@boardroom/shared 2>/dev/null; \
 # Build omnimind-api (shared already built, turbo will skip it)
 RUN cd packages/omnimind-api && pnpm exec tsc
 
-FROM node:20-alpine AS runner
+# Use pnpm deploy to create standalone production bundle with real deps
+# (pnpm workspace node_modules are symlinks that break in multi-stage builds)
+RUN pnpm --filter @boardroom/omnimind-api deploy /app/deploy-output --prod
 
-RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy package manifests + lockfile for production install
-COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
-COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
-
-# Install production dependencies (real files, not pnpm workspace symlinks)
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts
+# Copy production node_modules from pnpm deploy (real files, not symlinks)
+COPY --from=builder /app/deploy-output/node_modules ./node_modules
 
 # Copy built artifacts
 COPY --from=builder /app/packages/omnimind-api/dist ./dist
 COPY --from=builder /app/packages/omnimind-api/prisma ./prisma
 
-# Overlay shared package (workspace dep not available in prod install)
+# Overlay shared package (workspace dep bundled by pnpm deploy may lack dist)
 COPY --from=builder /app/packages/shared/dist ./node_modules/@boardroom/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/shared/package.json
 
-# Copy generated Prisma client
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+# Copy generated Prisma client runtime
+COPY --from=builder /app/deploy-output/node_modules/.prisma ./node_modules/.prisma
 
+COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
 COPY --from=builder /app/packages/omnimind-api/docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
