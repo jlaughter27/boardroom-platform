@@ -13,8 +13,20 @@ COPY packages/shared/ packages/shared/
 COPY packages/boardroom-ai/ packages/boardroom-ai/
 COPY docs/prompts/ docs/prompts/
 
-# Build shared first (generates .d.ts declarations), then boardroom-ai
-RUN pnpm turbo run build --filter=@boardroom/boardroom-ai
+# Build shared package explicitly first — pnpm workspace symlinks in Docker
+# can prevent TypeScript from finding .d.ts files through node_modules resolution
+RUN cd packages/shared && pnpm exec tsc \
+    && ls dist/index.d.ts \
+    && echo "Shared declarations verified"
+
+# Ensure node_modules/@boardroom/shared resolves to the built package
+RUN rm -rf node_modules/@boardroom/shared 2>/dev/null; \
+    mkdir -p node_modules/@boardroom/shared && \
+    cp packages/shared/package.json node_modules/@boardroom/shared/ && \
+    cp -r packages/shared/dist node_modules/@boardroom/shared/dist
+
+# Build boardroom-ai server (tsc) + client (vite)
+RUN cd packages/boardroom-ai && pnpm exec tsc -p server/tsconfig.json && pnpm exec vite build --config client/vite.config.ts
 
 FROM node:20-alpine AS runner
 
