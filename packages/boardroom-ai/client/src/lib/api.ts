@@ -240,28 +240,41 @@ export function exportSession(sessionId: string, format: 'json' | 'pdf' = 'json'
 // Entity reads
 // ---------------------------------------------------------------------------
 
-export function getGoals() {
-  return request<Goal[]>('/goals');
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
-export function getProjects() {
-  return request<Project[]>('/projects');
+export async function getGoals(): Promise<Goal[]> {
+  const res = await request<PaginatedResponse<Goal>>('/goals');
+  return res.items;
 }
 
-export function getTasks() {
-  return request<Task[]>('/tasks');
+export async function getProjects(): Promise<Project[]> {
+  const res = await request<PaginatedResponse<Project>>('/projects');
+  return res.items;
 }
 
-export function getPeople() {
-  return request<Person[]>('/people');
+export async function getTasks(): Promise<Task[]> {
+  const res = await request<PaginatedResponse<Task>>('/tasks');
+  return res.items;
 }
 
-export function getDecisions() {
-  return request<Decision[]>('/decisions');
+export async function getPeople(): Promise<Person[]> {
+  const res = await request<PaginatedResponse<Person>>('/people');
+  return res.items;
 }
 
-export function getCommitments() {
-  return request<Commitment[]>('/commitments');
+export async function getDecisions(): Promise<Decision[]> {
+  const res = await request<PaginatedResponse<Decision>>('/decisions');
+  return res.items;
+}
+
+export async function getCommitments(): Promise<Commitment[]> {
+  const res = await request<PaginatedResponse<Commitment>>('/commitments');
+  return res.items;
 }
 
 export function getUserProfile() {
