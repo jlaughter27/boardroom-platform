@@ -31,7 +31,7 @@ RUN cd packages/boardroom-ai && pnpm exec tsc -p server/tsconfig.json && pnpm ex
 
 # Use pnpm deploy to create standalone production bundle with real deps
 # (pnpm workspace node_modules are symlinks that break in multi-stage builds)
-RUN pnpm --filter @boardroom/boardroom-ai deploy /app/deploy-output --prod
+RUN pnpm --filter @boardroom/boardroom-ai deploy /app/deploy-output --prod --legacy
 
 FROM node:20-alpine AS runner
 
