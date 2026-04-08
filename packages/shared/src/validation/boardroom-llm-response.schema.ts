@@ -32,10 +32,14 @@ export type ExtractedProject = z.infer<typeof ExtractedProjectsSchema>[number];
 
 // Schema for Gmail email memory proposals
 export const EmailMemoryProposalsSchema = z.array(z.object({
+  title: z.string().default('Email Extract'),
   content: z.string(),
-  domain: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-}).passthrough());
+  domain: z.string().default('business'),
+  tags: z.array(z.string()).default([]),
+  memoryClass: z.string().default('SEMANTIC'),
+  importance: z.number().min(0).max(1).default(0.5),
+  linkedPeople: z.array(z.string()).default([]),
+}));
 
 // Schema for commitment extraction
 export const ExtractedCommitmentsSchema = z.array(z.object({

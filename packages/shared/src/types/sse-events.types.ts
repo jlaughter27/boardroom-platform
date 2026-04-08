@@ -35,7 +35,7 @@ export interface SSEDelta {
 
 export interface SSESynthesisComplete {
   type: 'synthesis_complete';
-  report: string;
+  report: import('./persona.types').SynthesisReport;
   qualityScore: number;
 }
 

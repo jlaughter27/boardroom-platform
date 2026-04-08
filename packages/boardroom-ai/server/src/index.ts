@@ -23,7 +23,7 @@ if (process.env.NODE_ENV !== 'test') {
   validateBoardRoomEnv();
 }
 
-const app = express();
+const app: ReturnType<typeof express> = express();
 const port = process.env.BOARDROOM_PORT || 3001;
 
 // Global middleware

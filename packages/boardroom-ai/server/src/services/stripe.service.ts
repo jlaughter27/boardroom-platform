@@ -1,5 +1,7 @@
-import Stripe from 'stripe';
+import StripeConstructor from 'stripe';
 import { omnimindClient } from './omnimind-client';
+
+type StripeClient = ReturnType<typeof StripeConstructor>;
 
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -9,9 +11,16 @@ export function isConfigured(): boolean {
   return !!(STRIPE_SECRET && STRIPE_PRICE_ID);
 }
 
-function getStripe(): Stripe | null {
+function getStripe(): StripeClient | null {
   if (!STRIPE_SECRET) return null;
-  return new Stripe(STRIPE_SECRET);
+  return StripeConstructor(STRIPE_SECRET);
+}
+
+// Helper to access Stripe response fields that changed in v22
+// Stripe v22 wraps retrieve/update responses and restructured some fields.
+// We use Record<string, unknown> to access fields that may have moved.
+function asRecord(obj: unknown): Record<string, unknown> {
+  return obj as Record<string, unknown>;
 }
 
 export async function createCheckout(userId: string, email: string): Promise<{ checkoutUrl: string } | null> {
@@ -40,45 +49,44 @@ export async function handleWebhook(payload: Buffer, signature: string): Promise
 
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const userId = session.metadata?.userId;
+      const session = asRecord(event.data.object);
+      const userId = (session.metadata as Record<string, string> | undefined)?.userId;
       if (!userId) break;
 
-      const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+      const subscription = asRecord(await stripe.subscriptions.retrieve(session.subscription as string));
       await omnimindClient.createSubscription(userId, {
         stripeCustomerId: session.customer as string,
-        stripeSubscriptionId: subscription.id,
+        stripeSubscriptionId: subscription.id as string,
         status: 'TRIALING',
         plan: 'pro',
         priceMonthly: 2900,
-        trialEndsAt: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+        trialEndsAt: subscription.trial_end ? new Date((subscription.trial_end as number) * 1000).toISOString() : null,
+        currentPeriodEnd: new Date((subscription.current_period_end as number) * 1000).toISOString(),
       });
       break;
     }
 
     case 'invoice.paid': {
-      const invoice = event.data.object as Stripe.Invoice;
+      const invoice = asRecord(event.data.object);
       const subId = invoice.subscription as string;
       if (!subId) break;
-      // Retrieve the Stripe subscription to get the userId from metadata
-      const stripeSub = await stripe.subscriptions.retrieve(subId);
-      const userId = stripeSub.metadata?.userId;
+      const stripeSub = asRecord(await stripe.subscriptions.retrieve(subId));
+      const userId = (stripeSub.metadata as Record<string, string> | undefined)?.userId;
       if (userId) {
         await omnimindClient.updateSubscription(userId, {
           status: 'ACTIVE',
-          currentPeriodEnd: new Date(stripeSub.current_period_end * 1000).toISOString(),
+          currentPeriodEnd: new Date((stripeSub.current_period_end as number) * 1000).toISOString(),
         });
       }
       break;
     }
 
     case 'invoice.payment_failed': {
-      const invoice = event.data.object as Stripe.Invoice;
+      const invoice = asRecord(event.data.object);
       const subId = invoice.subscription as string;
       if (!subId) break;
-      const stripeSub = await stripe.subscriptions.retrieve(subId);
-      const userId = stripeSub.metadata?.userId;
+      const stripeSub = asRecord(await stripe.subscriptions.retrieve(subId));
+      const userId = (stripeSub.metadata as Record<string, string> | undefined)?.userId;
       if (userId) {
         await omnimindClient.updateSubscription(userId, { status: 'PAST_DUE' });
       }
@@ -86,8 +94,8 @@ export async function handleWebhook(payload: Buffer, signature: string): Promise
     }
 
     case 'customer.subscription.deleted': {
-      const sub = event.data.object as Stripe.Subscription;
-      const userId = sub.metadata?.userId;
+      const sub = asRecord(event.data.object);
+      const userId = (sub.metadata as Record<string, string> | undefined)?.userId;
       if (userId) {
         await omnimindClient.updateSubscription(userId, {
           status: 'CANCELED',
@@ -106,12 +114,12 @@ export async function cancelSubscription(userId: string): Promise<{ canceledAt: 
   const sub = await omnimindClient.getSubscription(userId) as Record<string, unknown> | null;
   if (!sub?.stripeSubscriptionId) return null;
 
-  const canceled = await stripe.subscriptions.update(sub.stripeSubscriptionId as string, {
+  const canceled = asRecord(await stripe.subscriptions.update(sub.stripeSubscriptionId as string, {
     cancel_at_period_end: true,
-  });
+  }));
 
   const canceledAt = new Date();
-  const activeUntil = new Date(canceled.current_period_end * 1000);
+  const activeUntil = new Date((canceled.current_period_end as number) * 1000);
 
   await omnimindClient.updateSubscription(userId, {
     status: 'CANCELED',

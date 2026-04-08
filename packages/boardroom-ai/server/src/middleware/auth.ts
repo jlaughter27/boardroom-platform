@@ -21,7 +21,7 @@ export interface AuthPayload {
   teamId: string;
 }
 
-export interface AuthRequest extends Request {
+export interface AuthRequest extends Request<Record<string, string>> {
   auth?: AuthPayload;
 }
 

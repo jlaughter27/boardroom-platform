@@ -18,6 +18,7 @@ interface SessionState {
   isSimulating: boolean;
   error: string | null;
 
+  clearError: () => void;
   createSession: (question: string, mode: UserMode) => Promise<void>;
   dispatch: () => Promise<void>;
   synthesize: () => Promise<void>;
@@ -42,6 +43,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   simulation: null,
   isSimulating: false,
   error: null,
+
+  clearError: () => set({ error: null }),
 
   createSession: async (question, mode) => {
     const result = await api.createSession({ question, mode });

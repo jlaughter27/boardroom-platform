@@ -54,9 +54,16 @@ describe('ExtractedProjectsSchema', () => {
 });
 
 describe('EmailMemoryProposalsSchema', () => {
-  it('accepts valid proposals with optional fields', () => {
+  it('accepts valid proposals and applies defaults for optional fields', () => {
     const input = [{ content: 'Meeting notes from Q2 review', domain: 'business', tags: ['meeting'] }];
-    expect(EmailMemoryProposalsSchema.parse(input)).toEqual(input);
+    const result = EmailMemoryProposalsSchema.parse(input);
+    expect(result[0].content).toBe('Meeting notes from Q2 review');
+    expect(result[0].domain).toBe('business');
+    expect(result[0].tags).toEqual(['meeting']);
+    expect(result[0].title).toBe('Email Extract');
+    expect(result[0].memoryClass).toBe('SEMANTIC');
+    expect(result[0].importance).toBe(0.5);
+    expect(result[0].linkedPeople).toEqual([]);
   });
 
   it('accepts minimal proposals (content only)', () => {
@@ -64,9 +71,13 @@ describe('EmailMemoryProposalsSchema', () => {
     expect(EmailMemoryProposalsSchema.parse(input)).toHaveLength(1);
   });
 
-  it('passes through extra fields', () => {
-    const input = [{ content: 'X', extra: true }];
-    expect(EmailMemoryProposalsSchema.parse(input)[0]).toHaveProperty('extra', true);
+  it('accepts full proposals with all fields', () => {
+    const input = [{ content: 'X', title: 'Custom Title', domain: 'personal', tags: ['tag1'], memoryClass: 'EPISODIC', importance: 0.8, linkedPeople: ['Alice'] }];
+    const result = EmailMemoryProposalsSchema.parse(input);
+    expect(result[0].title).toBe('Custom Title');
+    expect(result[0].memoryClass).toBe('EPISODIC');
+    expect(result[0].importance).toBe(0.8);
+    expect(result[0].linkedPeople).toEqual(['Alice']);
   });
 });
 

@@ -232,10 +232,12 @@ export class CEOOrchestrator {
 
         // Build context items from persona outputs for the agent interface
         const contextItems: import('@boardroom/shared').ContextItem[] = [{
-          source: 'persona_synthesis',
+          source: 'structured',
           type: 'decision',
+          id: session.id,
           content: formattedOutputs,
           relevanceScore: 1.0,
+          whyIncluded: 'Synthesized persona outputs for CEO agent',
         }];
 
         const { response } = await agent.reasonWithTools(
