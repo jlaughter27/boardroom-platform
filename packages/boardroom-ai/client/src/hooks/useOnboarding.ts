@@ -32,19 +32,57 @@ const defaults: OnboardingData = {
   worries: '',
 };
 
+const STORAGE_KEY = 'boardroom_onboarding_draft';
+const STEP_KEY = 'boardroom_onboarding_step';
+
+function loadDraft(): OnboardingData {
+  try {
+    const saved = sessionStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : { ...defaults };
+  } catch {
+    return { ...defaults };
+  }
+}
+
+function loadStep(): number {
+  try {
+    const saved = sessionStorage.getItem(STEP_KEY);
+    return saved ? parseInt(saved, 10) : 1;
+  } catch {
+    return 1;
+  }
+}
+
 export function useOnboarding() {
-  const [step, setStep] = useState(1);
-  const [data, setData] = useState<OnboardingData>({ ...defaults });
+  const [step, setStep] = useState(loadStep);
+  const [data, setData] = useState<OnboardingData>(loadDraft);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const updateData = useCallback((partial: Partial<OnboardingData>) => {
-    setData(prev => ({ ...prev, ...partial }));
+    setData(prev => {
+      const next = { ...prev, ...partial };
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* full */ }
+      return next;
+    });
   }, []);
 
-  const next = () => setStep(s => Math.min(s + 1, 5));
-  const prev = () => setStep(s => Math.max(s - 1, 1));
+  const next = () => {
+    setStep(s => {
+      const nextStep = Math.min(s + 1, 5);
+      try { sessionStorage.setItem(STEP_KEY, String(nextStep)); } catch { /* full */ }
+      return nextStep;
+    });
+  };
+
+  const prev = () => {
+    setStep(s => {
+      const prevStep = Math.max(s - 1, 1);
+      try { sessionStorage.setItem(STEP_KEY, String(prevStep)); } catch { /* full */ }
+      return prevStep;
+    });
+  };
 
   // Step 2: extract goals from freeform text
   const extractGoals = async () => {
@@ -142,6 +180,10 @@ export function useOnboarding() {
 
       // Mark onboarding complete
       await api.completeOnboarding();
+
+      // Clear draft on success
+      sessionStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STEP_KEY);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to complete onboarding');
       throw err;
