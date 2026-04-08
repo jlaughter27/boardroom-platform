@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import app from '../../src/index';
+
+beforeAll(() => {
+  // Set API key for auth middleware tests
+  process.env.OMNIMIND_API_KEY = 'dev-api-key-change-in-production';
+});
 
 describe('Health endpoint', () => {
   it('GET /health returns 200 with expected shape', async () => {

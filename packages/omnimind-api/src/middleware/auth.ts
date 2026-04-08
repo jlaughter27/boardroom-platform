@@ -19,10 +19,15 @@ export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): voi
   }
 
   const apiKey = req.headers['x-api-key'] as string | undefined;
-  const expected = getApiKey();
-  const isValid = apiKey != null
-    && apiKey.length === expected.length
-    && timingSafeEqual(Buffer.from(apiKey), Buffer.from(expected));
+  let isValid = false;
+  try {
+    const expected = getApiKey();
+    isValid = apiKey != null
+      && apiKey.length === expected.length
+      && timingSafeEqual(Buffer.from(apiKey), Buffer.from(expected));
+  } catch {
+    // API key not configured — reject all requests
+  }
 
   if (!isValid) {
     logger.warn('Unauthorized request', { path: req.path, ip: req.ip });
