@@ -13,7 +13,7 @@ export const LoginBodySchema = z.object({
 
 export const CreateSessionBodySchema = z.object({
   question: z.string().min(1).max(5000),
-  mode: z.enum(['advisory', 'doer']).optional(),
+  mode: z.enum(['decide', 'stress-test', 'plan', 'clarify', 'review', 'quick-take']).optional(),
   roomId: z.string().optional(),
 });
 
@@ -39,5 +39,5 @@ export const ContextForPersonaBodySchema = z.object({
   query: z.string().min(1).max(5000),
   persona: z.string().min(1),
   maxItems: z.number().min(1).max(20).optional(),
-  includeEntities: z.boolean().optional(),
+  includeEntities: z.array(z.enum(['memories', 'people', 'goals', 'projects', 'decisions'])).optional(),
 });
