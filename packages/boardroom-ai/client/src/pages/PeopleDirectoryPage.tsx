@@ -7,6 +7,7 @@ import { RelationshipGraph } from '../components/memory/RelationshipGraph';
 import { useRelationshipData } from '../hooks/useRelationshipData';
 import { PageWrapper, Button, Card, Input, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
+import { AINudge } from '../components/shared/AINudge';
 import { staggerContainer, staggerItem, scaleIn } from '../lib/motion';
 
 type Tab = 'directory' | 'map';
@@ -68,6 +69,16 @@ export default function PeopleDirectoryPage() {
         </div>
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
+
+        {people.length < 3 && !isLoading && (
+          <AINudge
+            title="Adding more people improves decision context"
+            description="The AI uses your stakeholder network to provide more relevant persona insights."
+            action={{ label: 'Add Person', onClick: () => setShowAdd(true) }}
+            dismissKey="nudge-add-more-people"
+            variant="suggestion"
+          />
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 bg-bg-elevated rounded-lg p-1 w-fit">

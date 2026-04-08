@@ -6,6 +6,7 @@ import { MemorySearch } from '../components/memory/MemorySearch';
 import { MemoryList } from '../components/memory/MemoryList';
 import { MemoryDetail } from '../components/memory/MemoryDetail';
 import { PageWrapper, Button } from '../components/ui';
+import { AINudge } from '../components/shared/AINudge';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { slideIn } from '../lib/motion';
 
@@ -25,6 +26,19 @@ export default function MemoryExplorerPage() {
         <h1 className="text-2xl font-semibold text-text-primary mb-4">Memory Explorer</h1>
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
+
+        {memories.length > 0 && (
+          <AINudge
+            title={`You have memories that may benefit from entity links`}
+            description="Linking memories to people, goals, or projects improves AI context during decisions."
+            action={{
+              label: 'Review Memories',
+              onClick: () => search({ status: 'ACTIVE' }),
+            }}
+            dismissKey="nudge-unlinked-memories"
+            variant="suggestion"
+          />
+        )}
 
         <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
           {/* Left panel: search + list (55%) */}

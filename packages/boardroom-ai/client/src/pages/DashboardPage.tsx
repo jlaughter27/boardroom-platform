@@ -12,6 +12,7 @@ import { PageWrapper, Skeleton, Button, Card, EmptyState } from '../components/u
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { staggerContainer, staggerItem } from '../lib/motion';
 import { useNavigate } from 'react-router-dom';
+import { AINudge } from '../components/shared/AINudge';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -50,7 +51,27 @@ export default function DashboardPage() {
   const warnings = useCognitiveLoad();
   const navigate = useNavigate();
 
+  const decisions = useEntitiesStore((s) => s.decisions);
+  const latestMemo = useCortexStore((s) => s.latestMemo);
   const firstName = user?.name?.split(' ')[0] ?? 'there';
+
+  // Nudge: no decisions in 7+ days
+  const lastDecisionDate = decisions.length > 0
+    ? Math.max(...decisions.map((d) => new Date(d.createdAt).getTime()))
+    : 0;
+  const daysSinceLastDecision = lastDecisionDate
+    ? Math.floor((Date.now() - lastDecisionDate) / (1000 * 60 * 60 * 24))
+    : Infinity;
+  const showDecisionNudge = daysSinceLastDecision >= 7;
+
+  // Nudge: weekly memo available today
+  const memoIsToday = latestMemo
+    ? (() => {
+        const d = new Date(latestMemo.createdAt);
+        const now = new Date();
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+      })()
+    : false;
 
   // Subtitle from cognitive load or fallback
   const subtitle = warnings.length > 0
@@ -93,6 +114,26 @@ export default function DashboardPage() {
           <ErrorBanner
             message={entitiesError || cortexError || ''}
             onDismiss={() => { clearEntitiesError(); clearCortexError(); }}
+          />
+        )}
+
+        {/* AI Nudges */}
+        {showDecisionNudge && (
+          <AINudge
+            title="You haven't run a decision analysis in 7+ days"
+            description="Regular decision analysis helps build your cognitive profile and improves AI recommendations."
+            action={{ label: 'Start a Decision', onClick: () => navigate('/decisions') }}
+            dismissKey="nudge-no-recent-decision"
+            variant="suggestion"
+          />
+        )}
+        {memoIsToday && (
+          <AINudge
+            title="Your weekly memo is available"
+            description={`Thinking quality score: ${latestMemo?.thinkingQualityScore}/10. Review your patterns and insights.`}
+            action={{ label: 'Read Memo', onClick: () => document.getElementById('weekly-memo')?.scrollIntoView({ behavior: 'smooth' }) }}
+            dismissKey="nudge-weekly-memo"
+            variant="info"
           />
         )}
 

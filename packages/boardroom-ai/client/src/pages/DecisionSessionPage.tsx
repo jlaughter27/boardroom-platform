@@ -14,6 +14,7 @@ import * as api from '../lib/api';
 import type { UserMode, PersonaId, CustomPersona, PersonaResponse, SynthesisReport, SufficiencyScore } from '@boardroom/shared';
 import { PageWrapper, Button, Badge, Card } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
+import { AINudge } from '../components/shared/AINudge';
 import { slideUp, scaleIn, staggerContainer, staggerItem } from '../lib/motion';
 
 export default function DecisionSessionPage() {
@@ -194,6 +195,20 @@ export default function DecisionSessionPage() {
             )}
 
             {simulation && <SimulationPanel result={simulation} />}
+
+            {/* AI Nudge: suggest simulation after synthesis */}
+            {phase === 'synthesis' && synthesis && !simulation && !isSimulating && (
+              <AINudge
+                title="Consider running a simulation on your chosen path"
+                description="Simulations reveal resource impact, timeline risks, and stakeholder effects before you commit."
+                action={{
+                  label: 'Run Simulation',
+                  onClick: () => document.querySelector('[data-simulation-button]')?.scrollIntoView({ behavior: 'smooth' }),
+                }}
+                dismissKey={`nudge-simulation-${currentSession?.id}`}
+                variant="suggestion"
+              />
+            )}
 
             {/* Synthesize button */}
             {phase === 'personas' && allPersonasDone && modeConfig.includesCEO && (
