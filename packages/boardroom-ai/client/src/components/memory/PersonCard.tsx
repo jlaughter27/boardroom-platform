@@ -56,7 +56,7 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
   const dots = Math.max(1, Math.round(person.importance * 5));
 
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition-colors">
+    <div className="bg-bg-elevated border border-line rounded-lg p-4 hover:border-line-strong transition-colors">
       {/* Header - always visible */}
       <button
         type="button"
@@ -65,15 +65,15 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
       >
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold text-white truncate">
+            <h3 className="text-base font-semibold text-text-primary truncate">
               {person.name}
             </h3>
             {person.role && (
-              <p className="text-sm text-gray-400 mt-0.5">{person.role}</p>
+              <p className="text-sm text-text-secondary mt-0.5">{person.role}</p>
             )}
           </div>
           <svg
-            className={`w-4 h-4 text-gray-500 shrink-0 ml-2 transition-transform ${
+            className={`w-4 h-4 text-text-tertiary shrink-0 ml-2 transition-transform ${
               expanded ? 'rotate-180' : ''
             }`}
             fill="none"
@@ -94,7 +94,7 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
           {person.domains.map((d) => (
             <span
               key={d}
-              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-800 text-gray-400 border border-gray-700"
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-bg-elevated text-text-secondary border border-line"
             >
               {d}
             </span>
@@ -108,12 +108,12 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
               <span
                 key={i}
                 className={`w-1.5 h-1.5 rounded-full ${
-                  i < dots ? 'bg-blue-500' : 'bg-gray-700'
+                  i < dots ? 'bg-accent' : 'bg-bg-hover'
                 }`}
               />
             ))}
           </div>
-          <span className="text-[10px] text-gray-500">
+          <span className="text-[10px] text-text-tertiary">
             Last contact: {relativeTime(person.lastContactAt)}
           </span>
         </div>
@@ -121,44 +121,44 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="mt-3 pt-3 border-t border-gray-700 space-y-3">
+        <div className="mt-3 pt-3 border-t border-line space-y-3">
           {editing ? (
             <div className="space-y-2">
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Name"
-                className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-600"
+                className="w-full bg-bg-surface border border-line rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
               />
               <input
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 placeholder="Role"
-                className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-600"
+                className="w-full bg-bg-surface border border-line rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
               />
               <input
                 value={relationship}
                 onChange={(e) => setRelationship(e.target.value)}
                 placeholder="Relationship to you"
-                className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-600"
+                className="w-full bg-bg-surface border border-line rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent"
               />
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Notes"
                 rows={3}
-                className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-600 resize-y"
+                className="w-full bg-bg-surface border border-line rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent resize-y"
               />
               <div className="flex gap-2">
                 <button
                   onClick={handleSave}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                  className="px-3 py-1 bg-accent hover:bg-accent-hover text-text-primary text-xs rounded transition-colors"
                 >
                   Save
                 </button>
                 <button
                   onClick={handleCancelEdit}
-                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded transition-colors"
+                  className="px-3 py-1 bg-bg-hover hover:bg-bg-active text-text-secondary text-xs rounded transition-colors"
                 >
                   Cancel
                 </button>
@@ -168,43 +168,43 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
             <>
               {person.relationshipToUser && (
                 <div>
-                  <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+                  <p className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">
                     Relationship
                   </p>
-                  <p className="text-sm text-gray-300 mt-0.5">
+                  <p className="text-sm text-text-secondary mt-0.5">
                     {person.relationshipToUser}
                   </p>
                 </div>
               )}
               {person.notes && (
                 <div>
-                  <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+                  <p className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">
                     Notes
                   </p>
-                  <p className="text-sm text-gray-300 mt-0.5 whitespace-pre-wrap">
+                  <p className="text-sm text-text-secondary mt-0.5 whitespace-pre-wrap">
                     {person.notes}
                   </p>
                 </div>
               )}
               <div>
-                <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+                <p className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">
                   Interaction Frequency
                 </p>
-                <p className="text-sm text-gray-300 mt-0.5">
+                <p className="text-sm text-text-secondary mt-0.5">
                   {person.interactionFrequency} interactions
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setEditing(true)}
-                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded transition-colors"
+                  className="px-3 py-1 bg-bg-hover hover:bg-bg-active text-text-secondary text-xs rounded transition-colors"
                 >
                   Edit
                 </button>
                 {!confirmDelete ? (
                   <button
                     onClick={() => setConfirmDelete(true)}
-                    className="px-3 py-1 bg-gray-700 hover:bg-red-900/50 text-gray-400 hover:text-red-400 text-xs rounded transition-colors"
+                    className="px-3 py-1 bg-bg-hover hover:bg-danger-muted text-text-secondary hover:text-danger text-xs rounded transition-colors"
                   >
                     Delete
                   </button>
@@ -215,13 +215,13 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
                         onDelete(person.id);
                         setConfirmDelete(false);
                       }}
-                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
+                      className="px-3 py-1 bg-danger hover:bg-danger text-text-primary text-xs rounded transition-colors"
                     >
                       Confirm Delete
                     </button>
                     <button
                       onClick={() => setConfirmDelete(false)}
-                      className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded transition-colors"
+                      className="px-3 py-1 bg-bg-hover hover:bg-bg-active text-text-secondary text-xs rounded transition-colors"
                     >
                       No
                     </button>

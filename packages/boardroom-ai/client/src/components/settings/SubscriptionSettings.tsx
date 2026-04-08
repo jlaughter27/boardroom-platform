@@ -50,9 +50,9 @@ export function SubscriptionSettings() {
 
   if (loading) {
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Subscription</h2>
-        <div className="text-sm text-gray-500">Loading...</div>
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Subscription</h2>
+        <div className="text-sm text-text-tertiary">Loading...</div>
       </section>
     );
   }
@@ -60,13 +60,13 @@ export function SubscriptionSettings() {
   // Dev mode — no Stripe configured
   if (sub === null) {
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Subscription</h2>
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Subscription</h2>
         <div className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-          <span className="text-sm text-green-400 font-medium">All features unlocked</span>
+          <span className="text-sm text-success font-medium">All features unlocked</span>
         </div>
-        <p className="text-xs text-gray-500 mt-2">Development mode — no payment required.</p>
+        <p className="text-xs text-text-tertiary mt-2">Development mode — no payment required.</p>
       </section>
     );
   }
@@ -77,19 +77,19 @@ export function SubscriptionSettings() {
     const daysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
 
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Subscription</h2>
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Subscription</h2>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
-            <span className="text-sm text-blue-400 font-medium">Free Trial</span>
+            <span className="inline-block w-2 h-2 rounded-full bg-accent" />
+            <span className="text-sm text-info font-medium">Free Trial</span>
           </div>
-          <p className="text-sm text-gray-300">
+          <p className="text-sm text-text-secondary">
             {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining in your free trial.
           </p>
           <button
             onClick={handleUpgrade}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 bg-accent hover:bg-accent text-text-primary text-sm rounded-lg transition-colors"
           >
             Upgrade to Pro — $29/month
           </button>
@@ -103,20 +103,20 @@ export function SubscriptionSettings() {
     const nextBilling = new Date(sub.currentPeriodEnd);
 
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Subscription</h2>
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Subscription</h2>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-sm text-green-400 font-medium">Pro Plan — $29/month</span>
+            <span className="text-sm text-success font-medium">Pro Plan — $29/month</span>
           </div>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-text-secondary">
             Next billing date: {nextBilling.toLocaleDateString()}
           </p>
           <button
             onClick={handleCancel}
             disabled={canceling}
-            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/40 text-red-400 text-sm rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/40 text-danger text-sm rounded-lg transition-colors disabled:opacity-50"
           >
             {canceling ? 'Canceling...' : 'Cancel Subscription'}
           </button>
@@ -128,19 +128,19 @@ export function SubscriptionSettings() {
   // Past Due
   if (sub?.status === 'PAST_DUE') {
     return (
-      <section className="bg-gray-900 rounded-lg border border-red-800/50 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Subscription</h2>
+      <section className="bg-bg-surface rounded-lg border border-red-800/50 p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Subscription</h2>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
-            <span className="text-sm text-red-400 font-medium">Payment Failed</span>
+            <span className="text-sm text-danger font-medium">Payment Failed</span>
           </div>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-text-secondary">
             Your last payment failed. Please update your billing information to continue using BoardRoom.
           </p>
           <button
             onClick={handleUpgrade}
-            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 bg-danger hover:bg-danger text-text-primary text-sm rounded-lg transition-colors"
           >
             Update Billing
           </button>
@@ -154,23 +154,23 @@ export function SubscriptionSettings() {
   const stillHasAccess = accessUntil && accessUntil.getTime() > Date.now();
 
   return (
-    <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">Subscription</h2>
+    <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+      <h2 className="text-lg font-semibold text-text-primary mb-4">Subscription</h2>
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-gray-500" />
-          <span className="text-sm text-gray-400 font-medium">
+          <span className="inline-block w-2 h-2 rounded-full bg-text-tertiary" />
+          <span className="text-sm text-text-secondary font-medium">
             {sub?.status === 'CANCELED' ? 'Canceled' : 'Expired'}
           </span>
         </div>
         {stillHasAccess && (
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-text-secondary">
             Access until {accessUntil.toLocaleDateString()}
           </p>
         )}
         <button
           onClick={handleUpgrade}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+          className="px-4 py-2 bg-accent hover:bg-accent text-text-primary text-sm rounded-lg transition-colors"
         >
           Resubscribe — $29/month
         </button>

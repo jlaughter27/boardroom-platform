@@ -86,12 +86,12 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white">
+        <h2 className="text-xl font-bold text-text-primary">
           {isEditing ? 'Edit Persona' : 'Create Persona'}
         </h2>
         <button
           onClick={onCancel}
-          className="text-gray-400 hover:text-white text-sm"
+          className="text-text-secondary hover:text-text-primary text-sm"
         >
           Cancel
         </button>
@@ -99,63 +99,63 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-      <div className="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-5">
+      <div className="bg-bg-surface rounded-lg border border-line-subtle p-6 space-y-5">
         {/* Name */}
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Name</label>
+          <label className="block text-sm text-text-secondary mb-1">Name</label>
           <input
             type="text"
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="e.g. The Strategist"
             maxLength={50}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-bg-elevated border border-line rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
           />
-          <p className="text-xs text-gray-600 mt-1">2-50 characters</p>
+          <p className="text-xs text-text-tertiary mt-1">2-50 characters</p>
         </div>
 
         {/* Icon */}
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Icon (optional emoji)</label>
+          <label className="block text-sm text-text-secondary mb-1">Icon (optional emoji)</label>
           <input
             type="text"
             value={icon}
             onChange={e => setIcon(e.target.value)}
             placeholder="e.g. \uD83E\uDDE0"
             maxLength={10}
-            className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            className="w-24 bg-bg-elevated border border-line rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
           />
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Description (optional)</label>
+          <label className="block text-sm text-text-secondary mb-1">Description (optional)</label>
           <input
             type="text"
             value={description}
             onChange={e => setDescription(e.target.value)}
             placeholder="A brief description of this persona's perspective"
             maxLength={200}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-bg-elevated border border-line rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
           />
         </div>
 
         {/* System Prompt */}
         <div>
-          <label className="block text-sm text-gray-400 mb-1">System Prompt</label>
+          <label className="block text-sm text-text-secondary mb-1">System Prompt</label>
           <textarea
             value={systemPrompt}
             onChange={e => setSystemPrompt(e.target.value)}
             rows={8}
             maxLength={5000}
             placeholder="You are [persona name], a [role/perspective]. When analyzing decisions, you focus on [specific lens]..."
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-y font-mono"
+            className="w-full bg-bg-elevated border border-line rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent resize-y font-mono"
           />
           <div className="flex justify-between mt-1">
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-text-tertiary">
               Define the persona's perspective, expertise, and analysis style. Min 50 characters.
             </p>
-            <span className={`text-xs ${systemPrompt.length < 50 ? 'text-red-400' : 'text-gray-600'}`}>
+            <span className={`text-xs ${systemPrompt.length < 50 ? 'text-danger' : 'text-text-tertiary'}`}>
               {systemPrompt.length}/5000
             </span>
           </div>
@@ -163,27 +163,27 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
 
         {/* Model Tier */}
         <div>
-          <label className="block text-sm text-gray-400 mb-2">Model Tier</label>
+          <label className="block text-sm text-text-secondary mb-2">Model Tier</label>
           <div className="flex gap-3">
             <button
               type="button"
               onClick={() => setModelTier('haiku')}
               className={`flex-1 px-4 py-3 rounded-lg border text-sm transition-colors ${
                 modelTier === 'haiku'
-                  ? 'border-blue-500 bg-blue-900/20 text-white'
-                  : 'border-gray-700 bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  ? 'border-accent bg-blue-900/20 text-text-primary'
+                  : 'border-line bg-bg-elevated text-text-secondary hover:bg-bg-hover'
               }`}
             >
               <div className="font-medium">Haiku</div>
-              <div className="text-xs text-gray-500 mt-1">Fast, cost-effective</div>
+              <div className="text-xs text-text-tertiary mt-1">Fast, cost-effective</div>
             </button>
             <button
               type="button"
               onClick={() => setModelTier('sonnet')}
               className={`flex-1 px-4 py-3 rounded-lg border text-sm transition-colors ${
                 modelTier === 'sonnet'
-                  ? 'border-blue-500 bg-blue-900/20 text-white'
-                  : 'border-gray-700 bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  ? 'border-accent bg-blue-900/20 text-text-primary'
+                  : 'border-line bg-bg-elevated text-text-secondary hover:bg-bg-hover'
               }`}
             >
               <div className="font-medium">Sonnet</div>
@@ -194,7 +194,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
 
         {/* Max Output Tokens */}
         <div>
-          <label className="block text-sm text-gray-400 mb-1">
+          <label className="block text-sm text-text-secondary mb-1">
             Max Output Tokens: {maxOutputTokens}
           </label>
           <input
@@ -206,7 +206,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
             onChange={e => setMaxOutputTokens(parseInt(e.target.value, 10))}
             className="w-full accent-blue-500"
           />
-          <div className="flex justify-between text-xs text-gray-600">
+          <div className="flex justify-between text-xs text-text-tertiary">
             <span>500</span>
             <span>3000</span>
           </div>
@@ -214,12 +214,12 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
 
         {/* Tool Permissions */}
         <div>
-          <label className="block text-sm text-gray-400 mb-2">Tool Permissions</label>
+          <label className="block text-sm text-text-secondary mb-2">Tool Permissions</label>
           <div className="space-y-2">
             {AVAILABLE_TOOLS.map(tool => (
               <label
                 key={tool.name}
-                className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"
+                className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer"
               >
                 <input
                   type="checkbox"
@@ -231,7 +231,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
               </label>
             ))}
           </div>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-xs text-text-tertiary mt-1">
             Select which tools this persona can use during analysis.
           </p>
         </div>
@@ -241,13 +241,13 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-6 py-2.5 bg-accent hover:bg-accent disabled:opacity-50 text-text-primary text-sm font-medium rounded-lg transition-colors"
           >
             {saving ? 'Saving...' : isEditing ? 'Update Persona' : 'Create Persona'}
           </button>
           <button
             onClick={onCancel}
-            className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition-colors border border-gray-700"
+            className="px-4 py-2.5 bg-bg-elevated hover:bg-bg-hover text-text-secondary text-sm rounded-lg transition-colors border border-line"
           >
             Cancel
           </button>

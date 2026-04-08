@@ -2,21 +2,11 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { create } from 'zustand';
 import { useEntitiesStore } from '../../stores/entities.store';
+import { useCommandPaletteStore } from '../../stores/commandPalette.store';
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut';
 
-interface CommandPaletteStore {
-  open: boolean;
-  toggle: () => void;
-  close: () => void;
-}
-
-export const useCommandPaletteStore = create<CommandPaletteStore>((set) => ({
-  open: false,
-  toggle: () => set((s) => ({ open: !s.open })),
-  close: () => set({ open: false }),
-}));
+export { useCommandPaletteStore } from '../../stores/commandPalette.store';
 
 const pages = [
   { name: 'Dashboard', path: '/', icon: '\u2302' },

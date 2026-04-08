@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCommandPaletteStore } from '../components/ui/CommandPalette';
+import { useCommandPaletteStore } from '../stores/commandPalette.store';
 import { useUIStore } from '../stores/ui.store';
 
 export interface ShortcutDef {

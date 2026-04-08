@@ -22,14 +22,14 @@ export function MemorySearch() {
   }
 
   const selectClass =
-    'bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-600';
+    'bg-bg-surface border border-line rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent';
 
   return (
     <div className="space-y-3">
       {/* Search input */}
       <div className="relative">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-tertiary"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -46,7 +46,7 @@ export function MemorySearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search memories..."
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-600"
+          className="w-full bg-bg-surface border border-line rounded-lg pl-10 pr-4 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
         />
       </div>
 
@@ -106,7 +106,7 @@ export function MemorySearch() {
                 filters.sortOrder === 'asc' ? 'desc' : 'asc',
             })
           }
-          className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-white hover:bg-gray-800 transition-colors"
+          className="bg-bg-surface border border-line rounded px-2 py-1.5 text-sm text-text-primary hover:bg-bg-elevated transition-colors"
           title={`Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
         >
           {filters.sortOrder === 'asc' ? '\u2191 Asc' : '\u2193 Desc'}
@@ -115,7 +115,7 @@ export function MemorySearch() {
         <button
           type="button"
           onClick={clearAll}
-          className="px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+          className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
         >
           Clear Filters
         </button>

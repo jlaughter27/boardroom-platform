@@ -3,14 +3,14 @@ import { MemoryCard } from './MemoryCard';
 
 function SkeletonCard() {
   return (
-    <div className="p-3 rounded-lg border border-gray-700 bg-gray-800/50 animate-pulse space-y-2">
-      <div className="h-4 bg-gray-700 rounded w-3/4" />
-      <div className="h-3 bg-gray-700 rounded w-full" />
-      <div className="h-3 bg-gray-700 rounded w-1/2" />
+    <div className="p-3 rounded-lg border border-line bg-bg-elevated animate-pulse space-y-2">
+      <div className="h-4 bg-bg-hover rounded w-3/4" />
+      <div className="h-3 bg-bg-hover rounded w-full" />
+      <div className="h-3 bg-bg-hover rounded w-1/2" />
       <div className="flex gap-1.5 mt-2">
-        <div className="h-4 bg-gray-700 rounded w-14" />
-        <div className="h-4 bg-gray-700 rounded w-16" />
-        <div className="h-4 bg-gray-700 rounded w-12" />
+        <div className="h-4 bg-bg-hover rounded w-14" />
+        <div className="h-4 bg-bg-hover rounded w-16" />
+        <div className="h-4 bg-bg-hover rounded w-12" />
       </div>
     </div>
   );
@@ -26,7 +26,7 @@ export function MemoryList() {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <svg
-          className="w-12 h-12 text-gray-600 mb-3"
+          className="w-12 h-12 text-bg-active mb-3"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -38,8 +38,8 @@ export function MemoryList() {
             d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
           />
         </svg>
-        <p className="text-gray-400 text-sm font-medium">No memories found</p>
-        <p className="text-gray-500 text-xs mt-1">
+        <p className="text-text-secondary text-sm font-medium">No memories found</p>
+        <p className="text-text-tertiary text-xs mt-1">
           Try adjusting your search or filters
         </p>
       </div>
@@ -69,14 +69,14 @@ export function MemoryList() {
         <button
           type="button"
           onClick={loadMore}
-          className="w-full py-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          className="w-full py-2 text-sm text-info hover:text-text-primary transition-colors"
         >
           Load more ({total - offset} remaining)
         </button>
       )}
 
       {!hasMore && memories.length > 0 && (
-        <p className="text-center text-xs text-gray-600 py-2">
+        <p className="text-center text-xs text-bg-active py-2">
           {total} {total === 1 ? 'memory' : 'memories'} total
         </p>
       )}

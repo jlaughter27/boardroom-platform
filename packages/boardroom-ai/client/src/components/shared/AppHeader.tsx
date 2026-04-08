@@ -1,7 +1,7 @@
 import { useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSessionStore } from '../../stores/session.store';
-import { useCommandPaletteStore } from '../ui/CommandPalette';
+import { useCommandPaletteStore } from '../../stores/commandPalette.store';
 import { Avatar } from '../ui/Avatar';
 import { NotificationCenter } from './NotificationCenter';
 

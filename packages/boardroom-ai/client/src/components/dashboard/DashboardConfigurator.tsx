@@ -80,18 +80,18 @@ export function DashboardConfigurator({
         {draft.map((widget, index) => (
           <div
             key={widget.id}
-            className="flex items-center gap-3 bg-gray-800/50 rounded-lg px-3 py-2"
+            className="flex items-center gap-3 bg-bg-elevated rounded-lg px-3 py-2"
           >
             {/* Visibility toggle */}
             <input
               type="checkbox"
               checked={widget.visible}
               onChange={() => toggleVisibility(widget.id)}
-              className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded border-line-strong bg-bg-hover text-accent focus:ring-accent focus:ring-offset-0"
             />
 
             {/* Widget name */}
-            <span className="flex-1 text-sm text-white truncate">
+            <span className="flex-1 text-sm text-text-primary truncate">
               {WIDGET_LABELS[widget.type as WidgetType] ?? widget.type}
             </span>
 
@@ -101,7 +101,7 @@ export function DashboardConfigurator({
               onChange={(e) =>
                 changeSize(widget.id, e.target.value as WidgetConfig['size'])
               }
-              className="bg-gray-700 border border-gray-600 text-gray-300 text-xs rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+              className="bg-bg-hover border border-line-strong text-text-secondary text-xs rounded px-2 py-1 focus:outline-none focus:border-accent"
             >
               {SIZE_OPTIONS.map((s) => (
                 <option key={s} value={s}>
@@ -115,7 +115,7 @@ export function DashboardConfigurator({
               <button
                 onClick={() => moveUp(index)}
                 disabled={index === 0}
-                className="text-gray-400 hover:text-white disabled:text-gray-600 text-xs leading-none"
+                className="text-text-secondary hover:text-text-primary disabled:text-bg-active text-xs leading-none"
                 aria-label="Move up"
               >
                 &#9650;
@@ -123,7 +123,7 @@ export function DashboardConfigurator({
               <button
                 onClick={() => moveDown(index)}
                 disabled={index === draft.length - 1}
-                className="text-gray-400 hover:text-white disabled:text-gray-600 text-xs leading-none"
+                className="text-text-secondary hover:text-text-primary disabled:text-bg-active text-xs leading-none"
                 aria-label="Move down"
               >
                 &#9660;
@@ -134,25 +134,25 @@ export function DashboardConfigurator({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-800">
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-line-subtle">
         <button
           onClick={handleReset}
           disabled={saving}
-          className="text-sm text-gray-400 hover:text-white disabled:text-gray-600"
+          className="text-sm text-text-secondary hover:text-text-primary disabled:text-bg-active"
         >
           Reset to Default
         </button>
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm text-gray-400 hover:text-white"
+            className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+            className="px-3 py-1.5 text-sm bg-accent hover:bg-accent disabled:bg-bg-hover text-text-primary rounded-lg transition-colors"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>

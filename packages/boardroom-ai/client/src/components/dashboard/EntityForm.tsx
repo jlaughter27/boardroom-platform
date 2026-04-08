@@ -62,7 +62,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-gray-800 rounded-lg p-4 border border-gray-700 space-y-3"
+      className="bg-bg-elevated rounded-lg p-4 border border-line space-y-3"
     >
       {/* Title - always shown */}
       <input
@@ -70,7 +70,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder={`${entityType} title...`}
-        className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-600"
+        className="w-full bg-bg-surface border border-line rounded px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
       />
 
       <div className="flex flex-wrap gap-3">
@@ -78,7 +78,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-600"
+          className="bg-bg-surface border border-line rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-accent"
         >
           <option value="active">Active</option>
           <option value="pending">Pending</option>
@@ -92,7 +92,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
           <select
             value={level}
             onChange={(e) => setLevel(Number(e.target.value))}
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-600"
+            className="bg-bg-surface border border-line rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-accent"
           >
             <option value={0}>L0 Vision</option>
             <option value={1}>L1 Strategic</option>
@@ -107,7 +107,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
             placeholder="Domain"
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-600 w-28"
+            className="bg-bg-surface border border-line rounded px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent w-28"
           />
         )}
 
@@ -117,7 +117,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
             value={owner}
             onChange={(e) => setOwner(e.target.value)}
             placeholder="Owner"
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-600 w-28"
+            className="bg-bg-surface border border-line rounded px-2 py-1 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent w-28"
           />
         )}
 
@@ -126,7 +126,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
           <select
             value={priority}
             onChange={(e) => setPriority(Number(e.target.value))}
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-600"
+            className="bg-bg-surface border border-line rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-accent"
           >
             <option value={1}>P1 High</option>
             <option value={2}>P2</option>
@@ -141,23 +141,23 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
           type="date"
           value={deadline}
           onChange={(e) => setDeadline(e.target.value)}
-          className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-600"
+          className="bg-bg-surface border border-line rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-accent"
         />
       </div>
 
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {error && <p className="text-danger text-xs">{error}</p>}
 
       <div className="flex gap-2">
         <button
           type="submit"
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
+          className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-text-primary text-sm rounded transition-colors"
         >
           Create {entityType}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded transition-colors"
+          className="px-3 py-1.5 bg-bg-hover hover:bg-bg-active text-text-secondary text-sm rounded transition-colors"
         >
           Cancel
         </button>

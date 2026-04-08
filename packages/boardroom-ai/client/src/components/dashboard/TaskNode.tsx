@@ -39,7 +39,7 @@ export function TaskNode({ task }: TaskNodeProps) {
 
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2 pl-16 rounded-lg hover:bg-gray-800/50 group transition-colors"
+      className="flex items-center gap-3 px-3 py-2 pl-16 rounded-lg hover:bg-bg-elevated group transition-colors"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -48,12 +48,12 @@ export function TaskNode({ task }: TaskNodeProps) {
         onClick={toggleDone}
         className={`flex-shrink-0 w-4 h-4 rounded border transition-colors ${
           task.status === 'done'
-            ? 'bg-blue-600 border-blue-600'
-            : 'border-gray-600 hover:border-gray-400'
+            ? 'bg-accent border-accent'
+            : 'border-line-strong hover:border-line-strong'
         }`}
       >
         {task.status === 'done' && (
-          <svg className="w-4 h-4 text-white" viewBox="0 0 16 16" fill="none">
+          <svg className="w-4 h-4 text-text-primary" viewBox="0 0 16 16" fill="none">
             <path
               d="M4 8l3 3 5-5"
               stroke="currentColor"
@@ -75,15 +75,15 @@ export function TaskNode({ task }: TaskNodeProps) {
           onChange={(e) => setEditTitle(e.target.value)}
           onBlur={saveTitle}
           onKeyDown={handleKeyDown}
-          className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-sm text-white focus:outline-none focus:border-blue-600"
+          className="flex-1 bg-bg-elevated border border-line-strong rounded px-2 py-0.5 text-sm text-text-primary focus:outline-none focus:border-accent"
         />
       ) : (
         <span
           onClick={() => setEditing(true)}
           className={`flex-1 text-sm cursor-pointer ${
             task.status === 'done'
-              ? 'text-gray-500 line-through'
-              : 'text-gray-200'
+              ? 'text-text-tertiary line-through'
+              : 'text-text-primary'
           }`}
         >
           {task.title}
@@ -91,10 +91,10 @@ export function TaskNode({ task }: TaskNodeProps) {
       )}
 
       {task.owner && (
-        <span className="text-xs text-gray-500">{task.owner}</span>
+        <span className="text-xs text-text-tertiary">{task.owner}</span>
       )}
       {deadlineStr && (
-        <span className="text-xs text-gray-500">{deadlineStr}</span>
+        <span className="text-xs text-text-tertiary">{deadlineStr}</span>
       )}
       <StatusBadge status={task.status} />
 
@@ -102,7 +102,7 @@ export function TaskNode({ task }: TaskNodeProps) {
       {hovered && (
         <button
           onClick={() => deleteTask(task.id)}
-          className="text-gray-600 hover:text-red-400 transition-colors"
+          className="text-bg-active hover:text-danger transition-colors"
           title="Delete task"
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

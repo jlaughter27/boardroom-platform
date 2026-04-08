@@ -46,9 +46,9 @@ export function CalendarSettings() {
 
   if (loading) {
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Google Calendar</h2>
-        <div className="text-sm text-gray-500">Loading...</div>
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Google Calendar</h2>
+        <div className="text-sm text-text-tertiary">Loading...</div>
       </section>
     );
   }
@@ -56,9 +56,9 @@ export function CalendarSettings() {
   // Not configured on the server
   if (status?.error === 'Google Calendar not configured') {
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Google Calendar</h2>
-        <p className="text-sm text-gray-500">
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Google Calendar</h2>
+        <p className="text-sm text-text-tertiary">
           Google Calendar integration is not available. Contact your administrator to configure Google OAuth credentials.
         </p>
       </section>
@@ -68,23 +68,23 @@ export function CalendarSettings() {
   // Connected
   if (status?.connected) {
     return (
-      <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Google Calendar</h2>
+      <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Google Calendar</h2>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-sm text-green-400 font-medium">Connected</span>
+            <span className="text-sm text-success font-medium">Connected</span>
           </div>
           {status.calendarId && (
             <div>
-              <span className="text-xs text-gray-500">Calendar: </span>
-              <span className="text-xs text-gray-300">{status.calendarId}</span>
+              <span className="text-xs text-text-tertiary">Calendar: </span>
+              <span className="text-xs text-text-secondary">{status.calendarId}</span>
             </div>
           )}
           {status.lastSyncAt && (
             <div>
-              <span className="text-xs text-gray-500">Last sync: </span>
-              <span className="text-xs text-gray-300">
+              <span className="text-xs text-text-tertiary">Last sync: </span>
+              <span className="text-xs text-text-secondary">
                 {new Date(status.lastSyncAt).toLocaleString()}
               </span>
             </div>
@@ -92,7 +92,7 @@ export function CalendarSettings() {
           <button
             onClick={handleDisconnect}
             disabled={disconnecting}
-            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/40 text-red-400 text-sm rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/40 text-danger text-sm rounded-lg transition-colors disabled:opacity-50"
           >
             {disconnecting ? 'Disconnecting...' : 'Disconnect'}
           </button>
@@ -103,14 +103,14 @@ export function CalendarSettings() {
 
   // Not connected
   return (
-    <section className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">Google Calendar</h2>
-      <p className="text-sm text-gray-500 mb-4">
+    <section className="bg-bg-surface rounded-lg border border-line-subtle p-6">
+      <h2 className="text-lg font-semibold text-text-primary mb-4">Google Calendar</h2>
+      <p className="text-sm text-text-tertiary mb-4">
         Connect your Google Calendar to see upcoming events alongside your tasks and commitments.
       </p>
       <button
         onClick={handleConnect}
-        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+        className="px-4 py-2 bg-accent hover:bg-accent text-text-primary text-sm rounded-lg transition-colors"
       >
         Connect Google Calendar
       </button>

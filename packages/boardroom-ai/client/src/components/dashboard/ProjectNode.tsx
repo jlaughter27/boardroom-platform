@@ -46,14 +46,14 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
   return (
     <div className="ml-6">
       <div
-        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800/50 group transition-colors"
+        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bg-elevated group transition-colors"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         {/* Expand/collapse */}
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          className="text-text-tertiary hover:text-text-secondary transition-colors flex-shrink-0"
         >
           <svg
             className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -69,7 +69,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
         </button>
 
         {/* Project icon */}
-        <span className="text-gray-500 flex-shrink-0">
+        <span className="text-text-tertiary flex-shrink-0">
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
           </svg>
@@ -83,12 +83,12 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
             onChange={(e) => setEditTitle(e.target.value)}
             onBlur={saveTitle}
             onKeyDown={handleKeyDown}
-            className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-sm text-white focus:outline-none focus:border-blue-600"
+            className="flex-1 bg-bg-elevated border border-line-strong rounded px-2 py-0.5 text-sm text-text-primary focus:outline-none focus:border-accent"
           />
         ) : (
           <span
             onClick={() => setEditing(true)}
-            className="flex-1 text-sm text-gray-200 cursor-pointer"
+            className="flex-1 text-sm text-text-primary cursor-pointer"
           >
             {project.title}
           </span>
@@ -96,9 +96,9 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
 
         <DomainBadge domain={project.domain} />
         {deadlineStr && (
-          <span className="text-xs text-gray-500">{deadlineStr}</span>
+          <span className="text-xs text-text-tertiary">{deadlineStr}</span>
         )}
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-text-tertiary">
           {tasks.length} task{tasks.length !== 1 ? 's' : ''}
         </span>
         <StatusBadge status={project.status} />
@@ -111,7 +111,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
                 setExpanded(true);
                 setShowAddTask(true);
               }}
-              className="text-gray-600 hover:text-green-400 transition-colors"
+              className="text-bg-active hover:text-success transition-colors"
               title="Add task"
             >
               <svg
@@ -128,7 +128,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
             </button>
             <button
               onClick={() => deleteProject(project.id)}
-              className="text-gray-600 hover:text-red-400 transition-colors"
+              className="text-bg-active hover:text-danger transition-colors"
               title="Delete project"
             >
               <svg
@@ -154,7 +154,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
             <TaskNode key={task.id} task={task} />
           ))}
           {tasks.length === 0 && !showAddTask && (
-            <p className="text-xs text-gray-600 pl-16 py-1">No tasks yet</p>
+            <p className="text-xs text-bg-active pl-16 py-1">No tasks yet</p>
           )}
           {showAddTask && (
             <div className="ml-10 mt-2">
