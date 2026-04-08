@@ -48,6 +48,14 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+// Strip /api prefix — Vite dev proxy adds this, production serves both from same origin
+app.use((req, _res, next) => {
+  if (req.path.startsWith('/api/')) {
+    req.url = req.url.replace(/^\/api/, '');
+  }
+  next();
+});
+
 // Serve React client in production (before auth wall — static assets are public)
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.resolve(__dirname, '../../client/dist');
