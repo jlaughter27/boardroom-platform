@@ -42,14 +42,25 @@ FROM node:20-alpine AS runner
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 WORKDIR /app
+
+# Copy package manifests + lockfile for production install
+COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
+COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
+
+# Install production dependencies (real files, not pnpm workspace symlinks)
+RUN pnpm install --prod --frozen-lockfile --ignore-scripts
+
+# Copy built artifacts
 COPY --from=builder /app/packages/omnimind-api/dist ./dist
 COPY --from=builder /app/packages/omnimind-api/prisma ./prisma
-COPY --from=builder /app/packages/omnimind-api/node_modules ./node_modules
+
+# Overlay shared package (workspace dep not available in prod install)
 COPY --from=builder /app/packages/shared/dist ./node_modules/@boardroom/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/shared/package.json
+
+# Copy generated Prisma client
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
 COPY --from=builder /app/packages/omnimind-api/docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
