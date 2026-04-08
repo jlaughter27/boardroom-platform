@@ -1,3 +1,5 @@
+import { Card, Badge, Button } from '../ui';
+
 interface IntegrationCardProps {
   name: string;
   description: string;
@@ -9,16 +11,16 @@ interface IntegrationCardProps {
   loading?: boolean;
 }
 
-const STATUS_STYLES = {
-  connected: 'bg-green-900/50 text-green-400 border-green-800',
-  disconnected: 'bg-gray-800 text-gray-400 border-gray-700',
-  error: 'bg-red-900/50 text-red-400 border-red-800',
-  coming_soon: 'bg-gray-800 text-gray-500 border-gray-700',
-} as const;
+const STATUS_VARIANT: Record<string, 'success' | 'default' | 'danger'> = {
+  connected: 'success',
+  disconnected: 'default',
+  error: 'danger',
+  coming_soon: 'default',
+};
 
 const STATUS_LABELS = {
   connected: 'Connected',
-  disconnected: 'Not connected',
+  disconnected: 'Not Connected',
   error: 'Error',
   coming_soon: 'Coming Soon',
 } as const;
@@ -33,61 +35,49 @@ export function IntegrationCard({
   onDisconnect,
   loading,
 }: IntegrationCardProps) {
+  const isComingSoon = status === 'coming_soon';
+
   return (
-    <div className="bg-gray-900 rounded-lg border border-gray-800 p-5">
+    <Card className={`p-5 ${isComingSoon ? 'opacity-60' : ''}`}>
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">{icon}</span>
           <div>
-            <h3 className="text-white font-medium text-sm">{name}</h3>
-            <p className="text-gray-500 text-xs mt-0.5">{description}</p>
+            <h3 className="text-text-primary font-semibold text-sm">{name}</h3>
+            <p className="text-text-secondary text-xs mt-0.5">{description}</p>
           </div>
         </div>
-        <span
-          className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_STYLES[status]}`}
-        >
+        <Badge variant={STATUS_VARIANT[status] ?? 'default'}>
           {STATUS_LABELS[status]}
-        </span>
+        </Badge>
       </div>
 
       {lastSyncAt && status === 'connected' && (
-        <p className="text-xs text-gray-600 mt-3">
+        <p className="text-xs text-text-tertiary mt-3">
           Last synced: {new Date(lastSyncAt).toLocaleString()}
         </p>
       )}
 
       <div className="mt-4">
         {status === 'connected' && onDisconnect && (
-          <button
-            onClick={onDisconnect}
-            disabled={loading}
-            className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
-          >
+          <Button variant="danger" size="sm" onClick={onDisconnect} disabled={loading}>
             {loading ? 'Disconnecting...' : 'Disconnect'}
-          </button>
+          </Button>
         )}
         {status === 'disconnected' && onConnect && (
-          <button
-            onClick={onConnect}
-            disabled={loading}
-            className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
-          >
+          <Button variant="primary" size="sm" onClick={onConnect} disabled={loading}>
             {loading ? 'Connecting...' : 'Connect'}
-          </button>
+          </Button>
         )}
         {status === 'error' && onConnect && (
-          <button
-            onClick={onConnect}
-            disabled={loading}
-            className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors disabled:opacity-50"
-          >
+          <Button variant="danger" size="sm" onClick={onConnect} disabled={loading}>
             {loading ? 'Reconnecting...' : 'Reconnect'}
-          </button>
+          </Button>
         )}
-        {status === 'coming_soon' && (
-          <span className="text-xs text-gray-600">Available in a future update</span>
+        {isComingSoon && (
+          <span className="text-xs text-text-tertiary">Available in a future update</span>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
