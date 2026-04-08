@@ -1,15 +1,17 @@
 import { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
+import { Card, Badge, Progress } from '../ui';
 
 const PERSONA_COLORS: Record<string, string> = {
-  optimist: 'border-l-green-500',
-  critic: 'border-l-red-500',
-  alternate: 'border-l-purple-500',
-  technician: 'border-l-cyan-500',
-  questionnaire: 'border-l-yellow-500',
-  doer: 'border-l-orange-500',
-  ceo: 'border-l-blue-500',
+  optimist: 'border-t-persona-optimist',
+  critic: 'border-t-persona-critic',
+  alternate: 'border-t-persona-alternate',
+  technician: 'border-t-persona-technician',
+  questionnaire: 'border-t-persona-questionnaire',
+  doer: 'border-t-persona-doer',
+  ceo: 'border-t-persona-ceo',
 };
 
 interface PersonaCardProps {
@@ -33,105 +35,112 @@ function CollapsibleSection({
     <div className="mt-3">
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-gray-300 transition-colors"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-xs font-medium text-text-tertiary hover:text-text-secondary transition-colors"
       >
-        <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
+        <span className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}
       </button>
-      {open && <div className="mt-1.5 text-sm text-gray-300">{children}</div>}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1.5 text-sm text-text-secondary">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 export function PersonaCard({ personaId, response, streamingText, isStreaming }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
-  const colorClass = PERSONA_COLORS[personaId] ?? 'border-l-gray-500';
+  const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
 
   // Waiting state
   if (!response && !isStreaming) {
     return (
-      <div className={`bg-gray-900 rounded-lg border border-gray-800 border-l-4 ${colorClass} p-4`}>
+      <Card className={`border-t-[3px] ${colorClass}`}>
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-gray-600 animate-pulse" />
-          <span className="text-gray-500 text-sm">Waiting for {config?.name ?? personaId}...</span>
+          <div className="flex gap-1">
+            {[0, 1, 2].map((i) => (
+              <motion.div
+                key={i}
+                className="w-1.5 h-1.5 rounded-full bg-text-tertiary"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+              />
+            ))}
+          </div>
+          <span className="text-text-tertiary text-sm">Thinking...</span>
+          <span className="text-text-tertiary text-xs ml-auto">{config?.name ?? personaId}</span>
         </div>
-      </div>
+      </Card>
     );
   }
 
   // Streaming state
   if (isStreaming && !response) {
     return (
-      <div className={`bg-gray-900 rounded-lg border border-gray-800 border-l-4 ${colorClass} p-4`}>
+      <Card className={`border-t-[3px] ${colorClass} shadow-glow`}>
         <div className="flex items-center justify-between mb-2">
-          <span className="font-medium text-white text-sm">{config?.name ?? personaId}</span>
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700">
-            {config?.model ?? 'haiku'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-text-primary text-sm">{config?.name ?? personaId}</span>
+            <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
+          </div>
         </div>
-        <div className="text-sm text-gray-300 whitespace-pre-wrap">
+        <div className="text-sm text-text-secondary whitespace-pre-wrap">
           {streamingText}
-          <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-0.5 align-text-bottom" />
+          <span className="inline-block w-0.5 h-4 bg-accent animate-pulse ml-0.5 align-text-bottom" />
         </div>
-      </div>
+      </Card>
     );
   }
 
   // Complete state
   if (response) {
     return (
-      <div className={`bg-gray-900 rounded-lg border border-gray-800 border-l-4 ${colorClass} p-4`}>
-        {/* Header */}
+      <Card className={`border-t-[3px] ${colorClass}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-white text-sm">{config?.name ?? personaId}</span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700">
-              {config?.model ?? 'haiku'}
-            </span>
-            {response.dissentFlag && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-400 border border-amber-800">
-                DISSENTS
-              </span>
-            )}
+            <span className="font-medium text-text-primary text-sm">{config?.name ?? personaId}</span>
+            <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
+            {response.dissentFlag && <Badge variant="warning">DISSENTS</Badge>}
           </div>
-          <span className="text-xs text-gray-500">
-            Confidence: {Math.round(response.confidence * 100)}%
-          </span>
         </div>
 
-        {/* Situation Reading */}
-        <CollapsibleSection title="Situation Reading">
+        <CollapsibleSection title="Situation Reading" defaultOpen>
           <p>{response.situationReading}</p>
         </CollapsibleSection>
 
-        {/* Key Assumptions */}
         {response.keyAssumptions.length > 0 && (
           <CollapsibleSection title="Key Assumptions">
-            <ul className="list-disc list-inside space-y-1">
+            <div className="flex flex-wrap gap-1.5">
               {response.keyAssumptions.map((a, i) => (
-                <li key={i}>{a}</li>
+                <Badge key={i} variant="default">{a}</Badge>
               ))}
-            </ul>
+            </div>
           </CollapsibleSection>
         )}
 
-        {/* Analysis (always visible) */}
         <div className="mt-3">
-          <div className="text-xs font-medium text-gray-400 mb-1">Analysis</div>
-          <p className="text-sm text-gray-300 whitespace-pre-wrap">{response.analysis}</p>
+          <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">Analysis</div>
+          <p className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">{response.analysis}</p>
         </div>
 
-        {/* Recommendation */}
-        <div className="mt-3 p-3 bg-gray-800/50 border border-gray-700 rounded">
-          <div className="text-xs font-medium text-gray-400 mb-1">Recommendation</div>
-          <p className="text-sm text-white">{response.recommendation}</p>
+        <div className="mt-3 p-3 bg-accent-muted rounded-md">
+          <div className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">Recommendation</div>
+          <p className="text-sm text-text-primary">{response.recommendation}</p>
         </div>
 
-        {/* Uncertainties */}
         {response.uncertainties.length > 0 && (
           <CollapsibleSection title="Uncertainties">
-            <ul className="list-disc list-inside space-y-1">
+            <ul className="list-disc list-inside space-y-1 text-text-secondary">
               {response.uncertainties.map((u, i) => (
                 <li key={i}>{u}</li>
               ))}
@@ -139,15 +148,13 @@ export function PersonaCard({ personaId, response, streamingText, isStreaming }:
           </CollapsibleSection>
         )}
 
-        {/* Sources */}
-        {response.sourceMemoryIds.length > 0 && (
-          <div className="mt-3">
-            <div className="text-xs text-gray-600">
-              Sources: {response.sourceMemoryIds.join(', ')}
-            </div>
-          </div>
-        )}
-      </div>
+        {/* Confidence */}
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-xs text-text-tertiary">Confidence</span>
+          <Progress value={response.confidence * 100} className="flex-1 h-1.5" />
+          <span className="text-xs text-text-secondary">{Math.round(response.confidence * 100)}%</span>
+        </div>
+      </Card>
     );
   }
 

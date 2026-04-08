@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { useSessionStore } from '../stores/session.store';
 import { ModeSelector } from '../components/decision/ModeSelector';
 import { PersonaCard } from '../components/decision/PersonaCard';
@@ -11,6 +12,9 @@ import { SimulationPanel } from '../components/decision/SimulationPanel';
 import { MODE_CONFIGS, PERSONA_CONFIGS } from '@boardroom/shared';
 import * as api from '../lib/api';
 import type { UserMode, PersonaId, CustomPersona, PersonaResponse, SynthesisReport, SufficiencyScore } from '@boardroom/shared';
+import { PageWrapper, Button, Badge, Card } from '../components/ui';
+import { ErrorBanner } from '../components/shared/ErrorBanner';
+import { slideUp, scaleIn, staggerContainer, staggerItem } from '../lib/motion';
 
 export default function DecisionSessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,53 +26,32 @@ export default function DecisionSessionPage() {
   const [mode, setMode] = useState<UserMode>('decide');
   const [customPersonas, setCustomPersonas] = useState<CustomPersona[]>([]);
 
-  // Load custom personas
   useEffect(() => {
     api.getCustomPersonas()
       .then(personas => setCustomPersonas(personas.filter(p => p.isActive)))
-      .catch(() => { /* Custom personas unavailable, continue without */ });
+      .catch(() => {});
   }, []);
 
   const {
-    currentSession,
-    personaResponses,
-    personaStreaming,
-    streamingPersonas,
-    synthesis,
-    synthesisStreaming,
-    isDispatching,
-    isSynthesizing,
-    sufficiency,
-    simulation,
-    isSimulating,
-    error,
-    createSession,
-    dispatch,
-    synthesize,
-    checkAmbiguity,
-    runSimulation,
-    reset,
+    currentSession, personaResponses, personaStreaming, streamingPersonas,
+    synthesis, synthesisStreaming, isDispatching, isSynthesizing,
+    sufficiency, simulation, isSimulating, error,
+    createSession, dispatch, synthesize, checkAmbiguity, runSimulation, reset,
   } = useSessionStore();
 
-  // Load existing session if navigating to /decisions/:id
   useEffect(() => {
     if (!isNew && id && !currentSession) {
       api.getSession(id).then(session => {
-        // Hydrate the store with existing session data
         useSessionStore.setState({
           currentSession: { id: session.id, question: session.question, mode: session.mode },
           personaResponses: session.personaResponses as Record<string, PersonaResponse>,
           synthesis: session.ceoSynthesis as SynthesisReport | null,
           sufficiency: session.sufficiencyScore as SufficiencyScore | null,
         });
-      }).catch(() => {
-        // Session not found, redirect to new
-        navigate('/decisions/new', { replace: true });
-      });
+      }).catch(() => navigate('/decisions/new', { replace: true }));
     }
   }, [id, isNew, currentSession, navigate]);
 
-  // Determine phase
   const hasPersonas = Object.keys(personaResponses).length > 0 || streamingPersonas.size > 0;
   const allPersonasDone = currentSession
     ? !isDispatching && Object.keys(personaResponses).length > 0 && streamingPersonas.size === 0
@@ -79,7 +62,6 @@ export default function DecisionSessionPage() {
     hasPersonas || isDispatching ? 'personas' :
     'input';
 
-  // Get persona IDs for current mode
   const modeConfig = currentSession ? MODE_CONFIGS[currentSession.mode] : MODE_CONFIGS[mode];
   const personaIds: PersonaId[] = modeConfig.personas;
 
@@ -88,17 +70,12 @@ export default function DecisionSessionPage() {
     try {
       await createSession(question.trim(), mode);
       await dispatch();
-    } catch {
-      // error is set in store
-    }
+    } catch {}
   }
 
   async function handleCheckClarity() {
     if (!question.trim()) return;
-    // Need a session first to check ambiguity
-    if (!currentSession) {
-      await createSession(question.trim(), mode);
-    }
+    if (!currentSession) await createSession(question.trim(), mode);
     await checkAmbiguity();
   }
 
@@ -117,184 +94,158 @@ export default function DecisionSessionPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      {/* Error banner */}
-      {error && (
-        <div className="bg-red-900/30 border border-red-800 rounded-lg p-3 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+    <PageWrapper>
+      <div className="p-6 max-w-4xl mx-auto space-y-6">
+        {/* Error */}
+        {error && (
+          <ErrorBanner message={error} onDismiss={() => useSessionStore.setState({ error: null })} />
+        )}
 
-      {/* Phase 1: Input */}
-      {phase === 'input' && (
-        <>
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1">New Decision</h1>
-            <p className="text-gray-500 text-sm">
-              Describe your question or decision, choose a mode, then analyze.
-            </p>
-          </div>
+        {/* Phase 1: Input */}
+        <AnimatePresence mode="wait">
+          {phase === 'input' && (
+            <motion.div key="input" {...slideUp} className="space-y-6">
+              <div className="max-w-2xl mx-auto space-y-6">
+                <div className="text-center">
+                  <h1 className="text-2xl font-semibold text-text-primary mb-1">New Decision</h1>
+                  <p className="text-text-secondary text-sm">
+                    Describe your question, choose a mode, then analyze.
+                  </p>
+                </div>
 
-          <div>
-            <label htmlFor="question" className="block text-sm font-medium text-gray-300 mb-2">
-              Your Question
-            </label>
-            <textarea
-              id="question"
-              value={question}
-              onChange={e => setQuestion(e.target.value)}
-              rows={4}
-              placeholder="What decision are you facing? Be specific about context, constraints, and what success looks like..."
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-y"
-            />
-          </div>
+                <div>
+                  <textarea
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    rows={4}
+                    placeholder="What decision are you wrestling with?"
+                    className="w-full bg-bg-base border border-line rounded-lg p-4 text-lg text-text-primary placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none resize-y transition-all duration-fast"
+                  />
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Analysis Mode
-            </label>
-            <ModeSelector selectedMode={mode} onSelect={setMode} />
-          </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-3">
+                    Analysis Mode
+                  </label>
+                  <ModeSelector selectedMode={mode} onSelect={setMode} />
+                </div>
 
-          {/* Sufficiency banner */}
-          {sufficiency && (
-            <SufficiencyBanner
-              score={sufficiency}
-              onProceed={handleAnalyze}
-            />
+                {sufficiency && (
+                  <motion.div {...slideUp}>
+                    <SufficiencyBanner score={sufficiency} onProceed={handleAnalyze} />
+                  </motion.div>
+                )}
+
+                <div className="flex items-center gap-3 justify-center">
+                  <Button variant="primary" size="lg" onClick={handleAnalyze} disabled={!question.trim()}>
+                    Analyze
+                  </Button>
+                  <Button variant="ghost" onClick={handleCheckClarity} disabled={!question.trim()}>
+                    Check Clarity
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleAnalyze}
-              disabled={!question.trim()}
-              className="px-6 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
-            >
-              Analyze
-            </button>
-            <button
-              type="button"
-              onClick={handleCheckClarity}
-              disabled={!question.trim()}
-              className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors border border-gray-700"
-            >
-              Check Clarity
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Phase 2: Personas streaming / complete */}
-      {(phase === 'personas' || phase === 'synthesis') && (
-        <>
-          {/* Question header */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-lg font-semibold text-white">
-                {currentSession?.question}
-              </h1>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700 mt-1">
-                {MODE_CONFIGS[currentSession?.mode ?? 'decide'].label}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleNewDecision}
-              className="px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors border border-gray-700 flex-shrink-0"
-            >
-              New Decision
-            </button>
-          </div>
-
-          {/* Synthesis panel (phase 3) */}
-          {(phase === 'synthesis' || isSynthesizing) && (
-            <SynthesisPanel
-              report={synthesis ?? undefined}
-              streamingText={synthesisStreaming}
-              isStreaming={isSynthesizing}
-            />
-          )}
-
-          {/* Action buttons between synthesis and personas */}
-          {phase === 'synthesis' && synthesis && (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleExport}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors border border-gray-700"
-              >
-                Export JSON
-              </button>
-              <button
-                type="button"
-                onClick={handleNewDecision}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors border border-gray-700"
-              >
+        {/* Phase 2 + 3: Personas + Synthesis */}
+        {(phase === 'personas' || phase === 'synthesis') && (
+          <motion.div {...slideUp} className="space-y-6">
+            {/* Question header */}
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-lg font-semibold text-text-primary">
+                  {currentSession?.question}
+                </h1>
+                <Badge variant="accent" className="mt-1">
+                  {MODE_CONFIGS[currentSession?.mode ?? 'decide'].label}
+                </Badge>
+              </div>
+              <Button variant="secondary" size="sm" onClick={handleNewDecision}>
                 New Decision
-              </button>
+              </Button>
             </div>
-          )}
 
-          {/* Simulation — available after synthesis */}
-          {phase === 'synthesis' && synthesis && (
-            <>
-              <SimulationButton
-                defaultPath={synthesis.recommendation}
-                isSimulating={isSimulating}
-                onSimulate={runSimulation}
-              />
-              {simulation && <SimulationPanel result={simulation} />}
-            </>
-          )}
+            {/* Synthesis panel (phase 3) */}
+            <AnimatePresence>
+              {(phase === 'synthesis' || isSynthesizing) && (
+                <motion.div {...slideUp}>
+                  <SynthesisPanel
+                    report={synthesis ?? undefined}
+                    streamingText={synthesisStreaming}
+                    isStreaming={isSynthesizing}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-          {/* Synthesize button */}
-          {phase === 'personas' && allPersonasDone && modeConfig.includesCEO && (
-            <button
-              type="button"
-              onClick={handleSynthesize}
-              disabled={isSynthesizing}
-              className="w-full px-6 py-3 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
-            >
-              {isSynthesizing ? 'Synthesizing...' : 'Synthesize with CEO'}
-            </button>
-          )}
-
-          {/* Persona grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {personaIds.map(pid => (
-              <PersonaCard
-                key={pid}
-                personaId={pid}
-                response={personaResponses[pid]}
-                streamingText={personaStreaming[pid]}
-                isStreaming={streamingPersonas.has(pid)}
-              />
-            ))}
-            {/* Custom persona cards */}
-            {customPersonas.map(cp => (
-              <div key={cp.personaId} className="relative">
-                <span className="absolute top-2 right-2 z-10 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-900/50 text-purple-400 border border-purple-800">
-                  Custom
-                </span>
-                <PersonaCard
-                  personaId={cp.personaId as PersonaId}
-                  response={personaResponses[cp.personaId]}
-                  streamingText={personaStreaming[cp.personaId]}
-                  isStreaming={streamingPersonas.has(cp.personaId)}
+            {/* Action bar */}
+            {phase === 'synthesis' && synthesis && (
+              <div className="sticky bottom-0 z-10 bg-bg-surface/80 backdrop-blur border-t border-line -mx-6 px-6 py-3 flex items-center gap-3">
+                <Button variant="ghost" onClick={handleExport}>Export</Button>
+                <Button variant="secondary" onClick={handleNewDecision}>New Decision</Button>
+                <SimulationButton
+                  defaultPath={synthesis.recommendation}
+                  isSimulating={isSimulating}
+                  onSimulate={runSimulation}
                 />
               </div>
-            ))}
-          </div>
+            )}
 
-          {/* Dispatching indicator */}
-          {isDispatching && (
-            <div className="text-center text-sm text-gray-500">
-              Dispatching personas...
-            </div>
-          )}
-        </>
-      )}
-    </div>
+            {simulation && <SimulationPanel result={simulation} />}
+
+            {/* Synthesize button */}
+            {phase === 'personas' && allPersonasDone && modeConfig.includesCEO && (
+              <motion.div {...scaleIn} className="text-center">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleSynthesize}
+                  disabled={isSynthesizing}
+                  className="w-full max-w-md"
+                >
+                  {isSynthesizing ? 'Synthesizing...' : '\u2728 Synthesize with CEO'}
+                </Button>
+              </motion.div>
+            )}
+
+            {/* Persona grid */}
+            <motion.div
+              {...staggerContainer}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+            >
+              {personaIds.map((pid) => (
+                <motion.div key={pid} {...staggerItem}>
+                  <PersonaCard
+                    personaId={pid}
+                    response={personaResponses[pid]}
+                    streamingText={personaStreaming[pid]}
+                    isStreaming={streamingPersonas.has(pid)}
+                  />
+                </motion.div>
+              ))}
+              {customPersonas.map((cp) => (
+                <motion.div key={cp.personaId} {...staggerItem} className="relative">
+                  <Badge variant="accent" className="absolute top-2 right-2 z-10">Custom</Badge>
+                  <PersonaCard
+                    personaId={cp.personaId as PersonaId}
+                    response={personaResponses[cp.personaId]}
+                    streamingText={personaStreaming[cp.personaId]}
+                    isStreaming={streamingPersonas.has(cp.personaId)}
+                  />
+                </motion.div>
+              ))}
+            </motion.div>
+
+            {isDispatching && (
+              <div className="text-center text-sm text-text-tertiary">
+                Dispatching personas...
+              </div>
+            )}
+          </motion.div>
+        )}
+      </div>
+    </PageWrapper>
   );
 }
