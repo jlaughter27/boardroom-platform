@@ -66,7 +66,7 @@ export const WeeklyMemoSchema = z.object({
   patternsNoticed: z.array(z.string()).describe('Thinking patterns noticed this week'),
   activeContradictions: z.array(z.string()).describe('Active contradiction descriptions'),
   upcomingPressurePoints: z.array(z.string()).describe('Upcoming deadlines and pressure points'),
-  thinkingQualityScore: z.number().min(0).max(100).describe('Overall thinking quality score 0-100'),
+  thinkingQualityScore: z.number().min(0).max(10).describe('Overall thinking quality score 0-10'),
   scoreChange: z.number().describe('Change in thinking quality score from last week'),
   recommendedFocus: z.array(z.string()).describe('Recommended focus areas for next week'),
   fullMemoText: z.string().describe('Full rendered memo text'),

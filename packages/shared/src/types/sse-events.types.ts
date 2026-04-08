@@ -30,6 +30,7 @@ export interface SSESynthesisStart {
 
 export interface SSEDelta {
   type: 'delta';
+  personaId?: string;
   text: string;
 }
 
