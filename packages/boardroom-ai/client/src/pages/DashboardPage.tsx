@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { DashboardConfigurator } from '../components/dashboard/DashboardConfigurator';
@@ -10,7 +10,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { useCognitiveLoad } from '../hooks/useCognitiveLoad';
 import { PageWrapper, Skeleton, Button, Card, EmptyState } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
-import { staggerContainer, staggerItem } from '../lib/motion';
+import { fadeIn, staggerContainer, staggerItem } from '../lib/motion';
 import { useNavigate } from 'react-router-dom';
 import { AINudge } from '../components/shared/AINudge';
 
@@ -78,21 +78,17 @@ export default function DashboardPage() {
     ? warnings[0].message
     : 'All systems nominal';
 
-  if (isLoading) {
-    return (
-      <PageWrapper>
-        <div className="p-6 max-w-5xl mx-auto">
-          <DashboardSkeleton />
-        </div>
-      </PageWrapper>
-    );
-  }
-
   const hasWidgetData = visibleWidgets.length > 0;
 
   return (
     <PageWrapper>
-      <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <AnimatePresence mode="wait">
+        {isLoading ? (
+          <motion.div key="skeleton" {...fadeIn} className="p-6 max-w-5xl mx-auto">
+            <DashboardSkeleton />
+          </motion.div>
+        ) : (
+      <motion.div key="content" {...fadeIn} className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -185,7 +181,9 @@ export default function DashboardPage() {
             onClose={closeConfigurator}
           />
         )}
-      </div>
+      </motion.div>
+        )}
+      </AnimatePresence>
     </PageWrapper>
   );
 }

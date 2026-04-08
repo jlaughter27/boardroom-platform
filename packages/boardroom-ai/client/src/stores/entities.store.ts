@@ -9,6 +9,7 @@ import type {
   Decision,
   Commitment,
 } from '@boardroom/shared';
+import { useToastStore } from '../components/ui/Toast';
 
 interface EntitiesState {
   goals: Goal[];
@@ -131,104 +132,140 @@ export const useEntitiesStore = create<EntitiesState>((set, get) => ({
 
   // Goal mutations
   createGoal: async (input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.createGoal(input);
       await get().fetchGoals();
+      toast('Goal created', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   updateGoal: async (id, input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updateGoal(id, input);
       await get().fetchGoals();
+      toast('Goal updated', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   deleteGoal: async (id) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.deleteGoal(id);
       await get().fetchGoals();
+      toast('Goal deleted', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
 
   // Project mutations
   createProject: async (input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.createProject(input);
       await get().fetchProjects();
+      toast('Project created', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   updateProject: async (id, input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updateProject(id, input);
       await get().fetchProjects();
+      toast('Project updated', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   deleteProject: async (id) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.deleteProject(id);
       await get().fetchProjects();
+      toast('Project deleted', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
 
   // Task mutations
   createTask: async (input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.createTask(input);
       await get().fetchTasks();
+      toast('Task created', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   updateTask: async (id, input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updateTask(id, input);
       await get().fetchTasks();
+      toast('Task updated', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   deleteTask: async (id) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.deleteTask(id);
       await get().fetchTasks();
+      toast('Task deleted', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
 
   // Person mutations
   createPerson: async (input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.createPerson(input);
       await get().fetchPeople();
+      toast('Person added', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   updatePerson: async (id, input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updatePerson(id, input);
       await get().fetchPeople();
+      toast('Person updated', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
   deletePerson: async (id) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.deletePerson(id);
       await get().fetchPeople();
+      toast('Person removed', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },

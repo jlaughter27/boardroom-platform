@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Memory } from '@boardroom/shared';
 import * as api from '../lib/api';
+import { useToastStore } from '../components/ui/Toast';
 
 const PAGE_SIZE = 20;
 
@@ -96,6 +97,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   clearSelection: () => set({ selectedMemory: null }),
 
   updateMemory: async (id, input) => {
+    const toast = useToastStore.getState().addToast;
     try {
       const updated = await api.updateMemory(id, input);
       set((state) => ({
@@ -103,13 +105,16 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         selectedMemory:
           state.selectedMemory?.id === id ? updated : state.selectedMemory,
       }));
+      toast('Memory updated', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
       throw err;
     }
   },
 
   archiveMemory: async (id) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.archiveMemory(id);
       set((state) => ({
@@ -118,7 +123,9 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           state.selectedMemory?.id === id ? null : state.selectedMemory,
         total: state.total - 1,
       }));
+      toast('Memory archived', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
       throw err;
     }

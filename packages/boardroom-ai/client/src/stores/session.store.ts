@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as api from '../lib/api';
 import type { PersonaResponse, SynthesisReport, SimulationResult } from '@boardroom/shared';
 import type { SufficiencyScore, UserMode, BoardRoomSSEEvent } from '@boardroom/shared';
+import { useToastStore } from '../components/ui/Toast';
 
 interface SessionState {
   currentSession: { id: string; question: string; mode: UserMode } | null;
@@ -115,6 +116,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Dispatch failed';
+      useToastStore.getState().addToast(message, 'error');
       set({ error: message, isDispatching: false });
     }
   },
@@ -141,6 +143,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Synthesis failed';
+      useToastStore.getState().addToast(message, 'error');
       set({ error: message, isSynthesizing: false });
     }
   },
@@ -165,8 +168,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         currentSession.question,
       );
       set({ simulation: result, isSimulating: false });
+      useToastStore.getState().addToast('Simulation complete \u2014 view results', 'success');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Simulation failed';
+      useToastStore.getState().addToast(message, 'error');
       set({ error: message, isSimulating: false });
     }
   },

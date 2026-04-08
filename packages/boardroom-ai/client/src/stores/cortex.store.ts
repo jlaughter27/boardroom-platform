@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { WeeklyMemo, ThinkingPattern, ContradictionAlert } from '@boardroom/shared';
 import * as api from '../lib/api';
+import { useToastStore } from '../components/ui/Toast';
 
 interface CortexState {
   latestMemo: WeeklyMemo | null;
@@ -67,14 +68,18 @@ export const useCortexStore = create<CortexState>((set) => ({
   },
 
   generateMemo: async () => {
+    const toast = useToastStore.getState().addToast;
     set({ isGeneratingMemo: true, error: null });
     try {
       const result = await api.generateMemo();
-      // If it's a memo (has id), set it; otherwise it's a "not enough data" message
       if (result && 'id' in result) {
         set({ latestMemo: result as WeeklyMemo });
+        toast('Weekly memo generated', 'success');
+      } else {
+        toast('Not enough data for memo yet', 'info');
       }
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     } finally {
       set({ isGeneratingMemo: false });
@@ -82,13 +87,15 @@ export const useCortexStore = create<CortexState>((set) => ({
   },
 
   triggerPatternScan: async () => {
+    const toast = useToastStore.getState().addToast;
     set({ isLoadingPatterns: true, error: null });
     try {
       await api.triggerPatternScan();
-      // Refresh patterns list after scan
       const updated = await api.getPatterns();
       set({ patterns: updated.items, patternsTotal: updated.total });
+      toast('Pattern scan complete', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     } finally {
       set({ isLoadingPatterns: false });
@@ -108,13 +115,15 @@ export const useCortexStore = create<CortexState>((set) => ({
   },
 
   scanContradictions: async () => {
+    const toast = useToastStore.getState().addToast;
     set({ isScanningContradictions: true, error: null });
     try {
       await api.scanContradictions();
-      // Refresh after scan
       const result = await api.getContradictions('ACTIVE');
       set({ contradictions: result.items, contradictionsTotal: result.total });
+      toast('Contradiction scan complete', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     } finally {
       set({ isScanningContradictions: false });
@@ -122,31 +131,40 @@ export const useCortexStore = create<CortexState>((set) => ({
   },
 
   resolveContradiction: async (id: string, resolution: string) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updateContradiction(id, 'RESOLVED', resolution);
       const result = await api.getContradictions('ACTIVE');
       set({ contradictions: result.items, contradictionsTotal: result.total });
+      toast('Contradiction resolved', 'success');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
 
   dismissContradiction: async (id: string) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updateContradiction(id, 'DISMISSED');
       const result = await api.getContradictions('ACTIVE');
       set({ contradictions: result.items, contradictionsTotal: result.total });
+      toast('Contradiction dismissed', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
 
   acceptTension: async (id: string) => {
+    const toast = useToastStore.getState().addToast;
     try {
       await api.updateContradiction(id, 'ACCEPTED_TENSION');
       const result = await api.getContradictions('ACTIVE');
       set({ contradictions: result.items, contradictionsTotal: result.total });
+      toast('Tension accepted', 'info');
     } catch (err) {
+      toast((err as Error).message, 'error');
       set({ error: (err as Error).message });
     }
   },
