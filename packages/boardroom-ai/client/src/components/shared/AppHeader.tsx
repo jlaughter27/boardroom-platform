@@ -1,9 +1,9 @@
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
+import { useSessionStore } from '../../stores/session.store';
 import { useCommandPaletteStore } from '../ui/CommandPalette';
 import { Avatar } from '../ui/Avatar';
 import { NotificationCenter } from './NotificationCenter';
-import { cn } from '../../lib/cn';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -20,38 +20,45 @@ function getPageTitle(pathname: string): string {
   return pageTitles[pathname] || 'BoardRoom AI';
 }
 
-function getBreadcrumbs(pathname: string): { label: string; path?: string }[] {
-  if (pathname.startsWith('/decisions/')) {
-    return [
-      { label: 'Decision Lab', path: '/decisions' },
-      { label: 'Session' },
-    ];
-  }
-  return [];
-}
 
 export function AppHeader() {
   const location = useLocation();
   const title = getPageTitle(location.pathname);
-  const breadcrumbs = getBreadcrumbs(location.pathname);
+  const currentSession = useSessionStore((s) => s.currentSession);
   const { user } = useAuthStore();
   const { toggle } = useCommandPaletteStore();
+
+  // Build breadcrumbs with dynamic session question
+  const breadcrumbs = (() => {
+    if (location.pathname.startsWith('/decisions/')) {
+      const sessionLabel = currentSession?.question
+        ? currentSession.question.length > 40
+          ? currentSession.question.slice(0, 40) + '\u2026'
+          : currentSession.question
+        : 'Session';
+      return [
+        { label: 'Decision Lab', path: '/decisions' },
+        { label: sessionLabel },
+      ];
+    }
+    return [] as { label: string; path?: string }[];
+  })();
 
   return (
     <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-6 border-b border-line-subtle bg-bg-base/80 backdrop-blur-md">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold text-text-primary">{title}</h1>
         {breadcrumbs.length > 0 && (
-          <div className="flex items-center gap-1.5 text-sm text-text-tertiary">
+          <div className="flex items-center gap-1.5 text-sm">
             {breadcrumbs.map((crumb, i) => (
               <span key={i} className="flex items-center gap-1.5">
-                <span className="text-text-tertiary">/</span>
+                <span className="text-text-tertiary">{'\u203A'}</span>
                 {crumb.path ? (
-                  <a href={crumb.path} className="hover:text-text-secondary transition-colors">
+                  <Link to={crumb.path} className="text-text-secondary hover:text-accent transition-colors">
                     {crumb.label}
-                  </a>
+                  </Link>
                 ) : (
-                  <span className="text-text-secondary">{crumb.label}</span>
+                  <span className="text-text-primary">{crumb.label}</span>
                 )}
               </span>
             ))}

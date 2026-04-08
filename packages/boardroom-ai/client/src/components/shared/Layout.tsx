@@ -4,11 +4,15 @@ import { pageTransition } from '../../lib/motion';
 import { Sidebar } from './Sidebar';
 import { AppHeader } from './AppHeader';
 import { TrialBanner } from './TrialBanner';
+import { ShortcutsModal } from './ShortcutsModal';
 import { useNotificationAggregator } from '../../hooks/useNotificationAggregator';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 
 export function Layout() {
   const location = useLocation();
   useNotificationAggregator();
+  const shortcuts = useKeyboardShortcuts();
+
   return (
     <div className="flex h-screen bg-bg-base font-sans text-text-primary">
       <Sidebar />
@@ -23,6 +27,7 @@ export function Layout() {
           </AnimatePresence>
         </main>
       </div>
+      <ShortcutsModal shortcuts={shortcuts} />
     </div>
   );
 }
