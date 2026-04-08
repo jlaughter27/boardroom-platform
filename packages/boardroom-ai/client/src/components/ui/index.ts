@@ -10,3 +10,4 @@ export { Tabs } from './Tabs';
 export { Select } from './Select';
 export { Toaster, useToastStore } from './Toast';
 export { PageWrapper } from './PageWrapper';
+export { EmptyState } from './EmptyState';
