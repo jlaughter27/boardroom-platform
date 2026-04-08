@@ -15,6 +15,11 @@ COPY packages/omnimind-api/ packages/omnimind-api/
 # Generate Prisma client BEFORE TypeScript build (needs the generated types)
 RUN cd packages/omnimind-api && pnpm exec prisma generate
 
+# pnpm stores .prisma inside .pnpm virtual store — copy to root node_modules
+# so the runner stage COPY can find it at /app/node_modules/.prisma
+RUN cp -rL /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma /app/node_modules/ 2>/dev/null || \
+    (echo "Finding .prisma..." && find /app/node_modules -path '*/.prisma/client/index.js' -exec dirname {} \; | head -1 | xargs -I{} cp -rL {}/../../.prisma /app/node_modules/)
+
 # Build shared package explicitly first — pnpm workspace symlinks in Docker
 # can prevent TypeScript from finding .d.ts files through node_modules resolution
 # Remove stale .tsbuildinfo to prevent composite/incremental skipping emit

@@ -36,9 +36,11 @@ RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 WORKDIR /app
 COPY --from=builder /app/packages/boardroom-ai/dist ./dist
 COPY --from=builder /app/packages/boardroom-ai/client/dist ./client/dist
+# Copy node_modules FIRST, then overlay shared dist on top
+# (reverse order causes "cannot replace directory with file" error)
+COPY --from=builder /app/packages/boardroom-ai/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./node_modules/@boardroom/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/shared/package.json
-COPY --from=builder /app/packages/boardroom-ai/node_modules ./node_modules
 COPY --from=builder /app/docs/prompts/ ./docs/prompts/
 
 ENV NODE_ENV=production
