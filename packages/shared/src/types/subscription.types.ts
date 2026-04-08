@@ -9,6 +9,17 @@ export enum SubscriptionStatus {
   EXPIRED = 'EXPIRED',
 }
 
+// Client-facing subscription data (serialized dates as strings)
+export interface SubscriptionData {
+  id: string;
+  status: SubscriptionStatus;
+  plan: string;
+  priceMonthly: number;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string;
+  canceledAt: string | null;
+}
+
 export interface Subscription {
   id: string;
   userId: string;

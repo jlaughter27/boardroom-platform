@@ -1,15 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getSubscription, createCheckout, cancelSubscription } from '../../lib/api';
-
-interface SubscriptionData {
-  id: string;
-  status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
-  plan: string;
-  priceMonthly: number;
-  trialEndsAt: string | null;
-  currentPeriodEnd: string;
-  canceledAt: string | null;
-}
+import type { SubscriptionData } from '@boardroom/shared';
 
 export function SubscriptionSettings() {
   const [sub, setSub] = useState<SubscriptionData | null | undefined>(undefined);

@@ -2,16 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as api from '../lib/api';
 import { StatusBadge } from '../components/dashboard/StatusBadge';
-import type { UserMode } from '@boardroom/shared';
-
-interface SessionSummary {
-  id: string;
-  question: string;
-  mode: UserMode;
-  personaCount: number;
-  hasSynthesis: boolean;
-  createdAt: string;
-}
+import type { UserMode, SessionSummary } from '@boardroom/shared';
 
 const MODE_LABELS: Record<UserMode, string> = {
   'decide': 'Decide',

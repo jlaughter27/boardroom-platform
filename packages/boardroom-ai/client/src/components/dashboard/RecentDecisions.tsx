@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as api from '../../lib/api';
-
-interface SessionSummary {
-  id: string;
-  question: string;
-  mode: string;
-  personaCount: number;
-  hasSynthesis: boolean;
-  createdAt: string;
-}
+import type { SessionSummary } from '@boardroom/shared';
 
 export function RecentDecisions() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);

@@ -1,11 +1,7 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
 
-interface AuthUser {
-  userId: string;
-  email: string;
-  name: string;
-}
+import type { AuthUser } from '@boardroom/shared';
 
 interface AuthState {
   user: AuthUser | null;

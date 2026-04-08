@@ -67,6 +67,25 @@ export interface SufficiencyScore {
   canProceed: boolean;
 }
 
+// --- Auth ---
+
+export interface AuthUser {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+// --- Session summaries ---
+
+export interface SessionSummary {
+  id: string;
+  question: string;
+  mode: import('./modes.types').UserMode;
+  personaCount: number;
+  hasSynthesis: boolean;
+  createdAt: string;
+}
+
 // --- Common ---
 
 export interface ValidationError {

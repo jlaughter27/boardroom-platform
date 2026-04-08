@@ -17,8 +17,11 @@ import type {
   EmailExtraction,
   EmailMemoryProposal,
   CreateMemoryResponse,
+  UserMode,
+  AuthUser,
+  SessionSummary,
+  SubscriptionData,
 } from '@boardroom/shared';
-import type { UserMode } from '@boardroom/shared';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -119,12 +122,6 @@ export async function* streamSSE(
 // Auth
 // ---------------------------------------------------------------------------
 
-interface AuthUser {
-  userId: string;
-  email: string;
-  name: string;
-}
-
 interface LoginResponse {
   userId: string;
   name: string;
@@ -177,15 +174,6 @@ interface SessionDetail {
   personaResponses: Record<string, unknown>;
   ceoSynthesis: unknown | null;
   sufficiencyScore: unknown | null;
-  createdAt: string;
-}
-
-interface SessionSummary {
-  id: string;
-  question: string;
-  mode: UserMode;
-  personaCount: number;
-  hasSynthesis: boolean;
   createdAt: string;
 }
 
@@ -623,7 +611,7 @@ export function confirmGmailExtraction(proposals: EmailMemoryProposal[]) {
 // ---------------------------------------------------------------------------
 
 export function getSubscription() {
-  return request<Record<string, unknown> | null>('/subscription');
+  return request<SubscriptionData | null>('/subscription');
 }
 
 export function createCheckout() {

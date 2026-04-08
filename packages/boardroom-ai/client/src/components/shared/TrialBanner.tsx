@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getSubscription } from '../../lib/api';
-
-interface SubscriptionData {
-  status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
-  trialEndsAt: string | null;
-}
+import type { SubscriptionData } from '@boardroom/shared';
 
 export function TrialBanner() {
   const [sub, setSub] = useState<SubscriptionData | null>(null);
