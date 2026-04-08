@@ -1,4 +1,6 @@
 import type { OnboardingData } from '../../../hooks/useOnboarding';
+import { Button, Card, Avatar, Input } from '../../ui';
+import { Select } from '../../ui/Select';
 
 const RELATIONSHIP_OPTIONS = [
   { value: 'direct_report', label: 'Direct Report' },
@@ -36,62 +38,49 @@ export function PeopleStep({ data, onUpdate }: Props) {
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-gray-400">
+      <p className="text-sm text-text-secondary">
         Add 3-5 key people you work with regularly. BoardRoom will remember them and factor them into advice.
       </p>
 
       <div className="space-y-3">
         {data.people.map((person, i) => (
-          <div key={i} className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-xs text-gray-500 mt-1.5">Person {i + 1}</span>
+          <Card key={i} className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Avatar name={person.name || `Person ${i + 1}`} size="sm" />
+                <span className="text-xs text-text-tertiary">Person {i + 1}</span>
+              </div>
               {data.people.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removePerson(i)}
-                  className="text-gray-500 hover:text-red-400 text-sm px-2 py-1"
-                >
+                <Button variant="ghost" size="sm" onClick={() => removePerson(i)}>
                   Remove
-                </button>
+                </Button>
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <input
-                type="text"
+              <Input
                 value={person.name}
-                onChange={e => updatePerson(i, 'name', e.target.value)}
+                onChange={(e) => updatePerson(i, 'name', e.target.value)}
                 placeholder="Name"
-                className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
               />
-              <input
-                type="text"
+              <Input
                 value={person.role}
-                onChange={e => updatePerson(i, 'role', e.target.value)}
+                onChange={(e) => updatePerson(i, 'role', e.target.value)}
                 placeholder="Their role"
-                className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
               />
-              <select
+              <Select
+                options={RELATIONSHIP_OPTIONS}
                 value={person.relationship}
-                onChange={e => updatePerson(i, 'relationship', e.target.value)}
-                className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
-              >
-                <option value="">Relationship</option>
-                {RELATIONSHIP_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+                onChange={(v) => updatePerson(i, 'relationship', v)}
+                placeholder="Relationship"
+              />
             </div>
-          </div>
+          </Card>
         ))}
       </div>
 
-      <button
-        type="button"
-        onClick={addPerson}
-        className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-      >
+      <Button variant="ghost" size="sm" onClick={addPerson}>
         + Add another person
-      </button>
+      </Button>
     </div>
   );
 }

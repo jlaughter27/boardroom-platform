@@ -1,4 +1,6 @@
 import type { OnboardingData } from '../../../hooks/useOnboarding';
+import { Input } from '../../ui';
+import { Select } from '../../ui/Select';
 
 const INDUSTRIES = [
   { value: 'tech', label: 'Technology' },
@@ -27,52 +29,40 @@ interface Props {
 export function AboutYouStep({ data, onUpdate }: Props) {
   return (
     <div className="space-y-5">
-      {/* Role */}
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">
-          What's your role?
+      <Input
+        label="What's your role?"
+        type="text"
+        value={data.role}
+        onChange={(e) => onUpdate({ role: e.target.value })}
+        placeholder="e.g. CEO, VP of Engineering, Product Manager"
+      />
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium text-text-secondary">
+          What industry are you in?
         </label>
-        <input
-          type="text"
-          value={data.role}
-          onChange={e => onUpdate({ role: e.target.value })}
-          placeholder="e.g. CEO, VP of Engineering, Product Manager"
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm"
+        <Select
+          options={INDUSTRIES}
+          value={data.industry}
+          onChange={(v) => onUpdate({ industry: v })}
+          placeholder="Select your industry"
         />
       </div>
 
-      {/* Industry */}
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">
-          What industry are you in?
-        </label>
-        <select
-          value={data.industry}
-          onChange={e => onUpdate({ industry: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm"
-        >
-          <option value="">Select your industry</option>
-          {INDUSTRIES.map(ind => (
-            <option key={ind.value} value={ind.value}>{ind.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Decision frequency */}
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">
+        <label className="block text-sm font-medium text-text-secondary mb-2">
           How often do you make important decisions?
         </label>
         <div className="grid grid-cols-2 gap-2">
-          {FREQUENCIES.map(freq => (
+          {FREQUENCIES.map((freq) => (
             <button
               key={freq.value}
               type="button"
               onClick={() => onUpdate({ decisionFrequency: freq.value })}
-              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-all duration-fast ${
                 data.decisionFrequency === freq.value
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                  : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                  ? 'border-accent bg-accent-muted text-accent'
+                  : 'border-line bg-bg-base text-text-secondary hover:border-line-strong'
               }`}
             >
               {freq.label}
