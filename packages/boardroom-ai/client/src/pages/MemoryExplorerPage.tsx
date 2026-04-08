@@ -17,7 +17,7 @@ export default function MemoryExplorerPage() {
 
   return (
     <div className="p-6 h-full flex flex-col min-h-0">
-      <h1 className="text-3xl font-bold text-white mb-4">Memory Explorer</h1>
+      <h1 className="text-2xl font-bold text-white mb-4">Memory Explorer</h1>
 
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
 
