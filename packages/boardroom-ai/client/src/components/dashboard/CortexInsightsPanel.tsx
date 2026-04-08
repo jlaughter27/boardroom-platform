@@ -2,43 +2,34 @@ import { useEffect } from 'react';
 import { useCortexStore } from '../../stores/cortex.store';
 import type { ThinkingPattern } from '@boardroom/shared';
 import { ContradictionCard } from './ContradictionCard';
+import { Card, Badge, Button, Progress, Skeleton } from '../ui';
 
-const TYPE_BADGE: Record<string, { label: string; color: string }> = {
-  BIAS: { label: 'Bias', color: 'bg-red-900/60 text-red-300' },
-  STRENGTH: { label: 'Strength', color: 'bg-emerald-900/60 text-emerald-300' },
-  BEHAVIORAL_CYCLE: { label: 'Cycle', color: 'bg-blue-900/60 text-blue-300' },
-  DECISION_STYLE: { label: 'Style', color: 'bg-purple-900/60 text-purple-300' },
+const TYPE_BADGE: Record<string, { label: string; variant: 'danger' | 'success' | 'info' | 'accent' | 'default' }> = {
+  BIAS: { label: 'Bias', variant: 'danger' },
+  STRENGTH: { label: 'Strength', variant: 'success' },
+  BEHAVIORAL_CYCLE: { label: 'Cycle', variant: 'info' },
+  DECISION_STYLE: { label: 'Style', variant: 'accent' },
 };
 
 function TrendArrow({ trend }: { trend: string | null }) {
-  if (trend === 'improving') {
-    return <span className="text-emerald-400 text-xs">{'\u2191'}</span>;
-  }
-  if (trend === 'worsening') {
-    return <span className="text-red-400 text-xs">{'\u2193'}</span>;
-  }
-  return <span className="text-gray-500 text-xs">{'\u2192'}</span>;
+  if (trend === 'improving') return <span className="text-success text-xs">{'\u2191'}</span>;
+  if (trend === 'worsening') return <span className="text-danger text-xs">{'\u2193'}</span>;
+  return <span className="text-text-tertiary text-xs">{'\u2192'}</span>;
 }
 
 function PatternRow({ pattern }: { pattern: ThinkingPattern }) {
-  const badge = TYPE_BADGE[pattern.patternType] ?? {
-    label: pattern.patternType,
-    color: 'bg-gray-700 text-gray-300',
-  };
+  const badge = TYPE_BADGE[pattern.patternType] ?? { label: pattern.patternType, variant: 'default' as const };
 
   return (
-    <div className="flex items-start gap-2 py-2 border-b border-gray-800 last:border-0">
+    <div className="flex items-start gap-2 py-2 border-b border-line last:border-0">
       <TrendArrow trend={pattern.trend} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-200 truncate">{pattern.pattern}</p>
+        <p className="text-sm text-text-primary truncate">{pattern.pattern}</p>
         <div className="flex items-center gap-2 mt-1">
-          <span
-            className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.color}`}
-          >
-            {badge.label}
-          </span>
-          <span className="text-[10px] text-gray-500">
-            {(pattern.confidence * 100).toFixed(0)}% confidence
+          <Badge variant={badge.variant}>{badge.label}</Badge>
+          <Progress value={pattern.confidence * 100} className="flex-1 h-1.5" />
+          <span className="text-xs text-text-tertiary">
+            {(pattern.confidence * 100).toFixed(0)}%
           </span>
         </div>
       </div>
@@ -60,62 +51,55 @@ export function CortexInsightsPanel() {
   }, []);
 
   return (
-    <div className="bg-gray-900 rounded-lg p-4">
-      <h3 className="text-sm font-semibold text-white mb-3">Cortex Insights</h3>
+    <Card className="p-4">
+      <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-3">
+        Cortex Insights
+      </h3>
 
       {isLoadingPatterns ? (
-        <div className="space-y-3 animate-pulse">
-          <div className="h-4 bg-gray-800 rounded w-full" />
-          <div className="h-4 bg-gray-800 rounded w-3/4" />
-          <div className="h-4 bg-gray-800 rounded w-5/6" />
+        <div className="space-y-3">
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10 w-5/6" />
         </div>
       ) : patterns.length === 0 ? (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-text-tertiary">
           No patterns detected yet. Keep using BoardRoom to build your thinking profile.
         </p>
       ) : (
-        <>
-          <div className="mb-3">
-            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
-              Thinking Patterns
-            </h4>
-            {patterns.slice(0, 3).map((p) => (
-              <PatternRow key={p.id} pattern={p} />
-            ))}
-          </div>
-        </>
+        <div className="mb-3">
+          {patterns.slice(0, 3).map((p) => (
+            <PatternRow key={p.id} pattern={p} />
+          ))}
+        </div>
       )}
 
-      {/* Active Contradictions */}
-      <div className="mt-3 pt-3 border-t border-gray-800">
+      <div className="mt-3 pt-3 border-t border-line">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            <h4 className="text-xs font-medium text-text-tertiary uppercase tracking-wide">
               Active Contradictions
             </h4>
             {contradictionsTotal > 0 && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300">
-                {contradictionsTotal}
-              </span>
+              <Badge variant="warning">{contradictionsTotal}</Badge>
             )}
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => scanContradictions()}
             disabled={isScanningContradictions}
-            className="text-[10px] px-2 py-1 rounded bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700 disabled:opacity-50"
           >
             {isScanningContradictions ? 'Scanning...' : 'Scan Now'}
-          </button>
+          </Button>
         </div>
 
         {isLoadingContradictions ? (
-          <div className="space-y-2 animate-pulse">
-            <div className="h-10 bg-gray-800 rounded" />
-          </div>
+          <Skeleton className="h-10" />
         ) : contradictions.length === 0 ? (
-          <p className="text-xs text-gray-500">No active contradictions detected.</p>
+          <p className="text-xs text-text-tertiary">No active contradictions detected.</p>
         ) : (
-          contradictions.slice(0, 3).map(c => (
+          contradictions.slice(0, 3).map((c) => (
             <ContradictionCard
               key={c.id}
               contradiction={c}
@@ -126,6 +110,6 @@ export function CortexInsightsPanel() {
           ))
         )}
       </div>
-    </div>
+    </Card>
   );
 }

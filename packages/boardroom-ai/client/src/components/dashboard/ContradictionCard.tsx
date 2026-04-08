@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ContradictionAlert } from '@boardroom/shared';
+import { Card, Badge, Button } from '../ui';
 
 interface ContradictionCardProps {
   contradiction: ContradictionAlert;
@@ -8,19 +9,21 @@ interface ContradictionCardProps {
   onAcceptTension: (id: string) => void;
 }
 
-const SEVERITY_STYLES: Record<string, string> = {
-  high: 'bg-red-900/60 text-red-300',
-  medium: 'bg-amber-900/60 text-amber-300',
-  low: 'bg-gray-700 text-gray-300',
+const SEVERITY_VARIANT: Record<string, 'danger' | 'warning' | 'default'> = {
+  high: 'danger',
+  medium: 'warning',
+  low: 'default',
 };
 
 export function ContradictionCard({ contradiction, onResolve, onDismiss, onAcceptTension }: ContradictionCardProps) {
   const [showResolve, setShowResolve] = useState(false);
   const [resolution, setResolution] = useState('');
 
-  const severityStyle = SEVERITY_STYLES[contradiction.severity] ?? SEVERITY_STYLES.low;
+  const variant = SEVERITY_VARIANT[contradiction.severity] ?? 'default';
   const entityA = contradiction.entityA as { type: string; id: string; title: string };
   const entityB = contradiction.entityB as { type: string; id: string; title: string };
+
+  const bgClass = variant === 'danger' ? 'bg-danger-muted' : variant === 'warning' ? 'bg-warning-muted' : '';
 
   const handleResolve = () => {
     if (resolution.trim()) {
@@ -31,64 +34,37 @@ export function ContradictionCard({ contradiction, onResolve, onDismiss, onAccep
   };
 
   return (
-    <div className="py-3 border-b border-gray-800 last:border-0">
+    <div className={`py-3 border-b border-line last:border-0 ${bgClass} rounded-md px-2 my-1`}>
       <div className="flex items-start gap-2 mb-2">
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${severityStyle}`}>
-          {contradiction.severity}
-        </span>
-        <p className="text-sm text-gray-200">{contradiction.description}</p>
+        <Badge variant={variant}>{contradiction.severity}</Badge>
+        <p className="text-sm text-text-primary">{contradiction.description}</p>
       </div>
 
-      <div className="flex items-center gap-1 text-[11px] text-gray-500 mb-2 ml-1">
-        <span className="text-gray-400">{entityA.title}</span>
+      <div className="flex items-center gap-1 text-xs text-text-tertiary mb-2 ml-1">
+        <span className="font-medium text-text-secondary">{entityA.title}</span>
         <span>vs</span>
-        <span className="text-gray-400">{entityB.title}</span>
+        <span className="font-medium text-text-secondary">{entityB.title}</span>
       </div>
 
       {showResolve ? (
         <div className="ml-1 space-y-2">
           <textarea
             value={resolution}
-            onChange={e => setResolution(e.target.value)}
+            onChange={(e) => setResolution(e.target.value)}
             placeholder="How was this resolved?"
-            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 placeholder-gray-500 resize-none"
+            className="w-full bg-bg-base border border-line rounded-md px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary resize-none outline-none focus:border-accent"
             rows={2}
           />
           <div className="flex gap-2">
-            <button
-              onClick={handleResolve}
-              className="text-[11px] px-2 py-1 rounded bg-emerald-900/60 text-emerald-300 hover:bg-emerald-900/80"
-            >
-              Submit
-            </button>
-            <button
-              onClick={() => { setShowResolve(false); setResolution(''); }}
-              className="text-[11px] px-2 py-1 rounded text-gray-400 hover:text-gray-300"
-            >
-              Cancel
-            </button>
+            <Button variant="success" size="sm" onClick={handleResolve}>Submit</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowResolve(false); setResolution(''); }}>Cancel</Button>
           </div>
         </div>
       ) : (
         <div className="flex gap-2 ml-1">
-          <button
-            onClick={() => setShowResolve(true)}
-            className="text-[11px] px-2 py-1 rounded bg-gray-800 text-gray-300 hover:bg-gray-700"
-          >
-            Resolve
-          </button>
-          <button
-            onClick={() => onAcceptTension(contradiction.id)}
-            className="text-[11px] px-2 py-1 rounded bg-gray-800 text-gray-300 hover:bg-gray-700"
-          >
-            Accept Tension
-          </button>
-          <button
-            onClick={() => onDismiss(contradiction.id)}
-            className="text-[11px] px-2 py-1 rounded text-gray-500 hover:text-gray-400"
-          >
-            Dismiss
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => setShowResolve(true)}>Resolve</Button>
+          <Button variant="ghost" size="sm" onClick={() => onAcceptTension(contradiction.id)}>Accept Tension</Button>
+          <Button variant="ghost" size="sm" onClick={() => onDismiss(contradiction.id)}>Dismiss</Button>
         </div>
       )}
     </div>

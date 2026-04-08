@@ -1,7 +1,29 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
 import * as api from '../../lib/api';
 import type { SessionSummary } from '@boardroom/shared';
+import { Card, Badge, Button, Skeleton } from '../ui';
+import { staggerContainer, staggerItem } from '../../lib/motion';
+
+const MODE_VARIANT: Record<string, 'accent' | 'warning' | 'info' | 'success' | 'default'> = {
+  decide: 'accent',
+  'stress-test': 'warning',
+  plan: 'info',
+  clarify: 'success',
+  review: 'default',
+  'quick-take': 'default',
+};
+
+function timeAgo(dateStr: string | Date): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const hours = Math.floor(diff / 3600000);
+  if (hours < 1) return 'Just now';
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  return `${days}d ago`;
+}
 
 export function RecentDecisions() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -11,73 +33,68 @@ export function RecentDecisions() {
   useEffect(() => {
     api
       .listSessions(5, 0)
-      .then((res) => {
-        setSessions(res.items);
-      })
-      .catch(() => {
-        /* silently fail */
-      })
+      .then((res) => setSessions(res.items))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
     return (
-      <div className="bg-gray-900 rounded-lg p-4 animate-pulse">
-        <div className="h-4 bg-gray-800 rounded w-1/3 mb-3" />
+      <Card className="p-4">
+        <Skeleton className="h-4 w-1/3 mb-3" />
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-10 bg-gray-800 rounded" />
+            <Skeleton key={i} className="h-14 rounded-md" />
           ))}
         </div>
-      </div>
+      </Card>
     );
   }
 
   if (sessions.length === 0) {
     return (
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-400 mb-2">Recent Decisions</h3>
-        <p className="text-gray-500 text-sm">No decisions yet</p>
-      </div>
+      <Card className="p-4">
+        <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-2">
+          Recent Decisions
+        </h3>
+        <p className="text-text-tertiary text-sm">No decisions yet</p>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-gray-900 rounded-lg p-4">
-      <h3 className="text-sm font-semibold text-gray-400 mb-3">Recent Decisions</h3>
-      <div className="space-y-2">
+    <Card className="p-4">
+      <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-3">
+        Recent Decisions
+      </h3>
+      <motion.div {...staggerContainer} className="space-y-2">
         {sessions.map((session) => (
-          <div
-            key={session.id}
-            className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2"
-          >
-            <div className="flex-1 min-w-0 mr-3">
-              <p className="text-sm text-white truncate">
+          <motion.div key={session.id} {...staggerItem}>
+            <Card
+              hover
+              className="px-3 py-2"
+              onClick={() => navigate(`/decisions/${session.id}`)}
+            >
+              <p className="text-sm text-text-primary font-medium truncate">
                 {session.question.length > 80
                   ? session.question.slice(0, 80) + '...'
                   : session.question}
               </p>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300">
+                <Badge variant={MODE_VARIANT[session.mode] ?? 'default'}>
                   {session.mode}
+                </Badge>
+                <span className="text-xs text-text-tertiary">
+                  {timeAgo(session.createdAt)}
                 </span>
-                <span className="text-xs text-gray-500">
-                  {new Date(session.createdAt).toLocaleDateString()}
-                </span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-text-tertiary">
                   {session.personaCount} persona{session.personaCount !== 1 ? 's' : ''}
                 </span>
               </div>
-            </div>
-            <button
-              onClick={() => navigate(`/decisions/${session.id}`)}
-              className="text-xs text-blue-400 hover:text-blue-300 whitespace-nowrap"
-            >
-              View
-            </button>
-          </div>
+            </Card>
+          </motion.div>
         ))}
-      </div>
-    </div>
+      </motion.div>
+    </Card>
   );
 }
