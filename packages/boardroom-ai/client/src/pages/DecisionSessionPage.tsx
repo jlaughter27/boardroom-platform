@@ -66,18 +66,33 @@ export default function DecisionSessionPage() {
   const modeConfig = currentSession ? MODE_CONFIGS[currentSession.mode] : MODE_CONFIGS[mode];
   const personaIds: PersonaId[] = modeConfig.personas;
 
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isCheckingClarity, setIsCheckingClarity] = useState(false);
+
   async function handleAnalyze() {
-    if (!question.trim()) return;
+    if (!question.trim() || isAnalyzing) return;
+    setIsAnalyzing(true);
     try {
       await createSession(question.trim(), mode);
       await dispatch();
-    } catch {}
+    } catch {
+      // error handled by store
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   async function handleCheckClarity() {
-    if (!question.trim()) return;
-    if (!currentSession) await createSession(question.trim(), mode);
-    await checkAmbiguity();
+    if (!question.trim() || isCheckingClarity) return;
+    setIsCheckingClarity(true);
+    try {
+      if (!currentSession) await createSession(question.trim(), mode);
+      await checkAmbiguity();
+    } catch {
+      // error handled by store
+    } finally {
+      setIsCheckingClarity(false);
+    }
   }
 
   async function handleSynthesize() {
@@ -138,11 +153,11 @@ export default function DecisionSessionPage() {
                 )}
 
                 <div className="flex items-center gap-3 justify-center">
-                  <Button variant="primary" size="lg" onClick={handleAnalyze} disabled={!question.trim()}>
-                    Analyze
+                  <Button variant="primary" size="lg" onClick={handleAnalyze} disabled={!question.trim() || isAnalyzing}>
+                    {isAnalyzing ? 'Analyzing...' : 'Analyze'}
                   </Button>
-                  <Button variant="ghost" onClick={handleCheckClarity} disabled={!question.trim()}>
-                    Check Clarity
+                  <Button variant="ghost" onClick={handleCheckClarity} disabled={!question.trim() || isCheckingClarity}>
+                    {isCheckingClarity ? 'Checking...' : 'Check Clarity'}
                   </Button>
                 </div>
               </div>
