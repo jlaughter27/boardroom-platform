@@ -1,5 +1,6 @@
 import StripeConstructor from 'stripe';
 import { omnimindClient } from './omnimind-client';
+import { logger } from '../lib/logger';
 
 type StripeClient = ReturnType<typeof StripeConstructor>;
 
@@ -54,15 +55,24 @@ export async function handleWebhook(payload: Buffer, signature: string): Promise
       if (!userId) break;
 
       const subscription = asRecord(await stripe.subscriptions.retrieve(session.subscription as string));
-      await omnimindClient.createSubscription(userId, {
-        stripeCustomerId: session.customer as string,
-        stripeSubscriptionId: subscription.id as string,
-        status: 'TRIALING',
-        plan: 'pro',
-        priceMonthly: 2900,
-        trialEndsAt: subscription.trial_end ? new Date((subscription.trial_end as number) * 1000).toISOString() : null,
-        currentPeriodEnd: new Date((subscription.current_period_end as number) * 1000).toISOString(),
-      });
+      try {
+        await omnimindClient.createSubscription(userId, {
+          stripeCustomerId: session.customer as string,
+          stripeSubscriptionId: subscription.id as string,
+          status: 'TRIALING',
+          plan: 'pro',
+          priceMonthly: 2900,
+          trialEndsAt: subscription.trial_end ? new Date((subscription.trial_end as number) * 1000).toISOString() : null,
+          currentPeriodEnd: new Date((subscription.current_period_end as number) * 1000).toISOString(),
+        });
+      } catch (err) {
+        logger.error('Failed to sync subscription to OmniMind — will rely on Stripe retry', {
+          userId,
+          stripeSubscriptionId: subscription.id as string,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
       break;
     }
 
@@ -73,10 +83,19 @@ export async function handleWebhook(payload: Buffer, signature: string): Promise
       const stripeSub = asRecord(await stripe.subscriptions.retrieve(subId));
       const userId = (stripeSub.metadata as Record<string, string> | undefined)?.userId;
       if (userId) {
-        await omnimindClient.updateSubscription(userId, {
-          status: 'ACTIVE',
-          currentPeriodEnd: new Date((stripeSub.current_period_end as number) * 1000).toISOString(),
-        });
+        try {
+          await omnimindClient.updateSubscription(userId, {
+            status: 'ACTIVE',
+            currentPeriodEnd: new Date((stripeSub.current_period_end as number) * 1000).toISOString(),
+          });
+        } catch (err) {
+          logger.error('Failed to sync subscription to OmniMind — will rely on Stripe retry', {
+            userId,
+            stripeSubscriptionId: subId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        }
       }
       break;
     }
@@ -88,7 +107,16 @@ export async function handleWebhook(payload: Buffer, signature: string): Promise
       const stripeSub = asRecord(await stripe.subscriptions.retrieve(subId));
       const userId = (stripeSub.metadata as Record<string, string> | undefined)?.userId;
       if (userId) {
-        await omnimindClient.updateSubscription(userId, { status: 'PAST_DUE' });
+        try {
+          await omnimindClient.updateSubscription(userId, { status: 'PAST_DUE' });
+        } catch (err) {
+          logger.error('Failed to sync subscription to OmniMind — will rely on Stripe retry', {
+            userId,
+            stripeSubscriptionId: subId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        }
       }
       break;
     }
@@ -97,10 +125,19 @@ export async function handleWebhook(payload: Buffer, signature: string): Promise
       const sub = asRecord(event.data.object);
       const userId = (sub.metadata as Record<string, string> | undefined)?.userId;
       if (userId) {
-        await omnimindClient.updateSubscription(userId, {
-          status: 'CANCELED',
-          canceledAt: new Date().toISOString(),
-        });
+        try {
+          await omnimindClient.updateSubscription(userId, {
+            status: 'CANCELED',
+            canceledAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          logger.error('Failed to sync subscription to OmniMind — will rely on Stripe retry', {
+            userId,
+            stripeSubscriptionId: sub.id as string,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        }
       }
       break;
     }

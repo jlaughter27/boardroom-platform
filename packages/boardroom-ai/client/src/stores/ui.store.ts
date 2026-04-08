@@ -11,6 +11,7 @@ interface UIState {
   configuratorOpen: boolean;
   openConfigurator: () => void;
   closeConfigurator: () => void;
+  reset: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -33,4 +34,12 @@ export const useUIStore = create<UIState>((set) => ({
   configuratorOpen: false,
   openConfigurator: () => set({ configuratorOpen: true }),
   closeConfigurator: () => set({ configuratorOpen: false }),
+
+  reset: () =>
+    set({
+      sidebarCollapsed: false,
+      activeModal: null,
+      dismissedQuestions: new Set<string>(),
+      configuratorOpen: false,
+    }),
 }));

@@ -21,7 +21,7 @@ export async function scanContradictions(userId: string, prisma: PrismaClient): 
   const projectContexts: { project: typeof projects[0]; context: string }[] = [];
   for (const p of projects) {
     const decisions = await prisma.decision.findMany({
-      where: { userId, deletedAt: null },
+      where: { userId, deletedAt: null, projectLinks: { some: { projectId: p.id } } },
       orderBy: { createdAt: 'desc' },
       take: 5,
     });

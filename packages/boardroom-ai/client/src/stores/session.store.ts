@@ -16,6 +16,7 @@ interface SessionState {
   sufficiency: SufficiencyScore | null;
   simulation: SimulationResult | null;
   isSimulating: boolean;
+  abortController: AbortController | null;
   error: string | null;
 
   clearError: () => void;
@@ -42,6 +43,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sufficiency: null,
   simulation: null,
   isSimulating: false,
+  abortController: null,
   error: null,
 
   clearError: () => set({ error: null }),
@@ -60,13 +62,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   dispatch: async () => {
-    const { currentSession } = get();
+    if (get().isDispatching) return; // Guard against re-entry
+
+    const { currentSession, abortController: existingController } = get();
     if (!currentSession) return;
 
-    set({ isDispatching: true, error: null });
+    // Abort any previous SSE connection
+    if (existingController) {
+      existingController.abort();
+    }
+
+    const abortController = new AbortController();
+    set({ isDispatching: true, error: null, abortController });
 
     try {
-      for await (const event of api.streamSSE(`/api/sessions/${currentSession.id}/dispatch`)) {
+      for await (const event of api.streamSSE(`/api/sessions/${currentSession.id}/dispatch`, 'POST', undefined, abortController.signal)) {
         const typed = event as DispatchEvent;
         switch (typed.type) {
           case 'persona_start': {
@@ -107,20 +117,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             set(state => {
               const streaming = new Set(state.streamingPersonas);
               streaming.delete(personaId);
-              return { streamingPersonas: streaming };
+              const updatedPersonaStreaming = { ...state.personaStreaming };
+              delete updatedPersonaStreaming[personaId];
+              return { streamingPersonas: streaming, personaStreaming: updatedPersonaStreaming };
             });
             break;
           }
           case 'dispatch_complete': {
-            set({ isDispatching: false });
+            set({ isDispatching: false, abortController: null });
             break;
           }
         }
       }
     } catch (err: unknown) {
+      // Silently handle abort (user re-dispatched or unmounted)
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Dispatch failed';
       useToastStore.getState().addToast(message, 'error');
-      set({ error: message, isDispatching: false });
+      set({ error: message, isDispatching: false, abortController: null });
     }
   },
 
@@ -179,18 +195,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  reset: () => set({
-    currentSession: null,
-    personaResponses: {},
-    personaStreaming: {},
-    streamingPersonas: new Set(),
-    synthesis: null,
-    synthesisStreaming: '',
-    isDispatching: false,
-    isSynthesizing: false,
-    sufficiency: null,
-    simulation: null,
-    isSimulating: false,
-    error: null,
-  }),
+  reset: () => {
+    const { abortController } = get();
+    if (abortController) {
+      abortController.abort();
+    }
+    set({
+      currentSession: null,
+      personaResponses: {},
+      personaStreaming: {},
+      streamingPersonas: new Set(),
+      synthesis: null,
+      synthesisStreaming: '',
+      isDispatching: false,
+      isSynthesizing: false,
+      sufficiency: null,
+      simulation: null,
+      isSimulating: false,
+      abortController: null,
+      error: null,
+    });
+  },
 }));

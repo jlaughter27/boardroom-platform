@@ -150,7 +150,7 @@ export function useOnboarding() {
           await api.createPerson({
             name: person.name,
             role: person.role,
-            relationship: person.relationship,
+            relationshipToUser: person.relationship,
           });
         }
       }

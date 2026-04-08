@@ -53,13 +53,25 @@ router.post('/login', async (req, res, next) => {
       return;
     }
 
-    res.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      passwordHash: user.passwordHash,
-      teamId: user.teamId,
-    });
+    const { passwordHash, ...safeUser } = user;
+    res.json(safeUser);
+  } catch (err) { next(err); }
+});
+
+// POST /auth/verify — server-side credential verification (passwordHash never leaves OmniMind)
+router.post('/verify', async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      res.status(400).json({ error: 'validation_failed', message: 'email and password are required' });
+      return;
+    }
+    const user = await authService.verifyCredentials(email, password);
+    if (!user) {
+      res.status(401).json({ error: 'invalid_credentials', message: 'Invalid email or password' });
+      return;
+    }
+    res.json(user);
   } catch (err) { next(err); }
 });
 

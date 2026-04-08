@@ -26,6 +26,7 @@ interface CortexState {
   resolveContradiction: (id: string, resolution: string) => Promise<void>;
   dismissContradiction: (id: string) => Promise<void>;
   acceptTension: (id: string) => Promise<void>;
+  reset: () => void;
 }
 
 export const useCortexStore = create<CortexState>((set) => ({
@@ -168,4 +169,19 @@ export const useCortexStore = create<CortexState>((set) => ({
       set({ error: (err as Error).message });
     }
   },
+
+  reset: () =>
+    set({
+      latestMemo: null,
+      patterns: [],
+      patternsTotal: 0,
+      contradictions: [],
+      contradictionsTotal: 0,
+      isLoadingMemo: false,
+      isLoadingPatterns: false,
+      isLoadingContradictions: false,
+      isGeneratingMemo: false,
+      isScanningContradictions: false,
+      error: null,
+    }),
 }));

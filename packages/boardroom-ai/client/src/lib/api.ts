@@ -79,12 +79,14 @@ export async function* streamSSE(
   url: string,
   method: string = 'POST',
   body?: unknown,
+  signal?: AbortSignal,
 ): AsyncGenerator<import('@boardroom/shared').BoardRoomSSEEvent & Record<string, unknown>> {
   const response = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (!response.ok) {
@@ -387,7 +389,7 @@ export function deletePerson(id: string) {
 // ---------------------------------------------------------------------------
 
 export function searchMemories(query: string, limit = 20) {
-  return request<Memory[]>(
+  return request<{ items: Memory[]; total: number }>(
     `/memories/search?q=${encodeURIComponent(query)}&limit=${limit}`,
   );
 }

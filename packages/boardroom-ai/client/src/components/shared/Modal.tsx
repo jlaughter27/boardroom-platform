@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -7,7 +7,12 @@ interface ModalProps {
   children: ReactNode;
 }
 
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -18,6 +23,36 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const modal = modalRef.current;
+    if (!modal) return;
+
+    // Focus first focusable element
+    const focusable = modal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    if (focusable.length) focusable[0].focus();
+
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const focusableEls = modal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (!focusableEls.length) return;
+      const first = focusableEls[0];
+      const last = focusableEls[focusableEls.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleTab);
+    return () => document.removeEventListener('keydown', handleTab);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -30,7 +65,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
       />
 
       {/* Content */}
-      <div role="dialog" aria-modal="true" aria-label={title} className="relative z-10 w-full max-w-lg bg-bg-surface rounded-xl border border-line-subtle shadow-xl">
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={title} className="relative z-10 w-full max-w-lg bg-bg-surface rounded-xl border border-line-subtle shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-line-subtle">
           <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
