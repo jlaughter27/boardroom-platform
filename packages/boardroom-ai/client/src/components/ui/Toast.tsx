@@ -83,7 +83,7 @@ export function Toaster() {
   const { toasts, removeToast } = useToastStore();
 
   return (
-    <div className="fixed top-4 right-4 z-[var(--z-toast)] flex flex-col gap-2 w-80">
+    <div className="fixed top-4 right-4 z-[var(--z-toast)] flex flex-col gap-2 w-80" role="status" aria-live="polite">
       <AnimatePresence mode="popLayout">
         {toasts.map((toast) => (
           <ToastItem

@@ -2,6 +2,9 @@ import { cn } from '../../lib/cn';
 
 export function Skeleton({ className }: { className?: string }) {
   return (
-    <div className={cn('animate-pulse rounded-md bg-bg-hover', className)} />
+    <div
+      className={cn('rounded-md skeleton-shimmer', className)}
+      aria-hidden="true"
+    />
   );
 }
