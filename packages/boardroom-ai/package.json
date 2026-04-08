@@ -16,6 +16,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@boardroom/shared": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "d3-force": "^3.0.0",
@@ -27,11 +30,13 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.0",
     "mathjs": "^15.1.1",
+    "motion": "^11.18.2",
     "node-cache": "^5.1.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.14.0",
     "stripe": "^22.0.0",
+    "tailwind-merge": "^3.5.0",
     "zod": "^3.23.0",
     "zustand": "^5.0.0"
   },
