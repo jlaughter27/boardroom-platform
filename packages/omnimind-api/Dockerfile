@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 WORKDIR /app
-COPY package.json turbo.json tsconfig.base.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json turbo.json tsconfig.base.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/omnimind-api/package.json packages/omnimind-api/
 
@@ -17,7 +17,8 @@ RUN cd packages/omnimind-api && pnpm exec prisma generate
 
 # Build shared package explicitly first — pnpm workspace symlinks in Docker
 # can prevent TypeScript from finding .d.ts files through node_modules resolution
-RUN cd packages/shared && pnpm exec tsc \
+# Remove stale .tsbuildinfo to prevent composite/incremental skipping emit
+RUN cd packages/shared && rm -f tsconfig.tsbuildinfo && pnpm exec tsc \
     && ls dist/index.d.ts \
     && echo "Shared declarations verified"
 

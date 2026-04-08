@@ -21,6 +21,9 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "pre-deploy": "bash scripts/pre-deploy-check.sh"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "esbuild"]
+  },
   "devDependencies": {
     "turbo": "^2.4.0",
     "typescript": "^5.7.0"
