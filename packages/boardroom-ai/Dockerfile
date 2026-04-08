@@ -1,19 +1,23 @@
 FROM node:20-alpine AS builder
 
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
+
 WORKDIR /app
-COPY package.json turbo.json tsconfig.base.json ./
+COPY package.json turbo.json tsconfig.base.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/boardroom-ai/package.json packages/boardroom-ai/
 
-RUN npm install
+RUN pnpm install --frozen-lockfile
 
 COPY packages/shared/ packages/shared/
 COPY packages/boardroom-ai/ packages/boardroom-ai/
 COPY docs/prompts/ docs/prompts/
 
-RUN npx turbo run build --filter=@boardroom/boardroom-ai
+RUN pnpm turbo run build --filter=@boardroom/boardroom-ai
 
 FROM node:20-alpine AS runner
+
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 WORKDIR /app
 COPY --from=builder /app/packages/boardroom-ai/dist ./dist
