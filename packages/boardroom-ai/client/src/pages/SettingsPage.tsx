@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [valuesText, setValuesText] = useState('');
   const [valuesSaving, setValuesSaving] = useState(false);
 
+
   useEffect(() => {
     async function load() {
       try {
@@ -260,7 +261,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground mb-3">
                   This action is irreversible. All your data will be permanently deleted.
                 </p>
-                <Button variant="danger" size="sm">
+                <Button variant="danger" size="sm" disabled title="Account deletion coming soon">
                   Delete Account
                 </Button>
               </div>

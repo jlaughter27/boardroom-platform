@@ -32,6 +32,7 @@ interface MemoryState {
   updateMemory: (id: string, input: Record<string, unknown>) => Promise<void>;
   archiveMemory: (id: string) => Promise<void>;
   setFilters: (filters: Partial<MemoryFilters>) => void;
+  reset: () => void;
 }
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
@@ -140,4 +141,15 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     set({ filters });
     get().search(filters);
   },
+
+  reset: () =>
+    set({
+      memories: [],
+      selectedMemory: null,
+      filters: {},
+      isLoading: false,
+      total: 0,
+      offset: 0,
+      error: null,
+    }),
 }));

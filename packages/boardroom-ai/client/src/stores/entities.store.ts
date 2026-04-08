@@ -46,6 +46,7 @@ interface EntitiesState {
   createPerson: (input: Partial<PersonInput>) => Promise<void>;
   updatePerson: (id: string, input: Partial<PersonInput>) => Promise<void>;
   deletePerson: (id: string) => Promise<void>;
+  reset: () => void;
 }
 
 export const useEntitiesStore = create<EntitiesState>((set, get) => ({
@@ -269,4 +270,16 @@ export const useEntitiesStore = create<EntitiesState>((set, get) => ({
       set({ error: (err as Error).message });
     }
   },
+
+  reset: () =>
+    set({
+      goals: [],
+      projects: [],
+      tasks: [],
+      people: [],
+      decisions: [],
+      commitments: [],
+      isLoading: false,
+      error: null,
+    }),
 }));

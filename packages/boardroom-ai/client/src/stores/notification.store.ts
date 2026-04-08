@@ -23,6 +23,7 @@ interface NotificationState {
   markAllRead: () => void;
   dismiss: (id: string) => void;
   addNotification: (n: Omit<Notification, 'id' | 'timestamp' | 'read'>) => void;
+  reset: () => void;
 }
 
 let nextId = 1;
@@ -77,4 +78,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       unreadCount: s.unreadCount + 1,
     }));
   },
+
+  reset: () =>
+    set({
+      notifications: [],
+      unreadCount: 0,
+      isOpen: false,
+    }),
 }));

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -136,10 +136,12 @@ export default function OnboardingPage() {
     }
   };
 
-  // Show error as toast
-  if (error && !showCelebration) {
-    addToast(error, 'error');
-  }
+  // Show error as toast (wrapped in useEffect to prevent firing on every render)
+  useEffect(() => {
+    if (error && !showCelebration) {
+      addToast(error, 'error');
+    }
+  }, [error]);
 
   const slideVariants = {
     enter: (d: number) => ({ x: d > 0 ? 20 : -20, opacity: 0 }),

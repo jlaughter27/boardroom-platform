@@ -55,10 +55,20 @@ export async function listEntities(
   if (filters.owner) where.owner = filters.owner;
   if (filters.priority !== undefined) where.priority = parseInt(filters.priority as string, 10);
   if (filters.q) {
-    where.OR = [
-      { name: { contains: filters.q, mode: 'insensitive' } },
-      { title: { contains: filters.q, mode: 'insensitive' } },
-    ];
+    const searchClauses: Record<string, unknown>[] = [];
+    // 'name' exists only on Person
+    if (model === 'person') {
+      searchClauses.push({ name: { contains: filters.q, mode: 'insensitive' } });
+    }
+    // 'title' exists on Goal, Project, Task (not Person)
+    if (model !== 'person') {
+      searchClauses.push({ title: { contains: filters.q, mode: 'insensitive' } });
+    }
+    // Person has 'notes', others don't have a general description field
+    if (model === 'person') {
+      searchClauses.push({ notes: { contains: filters.q, mode: 'insensitive' } });
+    }
+    where.OR = searchClauses;
   }
 
   const [items, total] = await Promise.all([

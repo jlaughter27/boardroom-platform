@@ -1,6 +1,29 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
+import { z } from 'zod';
 import { prisma } from '../lib/db';
+import { validateBody } from '../middleware/validate';
+
+const CreateSubscriptionSchema = z.object({
+  stripeCustomerId: z.string().min(1),
+  stripeSubscriptionId: z.string().min(1),
+  status: z.enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED', 'EXPIRED']).optional().default('TRIALING'),
+  plan: z.enum(['free', 'pro', 'enterprise']).optional().default('pro'),
+  priceMonthly: z.number().int().min(0).optional().default(0),
+  trialEndsAt: z.string().datetime().nullable().optional(),
+  currentPeriodEnd: z.string().datetime(),
+});
+
+const UpdateSubscriptionSchema = z.object({
+  stripeCustomerId: z.string().min(1).optional(),
+  stripeSubscriptionId: z.string().min(1).optional(),
+  status: z.enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED', 'EXPIRED']).optional(),
+  plan: z.enum(['free', 'pro', 'enterprise']).optional(),
+  priceMonthly: z.number().int().min(0).optional(),
+  trialEndsAt: z.string().datetime().nullable().optional(),
+  currentPeriodEnd: z.string().datetime().optional(),
+  canceledAt: z.string().datetime().nullable().optional(),
+}).strict();
 
 const router: IRouter = Router();
 
@@ -16,7 +39,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /subscription — create
-router.post('/', async (req, res, next) => {
+router.post('/', validateBody(CreateSubscriptionSchema), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
@@ -41,7 +64,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // PATCH /subscription — update by userId
-router.patch('/', async (req, res, next) => {
+router.patch('/', validateBody(UpdateSubscriptionSchema), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }

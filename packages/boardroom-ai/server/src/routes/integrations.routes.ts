@@ -3,6 +3,7 @@ import type { IRouter } from 'express';
 import type { AuthRequest } from '../middleware/auth';
 import * as gmailService from '../services/gmail.service';
 import * as calendarService from '../services/google-calendar.service';
+import { verifyState } from '../services/google-calendar.service';
 import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
@@ -32,8 +33,8 @@ router.get('/gmail/callback', async (req, res, next) => {
   try {
     const code = req.query.code as string;
     const state = req.query.state as string;
-    const userId = state?.replace('gmail:', '');
-    if (!code || !userId) { res.status(400).send('Missing code or state'); return; }
+    const userId = verifyState(state, 'gmail');
+    if (!code || !userId) { res.status(400).send('Invalid OAuth state'); return; }
     await gmailService.handleCallback(userId, code);
     res.redirect('/integrations?gmail=connected');
   } catch (err) { next(err); }

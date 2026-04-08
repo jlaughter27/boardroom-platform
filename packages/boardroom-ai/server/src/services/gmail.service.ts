@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { EmailSummary, EmailExtraction, EmailMemoryProposal } from '@boardroom/shared';
 import { MODEL_MAP, EmailMemoryProposalsSchema } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
+import { signState } from './google-calendar.service';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -24,7 +25,7 @@ export function getAuthUrl(userId: string): string | null {
   return client.generateAuthUrl({
     access_type: 'offline',
     scope: ['https://www.googleapis.com/auth/gmail.readonly'],
-    state: `gmail:${userId}`,
+    state: signState(userId, 'gmail'),
     prompt: 'consent',
   });
 }
