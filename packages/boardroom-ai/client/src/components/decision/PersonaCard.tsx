@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
@@ -58,7 +58,7 @@ function CollapsibleSection({
   );
 }
 
-export function PersonaCard({ personaId, response, streamingText, isStreaming }: PersonaCardProps) {
+export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
   const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
 
@@ -159,4 +159,4 @@ export function PersonaCard({ personaId, response, streamingText, isStreaming }:
   }
 
   return null;
-}
+});

@@ -1,5 +1,7 @@
+import { memo } from 'react';
 import type { Memory } from '@boardroom/shared';
 import { MemoryStatus } from '@boardroom/shared';
+import { cn } from '../../lib/cn';
 
 interface MemoryCardProps {
   memory: Memory;
@@ -8,25 +10,25 @@ interface MemoryCardProps {
 }
 
 const statusColors: Record<string, string> = {
-  [MemoryStatus.CONFIRMED]: 'bg-green-900/50 text-green-400 border-green-800',
-  [MemoryStatus.DRAFT]: 'bg-yellow-900/50 text-yellow-400 border-yellow-800',
-  [MemoryStatus.ARCHIVED]: 'bg-gray-800 text-gray-500 border-gray-700',
-  [MemoryStatus.SUPERSEDED]: 'bg-orange-900/50 text-orange-400 border-orange-800',
-  [MemoryStatus.REJECTED]: 'bg-red-900/50 text-red-400 border-red-800',
+  [MemoryStatus.CONFIRMED]: 'bg-success-muted text-success border-success/30',
+  [MemoryStatus.DRAFT]: 'bg-warning-muted text-warning border-warning/30',
+  [MemoryStatus.ARCHIVED]: 'bg-bg-hover text-text-tertiary border-line',
+  [MemoryStatus.SUPERSEDED]: 'bg-warning-muted text-warning border-warning/30',
+  [MemoryStatus.REJECTED]: 'bg-danger-muted text-danger border-danger/30',
 };
 
 const confidenceColors: Record<string, string> = {
-  HIGH: 'text-green-400',
-  MEDIUM: 'text-yellow-400',
-  LOW: 'text-orange-400',
-  SPECULATIVE: 'text-red-400',
+  HIGH: 'text-success',
+  MEDIUM: 'text-warning',
+  LOW: 'text-warning',
+  SPECULATIVE: 'text-danger',
 };
 
 const classColors: Record<string, string> = {
-  WORKING: 'bg-purple-900/50 text-purple-400 border-purple-800',
-  EPISODIC: 'bg-blue-900/50 text-blue-400 border-blue-800',
-  SEMANTIC: 'bg-cyan-900/50 text-cyan-400 border-cyan-800',
-  DECISION: 'bg-amber-900/50 text-amber-400 border-amber-800',
+  WORKING: 'bg-accent-muted text-accent border-accent/30',
+  EPISODIC: 'bg-info-muted text-info border-info/30',
+  SEMANTIC: 'bg-info-muted text-info border-info/30',
+  DECISION: 'bg-warning-muted text-warning border-warning/30',
 };
 
 function relativeTime(date: Date | string): string {
@@ -44,13 +46,10 @@ function relativeTime(date: Date | string): string {
   return `${months}mo ago`;
 }
 
-export function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
-  const statusColor =
-    statusColors[memory.status] ?? 'bg-gray-800 text-gray-400 border-gray-700';
-  const classColor =
-    classColors[memory.memoryClass] ??
-    'bg-gray-800 text-gray-400 border-gray-700';
-  const confColor = confidenceColors[memory.confidence] ?? 'text-gray-400';
+export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
+  const statusColor = statusColors[memory.status] ?? 'bg-bg-hover text-text-tertiary border-line';
+  const classColor = classColors[memory.memoryClass] ?? 'bg-bg-hover text-text-tertiary border-line';
+  const confColor = confidenceColors[memory.confidence] ?? 'text-text-tertiary';
 
   const preview =
     memory.content.length > 100
@@ -63,73 +62,58 @@ export function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
     <button
       type="button"
       onClick={onClick}
-      className={`w-full text-left p-3 rounded-lg border transition-all ${
+      className={cn(
+        'w-full text-left p-3 rounded-lg border transition-all',
         isSelected
-          ? 'border-blue-500 ring-2 ring-blue-500/40 bg-gray-800/80'
-          : 'border-gray-700 bg-gray-800/50 hover:bg-gray-800/80 hover:border-gray-600'
-      }`}
+          ? 'border-accent ring-2 ring-accent/40 bg-bg-elevated'
+          : 'border-line bg-bg-surface hover:bg-bg-elevated hover:border-line-strong'
+      )}
     >
-      {/* Title */}
-      <h3 className="text-sm font-semibold text-white truncate">
+      <h3 className="text-sm font-semibold text-text-primary truncate">
         {memory.title}
       </h3>
 
-      {/* Content preview */}
-      <p className="text-xs text-gray-400 mt-1 line-clamp-2">{preview}</p>
+      <p className="text-xs text-text-secondary mt-1 line-clamp-2">{preview}</p>
 
-      {/* Badges row */}
       <div className="flex flex-wrap items-center gap-1.5 mt-2">
-        {/* Domain */}
         {memory.domain && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-800 text-gray-400 border border-gray-700">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-bg-hover text-text-secondary border border-line">
             {memory.domain}
           </span>
         )}
-
-        {/* Memory class */}
-        <span
-          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${classColor}`}
-        >
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${classColor}`}>
           {memory.memoryClass}
         </span>
-
-        {/* Confidence */}
         <span className={`text-[10px] font-medium ${confColor}`}>
           {memory.confidence}
         </span>
-
-        {/* Status */}
-        <span
-          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusColor}`}
-        >
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusColor}`}>
           {memory.status}
         </span>
       </div>
 
-      {/* Tags + importance + time */}
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-1">
           {displayTags.map((tag) => (
             <span
               key={tag}
-              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-gray-700 text-gray-300"
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-bg-hover text-text-secondary"
             >
               {tag}
             </span>
           ))}
           {memory.tags.length > 3 && (
-            <span className="text-[10px] text-gray-500">
+            <span className="text-[10px] text-text-tertiary">
               +{memory.tags.length - 3}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2 text-[10px] text-gray-500">
-          {/* Importance bar */}
+        <div className="flex items-center gap-2 text-[10px] text-text-tertiary">
           <div className="flex items-center gap-1" title={`Importance: ${(memory.importance * 100).toFixed(0)}%`}>
-            <div className="w-10 h-1 bg-gray-700 rounded-full overflow-hidden">
+            <div className="w-10 h-1 bg-bg-hover rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-500 rounded-full"
+                className="h-full bg-accent rounded-full"
                 style={{ width: `${memory.importance * 100}%` }}
               />
             </div>
@@ -139,4 +123,4 @@ export function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
       </div>
     </button>
   );
-}
+});

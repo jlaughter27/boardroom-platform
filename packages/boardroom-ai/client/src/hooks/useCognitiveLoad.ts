@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useEntitiesStore } from '../stores/entities.store';
 import { COGNITIVE_LOAD, isOverdue } from '@boardroom/shared';
 
@@ -8,7 +9,10 @@ export interface CognitiveLoadWarning {
 }
 
 export function useCognitiveLoad(): CognitiveLoadWarning[] {
-  const { tasks, commitments } = useEntitiesStore();
+  const tasks = useEntitiesStore((s) => s.tasks);
+  const commitments = useEntitiesStore((s) => s.commitments);
+
+  return useMemo(() => {
   const warnings: CognitiveLoadWarning[] = [];
 
   // Active tasks check
@@ -52,4 +56,5 @@ export function useCognitiveLoad(): CognitiveLoadWarning[] {
   }
 
   return warnings;
+  }, [tasks, commitments]);
 }

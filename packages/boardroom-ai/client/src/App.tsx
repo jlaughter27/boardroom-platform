@@ -4,7 +4,8 @@ import { useAuthStore } from './stores/auth.store';
 import { Layout } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { Toaster } from './components/ui/Toast';
-import { CommandPalette } from './components/ui/CommandPalette';
+
+const CommandPalette = lazy(() => import('./components/ui/CommandPalette').then(m => ({ default: m.CommandPalette })));
 import * as api from './lib/api';
 
 // Eager — needed immediately
@@ -26,8 +27,8 @@ function ProtectedRoute() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-950">
-        <span className="text-gray-400">Loading...</span>
+      <div className="flex items-center justify-center h-screen bg-bg-base">
+        <span className="text-text-tertiary">Loading...</span>
       </div>
     );
   }
@@ -65,8 +66,8 @@ function OnboardingGate() {
 
   if (!checked) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-950">
-        <span className="text-gray-400">Loading...</span>
+      <div className="flex items-center justify-center h-screen bg-bg-base">
+        <span className="text-text-tertiary">Loading...</span>
       </div>
     );
   }
@@ -79,7 +80,7 @@ function OnboardingGate() {
 }
 
 const PageFallback = (
-  <div className="flex items-center justify-center min-h-screen bg-gray-950">
+  <div className="flex items-center justify-center min-h-screen bg-bg-base">
     <LoadingSpinner size="lg" />
   </div>
 );
