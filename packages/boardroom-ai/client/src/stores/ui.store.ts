@@ -1,5 +1,20 @@
 import { create } from 'zustand';
 
+type Theme = 'light' | 'dark' | 'system';
+
+function applyTheme(theme: Theme) {
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = theme === 'dark' || (theme === 'system' && prefersDark);
+  document.documentElement.classList.toggle('dark', isDark);
+  localStorage.setItem('theme', theme);
+}
+
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem('theme') as Theme | null;
+  if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+  return 'system';
+}
+
 interface UIState {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -11,6 +26,8 @@ interface UIState {
   configuratorOpen: boolean;
   openConfigurator: () => void;
   closeConfigurator: () => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -33,4 +50,19 @@ export const useUIStore = create<UIState>((set) => ({
   configuratorOpen: false,
   openConfigurator: () => set({ configuratorOpen: true }),
   closeConfigurator: () => set({ configuratorOpen: false }),
+
+  theme: getInitialTheme(),
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
+  },
 }));
+
+// Listen for system preference changes when theme is 'system'
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  const { theme } = useUIStore.getState();
+  if (theme === 'system') applyTheme('system');
+});
+
+// Apply theme on initial load (in case FOUC script didn't run or theme is 'system')
+applyTheme(getInitialTheme());

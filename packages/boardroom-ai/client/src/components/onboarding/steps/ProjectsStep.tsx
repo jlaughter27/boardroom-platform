@@ -39,7 +39,7 @@ export function ProjectsStep({ data, onUpdate, onExtract, isExtracting }: Props)
   return (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1.5">
+        <label className="block text-sm font-medium text-muted-foreground mb-1.5">
           What projects are you actively working on?
         </label>
         <textarea
@@ -47,7 +47,7 @@ export function ProjectsStep({ data, onUpdate, onExtract, isExtracting }: Props)
           onChange={(e) => onUpdate({ projectsText: e.target.value })}
           placeholder="e.g. We're rebuilding our mobile app, migrating to a new CRM, preparing for a Series B fundraise..."
           rows={4}
-          className="w-full bg-bg-base border border-line rounded-md px-3 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all duration-fast outline-none resize-none"
+          className="w-full bg-background border border-borderrounded-md px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-all duration-fast outline-none resize-none"
         />
         <Button
           variant="secondary"
@@ -63,7 +63,7 @@ export function ProjectsStep({ data, onUpdate, onExtract, isExtracting }: Props)
       <AnimatePresence>
         {data.extractedProjects.length > 0 && (
           <motion.div {...staggerContainer} className="space-y-3">
-            <p className="text-sm text-text-secondary">Review and edit your projects:</p>
+            <p className="text-sm text-muted-foreground">Review and edit your projects:</p>
             {data.extractedProjects.map((project, i) => (
               <motion.div key={i} {...staggerItem}>
                 <Card hover className="space-y-3">

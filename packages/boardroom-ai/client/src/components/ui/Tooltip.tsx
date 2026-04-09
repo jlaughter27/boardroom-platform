@@ -37,7 +37,7 @@ export function Tooltip({ content, children, className }: TooltipProps) {
             transition={{ duration: 0.15 }}
             className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[var(--z-dropdown)]"
           >
-            <div className="bg-bg-elevated text-text-primary text-xs px-2 py-1 rounded-md shadow-md border border-line whitespace-nowrap">
+            <div className="bg-foreground text-background text-xs px-2 py-1 rounded-lg shadow-md whitespace-nowrap">
               {content}
             </div>
           </motion.div>

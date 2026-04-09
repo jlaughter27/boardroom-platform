@@ -75,10 +75,10 @@ export function EntityLinker({ memoryId, onLink, onClose }: EntityLinkerProps) {
   }
 
   return (
-    <div className="bg-bg-elevated border border-line rounded-lg p-3 space-y-3">
+    <div className="bg-card border border-borderrounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-text-primary">Link to Entity</p>
-        <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-xs">Close</button>
+        <p className="text-sm font-medium text-foreground">Link to Entity</p>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">Close</button>
       </div>
 
       {/* Type selector */}
@@ -89,8 +89,8 @@ export function EntityLinker({ memoryId, onLink, onClose }: EntityLinkerProps) {
             onClick={() => { setEntityType(t); setSearch(''); }}
             className={`px-3 py-1 text-xs rounded transition-colors ${
               entityType === t
-                ? 'bg-accent text-text-primary'
-                : 'bg-bg-hover text-text-secondary hover:bg-bg-active'
+                ? 'bg-primary text-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-accent'
             }`}
           >
             {t.charAt(0).toUpperCase() + t.slice(1)}s
@@ -104,22 +104,22 @@ export function EntityLinker({ memoryId, onLink, onClose }: EntityLinkerProps) {
         value={search}
         onChange={e => setSearch(e.target.value)}
         placeholder={`Search ${entityType}s...`}
-        className="w-full bg-bg-surface border border-line rounded px-3 py-1.5 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent"
+        className="w-full bg-card border border-borderrounded px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
       />
 
       {/* List */}
       <div className="max-h-40 overflow-y-auto space-y-1">
         {loading ? (
-          <p className="text-xs text-text-tertiary text-center py-2">Loading...</p>
+          <p className="text-xs text-muted-foreground text-center py-2">Loading...</p>
         ) : filtered.length === 0 ? (
-          <p className="text-xs text-text-tertiary text-center py-2">No {entityType}s found</p>
+          <p className="text-xs text-muted-foreground text-center py-2">No {entityType}s found</p>
         ) : (
           filtered.map(entity => (
             <button
               key={entity.id}
               onClick={() => handleLink(entity)}
               disabled={linking === entity.id}
-              className="w-full text-left px-3 py-1.5 rounded text-sm text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
+              className="w-full text-left px-3 py-1.5 rounded text-sm text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
             >
               {linking === entity.id ? 'Linking...' : entity.label}
             </button>

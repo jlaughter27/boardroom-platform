@@ -26,12 +26,12 @@ export function TrialBanner() {
     const daysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
 
     return (
-      <div className="bg-blue-900/50 border-b border-blue-800/50 px-4 py-2 text-center text-sm">
-        <span className="text-blue-200">
+      <div className="bg-info-muted border border-info/30 px-4 py-2 text-center text-sm">
+        <span className="text-foreground">
           {daysLeft} day{daysLeft !== 1 ? 's' : ''} left in your free trial
         </span>
         {' — '}
-        <a href="/settings?payment=upgrade" className="text-blue-400 hover:text-blue-300 underline font-medium">
+        <a href="/settings?payment=upgrade" className="text-primary hover:text-primary/80 underline font-medium">
           Upgrade to Pro
         </a>
       </div>
@@ -40,10 +40,10 @@ export function TrialBanner() {
 
   if (sub.status === 'PAST_DUE') {
     return (
-      <div className="bg-red-900/50 border-b border-red-800/50 px-4 py-2 text-center text-sm">
-        <span className="text-red-200">Payment failed</span>
+      <div className="bg-danger-muted border border-danger/30 px-4 py-2 text-center text-sm">
+        <span className="text-foreground">Payment failed</span>
         {' — '}
-        <a href="/settings" className="text-red-400 hover:text-red-300 underline font-medium">
+        <a href="/settings" className="text-destructive hover:text-destructive/80 underline font-medium">
           Update billing
         </a>
       </div>

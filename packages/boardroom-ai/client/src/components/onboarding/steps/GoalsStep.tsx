@@ -37,7 +37,7 @@ export function GoalsStep({ data, onUpdate, onExtract, isExtracting }: Props) {
   return (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1.5">
+        <label className="block text-sm font-medium text-muted-foreground mb-1.5">
           What are you working toward? Describe your goals in your own words.
         </label>
         <textarea
@@ -45,7 +45,7 @@ export function GoalsStep({ data, onUpdate, onExtract, isExtracting }: Props) {
           onChange={(e) => onUpdate({ goalsText: e.target.value })}
           placeholder="e.g. I want to grow my startup to $10M ARR this year, improve my team's velocity, and launch our enterprise product by Q3..."
           rows={4}
-          className="w-full bg-bg-base border border-line rounded-md px-3 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all duration-fast outline-none resize-none"
+          className="w-full bg-background border border-borderrounded-md px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-all duration-fast outline-none resize-none"
         />
         <Button
           variant="secondary"
@@ -61,7 +61,7 @@ export function GoalsStep({ data, onUpdate, onExtract, isExtracting }: Props) {
       <AnimatePresence>
         {data.extractedGoals.length > 0 && (
           <motion.div {...staggerContainer} className="space-y-3">
-            <p className="text-sm text-text-secondary">Review and edit your goals:</p>
+            <p className="text-sm text-muted-foreground">Review and edit your goals:</p>
             {data.extractedGoals.map((goal, i) => (
               <motion.div key={i} {...staggerItem}>
                 <Card hover className="space-y-3">

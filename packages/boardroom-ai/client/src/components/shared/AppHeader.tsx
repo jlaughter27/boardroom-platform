@@ -45,13 +45,13 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
   })();
 
   return (
-    <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-4 md:px-6 border-b border-line-subtle bg-bg-base/80 backdrop-blur-md">
+    <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-4 md:px-6 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="flex items-center gap-3">
         {/* Mobile hamburger */}
         {onMenuToggle && (
           <button
             onClick={onMenuToggle}
-            className="md:hidden p-2 -ml-2 text-text-secondary hover:text-text-primary transition-colors"
+            className="md:hidden p-2 -ml-2 text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Open menu"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -59,18 +59,18 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
             </svg>
           </button>
         )}
-        <h1 className="text-lg font-semibold text-text-primary">{title}</h1>
+        <h1 className="text-lg font-semibold text-foreground">{title}</h1>
         {breadcrumbs.length > 0 && (
           <div className="flex items-center gap-1.5 text-sm">
             {breadcrumbs.map((crumb, i) => (
               <span key={i} className="flex items-center gap-1.5">
-                <span className="text-text-tertiary">{'\u203A'}</span>
+                <span className="text-muted-foreground">{'\u203A'}</span>
                 {crumb.path ? (
-                  <Link to={crumb.path} className="text-text-secondary hover:text-accent transition-colors">
+                  <Link to={crumb.path} className="text-muted-foreground hover:text-primary transition-colors">
                     {crumb.label}
                   </Link>
                 ) : (
-                  <span className="text-text-primary">{crumb.label}</span>
+                  <span className="text-foreground">{crumb.label}</span>
                 )}
               </span>
             ))}
@@ -82,7 +82,7 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
         {/* Search icon (mobile) */}
         <button
           onClick={toggle}
-          className="sm:hidden p-2 text-text-tertiary hover:text-text-primary transition-colors"
+          className="sm:hidden p-2 text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Search"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -92,7 +92,7 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
         {/* Cmd+K hint (desktop) */}
         <button
           onClick={toggle}
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-line text-xs text-text-tertiary hover:text-text-secondary hover:border-line-strong transition-colors"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors"
         >
           <kbd className="font-mono">{'\u2318'}K</kbd>
         </button>

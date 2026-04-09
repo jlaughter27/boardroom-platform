@@ -92,10 +92,10 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-text-primary">
+            <h1 className="text-2xl font-semibold text-foreground">
               {getGreeting()}, {firstName}
             </h1>
-            <p className="text-sm text-text-secondary mt-0.5">{subtitle}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
           </div>
           <Button variant="ghost" size="sm" onClick={openConfigurator}>
             <svg className="w-4 h-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
@@ -164,8 +164,8 @@ export default function DashboardPage() {
                 <motion.div key={item.title} {...staggerItem}>
                   <Card hover onClick={() => navigate(item.route)} className="text-center py-6">
                     <span className="text-3xl mb-3 block">{item.icon}</span>
-                    <h3 className="text-sm font-medium text-text-primary mb-1">{item.title}</h3>
-                    <p className="text-xs text-text-tertiary">{item.desc}</p>
+                    <h3 className="text-sm font-medium text-foreground mb-1">{item.title}</h3>
+                    <p className="text-xs text-muted-foreground">{item.desc}</p>
                   </Card>
                 </motion.div>
               ))}

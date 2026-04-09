@@ -6,10 +6,10 @@ export function RelationshipMapWidget() {
 
   if (isLoading) {
     return (
-      <div className="bg-bg-elevated rounded-xl p-4 border border-line">
-        <h3 className="text-sm font-medium text-text-secondary mb-3">Relationship Map</h3>
+      <div className="bg-card rounded-xl p-4 border border-border">
+        <h3 className="text-sm font-medium text-muted-foreground mb-3">Relationship Map</h3>
         <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent" />
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
         </div>
       </div>
     );
@@ -17,9 +17,9 @@ export function RelationshipMapWidget() {
 
   if (!hasEnoughData || !data) {
     return (
-      <div className="bg-bg-elevated rounded-xl p-4 border border-line">
-        <h3 className="text-sm font-medium text-text-secondary mb-3">Relationship Map</h3>
-        <p className="text-xs text-text-tertiary text-center py-4">
+      <div className="bg-card rounded-xl p-4 border border-border">
+        <h3 className="text-sm font-medium text-muted-foreground mb-3">Relationship Map</h3>
+        <p className="text-xs text-muted-foreground text-center py-4">
           Add more people and projects to see your relationship map.
         </p>
       </div>
@@ -27,8 +27,8 @@ export function RelationshipMapWidget() {
   }
 
   return (
-    <div className="bg-bg-elevated rounded-xl p-4 border border-line">
-      <h3 className="text-sm font-medium text-text-secondary mb-3">Relationship Map</h3>
+    <div className="bg-card rounded-xl p-4 border border-border">
+      <h3 className="text-sm font-medium text-muted-foreground mb-3">Relationship Map</h3>
       <RelationshipGraph data={data} compact />
     </div>
   );

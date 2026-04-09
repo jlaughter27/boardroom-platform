@@ -115,7 +115,7 @@ export function WeekCalendarStrip() {
         </Button>
 
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-text-secondary">
+          <span className="text-sm font-medium text-muted-foreground">
             {formatWeekRange(days)}
           </span>
           <Button variant="ghost" size="sm" onClick={goToday}>
@@ -130,7 +130,7 @@ export function WeekCalendarStrip() {
         </Button>
       </div>
 
-      <div className="flex divide-x divide-line">
+      <div className="flex divide-x divide-border">
         {days.map((day) => {
           const k = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
           return (

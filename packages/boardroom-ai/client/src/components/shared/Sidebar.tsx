@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useUIStore } from '../../stores/ui.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { Avatar } from '../ui/Avatar';
+import { ThemeToggle } from './ThemeToggle';
 import { cn } from '../../lib/cn';
 
 interface NavItemDef {
@@ -97,15 +98,15 @@ function NavItem({ item, collapsed, onNavigate }: { item: NavItemDef; collapsed:
         className={cn(
           'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors relative min-h-[44px]',
           isActive
-            ? 'text-accent bg-accent-muted'
-            : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover',
+            ? 'text-white bg-white/10'
+            : 'text-white/50 hover:text-white/80 hover:bg-white/10',
           collapsed && 'justify-center px-2'
         )}
       >
         {isActive && (
           <motion.div
             layoutId="nav-indicator"
-            className="absolute left-0 top-1 bottom-1 w-0.5 bg-accent rounded-full"
+            className="absolute left-0 top-1 bottom-1 w-0.5 bg-white rounded-full"
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
           />
         )}
@@ -134,22 +135,22 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   return (
     <>
       {/* Brand */}
-      <div className="flex items-center justify-between h-14 px-4 border-b border-line-subtle">
+      <div className="flex items-center justify-between h-14 px-4 border-b border-white/10">
         <AnimatePresence>
           {!collapsed && (
             <motion.span
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="font-display text-lg font-semibold bg-gradient-to-r from-accent to-accent-secondary bg-clip-text text-transparent"
+              className="font-display text-lg font-bold tracking-tight"
             >
-              BoardRoom
+              <span className="text-blue-400">Board</span><span className="text-white">Room AI</span>
             </motion.span>
           )}
         </AnimatePresence>
         <button
           onClick={toggleSidebar}
-          className="hidden lg:block text-text-tertiary hover:text-text-primary p-1.5 rounded-md hover:bg-bg-hover transition-colors"
+          className="hidden lg:block text-white/40 hover:text-white/80 p-1.5 rounded-md hover:bg-white/10 transition-colors"
           aria-label="Toggle sidebar"
         >
           <motion.svg
@@ -173,7 +174,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         ))}
 
         <div className="py-3">
-          <div className="border-t border-line-subtle" />
+          <div className="border-t border-white/10" />
         </div>
 
         {secondaryNav.map((item) => (
@@ -181,8 +182,15 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         ))}
       </nav>
 
+      {/* Theme toggle */}
+      {!collapsed && (
+        <div className="px-3 pb-2">
+          <ThemeToggle />
+        </div>
+      )}
+
       {/* User section */}
-      <div className="border-t border-line-subtle p-3">
+      <div className="border-t border-white/10 p-3">
         {user && (
           <div className={cn(
             'flex items-center gap-3',
@@ -197,10 +205,10 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
                   exit={{ opacity: 0, width: 0 }}
                   className="flex-1 overflow-hidden"
                 >
-                  <p className="text-sm font-medium text-text-primary truncate">{user.name}</p>
+                  <p className="text-sm font-medium text-white truncate">{user.name}</p>
                   <button
                     onClick={() => logout()}
-                    className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+                    className="text-xs text-white/40 hover:text-white/70 transition-colors"
                   >
                     Sign out
                   </button>
@@ -222,7 +230,7 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: sidebarCollapsed ? 64 : 240 }}
       transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-      className="hidden md:flex flex-col bg-bg-base border-r border-line-subtle h-screen overflow-hidden flex-shrink-0"
+      className="hidden md:flex flex-col bg-[#1c1b1a] border-r border-[#2a2a28] h-screen overflow-hidden flex-shrink-0 shadow-sm"
     >
       <SidebarContent collapsed={sidebarCollapsed} />
     </motion.aside>
@@ -266,7 +274,7 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
             animate={{ x: 0 }}
             exit={{ x: -240 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="fixed left-0 top-0 bottom-0 w-60 flex flex-col bg-bg-base border-r border-line-subtle z-[var(--z-modal)] md:hidden"
+            className="fixed left-0 top-0 bottom-0 w-60 flex flex-col bg-[#1c1b1a] border-r border-white/10 z-[var(--z-modal)] md:hidden"
           >
             <SidebarContent collapsed={false} onNavigate={onClose} />
           </motion.aside>

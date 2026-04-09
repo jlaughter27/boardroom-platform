@@ -61,7 +61,7 @@ export function GoalHierarchy() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-medium text-text-secondary uppercase tracking-wide">
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
           Goals &amp; Projects
         </h2>
         <Button variant="primary" size="sm" onClick={() => setShowAddGoal(true)}>

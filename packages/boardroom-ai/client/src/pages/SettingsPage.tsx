@@ -136,8 +136,8 @@ export default function SettingsPage() {
                   onClick={() => scrollToSection(s.id)}
                   className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
                     activeSection === s.id
-                      ? 'text-accent font-medium border-l-2 border-accent bg-accent-muted'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+                      ? 'text-primary font-medium border-l-2 border-primary bg-primary/10'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                 >
                   {s.label}
@@ -149,24 +149,24 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1 space-y-6">
-          <h1 className="text-2xl font-semibold text-text-primary">Settings</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
 
           {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
           {/* Profile */}
           <Card id="settings-profile" className="p-6">
-            <h2 className="text-lg font-medium text-text-primary mb-4">Profile</h2>
+            <h2 className="text-lg font-medium text-foreground mb-4">Profile</h2>
             <div className="space-y-4">
               <Input label="Name" value={user?.name ?? ''} disabled />
               <Input label="Email" value={user?.email ?? ''} disabled />
               <Input label="Role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. CTO, Product Manager" />
               <Input label="Industry" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g. FinTech, Healthcare" />
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-text-secondary">Decision Frequency</label>
+                <label className="text-sm font-medium text-muted-foreground">Decision Frequency</label>
                 <select
                   value={decisionFrequency}
                   onChange={(e) => setDecisionFrequency(e.target.value)}
-                  className="bg-bg-base border border-line rounded-md px-3 h-9 text-sm text-text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all duration-fast"
+                  className="bg-background border border-border rounded-md px-3 h-9 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-all duration-fast"
                 >
                   <option value="">Select...</option>
                   {DECISION_FREQUENCY_OPTIONS.map((opt) => (
@@ -182,14 +182,14 @@ export default function SettingsPage() {
 
           {/* Preferences (Risk + Values) */}
           <Card id="settings-preferences" className="p-6">
-            <h2 className="text-lg font-medium text-text-primary mb-4">Preferences</h2>
+            <h2 className="text-lg font-medium text-foreground mb-4">Preferences</h2>
 
-            <h3 className="text-sm font-medium text-text-secondary mb-3">Risk Profile</h3>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">Risk Profile</h3>
             <div className="space-y-4 mb-6">
               {(['financial', 'technical', 'people', 'strategic'] as const).map((key) => (
                 <div key={key}>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-sm text-text-secondary capitalize">{key}</label>
+                    <label className="text-sm text-muted-foreground capitalize">{key}</label>
                     <Badge variant="default">{riskProfile[key].toFixed(2)}</Badge>
                   </div>
                   <input
@@ -199,7 +199,7 @@ export default function SettingsPage() {
                     step="0.01"
                     value={riskProfile[key]}
                     onChange={(e) => updateRisk(key, parseFloat(e.target.value))}
-                    className="w-full accent-[var(--color-accent-primary)]"
+                    className="w-full accent-primary"
                   />
                 </div>
               ))}
@@ -208,7 +208,7 @@ export default function SettingsPage() {
               </Button>
             </div>
 
-            <h3 className="text-sm font-medium text-text-secondary mb-3">Values</h3>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">Values</h3>
             <div className="space-y-3">
               {valuesText && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
@@ -222,7 +222,7 @@ export default function SettingsPage() {
                 onChange={(e) => setValuesText(e.target.value)}
                 placeholder="e.g. Growth, Team wellbeing, Innovation"
               />
-              <p className="text-xs text-text-tertiary">Separate values with commas, in order of priority.</p>
+              <p className="text-xs text-muted-foreground">Separate values with commas, in order of priority.</p>
               <Button variant="primary" onClick={saveValues} disabled={valuesSaving}>
                 {valuesSaving ? 'Saving...' : 'Save Values'}
               </Button>
@@ -231,8 +231,8 @@ export default function SettingsPage() {
 
           {/* Integrations */}
           <Card id="settings-integrations" className="p-6">
-            <h2 className="text-lg font-medium text-text-primary mb-2">Integrations</h2>
-            <p className="text-sm text-text-secondary mb-3">Manage connected tools and services.</p>
+            <h2 className="text-lg font-medium text-foreground mb-2">Integrations</h2>
+            <p className="text-sm text-muted-foreground mb-3">Manage connected tools and services.</p>
             <Button variant="secondary" onClick={() => window.location.href = '/integrations'}>
               Manage Integrations
             </Button>
@@ -248,16 +248,16 @@ export default function SettingsPage() {
 
           {/* Account */}
           <Card id="settings-account" className="p-6">
-            <h2 className="text-lg font-medium text-text-primary mb-4">Account</h2>
+            <h2 className="text-lg font-medium text-foreground mb-4">Account</h2>
             <div className="space-y-4">
-              <div className="border-b border-line pb-4">
+              <div className="border-b border-border pb-4">
                 <Button variant="secondary" onClick={() => logout()}>
                   Logout
                 </Button>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-danger mb-1">Delete Account</h3>
-                <p className="text-xs text-text-tertiary mb-3">
+                <h3 className="text-sm font-medium text-destructive mb-1">Delete Account</h3>
+                <p className="text-xs text-muted-foreground mb-3">
                   This action is irreversible. All your data will be permanently deleted.
                 </p>
                 <Button variant="danger" size="sm">

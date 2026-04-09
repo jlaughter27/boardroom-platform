@@ -61,10 +61,10 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-colors">
+      <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-text-tertiary hover:text-text-primary transition-colors flex-shrink-0"
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
         >
           <svg
             className={`w-4 h-4 transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`}
@@ -82,12 +82,12 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
             onChange={(e) => setEditTitle(e.target.value)}
             onBlur={saveTitle}
             onKeyDown={handleKeyDown}
-            className="flex-1 bg-bg-base border border-line rounded-md px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-accent"
+            className="flex-1 bg-background border border-border rounded-md px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary/40"
           />
         ) : (
           <span
             onClick={() => setEditing(true)}
-            className="flex-1 text-sm text-text-primary font-medium cursor-pointer"
+            className="flex-1 text-sm text-foreground font-medium cursor-pointer"
           >
             {goal.title}
           </span>
@@ -96,7 +96,7 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
         <LevelBadge level={goal.level} />
         <DomainBadge domain={goal.domain} />
         {deadlineStr && (
-          <span className="text-xs text-text-tertiary">{deadlineStr}</span>
+          <span className="text-xs text-muted-foreground">{deadlineStr}</span>
         )}
         <StatusBadge status={goal.status} />
 
@@ -118,7 +118,7 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
               onClick={() => deleteGoal(goal.id)}
               title="Delete goal"
             >
-              <svg className="w-3.5 h-3.5 text-danger" viewBox="0 0 20 20" fill="currentColor">
+              <svg className="w-3.5 h-3.5 text-destructive" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
             </Button>
@@ -135,7 +135,7 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="pb-3 space-y-1 border-t border-line">
+            <div className="pb-3 space-y-1 border-t border-border">
               {projects.map((project) => (
                 <ProjectNode
                   key={project.id}
@@ -144,7 +144,7 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
                 />
               ))}
               {projects.length === 0 && !showAddProject && (
-                <p className="text-sm text-text-tertiary pl-12 py-2">
+                <p className="text-sm text-muted-foreground pl-12 py-2">
                   No projects yet
                 </p>
               )}

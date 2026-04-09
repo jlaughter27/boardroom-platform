@@ -83,27 +83,27 @@ export function CommandPalette() {
             className="fixed top-[20%] left-1/2 -translate-x-1/2 z-[var(--z-command-palette)] w-full max-w-xl"
           >
             <Command
-              className="rounded-xl border border-line bg-bg-elevated/95 backdrop-blur-xl shadow-lg overflow-hidden"
+              className="rounded-xl border border-border bg-card/95 backdrop-blur-xl shadow-lg overflow-hidden"
               shouldFilter={false}
             >
               <Command.Input
                 value={search}
                 onValueChange={setSearch}
                 placeholder="Search or type a command..."
-                className="w-full bg-transparent px-4 py-3 text-sm text-text-primary placeholder:text-text-tertiary outline-none border-b border-line"
+                className="w-full bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none border-b border-border"
               />
               <Command.List className="max-h-80 overflow-y-auto p-2">
-                <Command.Empty className="px-4 py-8 text-center text-sm text-text-tertiary">
+                <Command.Empty className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No results found.
                 </Command.Empty>
 
-                <Command.Group heading="Navigation" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary">
+                <Command.Group heading="Navigation" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
                   {pages.map((page) => (
                     <Command.Item
                       key={page.path}
                       value={page.name}
                       onSelect={() => navigateTo(page.path)}
-                      className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary cursor-pointer data-[selected=true]:bg-bg-hover"
+                      className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                     >
                       <span className="text-base w-5 text-center">{page.icon}</span>
                       {page.name}
@@ -112,15 +112,15 @@ export function CommandPalette() {
                 </Command.Group>
 
                 {filteredGoals.length > 0 && (
-                  <Command.Group heading="Goals" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary">
+                  <Command.Group heading="Goals" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
                     {filteredGoals.map((goal) => (
                       <Command.Item
                         key={goal.id}
                         value={`goal-${goal.title}`}
                         onSelect={() => navigateTo('/')}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary cursor-pointer data-[selected=true]:bg-bg-hover"
+                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                       >
-                        <span className="text-base w-5 text-center text-accent">{'\u25CE'}</span>
+                        <span className="text-base w-5 text-center text-primary">{'\u25CE'}</span>
                         {goal.title}
                       </Command.Item>
                     ))}
@@ -128,15 +128,15 @@ export function CommandPalette() {
                 )}
 
                 {filteredProjects.length > 0 && (
-                  <Command.Group heading="Projects" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary">
+                  <Command.Group heading="Projects" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
                     {filteredProjects.map((project) => (
                       <Command.Item
                         key={project.id}
                         value={`project-${project.name}`}
                         onSelect={() => navigateTo('/')}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary cursor-pointer data-[selected=true]:bg-bg-hover"
+                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                       >
-                        <span className="text-base w-5 text-center text-accent-secondary">{'\u25A3'}</span>
+                        <span className="text-base w-5 text-center text-primary">{'\u25A3'}</span>
                         {project.name}
                       </Command.Item>
                     ))}
@@ -144,13 +144,13 @@ export function CommandPalette() {
                 )}
 
                 {filteredPeople.length > 0 && (
-                  <Command.Group heading="People" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary">
+                  <Command.Group heading="People" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
                     {filteredPeople.map((person) => (
                       <Command.Item
                         key={person.id}
                         value={`person-${person.name}`}
                         onSelect={() => navigateTo('/people')}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary cursor-pointer data-[selected=true]:bg-bg-hover"
+                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                       >
                         <span className="text-base w-5 text-center text-info">{'\u2605'}</span>
                         {person.name}
@@ -160,13 +160,13 @@ export function CommandPalette() {
                 )}
 
                 {filteredDecisions.length > 0 && (
-                  <Command.Group heading="Recent Decisions" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary">
+                  <Command.Group heading="Recent Decisions" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
                     {filteredDecisions.map((decision) => (
                       <Command.Item
                         key={decision.id}
                         value={`decision-${decision.question}`}
                         onSelect={() => navigateTo(`/decisions/${decision.id}`)}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary cursor-pointer data-[selected=true]:bg-bg-hover"
+                        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                       >
                         <span className="text-base w-5 text-center text-warning">{'\u2696'}</span>
                         <span className="truncate">{decision.question}</span>
@@ -175,11 +175,11 @@ export function CommandPalette() {
                   </Command.Group>
                 )}
 
-                <Command.Group heading="Actions" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary">
+                <Command.Group heading="Actions" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
                   <Command.Item
                     value="new-decision"
                     onSelect={() => navigateTo('/decisions')}
-                    className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary cursor-pointer data-[selected=true]:bg-bg-hover"
+                    className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                   >
                     <span className="text-base w-5 text-center text-success">+</span>
                     New Decision Session
@@ -187,10 +187,10 @@ export function CommandPalette() {
                 </Command.Group>
               </Command.List>
 
-              <div className="border-t border-line px-4 py-2 flex items-center justify-between text-xs text-text-tertiary">
+              <div className="border-t border-border px-4 py-2 flex items-center justify-between text-xs text-muted-foreground">
                 <span>Type to search across everything</span>
                 <span>
-                  <kbd className="px-1.5 py-0.5 rounded bg-bg-hover text-text-secondary font-mono">esc</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">esc</kbd>
                   {' '}to close
                 </span>
               </div>

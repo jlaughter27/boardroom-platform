@@ -61,7 +61,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       transition={{ duration: 0.2 }}
       className={cn(
         'flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-sm',
-        'text-sm text-text-primary',
+        'text-sm text-foreground',
         variantStyles[toast.variant]
       )}
     >
@@ -71,7 +71,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       <span className="flex-1">{toast.message}</span>
       <button
         onClick={onDismiss}
-        className="text-text-tertiary hover:text-text-primary transition-colors"
+        className="text-muted-foreground hover:text-foreground transition-colors"
       >
         &times;
       </button>

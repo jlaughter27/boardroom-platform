@@ -91,8 +91,8 @@ export default function IntegrationsPage() {
     <PageWrapper>
       <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Integrations</h1>
-          <p className="text-sm text-text-secondary mt-0.5">
+          <h1 className="text-2xl font-semibold text-foreground">Integrations</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Connect your tools to enrich your decision context
           </p>
         </div>

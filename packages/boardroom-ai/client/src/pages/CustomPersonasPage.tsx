@@ -93,8 +93,8 @@ export default function CustomPersonasPage() {
       <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-text-primary">Custom Personas</h1>
-            <p className="text-text-secondary text-sm mt-0.5">
+            <h1 className="text-2xl font-semibold text-foreground">Custom Personas</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">
               {personas.length}/3 personas created
             </p>
           </div>
@@ -124,7 +124,7 @@ export default function CustomPersonasPage() {
                     <span className="text-3xl block mb-2">{persona.icon}</span>
                   )}
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-semibold text-lg text-text-primary">{persona.name}</h3>
+                    <h3 className="font-semibold text-lg text-foreground">{persona.name}</h3>
                   </div>
                   <div className="flex items-center gap-2 mb-2">
                     <Badge variant={persona.modelTier === 'sonnet' ? 'accent' : 'default'}>
@@ -135,7 +135,7 @@ export default function CustomPersonasPage() {
                     )}
                   </div>
                   {persona.description && (
-                    <p className="text-text-secondary text-sm line-clamp-3 mb-3">{persona.description}</p>
+                    <p className="text-muted-foreground text-sm line-clamp-3 mb-3">{persona.description}</p>
                   )}
 
                   {/* Active toggle */}
@@ -143,7 +143,7 @@ export default function CustomPersonasPage() {
                     <button
                       onClick={() => handleToggleActive(persona)}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                        persona.isActive ? 'bg-success' : 'bg-bg-hover'
+                        persona.isActive ? 'bg-success' : 'bg-muted'
                       }`}
                     >
                       <motion.span
@@ -153,7 +153,7 @@ export default function CustomPersonasPage() {
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                       />
                     </button>
-                    <span className="text-xs text-text-secondary">
+                    <span className="text-xs text-muted-foreground">
                       {persona.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
@@ -164,7 +164,7 @@ export default function CustomPersonasPage() {
                       Edit
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => handleDelete(persona.id)}>
-                      <span className="text-danger">Delete</span>
+                      <span className="text-destructive">Delete</span>
                     </Button>
                   </div>
                 </Card>
@@ -174,7 +174,7 @@ export default function CustomPersonasPage() {
         )}
 
         {personas.length >= 3 && (
-          <p className="text-text-tertiary text-xs text-center">
+          <p className="text-muted-foreground text-xs text-center">
             Maximum of 3 custom personas reached. Delete one to create a new one.
           </p>
         )}

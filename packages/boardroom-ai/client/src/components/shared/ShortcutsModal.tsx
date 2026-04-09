@@ -46,15 +46,15 @@ export function ShortcutsModal({ shortcuts }: ShortcutsModalProps) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="shortcuts-title"
-            className="w-full max-w-md bg-bg-elevated border border-line rounded-xl shadow-lg p-6"
+            className="w-full max-w-md bg-card border border-border rounded-xl shadow-lg p-6"
           >
             <div className="flex items-center justify-between mb-5">
-              <h2 id="shortcuts-title" className="text-lg font-semibold text-text-primary">
+              <h2 id="shortcuts-title" className="text-lg font-semibold text-foreground">
                 Keyboard Shortcuts
               </h2>
               <button
                 onClick={() => setOpen(false)}
-                className="p-1 text-text-tertiary hover:text-text-secondary transition-colors"
+                className="p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
                 aria-label="Close shortcuts"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -67,17 +67,17 @@ export function ShortcutsModal({ shortcuts }: ShortcutsModalProps) {
               {shortcuts.map((s) => (
                 <div
                   key={s.label}
-                  className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-bg-hover transition-colors"
+                  className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted transition-colors"
                 >
-                  <span className="text-sm text-text-secondary">{s.description}</span>
-                  <kbd className="bg-bg-hover border border-line rounded px-1.5 py-0.5 text-xs font-mono text-text-primary">
+                  <span className="text-sm text-muted-foreground">{s.description}</span>
+                  <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs font-mono text-foreground">
                     {s.label}
                   </kbd>
                 </div>
               ))}
-              <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-bg-hover transition-colors">
-                <span className="text-sm text-text-secondary">Close modal / panel</span>
-                <kbd className="bg-bg-hover border border-line rounded px-1.5 py-0.5 text-xs font-mono text-text-primary">
+              <div className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted transition-colors">
+                <span className="text-sm text-muted-foreground">Close modal / panel</span>
+                <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs font-mono text-foreground">
                   Esc
                 </kbd>
               </div>

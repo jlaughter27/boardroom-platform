@@ -1,10 +1,46 @@
 import type { Config } from 'tailwindcss';
 
 export default {
+  darkMode: 'class',
   content: ['./src/**/*.{ts,tsx}', './index.html'],
   theme: {
     extend: {
       colors: {
+        // ── New shadcn-compatible token system ──
+        background: 'var(--color-background)',
+        foreground: 'var(--color-foreground)',
+        card: {
+          DEFAULT: 'var(--color-card)',
+          foreground: 'var(--color-card-foreground)',
+        },
+        muted: {
+          DEFAULT: 'var(--color-muted)',
+          foreground: 'var(--color-muted-foreground)',
+        },
+        primary: {
+          DEFAULT: 'var(--color-primary)',
+          foreground: 'var(--color-primary-foreground)',
+          text: 'var(--color-primary-text)',
+          warm: 'var(--color-primary-warm)',
+        },
+        accent: {
+          DEFAULT: 'var(--color-accent)',
+          foreground: 'var(--color-accent-foreground)',
+        },
+        border: 'var(--color-border)',
+        ring: 'var(--color-ring)',
+        destructive: {
+          DEFAULT: 'var(--color-destructive)',
+          foreground: 'var(--color-destructive-foreground)',
+        },
+
+        // ── Semantic colors ──
+        success: { DEFAULT: 'var(--color-success)', muted: 'var(--color-success-muted)' },
+        warning: { DEFAULT: 'var(--color-warning)', muted: 'var(--color-warning-muted)' },
+        danger: { DEFAULT: 'var(--color-danger)', muted: 'var(--color-danger-muted)' },
+        info: { DEFAULT: 'var(--color-info)', muted: 'var(--color-info-muted)' },
+
+        // ── Persona colors (hardcoded — Phase 5 will add CSS var indirection) ──
         persona: {
           optimist: '#22c55e',
           critic: '#ef4444',
@@ -14,6 +50,8 @@ export default {
           doer: '#f97316',
           ceo: '#06b6d4',
         },
+
+        // ── Status colors (hardcoded, work for both modes) ──
         status: {
           active: '#22c55e',
           pending: '#eab308',
@@ -22,33 +60,6 @@ export default {
           draft: '#6b7280',
           archived: '#4b5563',
         },
-        bg: {
-          base: 'var(--color-bg-base)',
-          surface: 'var(--color-bg-surface)',
-          elevated: 'var(--color-bg-elevated)',
-          hover: 'var(--color-bg-hover)',
-          active: 'var(--color-bg-active)',
-        },
-        line: {
-          subtle: 'var(--color-border-subtle)',
-          DEFAULT: 'var(--color-border-default)',
-          strong: 'var(--color-border-strong)',
-        },
-        text: {
-          primary: 'var(--color-text-primary)',
-          secondary: 'var(--color-text-secondary)',
-          tertiary: 'var(--color-text-tertiary)',
-        },
-        accent: {
-          DEFAULT: 'var(--color-accent-primary)',
-          hover: 'var(--color-accent-primary-hover)',
-          muted: 'var(--color-accent-primary-muted)',
-          secondary: 'var(--color-accent-secondary)',
-        },
-        success: { DEFAULT: 'var(--color-success)', muted: 'var(--color-success-muted)' },
-        warning: { DEFAULT: 'var(--color-warning)', muted: 'var(--color-warning-muted)' },
-        danger: { DEFAULT: 'var(--color-danger)', muted: 'var(--color-danger-muted)' },
-        info: { DEFAULT: 'var(--color-info)', muted: 'var(--color-info-muted)' },
       },
       fontFamily: {
         sans: ['var(--font-sans)'],
@@ -65,12 +76,25 @@ export default {
         sm: 'var(--shadow-sm)',
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
-        glow: 'var(--shadow-glow)',
       },
       transitionDuration: {
         fast: 'var(--duration-fast)',
         normal: 'var(--duration-normal)',
         slow: 'var(--duration-slow)',
+      },
+      animation: {
+        'pulse-live': 'pulse-live 1.5s ease-in-out infinite',
+        'fade-in': 'fade-in 300ms ease-out',
+      },
+      keyframes: {
+        'pulse-live': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.4' },
+        },
+        'fade-in': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
       },
     },
   },

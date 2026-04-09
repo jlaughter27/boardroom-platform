@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { motion } from 'motion/react';
 import { Button } from './Button';
 import { cn } from '../../lib/cn';
 
@@ -14,8 +13,8 @@ interface EmptyStateProps {
 }
 
 function Illustration({ variant }: { variant: EmptyVariant }) {
-  const color = 'var(--color-accent-primary)';
-  const muted = 'var(--color-border-default)';
+  const color = 'var(--color-primary)';
+  const muted = 'var(--color-border)';
 
   const illustrations: Record<EmptyVariant, ReactNode> = {
     'no-decisions': (
@@ -79,24 +78,21 @@ function Illustration({ variant }: { variant: EmptyVariant }) {
 
 export function EmptyState({ variant = 'no-data', title, description, action, className }: EmptyStateProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className={cn('flex flex-col items-center justify-center py-16 text-center', className)}
+    <div
+      className={cn('flex flex-col items-center justify-center py-16 text-center animate-fade-in', className)}
     >
       <div className="mb-5">
         <Illustration variant={variant} />
       </div>
-      <h3 className="text-base font-medium text-text-primary mb-1.5">{title}</h3>
+      <h3 className="text-base font-medium text-foreground mb-1.5">{title}</h3>
       {description && (
-        <p className="text-sm text-text-tertiary max-w-sm mb-6">{description}</p>
+        <p className="text-sm text-muted-foreground max-w-sm mb-6">{description}</p>
       )}
       {action && (
         <Button variant="primary" size="sm" onClick={action.onClick}>
           {action.label}
         </Button>
       )}
-    </motion.div>
+    </div>
   );
 }

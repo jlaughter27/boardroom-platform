@@ -12,20 +12,20 @@ interface MemoryCardProps {
 const statusColors: Record<string, string> = {
   [MemoryStatus.CONFIRMED]: 'bg-success-muted text-success border-success/30',
   [MemoryStatus.DRAFT]: 'bg-warning-muted text-warning border-warning/30',
-  [MemoryStatus.ARCHIVED]: 'bg-bg-hover text-text-tertiary border-line',
+  [MemoryStatus.ARCHIVED]: 'bg-muted text-muted-foreground border-border',
   [MemoryStatus.SUPERSEDED]: 'bg-warning-muted text-warning border-warning/30',
-  [MemoryStatus.REJECTED]: 'bg-danger-muted text-danger border-danger/30',
+  [MemoryStatus.REJECTED]: 'bg-destructive/10 text-destructive border-destructive/30',
 };
 
 const confidenceColors: Record<string, string> = {
   HIGH: 'text-success',
   MEDIUM: 'text-warning',
   LOW: 'text-warning',
-  SPECULATIVE: 'text-danger',
+  SPECULATIVE: 'text-destructive',
 };
 
 const classColors: Record<string, string> = {
-  WORKING: 'bg-accent-muted text-accent border-accent/30',
+  WORKING: 'bg-primary/10 text-primary border-primary/30',
   EPISODIC: 'bg-info-muted text-info border-info/30',
   SEMANTIC: 'bg-info-muted text-info border-info/30',
   DECISION: 'bg-warning-muted text-warning border-warning/30',
@@ -47,9 +47,9 @@ function relativeTime(date: Date | string): string {
 }
 
 export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
-  const statusColor = statusColors[memory.status] ?? 'bg-bg-hover text-text-tertiary border-line';
-  const classColor = classColors[memory.memoryClass] ?? 'bg-bg-hover text-text-tertiary border-line';
-  const confColor = confidenceColors[memory.confidence] ?? 'text-text-tertiary';
+  const statusColor = statusColors[memory.status] ?? 'bg-muted text-muted-foreground border-border';
+  const classColor = classColors[memory.memoryClass] ?? 'bg-muted text-muted-foreground border-border';
+  const confColor = confidenceColors[memory.confidence] ?? 'text-muted-foreground';
 
   const preview =
     memory.content.length > 100
@@ -65,19 +65,19 @@ export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick
       className={cn(
         'w-full text-left p-3 rounded-lg border transition-all',
         isSelected
-          ? 'border-accent ring-2 ring-accent/40 bg-bg-elevated'
-          : 'border-line bg-bg-surface hover:bg-bg-elevated hover:border-line-strong'
+          ? 'border-primary ring-2 ring-primary/40 bg-card'
+          : 'border-border bg-card hover:bg-card hover:border-border'
       )}
     >
-      <h3 className="text-sm font-semibold text-text-primary truncate">
+      <h3 className="text-sm font-semibold text-foreground truncate">
         {memory.title}
       </h3>
 
-      <p className="text-xs text-text-secondary mt-1 line-clamp-2">{preview}</p>
+      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{preview}</p>
 
       <div className="flex flex-wrap items-center gap-1.5 mt-2">
         {memory.domain && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-bg-hover text-text-secondary border border-line">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
             {memory.domain}
           </span>
         )}
@@ -97,23 +97,23 @@ export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick
           {displayTags.map((tag) => (
             <span
               key={tag}
-              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-bg-hover text-text-secondary"
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-muted text-muted-foreground"
             >
               {tag}
             </span>
           ))}
           {memory.tags.length > 3 && (
-            <span className="text-[10px] text-text-tertiary">
+            <span className="text-[10px] text-muted-foreground">
               +{memory.tags.length - 3}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2 text-[10px] text-text-tertiary">
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
           <div className="flex items-center gap-1" title={`Importance: ${(memory.importance * 100).toFixed(0)}%`}>
-            <div className="w-10 h-1 bg-bg-hover rounded-full overflow-hidden">
+            <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-accent rounded-full"
+                className="h-full bg-primary rounded-full"
                 style={{ width: `${memory.importance * 100}%` }}
               />
             </div>

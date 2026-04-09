@@ -6,12 +6,12 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-bg-hover text-text-secondary',
+        default: 'bg-muted text-muted-foreground',
         success: 'bg-success-muted text-success',
         warning: 'bg-warning-muted text-warning',
         danger: 'bg-danger-muted text-danger',
         info: 'bg-info-muted text-info',
-        accent: 'bg-accent-muted text-accent',
+        accent: 'bg-primary/10 text-primary',
       },
       solid: {
         true: '',
@@ -19,11 +19,11 @@ const badgeVariants = cva(
       },
     },
     compoundVariants: [
-      { variant: 'success', solid: true, className: 'bg-success text-bg-base' },
-      { variant: 'warning', solid: true, className: 'bg-warning text-bg-base' },
+      { variant: 'success', solid: true, className: 'bg-success text-background' },
+      { variant: 'warning', solid: true, className: 'bg-warning text-background' },
       { variant: 'danger', solid: true, className: 'bg-danger text-white' },
-      { variant: 'info', solid: true, className: 'bg-info text-bg-base' },
-      { variant: 'accent', solid: true, className: 'bg-accent text-white' },
+      { variant: 'info', solid: true, className: 'bg-info text-background' },
+      { variant: 'accent', solid: true, className: 'bg-primary-text text-white' },
     ],
     defaultVariants: { variant: 'default', solid: false },
   }

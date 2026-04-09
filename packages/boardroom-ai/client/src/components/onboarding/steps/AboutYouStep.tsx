@@ -38,7 +38,7 @@ export function AboutYouStep({ data, onUpdate }: Props) {
       />
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-text-secondary">
+        <label className="text-sm font-medium text-muted-foreground">
           What industry are you in?
         </label>
         <Select
@@ -50,7 +50,7 @@ export function AboutYouStep({ data, onUpdate }: Props) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-text-secondary mb-2">
+        <label className="block text-sm font-medium text-muted-foreground mb-2">
           How often do you make important decisions?
         </label>
         <div className="grid grid-cols-2 gap-2">
@@ -61,8 +61,8 @@ export function AboutYouStep({ data, onUpdate }: Props) {
               onClick={() => onUpdate({ decisionFrequency: freq.value })}
               className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-all duration-fast ${
                 data.decisionFrequency === freq.value
-                  ? 'border-accent bg-accent-muted text-accent'
-                  : 'border-line bg-bg-base text-text-secondary hover:border-line-strong'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-background text-muted-foreground hover:border-border'
               }`}
             >
               {freq.label}

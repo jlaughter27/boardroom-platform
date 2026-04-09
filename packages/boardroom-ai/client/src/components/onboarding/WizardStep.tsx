@@ -37,7 +37,7 @@ export function WizardStep({
   const progress = (stepNumber / totalSteps) * 100;
 
   return (
-    <div className="bg-bg-surface rounded-xl border border-line shadow-lg p-8">
+    <div className="bg-card rounded-xl border border-border shadow-lg p-8">
       {/* Progress bar */}
       <div className="mb-6">
         <Progress value={progress} className="mb-3" />
@@ -53,8 +53,8 @@ export function WizardStep({
                   isComplete
                     ? 'text-success'
                     : isCurrent
-                      ? 'text-accent'
-                      : 'text-text-tertiary'
+                      ? 'text-primary'
+                      : 'text-muted-foreground'
                 }`}
               >
                 {isComplete ? '\u2713 ' : ''}{label}
@@ -66,8 +66,8 @@ export function WizardStep({
 
       {/* Title + description */}
       <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-text-primary mb-2">{title}</h2>
-        <p className="text-text-secondary text-sm">{description}</p>
+        <h2 className="text-2xl font-semibold text-foreground mb-2">{title}</h2>
+        <p className="text-muted-foreground text-sm">{description}</p>
       </div>
 
       {/* Step content */}

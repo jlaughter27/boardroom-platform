@@ -21,7 +21,7 @@ function WarningBanner({ warning, onDismiss }: { warning: CognitiveLoadWarning; 
         <span className={`text-lg ${isCritical ? 'animate-pulse' : ''}`}>
           {isCritical ? '\u26A0' : '\u26A1'}
         </span>
-        <p className="text-sm text-text-primary">{warning.message}</p>
+        <p className="text-sm text-foreground">{warning.message}</p>
       </div>
       <Button variant="ghost" size="sm" onClick={onDismiss}>
         Dismiss

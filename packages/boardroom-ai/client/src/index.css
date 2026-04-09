@@ -7,8 +7,8 @@
 /* === BASE STYLES === */
 
 body {
-  background-color: var(--color-bg-base);
-  color: var(--color-text-primary);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
   font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: var(--leading-normal);
@@ -19,19 +19,42 @@ body {
 /* === SELECTION === */
 
 ::selection {
-  background: var(--color-accent-primary-muted);
-  color: var(--color-text-primary);
+  background: var(--color-ring);
+  color: var(--color-foreground);
 }
 
 /* === FOCUS === */
 
 *:focus-visible {
-  outline: 2px solid var(--color-accent-primary);
+  outline: 2px solid var(--color-ring);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
 /* === SCROLLBARS === */
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
+}
 
 ::-webkit-scrollbar {
   width: 6px;
@@ -43,12 +66,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border-default);
+  background: var(--color-border);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-strong);
+  background: var(--color-muted-foreground);
 }
 
 /* === REDUCED MOTION === */
@@ -71,9 +94,9 @@ body {
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    var(--color-bg-hover) 25%,
-    var(--color-bg-active) 50%,
-    var(--color-bg-hover) 75%
+    var(--color-muted) 25%,
+    var(--color-accent) 50%,
+    var(--color-muted) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;

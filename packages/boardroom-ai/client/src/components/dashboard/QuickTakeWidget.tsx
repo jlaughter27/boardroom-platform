@@ -62,7 +62,7 @@ export function QuickTakeWidget() {
 
   return (
     <Card className="p-4">
-      <h3 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-3">
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
         Quick Take
       </h3>
 
@@ -86,13 +86,13 @@ export function QuickTakeWidget() {
       </div>
 
       {result && (
-        <Card className="mt-3 bg-bg-elevated">
-          <p className="text-sm text-text-primary">{result.recommendation}</p>
+        <Card className="mt-3 bg-card">
+          <p className="text-sm text-foreground">{result.recommendation}</p>
           {result.confidence > 0 && (
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs text-text-tertiary">Confidence:</span>
+              <span className="text-xs text-muted-foreground">Confidence:</span>
               <Progress value={result.confidence * 100} className="flex-1 h-1.5" />
-              <span className="text-xs text-text-secondary">{Math.round(result.confidence * 100)}%</span>
+              <span className="text-xs text-muted-foreground">{Math.round(result.confidence * 100)}%</span>
             </div>
           )}
           <Button
