@@ -79,10 +79,11 @@ Will be implemented after Phase 5 pre-launch hardening.
 | 405 | Relationship Visualization + Enhanced Memory Linking | ⬜ Ready | Claude | 011, 013 | Full |
 | 406 | API Hub V1 — Email-to-Memory Integration | ⬜ Ready | Claude | 300, 302 | Full |
 
-## Phase 5: Pre-Launch Hardening + Railway Deployment (SPRINT 5) - ACTIVE
+## Phase 5: Pre-Launch Hardening + Railway Deployment - DEFERRED
 
 Phase 5 focuses on production readiness, deployment infrastructure, and end-to-end testing
 to prepare for v1.0 launch.
+Will be implemented after Phase 6 scale features.
 
 | ID | Task | Status | Agent | Dependencies | Isolation |
 |----|------|--------|-------|-------------|-----------|
@@ -95,6 +96,22 @@ to prepare for v1.0 launch.
 | 506 | Prisma Migration Audit | ⬜ Ready | Claude | 001 | Full |
 | 507 | Production Readiness Checklist Script | ⬜ Ready | Claude | 008 | Full |
 | 508 | Railway Deployment Guide | ⬜ Ready | Claude | 008 | Full |
+
+## Phase 6: Scale & Growth Features (SPRINT 6) - ACTIVE
+
+Phase 6 focuses on scale features for growth from 100→2000+ users, including
+team boards, enterprise features, mobile app, and multi-model evaluation.
+
+| ID | Task | Status | Agent | Dependencies | Isolation |
+|----|------|--------|-------|-------------|-----------|
+| 600 | Team Boards (Shared Decisions) | ⬜ Ready | Claude | 300, 304 | Full |
+| 601 | Role-Based Access Control | ⬜ Ready | Claude | 300, 600 | Full |
+| 602 | Mobile App (React Native) | ⬜ Ready | DeepSeek | 002, 011 | Full |
+| 603 | Multi-Model Evaluation (Gemini Flash, DeepSeek) | ⬜ Ready | Claude | 004 | Full |
+| 604 | Enterprise Features: SSO, Audit Trails | ⬜ Ready | Claude | 500, 501 | Full |
+| 605 | SOC2 Compliance Preparation | ⬜ Ready | Claude | 604 | Full |
+| 606 | Knowledge Graph Implementation | ⬜ Ready | Claude | 400, 405 | Full |
+| 607 | Novelty Personas (Celebrity/Historical) | ⬜ Ready | Claude | 100, 401 | Full |
 
 ## Status Legend
 - ⬜ Ready: Can start now
