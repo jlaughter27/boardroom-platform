@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: boardroom_test
+    volumes:
+      - pgdata-test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  omnimind-api-test:
+    build:
+      context: .
+      dockerfile: packages/omnimind-api/Dockerfile
+    ports:
+      - "3334:3334"
+    environment:
+      DATABASE_URL: postgresql://test_user:test_password@postgres-test:5432/boardroom_test
+      REDIS_URL: redis://redis-test:6379
+      OMNIMIND_API_KEY: test-api-key-e2e
+      ANTHROPIC_API_KEY: mock-anthropic-key
+      OPENAI_API_KEY: mock-openai-key
+      OMNIMIND_PORT: "3334"
+      NODE_ENV: test
+      MOCK_LLM: "true"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
+  boardroom-ai-test:
+    build:
+      context: .
+      dockerfile: packages/boardroom-ai/Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      JWT_SECRET: test-jwt-secret-e2e
+      OMNIMIND_API_URL: http://omnimind-api-test:3334
+      OMNIMIND_API_KEY: test-api-key-e2e
+      ANTHROPIC_API_KEY: mock-anthropic-key
+      BOARDROOM_PORT: "3002"
+      CORS_ORIGINS: http://localhost:3002,http://localhost:5173
+      NODE_ENV: test
+      MOCK_LLM: "true"
+      STRIPE_SECRET_KEY: sk_test_mock
+      STRIPE_WEBHOOK_SECRET: whsec_mock
+    depends_on:
+      - omnimind-api-test
+
+volumes:
+  pgdata-test:
