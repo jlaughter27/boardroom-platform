@@ -46,10 +46,11 @@ Will be implemented after Phase 3 core features.
 | 022 | Cross-Project Collision Scan | Entity links + project deadlines | May extend context-assembler or be standalone |
 | 023 | Decision Simulation / Pre-Mortem | Full persona system + outcome data | Extension of Critic persona, not separate engine |
 
-## Phase 3: Agentic Upgrades + External Cortex (SPRINT 3) - ACTIVE
+## Phase 3: Agentic Upgrades + External Cortex - DEFERRED
 
 Phase 3 transforms the multi-persona decision tool into a cognitive co-pilot with tool use,
 thinking pattern detection, contradiction alerts, and proactive intelligence delivery.
+Will be implemented after Phase 4 core features.
 
 | ID | Task | Status | Agent | Dependencies | Isolation |
 |----|------|--------|-------|-------------|-----------|
@@ -60,6 +61,22 @@ thinking pattern detection, contradiction alerts, and proactive intelligence del
 | 304 | Cortex Intelligence Layer | ⬜ Ready | Claude | 300 | Full |
 | 305 | Proactive Notification System | ⬜ Ready | Claude | 304 | Full |
 | 306 | Launch Readiness & Polish | ⬜ Ready | Claude | 301-305 | Full |
+
+## Phase 4: Intelligence Layer + Scale Features (SPRINT 4) - ACTIVE
+
+Phase 4 completes the retrieval engine (semantic search), adds user-definable personas,
+improves synthesis quality, builds decision simulations, and creates dynamic widget +
+relationship visualization systems that make the product sticky.
+
+| ID | Task | Status | Agent | Dependencies | Isolation |
+|----|------|--------|-------|-------------|-----------|
+| 400 | Pgvector Semantic Search — Completing the 4th Retrieval Layer | ⬜ Ready | Claude | 001, 005 | Full |
+| 401 | Custom Persona Creation | ⬜ Ready | Claude | 100, 300 | Full |
+| 402 | Improved Synthesis + Outcome-Informed Reasoning | ⬜ Ready | Claude | 100, 300 | Full |
+| 403 | Lightweight Decision Simulations | ⬜ Ready | Claude | 300, 304 | Full |
+| 404 | Dynamic Widget System | ⬜ Ready | Claude | 002, 011 | Full |
+| 405 | Relationship Visualization + Enhanced Memory Linking | ⬜ Ready | Claude | 011, 013 | Full |
+| 406 | API Hub V1 — Email-to-Memory Integration | ⬜ Ready | Claude | 300, 302 | Full |
 
 ## Status Legend
 - ⬜ Ready: Can start now

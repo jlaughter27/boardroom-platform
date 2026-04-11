@@ -16,9 +16,9 @@
 **Build time:** ~60 seconds per service
 **Private networking:** Not yet enabled. BoardRoom → OmniMind uses public domain.
 
-## Current Phase: SPRINT 3 (Phase 3) - Agentic Upgrades + External Cortex
+## Current Phase: SPRINT 4 (Phase 4) - Intelligence Layer + Scale Features
 
-The project has moved to **Sprint 3 (Phase 3)** focusing on agentic upgrades, tool use, and external cortex intelligence.
+The project has moved to **Sprint 4 (Phase 4)** focusing on completing the retrieval engine (semantic search), adding user-definable personas, improving synthesis quality, building decision simulations, and creating dynamic widget + relationship visualization systems.
 
 ### What's Built (Phase 0 — In Progress)
 
@@ -36,20 +36,21 @@ The project has moved to **Sprint 3 (Phase 3)** focusing on agentic upgrades, to
 - Entity CRUD routes (people, goals, projects, tasks, decisions, commitments)
 - Context assembler + cross-entity search
 
-**Deferred to After Phase 3:**
+**Deferred to After Phase 4:**
 - Phase 1 (Multi-Persona Intelligence): Persona prompts, parallel dispatch, CEO synthesis
 - Phase 2 (Dashboard & Intelligence): Thinking pattern detection, weekly briefing, cross-project scan
+- Phase 3 (Agentic Upgrades + External Cortex): Tool-enabled agent runtime, Google Calendar integration, Stripe subscriptions, cortex intelligence layer
 
-### Phase 3 Focus: Agentic Upgrades + External Cortex
+### Phase 4 Focus: Intelligence Layer + Scale Features
 
-**Sprint 3 Tasks (300-306):**
-1. **Phase 3 Types & Contracts** - Extend shared types for tool use, cortex, subscriptions
-2. **Tool-Enabled Agent Runtime** - Add Anthropic SDK tool use to existing agent runtime
-3. **Google Calendar Integration** - OAuth integration for memory ingestion
-4. **Stripe Subscription System** - Billing, plan tiers, usage metering
-5. **Cortex Intelligence Layer** - Proactive weekly memos, pattern analysis, contradiction alerts
-6. **Proactive Notification System** - User notifications for insights and alerts
-7. **Launch Readiness & Polish** - Final polish for v1 launch
+**Sprint 4 Tasks (400-406):**
+1. **Pgvector Semantic Search** — Complete the 4th retrieval layer with embedding generation and cosine similarity search
+2. **Custom Persona Creation** — Users can create their own personas with custom system prompts and tool permissions
+3. **Improved Synthesis + Outcome-Informed Reasoning** — Enhance CEO synthesis with past decision outcomes and thinking patterns
+4. **Lightweight Decision Simulations** — "What happens next?" projections for resource, timeline, and stakeholder impact
+5. **Dynamic Widget System** — Configurable dashboard with drag-and-drop widget layout
+6. **Relationship Visualization + Enhanced Memory Linking** — Force-directed graph of people/projects and improved memory entity linking
+7. **API Hub V1 — Email-to-Memory Integration** — Gmail OAuth integration to extract memories from important emails
 
 ### Infrastructure Status
 
@@ -108,5 +109,5 @@ The project has moved to **Sprint 3 (Phase 3)** focusing on agentic upgrades, to
 | Architectural decisions | `docs/DECISIONS.md` |
 | Dev rules & conventions | `.claude/CLAUDE.md` |
 | API contracts | `docs/contracts/*.contract.md` |
-| Sprint 3 Plan | `docs/prompts/PHASE-3-ORCHESTRATOR.md` |
+| Sprint 4 Plan | `docs/prompts/PHASE-4-ORCHESTRATOR.md` |
 | Task Tracking | `docs/tasks/_TASK-INDEX.md` |
