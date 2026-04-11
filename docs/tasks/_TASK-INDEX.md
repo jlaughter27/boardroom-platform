@@ -1,26 +1,26 @@
 # Task Index
 
-## Phase 0: Foundation & Memory Core (Weeks 1-5)
+## Phase 0: Foundation & Memory Core (Weeks 1-5) - IN PROGRESS
 
 | ID | Task | Status | Agent | Dependencies | Isolation |
 |----|------|--------|-------|-------------|-----------|
-| 001 | Prisma schema + migrations | ⬜ Ready | Claude | None | Full |
-| 002 | Memory CRUD endpoints | ⬜ Blocked | Claude | 001 | Full |
-| 003 | Sync validation pipeline | ⬜ Blocked | Claude | 001 | Full |
-| 004 | Shared types + Zod schemas | ⬜ Ready | DeepSeek | None | Full |
+| 001 | Prisma schema + migrations | Done | Claude | None | Full |
+| 002 | Memory CRUD endpoints | Active | Claude | 001 | Full |
+| 003 | Sync validation pipeline | Active | Claude | 001 | Full |
+| 004 | Shared types + Zod schemas | Done | DeepSeek | None | Full |
 | 005 | Hybrid retrieval engine | ⬜ Blocked | Claude | 001, 004 | Full |
 | 006 | Seed data generator | ⬜ Blocked | DeepSeek | 001 | Full |
-| 007 | Utility functions (hash, dates, tokens) | ⬜ Ready | DeepSeek | None | Full |
-| 008 | Docker Compose + dev setup | ⬜ Ready | DeepSeek | None | Full |
-| 009 | Custom agent runtime | ⬜ Blocked | Claude | 004 | Full |
+| 007 | Utility functions (hash, dates, tokens) | Done | DeepSeek | None | Full |
+| 008 | Docker Compose + dev setup | Done | DeepSeek | None | Full |
+| 009 | Custom agent runtime | Active | Claude | 004 | Full |
 | 010 | Onboarding flow (frontend) | ⬜ Blocked | Claude | 002 | Partial |
-| 011 | Entity CRUD routes (people, goals, projects, tasks) | ⬜ Blocked | Claude | 001 | Full |
-| 012 | Decision + Commitment routes | ⬜ Blocked | Claude | 001 | Full |
+| 011 | Entity CRUD routes (people, goals, projects, tasks) | Active | Claude | 001 | Full |
+| 012 | Decision + Commitment routes | Active | Claude | 001 | Full |
 | 013 | Context assembler + cross-entity search | ⬜ Blocked | Claude | 005, 011 | Full |
-| 014 | Golden test scenarios (50) | ⬜ Ready | DeepSeek | None | Full |
+| 014 | Golden test scenarios (50) | Done | DeepSeek | None | Full |
 | 015 | pgvector + embedding generation | ⬜ Blocked | Claude | 001, 005 | Full |
 
-## Phase 1: Multi-Persona Intelligence (Weeks 6-10)
+## Phase 1: Multi-Persona Intelligence (Weeks 6-10) - DEFERRED
 
 | ID | Task | Status | Agent | Dependencies | Isolation |
 |----|------|--------|-------|-------------|-----------|
@@ -34,12 +34,10 @@
 | 107 | Eval runners (retrieval, personas, e2e) | ⬜ Blocked | DeepSeek | 014 | Full |
 | 108 | Rate limiting + prompt caching + cost tracking | ⬜ Blocked | Claude | 101 | Full |
 
-## Phase 2 Features (NOT YET ACTIVE — Do not create files)
+## Phase 2: Dashboard & Intelligence Layer - DEFERRED
 
-These features are described in docs/tasks/phase-2/ as specifications.
-They do NOT have directories or files in the codebase yet.
-When Phase 2 begins, the directory structure will be decided based on
-what the code looks like at that point.
+Features are described in docs/tasks/phase-2/ as specifications.
+Will be implemented after Phase 3 core features.
 
 | ID | Feature | Depends On | Notes |
 |----|---------|-----------|-------|
@@ -48,7 +46,20 @@ what the code looks like at that point.
 | 022 | Cross-Project Collision Scan | Entity links + project deadlines | May extend context-assembler or be standalone |
 | 023 | Decision Simulation / Pre-Mortem | Full persona system + outcome data | Extension of Critic persona, not separate engine |
 
-DO NOT create directories or files for these until the task moves to Active.
+## Phase 3: Agentic Upgrades + External Cortex (SPRINT 3) - ACTIVE
+
+Phase 3 transforms the multi-persona decision tool into a cognitive co-pilot with tool use,
+thinking pattern detection, contradiction alerts, and proactive intelligence delivery.
+
+| ID | Task | Status | Agent | Dependencies | Isolation |
+|----|------|--------|-------|-------------|-----------|
+| 300 | Phase 3 Types & Contracts | ⬜ Ready | Claude | 004 | Full |
+| 301 | Tool-Enabled Agent Runtime | ⬜ Ready | Claude | 009 | Full |
+| 302 | Google Calendar Integration | ⬜ Ready | Claude | 300 | Full |
+| 303 | Stripe Subscription System | ⬜ Ready | Claude | 300 | Full |
+| 304 | Cortex Intelligence Layer | ⬜ Ready | Claude | 300 | Full |
+| 305 | Proactive Notification System | ⬜ Ready | Claude | 304 | Full |
+| 306 | Launch Readiness & Polish | ⬜ Ready | Claude | 301-305 | Full |
 
 ## Status Legend
 - ⬜ Ready: Can start now

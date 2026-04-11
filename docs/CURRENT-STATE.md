@@ -2,7 +2,7 @@
 
 > Living document. Update after each deploy or phase completion.
 >
-> **Last updated:** 2026-04-08
+> **Last updated:** 2026-04-11
 
 ## Deployment Status
 
@@ -16,56 +16,47 @@
 **Build time:** ~60 seconds per service
 **Private networking:** Not yet enabled. BoardRoom → OmniMind uses public domain.
 
-## What's Built (Phase 1 — Complete)
+## Current Phase: SPRINT 3 (Phase 3) - Agentic Upgrades + External Cortex
 
-### OmniMind API
-- Full Prisma schema with 12+ models (User, Room, Session, MemoryEntry, Decision, Commitment, Person, Goal, Project, Task, etc.)
-- Memory validation pipeline (Zod + temporal + contradiction check)
-- Hybrid retrieval engine (vector similarity + trigram + tsvector full-text)
-- REST API with API key auth
-- Rate limiting (in-memory)
-- Background jobs (node-cron): weekly memo, pattern detection, contradiction scan
-- Health endpoint with DB connectivity check
-- OpenAI embeddings (vector(1536)) for semantic search
+The project has moved to **Sprint 3 (Phase 3)** focusing on agentic upgrades, tool use, and external cortex intelligence.
 
-### BoardRoom AI
-- React frontend with dark theme design system (CSS custom properties → Tailwind → CVA components)
-- JWT auth (email/password registration, httpOnly cookies)
-- Custom agent runtime (~200 lines, no LangChain)
-- 7-persona system: Optimist, Critic, Alternate, Technician, Questionnaire, Doer, CEO
-- Persona prompt loading from `docs/prompts/*.system.md`
-- SSE streaming for decision session responses
-- Context packager (top 7-10 memories per persona call)
-- OmniMind HTTP client for all data operations
-- Login/signup page with premium UI (parallax blobs, rotating testimonials, Framer Motion animations)
-- Static file serving with SPA fallback
-- API prefix rewriting (`/api/*` → `/*`) for dev/prod parity
+### What's Built (Phase 0 — In Progress)
 
-### Shared Package
-- TypeScript interfaces for all data models
-- Zod validation schemas (companion to each interface)
-- Constants and enums (matching Prisma)
-- Pure utility functions
+**Core Infrastructure Complete:**
+- Prisma schema with all entities (12+ models)
+- Shared TypeScript types and Zod validation schemas
+- Docker Compose dev setup
+- Golden test scenarios (50+)
+- Utility functions (cryptography, dates, tokens)
 
-## What's Spec'd but Not Built (Phase 2)
+**Active Development (Phase 0 tasks):**
+- Memory CRUD endpoints (in progress)
+- Sync validation pipeline (in progress) 
+- Custom agent runtime (in progress)
+- Entity CRUD routes (people, goals, projects, tasks, decisions, commitments)
+- Context assembler + cross-entity search
 
-Refer to `docs/MASTER-FRAMEWORK.md` and `docs/tasks/` for full specs.
+**Deferred to After Phase 3:**
+- Phase 1 (Multi-Persona Intelligence): Persona prompts, parallel dispatch, CEO synthesis
+- Phase 2 (Dashboard & Intelligence): Thinking pattern detection, weekly briefing, cross-project scan
 
-### Planned Features
-- **Subscription/billing** — Stripe integration, plan tiers, usage metering
-- **OAuth integrations** — Google Calendar, Slack, Notion for memory ingestion
-- **Enhanced retrieval** — Reranking, query expansion, adaptive context windows
-- **Cortex system** — Proactive weekly memos, pattern analysis, contradiction alerts
-- **Collaboration** — Multi-user rooms, shared decision sessions
-- **Mobile responsive** — Full mobile layout optimization
-- **Baseline migration** — Replace `prisma db push` with proper migration history
+### Phase 3 Focus: Agentic Upgrades + External Cortex
 
-### Infrastructure Upgrades Needed
-- Switch `OMNIMIND_API_URL` to Railway private networking
-- Redis-backed rate limiting (for multi-instance scaling)
-- Proper migration history (baseline migration + `prisma migrate deploy`)
-- CI/CD pipeline (typecheck + test gate before deploy)
-- Monitoring/alerting beyond health checks
+**Sprint 3 Tasks (300-306):**
+1. **Phase 3 Types & Contracts** - Extend shared types for tool use, cortex, subscriptions
+2. **Tool-Enabled Agent Runtime** - Add Anthropic SDK tool use to existing agent runtime
+3. **Google Calendar Integration** - OAuth integration for memory ingestion
+4. **Stripe Subscription System** - Billing, plan tiers, usage metering
+5. **Cortex Intelligence Layer** - Proactive weekly memos, pattern analysis, contradiction alerts
+6. **Proactive Notification System** - User notifications for insights and alerts
+7. **Launch Readiness & Polish** - Final polish for v1 launch
+
+### Infrastructure Status
+
+**Live Services:** Both BoardRoom AI and OmniMind API are deployed and healthy on Railway
+**Database:** PostgreSQL with pgvector + pg_trgm enabled
+**Authentication:** JWT auth with httpOnly cookies
+**Rate Limiting:** In-memory (needs Redis for production scaling)
 
 ## Environment Configuration
 
@@ -102,7 +93,7 @@ Refer to `docs/MASTER-FRAMEWORK.md` and `docs/tasks/` for full specs.
 ## Git Branching
 
 - **`main`** — Production branch. Railway auto-deploys on push.
-- Development happens directly on `main` during Phase 1. Feature branches recommended for Phase 2.
+- Development happens directly on `main`. Feature branches recommended for complex changes.
 
 ## Key Files to Start Any Session
 
@@ -117,3 +108,5 @@ Refer to `docs/MASTER-FRAMEWORK.md` and `docs/tasks/` for full specs.
 | Architectural decisions | `docs/DECISIONS.md` |
 | Dev rules & conventions | `.claude/CLAUDE.md` |
 | API contracts | `docs/contracts/*.contract.md` |
+| Sprint 3 Plan | `docs/prompts/PHASE-3-ORCHESTRATOR.md` |
+| Task Tracking | `docs/tasks/_TASK-INDEX.md` |

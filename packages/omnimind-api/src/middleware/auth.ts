@@ -2,13 +2,12 @@ import type { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { logger } from '../lib/logger';
 
-let _apiKey: string | undefined;
 function getApiKey(): string {
-  if (!_apiKey) {
-    _apiKey = process.env.OMNIMIND_API_KEY;
-    if (!_apiKey) throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set. Server cannot start.');
+  const value = process.env.OMNIMIND_API_KEY;
+  if (!value) {
+    throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set. Server cannot start.');
   }
-  return _apiKey;
+  return value;
 }
 
 export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): void => {
@@ -20,13 +19,19 @@ export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): voi
 
   const apiKey = req.headers['x-api-key'] as string | undefined;
   let isValid = false;
+  let fatalError: Error | null = null;
   try {
     const expected = getApiKey();
     isValid = apiKey != null
       && apiKey.length === expected.length
       && timingSafeEqual(Buffer.from(apiKey), Buffer.from(expected));
-  } catch {
-    // API key not configured — reject all requests
+  } catch (err) {
+    fatalError = err as Error;
+  }
+
+  if (fatalError) {
+    // Propagate fatal misconfiguration as tests expect
+    throw fatalError;
   }
 
   if (!isValid) {

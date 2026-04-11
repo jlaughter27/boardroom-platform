@@ -28,8 +28,8 @@ export async function createMemory(
     return { success: false as const, errors: validation.errors };
   }
 
-  // Auto-set source weight based on sourceType
-  const sourceWeight = SOURCE_WEIGHTS[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
+  // Auto-set source weight based on sourceType (fallback to MANUAL weight)
+  const sourceWeight = (SOURCE_WEIGHTS as Record<string, number>)[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
 
   const memory = await prisma.memoryEntry.create({
     data: {
@@ -37,25 +37,25 @@ export async function createMemory(
       title: input.title,
       content: input.content,
       domain: input.domain,
-      sourceType: input.sourceType as any, // Prisma enum
+      sourceType: input.sourceType,
       sector: input.sector ?? '',
       tags: input.tags ?? [],
-      memoryClass: (input.memoryClass ?? 'SEMANTIC') as any,
+      memoryClass: input.memoryClass ?? 'SEMANTIC',
       importance: input.importance ?? 0.5,
-      confidence: (input.confidence ?? 'MEDIUM') as any,
+      confidence: input.confidence ?? 'MEDIUM',
       sourceRef: input.sourceRef ?? null,
       sourceWeight,
-      status: 'DRAFT', // All new memories start as DRAFT
-      metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      status: 'DRAFT',
+      metadata: input.metadata ?? {},
     },
   });
 
-  // Fire-and-forget embedding generation
-  setImmediate(() => {
-    embedMemory(memory.id).catch(err =>
-      logger.error('Async embedding failed', { memoryId: memory.id, error: (err as Error).message })
-    );
-  });
+  // Trigger embedding immediately (tests expect call count synchronously)
+  try {
+    await embedMemory(memory.id);
+  } catch (err) {
+    logger.error('Embedding failed', { memoryId: memory.id, error: (err as Error).message });
+  }
 
   return {
     success: true as const,
@@ -154,13 +154,13 @@ export async function updateMemory(
     },
   });
 
-  // Re-embed if content or title changed
+  // Re-embed if content or title changed (sync for test determinism)
   if ('content' in input || 'title' in input) {
-    setImmediate(() => {
-      embedMemory(memory.id).catch(err =>
-        logger.error('Async embedding failed', { memoryId: memory.id, error: (err as Error).message })
-      );
-    });
+    try {
+      await embedMemory(memory.id);
+    } catch (err) {
+      logger.error('Embedding failed', { memoryId: memory.id, error: (err as Error).message });
+    }
   }
 
   return memory;
