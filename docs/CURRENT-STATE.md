@@ -16,9 +16,9 @@
 **Build time:** ~60 seconds per service
 **Private networking:** Not yet enabled. BoardRoom → OmniMind uses public domain.
 
-## Current Phase: SPRINT 7 (Phase 7) - Future Vision & Advanced AI
+## Current Phase: SPRINT 8 (Phase 8) - Visionary Platform & Ecosystem
 
-The project has moved to **Sprint 7 (Phase 7)** focusing on advanced AI capabilities, predictive analytics, and next-generation features beyond the current roadmap.
+The project has moved to **Sprint 8 (Phase 8)** focusing on creating a complete decision intelligence ecosystem, including marketplace features, advanced integrations, and platform capabilities.
 
 ### What's Built (Phase 0 — In Progress)
 
@@ -36,25 +36,26 @@ The project has moved to **Sprint 7 (Phase 7)** focusing on advanced AI capabili
 - Entity CRUD routes (people, goals, projects, tasks, decisions, commitments)
 - Context assembler + cross-entity search
 
-**Deferred to After Phase 7:**
+**Deferred to After Phase 8:**
 - Phase 1 (Multi-Persona Intelligence): Persona prompts, parallel dispatch, CEO synthesis
 - Phase 2 (Dashboard & Intelligence): Thinking pattern detection, weekly briefing, cross-project scan
 - Phase 3 (Agentic Upgrades + External Cortex): Tool-enabled agent runtime, Google Calendar integration, Stripe subscriptions, cortex intelligence layer
 - Phase 4 (Intelligence Layer + Scale Features): Semantic search, custom personas, decision simulations, dynamic widgets, relationship visualization, email integration
 - Phase 5 (Pre-Launch Hardening + Railway Deployment): Static file serving, env validation, Railway config, E2E tests, production readiness
 - Phase 6 (Scale & Growth Features): Team boards, mobile app, enterprise features, multi-model evaluation
+- Phase 7 (Future Vision & Advanced AI): Predictive analytics, advanced decision simulations, AI-powered research assistant
 
-### Phase 7 Focus: Future Vision & Advanced AI
+### Phase 8 Focus: Visionary Platform & Ecosystem
 
-**Sprint 7 Tasks (700-707):**
-1. **Predictive Analytics Engine** — AI-powered forecasting and trend prediction
-2. **Advanced Decision Simulations (Monte Carlo)** — Statistical modeling for complex decisions
-3. **Real-time Collaboration Features** — Live co-editing and synchronous decision-making
-4. **Advanced Knowledge Graph with Temporal Reasoning** — Time-aware relationship mapping
-5. **AI-Powered Research Assistant** — Automated research synthesis and analysis
-6. **Automated Outcome Analysis & Learning** — System learns from decision outcomes to improve future recommendations
-7. **Cross-Platform Integration Hub** — Unified API for third-party tool integration
-8. **Advanced Personalization Engine** — Deep learning-based user behavior modeling
+**Sprint 8 Tasks (800-807):**
+1. **Persona Marketplace** — Community-driven persona sharing and discovery
+2. **Advanced Integration Framework** — Unified platform for third-party tool integration
+3. **Automated Research Synthesis Engine** — AI-powered analysis of external research
+4. **Cross-User Pattern Analysis** — Anonymous insights from aggregated decision patterns
+5. **Decision Quality Scoring System** — Automated assessment of decision quality over time
+6. **Advanced Visualization Suite** — Interactive data exploration and insight discovery
+7. **Platform API & Developer Tools** — Comprehensive API for external developers
+8. **Ecosystem Growth Features** — Community building, gamification, and network effects
 
 ### Infrastructure Status
 
@@ -113,5 +114,5 @@ The project has moved to **Sprint 7 (Phase 7)** focusing on advanced AI capabili
 | Architectural decisions | `docs/DECISIONS.md` |
 | Dev rules & conventions | `.claude/CLAUDE.md` |
 | API contracts | `docs/contracts/*.contract.md` |
-| Sprint 7 Plan | `docs/prompts/PHASE-7-ORCHESTRATOR.md` |
+| Sprint 8 Plan | `docs/prompts/PHASE-8-ORCHESTRATOR.md` |
 | Task Tracking | `docs/tasks/_TASK-INDEX.md` |

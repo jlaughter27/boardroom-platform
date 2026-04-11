@@ -114,10 +114,11 @@ Will be implemented after Phase 7 future vision features.
 | 606 | Knowledge Graph Implementation | ⬜ Ready | Claude | 400, 405 | Full |
 | 607 | Novelty Personas (Celebrity/Historical) | ⬜ Ready | Claude | 100, 401 | Full |
 
-## Phase 7: Future Vision & Advanced AI (SPRINT 7) - ACTIVE
+## Phase 7: Future Vision & Advanced AI - DEFERRED
 
 Phase 7 focuses on advanced AI capabilities, predictive analytics, and
 next-generation features beyond the current roadmap.
+Will be implemented after Phase 8 visionary features.
 
 | ID | Task | Status | Agent | Dependencies | Isolation |
 |----|------|--------|-------|-------------|-----------|
@@ -129,6 +130,22 @@ next-generation features beyond the current roadmap.
 | 705 | Automated Outcome Analysis & Learning | ⬜ Ready | Claude | 304, 400 | Full |
 | 706 | Cross-Platform Integration Hub | ⬜ Ready | Claude | 406, 600 | Full |
 | 707 | Advanced Personalization Engine | ⬜ Ready | Claude | 304, 400 | Full |
+
+## Phase 8: Visionary Platform & Ecosystem (SPRINT 8) - ACTIVE
+
+Phase 8 focuses on creating a complete decision intelligence ecosystem,
+including marketplace features, advanced integrations, and platform capabilities.
+
+| ID | Task | Status | Agent | Dependencies | Isolation |
+|----|------|--------|-------|-------------|-----------|
+| 800 | Persona Marketplace | ⬜ Ready | Claude | 401, 607 | Full |
+| 801 | Advanced Integration Framework | ⬜ Ready | Claude | 406, 706 | Full |
+| 802 | Automated Research Synthesis Engine | ⬜ Ready | Claude | 704, 400 | Full |
+| 803 | Cross-User Pattern Analysis | ⬜ Ready | Claude | 304, 600 | Full |
+| 804 | Decision Quality Scoring System | ⬜ Ready | Claude | 304, 705 | Full |
+| 805 | Advanced Visualization Suite | ⬜ Ready | DeepSeek | 404, 405 | Full |
+| 806 | Platform API & Developer Tools | ⬜ Ready | Claude | 300, 706 | Full |
+| 807 | Ecosystem Growth Features | ⬜ Ready | Claude | 600, 800 | Full |
 
 ## Status Legend
 - ⬜ Ready: Can start now
