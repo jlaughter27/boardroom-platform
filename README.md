@@ -5,17 +5,58 @@ An executive decision intelligence suite. Multi-persona AI analysis + persistent
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 20+, Docker
+# Prerequisites: Node.js 20+, Docker & Docker Compose
 
-# 1. Clone and install
+# Option 1: Automated setup (recommended)
+./scripts/dev-setup.sh
+
+# Option 2: Manual setup
+# 1. Clone and install dependencies
 npm install
 
-# 2. Start PostgreSQL + both services
-docker compose up
+# 2. Setup environment
+cp .env.example .env
+# Edit .env and add your API keys
 
-# 3. Or run services locally (requires local Postgres)
-cp .env.example .env  # Edit with your API keys
-npm run dev
+# 3. Start services with Docker Compose
+docker-compose up
+# OR for development with hot reload:
+docker-compose -f docker-compose.dev.yml up
+
+# 4. Run database migrations
+cd packages/omnimind-api
+pnpm exec prisma migrate dev
+```
+
+## Docker Compose Options
+
+The platform includes multiple Docker Compose configurations for different use cases:
+
+- **`docker-compose.yml`** - Production-like setup with built containers
+- **`docker-compose.dev.yml`** - Development setup with hot reload and mounted source code
+- **`docker-compose.test.yml`** - Test environment with mocked APIs
+
+### Services Included
+
+All configurations include:
+- **PostgreSQL 16** with pgvector extension for vector embeddings
+- **Redis 7** for caching and session storage
+- **OmniMind API** - Memory & data layer (port 3333)
+- **BoardRoom AI** - UI & persona orchestration (port 3001)
+
+### Development with Hot Reload
+
+For the best development experience with automatic code reloading:
+
+```bash
+# Start development environment
+docker-compose -f docker-compose.dev.yml up
+
+# Access services:
+# - BoardRoom AI: http://localhost:3001
+# - OmniMind API: http://localhost:3333  
+# - PostgreSQL: localhost:5432
+# - Redis: localhost:6379
 ```
 
 ## Architecture

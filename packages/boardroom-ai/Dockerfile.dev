@@ -1,0 +1,31 @@
+# Development Dockerfile for BoardRoom AI
+# Used for docker-compose.dev.yml with hot reload
+
+FROM node:20-alpine AS base
+
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
+
+WORKDIR /app
+
+# Install dependencies only when needed
+FROM base AS deps
+COPY package.json turbo.json tsconfig.base.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/boardroom-ai/package.json packages/boardroom-ai/
+
+RUN pnpm install --frozen-lockfile
+
+# Development stage with source code mounted
+FROM base AS dev
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=deps /app/packages/boardroom-ai/node_modules ./packages/boardroom-ai/node_modules
+
+# Install development dependencies
+RUN npm install -g nodemon tsx
+
+EXPOSE 3001
+EXPOSE 5173
+
+# Default command will be overridden by docker-compose
+CMD ["pnpm", "--filter", "@boardroom/boardroom-ai", "dev"]

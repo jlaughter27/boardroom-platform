@@ -1,3 +1,7 @@
+# Development Docker Compose Configuration
+# Use: docker-compose -f docker-compose.dev.yml up
+# For local development with hot reload and mounted source code
+
 version: '3.8'
 
 services:
@@ -10,7 +14,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: boardroom_dev
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -23,19 +27,25 @@ services:
       - "6379:6379"
     command: redis-server --appendonly yes
     volumes:
-      - redisdata:/data
+      - redisdata_dev:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  omnimind-api:
+  # OmniMind API service (development mode)
+  omnimind-api-dev:
     build:
       context: .
-      dockerfile: packages/omnimind-api/Dockerfile
+      dockerfile: packages/omnimind-api/Dockerfile.dev
+      target: dev
     ports:
       - "3333:3333"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/omnimind-api/node_modules
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/boardroom_dev
       REDIS_URL: redis://redis:6379
@@ -43,31 +53,42 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OMNIMIND_PORT: "3333"
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"  # Enable file watching in Docker
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    command: pnpm --filter @boardroom/omnimind-api dev
 
-  boardroom-ai:
+  # BoardRoom AI service (development mode)
+  boardroom-ai-dev:
     build:
       context: .
-      dockerfile: packages/boardroom-ai/Dockerfile
+      dockerfile: packages/boardroom-ai/Dockerfile.dev
+      target: dev
     ports:
       - "3001:3001"
+      - "5173:5173"  # Vite dev server
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/boardroom-ai/node_modules
     environment:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-local-only}
-      OMNIMIND_API_URL: http://omnimind-api:3333
+      OMNIMIND_API_URL: http://omnimind-api-dev:3333
       OMNIMIND_API_KEY: ${OMNIMIND_API_KEY:-dev-key-local-only}
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       BOARDROOM_PORT: "3001"
       CORS_ORIGINS: http://localhost:3001,http://localhost:5173
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"  # Enable file watching in Docker
     depends_on:
-      - omnimind-api
+      - omnimind-api-dev
+    command: pnpm --filter @boardroom/boardroom-ai dev
 
 volumes:
-  pgdata:
-  redisdata:
+  pgdata_dev:
+  redisdata_dev:
