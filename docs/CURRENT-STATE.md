@@ -16,9 +16,9 @@
 **Build time:** ~60 seconds per service
 **Private networking:** Not yet enabled. BoardRoom → OmniMind uses public domain.
 
-## Current Phase: SPRINT 4 (Phase 4) - Intelligence Layer + Scale Features
+## Current Phase: SPRINT 5 (Phase 5) - Pre-Launch Hardening + Railway Deployment
 
-The project has moved to **Sprint 4 (Phase 4)** focusing on completing the retrieval engine (semantic search), adding user-definable personas, improving synthesis quality, building decision simulations, and creating dynamic widget + relationship visualization systems.
+The project has moved to **Sprint 5 (Phase 5)** focusing on production readiness, deployment infrastructure, and end-to-end testing to prepare for v1.0 launch.
 
 ### What's Built (Phase 0 — In Progress)
 
@@ -36,21 +36,24 @@ The project has moved to **Sprint 4 (Phase 4)** focusing on completing the retri
 - Entity CRUD routes (people, goals, projects, tasks, decisions, commitments)
 - Context assembler + cross-entity search
 
-**Deferred to After Phase 4:**
+**Deferred to After Phase 5:**
 - Phase 1 (Multi-Persona Intelligence): Persona prompts, parallel dispatch, CEO synthesis
 - Phase 2 (Dashboard & Intelligence): Thinking pattern detection, weekly briefing, cross-project scan
 - Phase 3 (Agentic Upgrades + External Cortex): Tool-enabled agent runtime, Google Calendar integration, Stripe subscriptions, cortex intelligence layer
+- Phase 4 (Intelligence Layer + Scale Features): Semantic search, custom personas, decision simulations, dynamic widgets, relationship visualization, email integration
 
-### Phase 4 Focus: Intelligence Layer + Scale Features
+### Phase 5 Focus: Pre-Launch Hardening + Railway Deployment
 
-**Sprint 4 Tasks (400-406):**
-1. **Pgvector Semantic Search** — Complete the 4th retrieval layer with embedding generation and cosine similarity search
-2. **Custom Persona Creation** — Users can create their own personas with custom system prompts and tool permissions
-3. **Improved Synthesis + Outcome-Informed Reasoning** — Enhance CEO synthesis with past decision outcomes and thinking patterns
-4. **Lightweight Decision Simulations** — "What happens next?" projections for resource, timeline, and stakeholder impact
-5. **Dynamic Widget System** — Configurable dashboard with drag-and-drop widget layout
-6. **Relationship Visualization + Enhanced Memory Linking** — Force-directed graph of people/projects and improved memory entity linking
-7. **API Hub V1 — Email-to-Memory Integration** — Gmail OAuth integration to extract memories from important emails
+**Sprint 5 Tasks (500-508):**
+1. **Static File Serving in Production** — Serve React client from Express in production with SPA fallback
+2. **Environment Variable Validation at Startup** — Early validation of required env vars with descriptive errors
+3. **Railway Configuration Files** — Railway.toml, Procfiles, .node-version, Docker entrypoint scripts
+4. **Docker Compose Updates for Local Development** — Fix env vars, port mappings, and service dependencies
+5. **E2E Test Suite (3 Critical Flows)** — Decision session, memory lifecycle, entity CRUD end-to-end tests
+6. **Fix Skipped Tests** — Resolve or document the 8 skipped tests in OmniMind API
+7. **Prisma Migration Audit** — Verify migration history, pgvector extensions, and clean deployability
+8. **Production Readiness Checklist Script** — Automated verification of deployment readiness
+9. **Railway Deployment Guide** — Step-by-step documentation for deploying to Railway
 
 ### Infrastructure Status
 
@@ -109,5 +112,5 @@ The project has moved to **Sprint 4 (Phase 4)** focusing on completing the retri
 | Architectural decisions | `docs/DECISIONS.md` |
 | Dev rules & conventions | `.claude/CLAUDE.md` |
 | API contracts | `docs/contracts/*.contract.md` |
-| Sprint 4 Plan | `docs/prompts/PHASE-4-ORCHESTRATOR.md` |
+| Sprint 5 Plan | `docs/prompts/PHASE-5-ORCHESTRATOR.md` |
 | Task Tracking | `docs/tasks/_TASK-INDEX.md` |

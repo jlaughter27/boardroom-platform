@@ -62,11 +62,12 @@ Will be implemented after Phase 4 core features.
 | 305 | Proactive Notification System | ⬜ Ready | Claude | 304 | Full |
 | 306 | Launch Readiness & Polish | ⬜ Ready | Claude | 301-305 | Full |
 
-## Phase 4: Intelligence Layer + Scale Features (SPRINT 4) - ACTIVE
+## Phase 4: Intelligence Layer + Scale Features - DEFERRED
 
 Phase 4 completes the retrieval engine (semantic search), adds user-definable personas,
 improves synthesis quality, builds decision simulations, and creates dynamic widget +
 relationship visualization systems that make the product sticky.
+Will be implemented after Phase 5 pre-launch hardening.
 
 | ID | Task | Status | Agent | Dependencies | Isolation |
 |----|------|--------|-------|-------------|-----------|
@@ -77,6 +78,23 @@ relationship visualization systems that make the product sticky.
 | 404 | Dynamic Widget System | ⬜ Ready | Claude | 002, 011 | Full |
 | 405 | Relationship Visualization + Enhanced Memory Linking | ⬜ Ready | Claude | 011, 013 | Full |
 | 406 | API Hub V1 — Email-to-Memory Integration | ⬜ Ready | Claude | 300, 302 | Full |
+
+## Phase 5: Pre-Launch Hardening + Railway Deployment (SPRINT 5) - ACTIVE
+
+Phase 5 focuses on production readiness, deployment infrastructure, and end-to-end testing
+to prepare for v1.0 launch.
+
+| ID | Task | Status | Agent | Dependencies | Isolation |
+|----|------|--------|-------|-------------|-----------|
+| 500 | Static File Serving in Production | ⬜ Ready | Claude | 002 | Full |
+| 501 | Environment Variable Validation at Startup | ⬜ Ready | Claude | 004 | Full |
+| 502 | Railway Configuration Files | ⬜ Ready | Claude | 008 | Full |
+| 503 | Docker Compose Updates for Local Development | ⬜ Ready | Claude | 008 | Full |
+| 504 | E2E Test Suite (3 Critical Flows) | ⬜ Ready | DeepSeek | 014 | Full |
+| 505 | Fix Skipped Tests | ⬜ Ready | DeepSeek | 014 | Full |
+| 506 | Prisma Migration Audit | ⬜ Ready | Claude | 001 | Full |
+| 507 | Production Readiness Checklist Script | ⬜ Ready | Claude | 008 | Full |
+| 508 | Railway Deployment Guide | ⬜ Ready | Claude | 008 | Full |
 
 ## Status Legend
 - ⬜ Ready: Can start now
