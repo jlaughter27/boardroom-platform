@@ -16,3 +16,5 @@ export * from './integration.schema';
 export * from './cortex-llm-response.schema';
 export * from './boardroom-llm-response.schema';
 export * from './request-body.schema';
+export * from './context-capsule.schema';
+export * from './user-profile.schema';

@@ -10,6 +10,7 @@ export * from './types/commitment.types';
 export * from './types/user-profile.types';
 export * from './types/modes.types';
 export * from './types/api.types';
+export * from './types/api-responses';
 export * from './types/tool.types';
 export * from './types/cortex.types';
 export * from './types/calendar.types';
@@ -21,6 +22,8 @@ export * from './types/widget.types';
 export * from './types/integration.types';
 export * from './types/internal.types';
 export * from './types/sse-events.types';
+export * from './types/context-capsule.types';
+export * from './types/utility.types';
 
 // Validation schemas
 export * from './validation';
