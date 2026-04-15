@@ -1,5 +1,14 @@
-import { evaluate } from 'mathjs';
 import type { ToolHandler } from './tool-registry';
+
+type MathEvaluate = (expr: string) => unknown;
+let cachedEvaluate: MathEvaluate | null = null;
+
+async function getEvaluate(): Promise<MathEvaluate> {
+  if (cachedEvaluate) return cachedEvaluate;
+  const mathjs = await import('mathjs');
+  cachedEvaluate = mathjs.evaluate as MathEvaluate;
+  return cachedEvaluate;
+}
 
 export const calculatorTool: ToolHandler = {
   definition: {
@@ -15,6 +24,7 @@ export const calculatorTool: ToolHandler = {
   },
   execute: async (input) => {
     try {
+      const evaluate = await getEvaluate();
       const result = evaluate(input.expression as string);
       return `${input.expression} = ${result}`;
     } catch (err) {
