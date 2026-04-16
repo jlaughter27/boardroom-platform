@@ -30,7 +30,7 @@ export const generateJwt = (
   secret: string,
   expiresIn: string
 ): string => {
-  return jwt.sign(payload, secret, { expiresIn });
+  return jwt.sign(payload as jwt.JwtPayload, secret, { expiresIn } as jwt.SignOptions);
 };
 
 /**
