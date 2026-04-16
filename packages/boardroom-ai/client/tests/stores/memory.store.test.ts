@@ -360,8 +360,6 @@ describe('useMemoryStore', () => {
       };
       vi.mocked(api.listMemories).mockResolvedValue(mockResponse);
 
-      const { result } = renderHook(() => useAuthStore());
-
       // Set initial filters
       useMemoryStore.setState({ filters: { domain: 'work', q: 'test' } });
       

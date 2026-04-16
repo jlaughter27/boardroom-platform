@@ -13,6 +13,13 @@ function getJwtSecret(): string {
   }
   return _jwtSecret;
 }
+
+// Test helper: resets the cached JWT secret so tests can mutate process.env
+// between cases. Not imported by any runtime code path.
+export function __resetJwtSecretForTest(): void {
+  _jwtSecret = undefined;
+}
+
 const TOKEN_EXPIRY = '7d';
 
 export interface AuthPayload {

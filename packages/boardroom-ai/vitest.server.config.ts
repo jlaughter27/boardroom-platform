@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
 
+// Server-side vitest config. `@boardroom/shared` is resolved via the
+// pnpm workspace symlink in node_modules — no alias needed, and the
+// shared package must be built (`pnpm --filter @boardroom/shared run build`)
+// before running these tests so dist/index.js exists.
 export default defineConfig({
   test: {
     globals: true,
@@ -18,11 +21,6 @@ export default defineConfig({
         '**/*.config.*',
         '**/*.d.ts',
       ],
-    },
-  },
-  resolve: {
-    alias: {
-      '@boardroom/shared': resolve(__dirname, '../../shared/src'),
     },
   },
 });

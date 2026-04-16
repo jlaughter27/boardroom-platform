@@ -12,11 +12,13 @@ vi.mock('../../src/lib/api', () => ({
 
 describe('useAuthStore', () => {
   beforeEach(() => {
-    // Reset the store state before each test
+    // Reset the store state before each test. `isLoading` defaults to true
+    // in the real store because the app checks auth on mount — the "initial
+    // state" test asserts that, so we must preserve it here.
     useAuthStore.setState({
       user: null,
       isAuthenticated: false,
-      isLoading: false,
+      isLoading: true,
       error: null,
     });
   });

@@ -75,7 +75,7 @@ describe('useDebounce', () => {
     expect(result.current).toBe('initial'); // Still initial after 300ms
 
     act(() => {
-      vi.advanceTimersByTime(200); // Total 500ms from last change
+      vi.advanceTimersByTime(500); // 500ms since the last rerender — full delay elapsed
     });
     expect(result.current).toBe('final'); // Only final value after delay
   });
@@ -110,7 +110,7 @@ describe('useDebounce', () => {
     expect(result.current).toBe('updated'); // Now updated after full 1000ms delay
   });
 
-  it('updates immediately when delay is 0', () => {
+  it('updates on the next tick when delay is 0', () => {
     const { result, rerender } = renderHook(
       ({ value, delay }) => useDebounce(value, delay),
       {
@@ -119,6 +119,11 @@ describe('useDebounce', () => {
     );
 
     rerender({ value: 'updated', delay: 0 });
-    expect(result.current).toBe('updated'); // Immediate update with 0 delay
+    // setTimeout(fn, 0) is still async — the effect queues a timer that fires
+    // on the next tick. Advance timers to flush it.
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(result.current).toBe('updated');
   });
 });

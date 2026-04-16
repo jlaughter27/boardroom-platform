@@ -1,24 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   authMiddleware,
   createToken,
   verifyToken,
   hashPassword,
   verifyPassword,
+  __resetJwtSecretForTest,
   type AuthPayload,
 } from '../../src/middleware/auth';
-import type { Response, NextFunction } from 'express';
+import type { Response } from 'express';
 
 describe('auth', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    vi.resetModules();
     process.env = { ...originalEnv, JWT_SECRET: 'test-jwt-secret' };
+    __resetJwtSecretForTest();
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    __resetJwtSecretForTest();
   });
 
   describe('authMiddleware()', () => {
@@ -40,7 +42,8 @@ describe('auth', () => {
       authMiddleware(mockReq as any, mockRes as Response, next);
 
       expect(next).toHaveBeenCalled();
-      expect(mockReq.auth).toEqual(authPayload);
+      // JWT decoding adds iat/exp, so match subset of fields rather than deep-equal.
+      expect((mockReq as any).auth).toMatchObject(authPayload);
       expect(mockRes.status).not.toHaveBeenCalled();
     });
 
@@ -121,7 +124,8 @@ describe('auth', () => {
 
     it('throws error when JWT_SECRET is not set', () => {
       process.env.JWT_SECRET = '';
-      
+      __resetJwtSecretForTest();
+
       expect(() => createToken({ userId: 'user-123', email: 'test@test.com', teamId: 'team-123' }))
         .toThrow('FATAL: JWT_SECRET environment variable is not set. Server cannot start.');
     });
@@ -131,12 +135,13 @@ describe('auth', () => {
     it('creates and verifies token successfully', () => {
       const payload: AuthPayload = { userId: 'user-123', email: 'test@test.com', teamId: 'team-123' };
       const token = createToken(payload);
-      
+
       expect(typeof token).toBe('string');
       expect(token.length).toBeGreaterThan(0);
-      
+
       const decoded = verifyToken(token);
-      expect(decoded).toEqual(payload);
+      // JWT decoding adds iat/exp, so match the original payload as a subset.
+      expect(decoded).toMatchObject(payload);
     });
 
     it('returns null for invalid token', () => {

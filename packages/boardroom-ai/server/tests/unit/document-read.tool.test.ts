@@ -41,7 +41,9 @@ describe('document-read.tool', () => {
         type: 'string',
         description: 'Search query to find relevant memories',
       });
-      expect(definition.input_schema.required).toEqual(['memoryId', 'searchQuery']);
+      // Neither field is strictly required — the tool asks for "at least one"
+      // at runtime — so the schema intentionally omits `required`.
+      expect(definition.input_schema.required).toBeUndefined();
     });
   });
 });
