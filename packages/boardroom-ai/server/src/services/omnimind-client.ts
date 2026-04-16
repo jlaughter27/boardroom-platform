@@ -1,16 +1,72 @@
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
-let _omnimindKey: string | undefined;
-function getOmnimindKey(): string {
-  if (!_omnimindKey) {
-    _omnimindKey = process.env.OMNIMIND_API_KEY;
-    if (!_omnimindKey) throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set.');
+
+function getApiKey(): string {
+  const apiKey = process.env.OMNIMIND_API_KEY;
+  if (!apiKey) {
+    throw new Error('FATAL: OMNIMIND_API_KEY environment variable is not set.');
   }
-  return _omnimindKey;
+  return apiKey;
+}
+
+// ---------------------------------------------------------------------------
+// Resilience configuration (env-overridable)
+// ---------------------------------------------------------------------------
+const TIMEOUT_MS = Number(process.env.OMNIMIND_TIMEOUT_MS) || 10_000;
+const RETRY_MAX = Number(process.env.OMNIMIND_RETRY_MAX) || 3;
+const RETRY_BASE_MS = 100;
+const BREAKER_THRESHOLD = Number(process.env.OMNIMIND_BREAKER_THRESHOLD) || 5;
+const BREAKER_COOLDOWN_MS = Number(process.env.OMNIMIND_BREAKER_COOLDOWN_MS) || 15_000;
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+// ---------------------------------------------------------------------------
+// Circuit breaker — in-memory, per-process (no Redis).
+// States: CLOSED (normal) → OPEN (failing) → HALF_OPEN (probing)
+// ---------------------------------------------------------------------------
+type BreakerState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+class CircuitBreaker {
+  state: BreakerState = 'CLOSED';
+  failures = 0;
+  lastFailureAt = 0;
+
+  recordSuccess(): void {
+    this.failures = 0;
+    this.state = 'CLOSED';
+  }
+
+  recordFailure(): void {
+    this.failures += 1;
+    this.lastFailureAt = Date.now();
+    if (this.failures >= BREAKER_THRESHOLD) {
+      this.state = 'OPEN';
+    }
+  }
+
+  canRequest(): boolean {
+    if (this.state === 'CLOSED') return true;
+    if (this.state === 'OPEN') {
+      // Try half-open after cooldown
+      if (Date.now() - this.lastFailureAt >= BREAKER_COOLDOWN_MS) {
+        this.state = 'HALF_OPEN';
+        return true;
+      }
+      return false;
+    }
+    // HALF_OPEN — allow one probe request
+    return true;
+  }
+
+  /** Expose state for /health endpoint consumption. */
+  toJSON() {
+    return { state: this.state, failures: this.failures };
+  }
 }
 
 export class OmniMindClient {
   private baseUrl: string;
   private _apiKey: string | undefined;
+  /** Shared circuit breaker — one per OmniMind instance. */
+  readonly breaker = new CircuitBreaker();
 
   constructor(baseUrl?: string, apiKey?: string) {
     this.baseUrl = baseUrl ?? OMNIMIND_URL;
@@ -19,33 +75,130 @@ export class OmniMindClient {
 
   private get apiKey(): string {
     if (!this._apiKey) {
-      this._apiKey = getOmnimindKey();
+      this._apiKey = getApiKey();
     }
     return this._apiKey;
   }
 
+  // Test helper
+  static reloadApiKey(client: OmniMindClient): void {
+    client._apiKey = getApiKey();
+  }
+
+  // ---------------------------------------------------------------------------
+  // fetch with timeout (AbortController)
+  // ---------------------------------------------------------------------------
+  private async fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number = TIMEOUT_MS,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (err: unknown) {
+      if ((err as Error).name === 'AbortError') {
+        throw Object.assign(new Error(`OmniMind request timed out after ${timeoutMs}ms`), {
+          code: 'ETIMEDOUT',
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Core request — timeout + retry + circuit breaker
+  // ---------------------------------------------------------------------------
   private async request<T>(method: string, path: string, userId?: string, body?: unknown): Promise<T> {
+    // Circuit breaker gate
+    if (!this.breaker.canRequest()) {
+      throw Object.assign(
+        new Error(`OmniMind circuit breaker OPEN — ${this.breaker.failures} consecutive failures`),
+        { code: 'ECIRCUIT_OPEN', status: 503 },
+      );
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-api-key': this.apiKey,
     };
     if (userId) headers['x-user-id'] = userId;
 
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const isIdempotent = method === 'GET' || method === 'HEAD';
+    const maxAttempts = isIdempotent ? RETRY_MAX : 1;
+    let lastError: Error | undefined;
 
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({ error: 'upstream_error' }));
-      throw Object.assign(new Error(`OmniMind ${method} ${path}: ${res.status}`), {
-        status: res.status,
-        upstream: error,
-      });
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await this.fetchWithTimeout(`${this.baseUrl}${path}`, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({ error: 'upstream_error' }));
+          const err = Object.assign(new Error(`OmniMind ${method} ${path}: ${res.status}`), {
+            status: res.status,
+            upstream: error,
+          });
+
+          // Retry gateway errors (502/503/504) for idempotent methods
+          if (isIdempotent && RETRYABLE_STATUS.has(res.status) && attempt < maxAttempts) {
+            lastError = err;
+            await this.backoff(attempt);
+            continue;
+          }
+
+          // Throw — the catch block below handles breaker/retry decisions
+          throw err;
+        }
+
+        // Success — reset breaker
+        this.breaker.recordSuccess();
+        return res.json() as Promise<T>;
+      } catch (err: unknown) {
+        const error = err as Error & { status?: number; code?: string };
+
+        // 4xx: client-side error — throw immediately, don't trip breaker.
+        // The server responded correctly; the request was bad.
+        if (error.status && error.status >= 400 && error.status < 500) {
+          throw error;
+        }
+
+        // 5xx (has .status): server error — trip breaker, throw.
+        if (error.status && error.status >= 500) {
+          this.breaker.recordFailure();
+          throw error;
+        }
+
+        // Network-level error (timeout, DNS, socket hang-up) — no .status.
+        // Retry if idempotent; otherwise trip breaker and throw.
+        if (isIdempotent && attempt < maxAttempts) {
+          lastError = error;
+          await this.backoff(attempt);
+          continue;
+        }
+
+        this.breaker.recordFailure();
+        throw error;
+      }
     }
 
-    return res.json() as Promise<T>;
+    // Should not be reachable, but TypeScript needs it
+    this.breaker.recordFailure();
+    throw lastError ?? new Error(`OmniMind ${method} ${path}: max retries exhausted`);
+  }
+
+  /** Exponential backoff with jitter: base * 2^(attempt-1) ± 25% */
+  private backoff(attempt: number): Promise<void> {
+    const base = RETRY_BASE_MS * 2 ** (attempt - 1);
+    const jitter = base * 0.25 * (Math.random() * 2 - 1); // ±25%
+    const ms = Math.max(0, Math.round(base + jitter));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // Context

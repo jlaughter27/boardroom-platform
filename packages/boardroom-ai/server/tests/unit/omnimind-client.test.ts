@@ -110,4 +110,181 @@ describe('OmniMindClient', () => {
     const [url] = fetchSpy.mock.calls[0];
     expect(url).toBe('http://test:3333/goals?status=active&domain=tech');
   });
+
+  // -----------------------------------------------------------------------
+  // Resilience layer tests
+  // -----------------------------------------------------------------------
+
+  describe('timeout', () => {
+    it('attaches an AbortSignal to every fetch call', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', dbConnected: true }),
+      });
+
+      await client.health();
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('maps AbortError to ETIMEDOUT', async () => {
+      // Simulate fetch throwing AbortError (what happens when the timer fires)
+      fetchSpy.mockRejectedValue(
+        Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }),
+      );
+
+      await expect(client.health()).rejects.toMatchObject({
+        message: expect.stringContaining('timed out'),
+        code: 'ETIMEDOUT',
+      });
+    });
+  });
+
+  describe('retry', () => {
+    it('retries GET on 502/503/504 and succeeds', async () => {
+      let calls = 0;
+      fetchSpy.mockImplementation(() => {
+        calls++;
+        if (calls === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 502,
+            json: () => Promise.resolve({ error: 'bad_gateway' }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [] }),
+        });
+      });
+
+      const result = await client.listGoals('user-123');
+
+      expect(result).toEqual({ items: [] });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry POST on 502', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: () => Promise.resolve({ error: 'bad_gateway' }),
+      });
+
+      await expect(client.createGoal('user-123', { title: 'test' })).rejects.toMatchObject({
+        status: 502,
+      });
+
+      // POST is not idempotent — should be called exactly once
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry GET on 4xx', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: () => Promise.resolve({ error: 'validation_failed' }),
+      });
+
+      await expect(client.listGoals('user-123')).rejects.toMatchObject({
+        status: 422,
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry GET on 500 (only 502/503/504)', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'internal' }),
+      });
+
+      await expect(client.health()).rejects.toMatchObject({ status: 500 });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries GET on network error and succeeds', async () => {
+      let calls = 0;
+      fetchSpy.mockImplementation(() => {
+        calls++;
+        if (calls === 1) {
+          return Promise.reject(new Error('ECONNREFUSED'));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [] }),
+        });
+      });
+
+      const result = await client.listGoals('user-123');
+
+      expect(result).toEqual({ items: [] });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('circuit breaker', () => {
+    it('opens after consecutive failures and rejects immediately', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'down' }),
+      });
+
+      // Trip the breaker (default threshold from test env = 5)
+      const threshold = 5;
+      for (let i = 0; i < threshold; i++) {
+        await client.health().catch(() => {});
+      }
+
+      expect(client.breaker.state).toBe('OPEN');
+
+      // Next request should be rejected without calling fetch
+      const callsBefore = fetchSpy.mock.calls.length;
+      await expect(client.health()).rejects.toMatchObject({
+        code: 'ECIRCUIT_OPEN',
+      });
+      expect(fetchSpy.mock.calls.length).toBe(callsBefore); // no new fetch call
+    });
+
+    it('resets on success', async () => {
+      // Fail a few times (but below threshold)
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'down' }),
+      });
+      await client.health().catch(() => {});
+      await client.health().catch(() => {});
+      expect(client.breaker.failures).toBe(2);
+
+      // Succeed
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', dbConnected: true }),
+      });
+      await client.health();
+
+      expect(client.breaker.failures).toBe(0);
+      expect(client.breaker.state).toBe('CLOSED');
+    });
+
+    it('does NOT trip on 4xx errors', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: () => Promise.resolve({ error: 'validation' }),
+      });
+
+      for (let i = 0; i < 10; i++) {
+        await client.getGoals('user-123').catch(() => {});
+      }
+
+      // 4xx should not trip the breaker — these are client-side bugs
+      expect(client.breaker.failures).toBe(0);
+      expect(client.breaker.state).toBe('CLOSED');
+    });
+  });
 });
