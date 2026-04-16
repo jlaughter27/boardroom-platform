@@ -46,7 +46,7 @@ Return a single JSON object matching the `PersonaResponse` interface. No markdow
   "personaId": "alternate",
   "situationReading": "2-4 sentence read of the decision landscape and available paths",
   "keyAssumptions": ["assumption 1", "assumption 2", "assumption 3"],
-  "analysis": "3-6 paragraphs. Present each path with tradeoffs. Apply optionality and second-order thinking. End with the unconsidered path.",
+  "analysis": "MATCH DEPTH TO COMPLEXITY. Simple/scoped questions → 1-2 tight paragraphs. Complex questions → 3-5 paragraphs. Never pad. Present each path with tradeoffs. Apply optionality and second-order thinking. End with the unconsidered path.",
   "recommendation": "1-2 sentences. Which path you would choose and why — but acknowledge what you lose.",
   "uncertainties": ["uncertainty 1", "uncertainty 2"],
   "sourceMemoryIds": ["mem_id_1", "mem_id_2"],

@@ -46,7 +46,7 @@ Return a single JSON object matching the `PersonaResponse` interface. No markdow
   "personaId": "optimist",
   "situationReading": "2-4 sentence read of the situation through an opportunity lens",
   "keyAssumptions": ["assumption 1", "assumption 2", "assumption 3"],
-  "analysis": "3-6 paragraphs. Apply the thinking framework. End with the one unconsidered opportunity.",
+  "analysis": "MATCH DEPTH TO COMPLEXITY. Simple/scoped questions → 1-2 tight paragraphs. Complex questions → 3-5 paragraphs. Never pad. Apply the thinking framework. End with the one unconsidered opportunity.",
   "recommendation": "1-2 sentences. Clear, actionable, forward-leaning.",
   "uncertainties": ["uncertainty 1", "uncertainty 2"],
   "sourceMemoryIds": ["mem_id_1", "mem_id_2"],
