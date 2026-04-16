@@ -19,25 +19,27 @@ describe('errorHandler middleware', () => {
     mockReq = {
       path: '/test',
       method: 'GET',
+      headers: {},
     };
     mockRes = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
     };
     mockNext = vi.fn();
-    
+
     vi.clearAllMocks();
   });
 
   it('should log error and send 500 response', () => {
     const error = new Error('Test error');
-    
+
     errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
-    
+
     expect(logger.error).toHaveBeenCalledWith('Unhandled error', {
       message: 'Test error',
       path: '/test',
       method: 'GET',
+      requestId: undefined,
       stack: error.stack,
     });
     expect(mockRes.status).toHaveBeenCalledWith(500);
@@ -47,25 +49,43 @@ describe('errorHandler middleware', () => {
     });
   });
 
+  it('should propagate x-request-id when present', () => {
+    mockReq.headers = { 'x-request-id': 'req-abc-123' };
+    const error = new Error('Test error');
+
+    errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Unhandled error',
+      expect.objectContaining({ requestId: 'req-abc-123' }),
+    );
+    expect(mockRes.json).toHaveBeenCalledWith({
+      error: 'internal_error',
+      message: 'Test error',
+      requestId: 'req-abc-123',
+    });
+  });
+
   it('should hide stack trace in production', () => {
     const originalEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
-    
+
     const error = new Error('Production error');
-    
+
     errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
-    
+
     expect(logger.error).toHaveBeenCalledWith('Unhandled error', {
       message: 'Production error',
       path: '/test',
       method: 'GET',
+      requestId: undefined,
       stack: undefined, // Should be undefined in production
     });
     expect(mockRes.json).toHaveBeenCalledWith({
       error: 'internal_error',
       message: 'An internal error occurred', // Generic message in production
     });
-    
+
     process.env.NODE_ENV = originalEnv;
   });
 

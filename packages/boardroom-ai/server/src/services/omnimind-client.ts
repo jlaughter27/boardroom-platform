@@ -121,9 +121,11 @@ export class OmniMindClient {
       );
     }
 
+    const requestId = crypto.randomUUID();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-api-key': this.apiKey,
+      'x-request-id': requestId,
     };
     if (userId) headers['x-user-id'] = userId;
 

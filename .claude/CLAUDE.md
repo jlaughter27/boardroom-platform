@@ -335,7 +335,7 @@ If you add a new top-level API route, add it to the SPA fallback exclusion list 
 ### Commands:
 ```bash
 npm run typecheck          # TypeScript across all packages
-npm run test               # Vitest across all packages (110+ tests)
+npm run test               # Vitest across all packages (708+ tests)
 npm run test:e2e           # End-to-end test flows
 npm run eval:retrieval     # Retrieval quality evaluation
 npm run eval:personas      # Persona distinctiveness evaluation
@@ -410,22 +410,35 @@ Post-implementation review:
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| 0 — Foundation | ✅ Complete | Prisma schema, CRUD, validation, retrieval, Docker, agent runtime |
+| 0 — Foundation | ✅ Complete | Prisma schema (34 models), CRUD, validation, retrieval, Docker, agent runtime |
 | 1 — Multi-Persona | ✅ Complete | 7 personas, dispatch, streaming, synthesis, extraction, eval |
-| 2 — Cortex Intelligence | 📋 Spec'd | Pattern detection, weekly memos, contradiction alerts, simulation |
-| 3 — Integrations | 📋 Spec'd | Google Calendar, Gmail, Stripe billing, custom personas |
-| 4+ — Collaboration | 📋 Future | Multi-user, scaling |
+| 2 — Cortex Intelligence | ✅ Complete | Pattern detection (cron Mon 3am), weekly memos (cron Sun 6pm), contradiction alerts (cron Tue 9pm), simulation. Routes + services + prompts + UI all wired. |
+| 3 — Integrations | ✅ Partial | Google Calendar, Gmail, Stripe billing, custom personas — routes + services exist and are mounted |
+| 4+ — Collaboration | 📋 Future | Multi-user rooms (stub: `// app.use('/rooms', roomsRouter)` in index.ts), scaling |
 
 Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-INDEX.md` for the master index.
 
 ---
 
-## Known Limitations (as of 2026-04-08)
+## Known Limitations (as of 2026-04-15)
 
-1. No CI/CD gate — manual typecheck/test before push
-2. In-memory rate limiting — resets on restart, no cross-instance coordination
-3. Public domain for service-to-service calls (should be Railway private networking)
-4. `prisma db push` instead of proper migration history
-5. Subscription middleware fails open when OmniMind is unreachable
-6. No monitoring/alerting beyond health checks
-7. Single Railway instance per service (no horizontal scaling)
+1. **No CI/CD gate** — manual typecheck/test before push. No `.github/workflows/`.
+2. **In-memory rate limiting** — resets on restart, no cross-instance coordination. The Redis-backed alternative was quarantined under `_disabled/` (decision: revisit when scaling beyond 1 instance).
+3. **Public domain for service-to-service calls** — `OMNIMIND_API_URL` is the public Railway domain. Should be Railway private networking (cuts an internet round-trip per request, eliminates public surface). Pending Railway config change.
+4. `prisma db push` instead of proper migration history.
+5. Subscription middleware fails open when OmniMind is unreachable.
+6. No monitoring/alerting beyond health checks. Correlation IDs (`x-request-id`) ARE propagated across the seam since 2026-04-15 — log aggregation can join on them.
+7. Single Railway instance per service (no horizontal scaling).
+
+## Resilience layer (omnimind-client.ts)
+
+Configured via env vars (all optional with sensible defaults):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `OMNIMIND_TIMEOUT_MS` | 10000 | AbortController timeout per request |
+| `OMNIMIND_RETRY_MAX` | 3 | Max attempts for GET/HEAD on 502/503/504 + network errors |
+| `OMNIMIND_BREAKER_THRESHOLD` | 5 | Consecutive 5xx/network failures before circuit opens |
+| `OMNIMIND_BREAKER_COOLDOWN_MS` | 15000 | OPEN → HALF_OPEN cooldown |
+
+4xx never retries and never trips the breaker. Breaker state is exposed via `omnimindClient.breaker.toJSON()`.
