@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { useToastStore } from '../components/ui';
+import { Logo } from '../components/shared/Logo';
 import { WizardStep } from '../components/onboarding/WizardStep';
 import { BootstrapStep } from '../components/onboarding/steps/BootstrapStep';
 import { AboutYouStep } from '../components/onboarding/steps/AboutYouStep';
@@ -148,10 +149,16 @@ export default function OnboardingPage() {
       <div className="w-full max-w-2xl relative z-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="font-display text-3xl font-bold mb-2">
-            <span className="text-blue-600 dark:text-blue-400">Welcome</span> <span className="text-foreground">to BoardRoom</span>
-          </h1>
-          <p className="text-muted-foreground">Let's set up your AI advisory board in a few minutes.</p>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Logo variant="icon" size={44} className="text-primary drop-shadow-[0_0_24px_rgba(212,163,26,0.4)]" />
+            <h1 className="font-display text-3xl font-bold tracking-tight">
+              <span className="text-primary">Welcome</span>{' '}
+              <span className="text-foreground">to BoardRoom</span>
+            </h1>
+          </div>
+          <p className="text-muted-foreground">
+            Let's set up your AI advisory board in a few minutes.
+          </p>
         </div>
 
         {showCelebration ? (

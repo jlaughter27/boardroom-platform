@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useUIStore } from '../../stores/ui.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { Avatar } from '../ui/Avatar';
+import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '../../lib/cn';
 
@@ -136,18 +137,22 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
     <>
       {/* Brand */}
       <div className="flex items-center justify-between h-14 px-4 border-b border-white/10">
-        <AnimatePresence>
-          {!collapsed && (
-            <motion.span
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="font-display text-lg font-bold tracking-tight"
-            >
-              <span className="text-blue-400">Board</span><span className="text-white">Room AI</span>
-            </motion.span>
-          )}
-        </AnimatePresence>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Logo variant="icon" size={28} className="text-primary shrink-0" />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.span
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="font-display text-lg font-semibold tracking-tight whitespace-nowrap"
+              >
+                <span className="text-primary">Board</span>
+                <span className="text-white">Room AI</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </div>
         <button
           onClick={toggleSidebar}
           className="hidden lg:block text-white/40 hover:text-white/80 p-1.5 rounded-md hover:bg-white/10 transition-colors"
