@@ -735,3 +735,73 @@ export function completeOnboarding() {
     method: 'POST',
   });
 }
+
+// ---------------------------------------------------------------------------
+// Onboarding Bootstrap — single-shot extraction
+// ---------------------------------------------------------------------------
+
+export interface BootstrapExtractionResponse {
+  role: string;
+  industry: string;
+  decisionFrequency: string;
+  goals: { title: string; level: number; domain: string }[];
+  projects: { title: string; domain: string; status: 'active' | 'planning' | 'paused' }[];
+  people: { name: string; role: string; relationship: string }[];
+  biggestDecision: string;
+  worries: string;
+}
+
+export interface BootstrapVoiceResponse {
+  extraction: BootstrapExtractionResponse;
+  transcript: string;
+  provider: 'deepgram' | 'whisper';
+  transcriptionMs: number;
+}
+
+/**
+ * Upload a document (File) and receive a BootstrapExtraction. Falls back to
+ * JSON { text } payload if the server can't take multipart for some reason.
+ */
+export async function bootstrapFromDoc(file: File): Promise<BootstrapExtractionResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  // Don't set Content-Type — browser fills in the multipart boundary.
+  const res = await fetch('/api/onboarding-bootstrap/doc', {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  if (!res.ok) {
+    let body: unknown;
+    try { body = await res.json(); } catch { /* empty */ }
+    const msg = body && typeof body === 'object' && 'message' in body
+      ? (body as { message: string }).message
+      : `Bootstrap failed: ${res.status}`;
+    throw new ApiError(msg, res.status, body);
+  }
+  return res.json() as Promise<BootstrapExtractionResponse>;
+}
+
+/**
+ * Upload an audio blob and receive a BootstrapExtraction plus the transcript
+ * that was extracted from.
+ */
+export async function bootstrapFromVoice(blob: Blob, mimeType: string): Promise<BootstrapVoiceResponse> {
+  const form = new FormData();
+  const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : 'ogg';
+  form.append('audio', blob, `briefing.${ext}`);
+  const res = await fetch('/api/onboarding-bootstrap/voice', {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  if (!res.ok) {
+    let body: unknown;
+    try { body = await res.json(); } catch { /* empty */ }
+    const msg = body && typeof body === 'object' && 'message' in body
+      ? (body as { message: string }).message
+      : `Voice bootstrap failed: ${res.status}`;
+    throw new ApiError(msg, res.status, body);
+  }
+  return res.json() as Promise<BootstrapVoiceResponse>;
+}

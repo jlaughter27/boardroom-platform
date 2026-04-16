@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import * as api from '../lib/api';
+import type { BootstrapExtractionResponse } from '../lib/api';
 
 export interface OnboardingData {
   // Step 1: About You
@@ -47,10 +48,23 @@ function loadDraft(): OnboardingData {
 function loadStep(): number {
   try {
     const saved = sessionStorage.getItem(STEP_KEY);
-    return saved ? parseInt(saved, 10) : 1;
+    return saved ? parseInt(saved, 10) : 0; // step 0 = BootstrapStep (optional)
   } catch {
-    return 1;
+    return 0;
   }
+}
+
+// Normalize a string for dedupe comparison (trim + lowercase).
+function norm(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+// Clamp + round a goal level to a 0..3 integer. Without this a fractional
+// `level` from the LLM (e.g. 1.5) passes ExtractedGoalsSchema but fails
+// CreateGoalRequestSchema (.int()) — the 422 bug from report Chapter 5.
+function normalizeLevel(level: number | undefined | null): number {
+  if (level == null || Number.isNaN(Number(level))) return 1;
+  return Math.max(0, Math.min(3, Math.round(Number(level))));
 }
 
 export function useOnboarding() {
@@ -60,10 +74,14 @@ export function useOnboarding() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const persist = (next: OnboardingData) => {
+    try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* full */ }
+  };
+
   const updateData = useCallback((partial: Partial<OnboardingData>) => {
     setData(prev => {
       const next = { ...prev, ...partial };
-      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* full */ }
+      persist(next);
       return next;
     });
   }, []);
@@ -78,20 +96,39 @@ export function useOnboarding() {
 
   const prev = () => {
     setStep(s => {
-      const prevStep = Math.max(s - 1, 1);
+      const prevStep = Math.max(s - 1, 0);
       try { sessionStorage.setItem(STEP_KEY, String(prevStep)); } catch { /* full */ }
       return prevStep;
     });
   };
 
-  // Step 2: extract goals from freeform text
+  const goToStep = (stepNumber: number) => {
+    const clamped = Math.max(0, Math.min(5, stepNumber));
+    setStep(clamped);
+    try { sessionStorage.setItem(STEP_KEY, String(clamped)); } catch { /* full */ }
+  };
+
+  // Step 2: extract goals from freeform text.
+  //
+  // Merges with dedupe-by-normalized-title. A user may have bootstrap-
+  // extracted goals already in the list when they land on this step, then
+  // type a few MORE into the textarea. We APPEND new ones; we NEVER replace
+  // the existing array (report Chapter 4 bug).
   const extractGoals = async () => {
     if (!data.goalsText.trim()) return;
     setIsExtracting(true);
     setError(null);
     try {
       const result = await api.extractOnboardingGoals(data.goalsText);
-      updateData({ extractedGoals: result });
+      setData((prev) => {
+        const seen = new Set(prev.extractedGoals.map((g) => norm(g.title)));
+        const additions = result
+          .filter((g) => g.title.trim() && !seen.has(norm(g.title)))
+          .map((g) => ({ ...g, level: normalizeLevel(g.level) }));
+        const nextData = { ...prev, extractedGoals: [...prev.extractedGoals, ...additions] };
+        persist(nextData);
+        return nextData;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to extract goals');
     } finally {
@@ -99,14 +136,20 @@ export function useOnboarding() {
     }
   };
 
-  // Step 3: extract projects
+  // Step 3: same merge-with-dedupe pattern as goals.
   const extractProjects = async () => {
     if (!data.projectsText.trim()) return;
     setIsExtracting(true);
     setError(null);
     try {
       const result = await api.extractOnboardingProjects(data.projectsText);
-      updateData({ extractedProjects: result });
+      setData((prev) => {
+        const seen = new Set(prev.extractedProjects.map((p) => norm(p.title)));
+        const additions = result.filter((p) => p.title.trim() && !seen.has(norm(p.title)));
+        const nextData = { ...prev, extractedProjects: [...prev.extractedProjects, ...additions] };
+        persist(nextData);
+        return nextData;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to extract projects');
     } finally {
@@ -114,7 +157,103 @@ export function useOnboarding() {
     }
   };
 
-  // Final submit — creates all entities and marks onboarding complete
+  /**
+   * Merge a BootstrapExtraction (from /onboarding-bootstrap/doc or /voice)
+   * into the wizard state. Scalar fields overwrite ONLY if empty. Array
+   * fields dedupe-append. People array replaces its single empty placeholder
+   * if that's all that exists, otherwise dedupes by name.
+   */
+  const mergeBootstrap = useCallback((extraction: BootstrapExtractionResponse) => {
+    setData((prev) => {
+      const pickScalar = (currentValue: string, extractedValue: string) =>
+        currentValue.trim() || extractedValue.trim() || currentValue;
+
+      const goalSeen = new Set(prev.extractedGoals.map((g) => norm(g.title)));
+      const newGoals = extraction.goals
+        .filter((g) => g.title.trim() && !goalSeen.has(norm(g.title)))
+        .map((g) => ({ ...g, level: normalizeLevel(g.level) }));
+
+      const projectSeen = new Set(prev.extractedProjects.map((p) => norm(p.title)));
+      const newProjects = extraction.projects.filter(
+        (p) => p.title.trim() && !projectSeen.has(norm(p.title)),
+      );
+
+      // People: if the only entry is the blank placeholder, replace it.
+      const existingPeople = prev.people.filter((p) => p.name.trim().length > 0);
+      const personSeen = new Set(existingPeople.map((p) => norm(p.name)));
+      const newPeople = extraction.people.filter(
+        (p) => p.name.trim() && !personSeen.has(norm(p.name)),
+      );
+      const mergedPeople = existingPeople.length > 0
+        ? [...existingPeople, ...newPeople]
+        : newPeople.length > 0
+          ? newPeople
+          : prev.people;
+
+      const next: OnboardingData = {
+        ...prev,
+        role: pickScalar(prev.role, extraction.role),
+        industry: pickScalar(prev.industry, extraction.industry),
+        decisionFrequency: pickScalar(prev.decisionFrequency, extraction.decisionFrequency),
+        extractedGoals: [...prev.extractedGoals, ...newGoals],
+        extractedProjects: [...prev.extractedProjects, ...newProjects],
+        people: mergedPeople,
+        biggestDecision: pickScalar(prev.biggestDecision, extraction.biggestDecision),
+        worries: pickScalar(prev.worries, extraction.worries),
+      };
+      persist(next);
+      return next;
+    });
+  }, []);
+
+  /**
+   * Step 0 — Bootstrap from a document upload (file, paste, etc.).
+   * On success, merges the extraction into wizard state and advances to
+   * the About You step (step 1) so the user can review before committing.
+   */
+  const bootstrapFromDoc = useCallback(async (file: File) => {
+    setIsExtracting(true);
+    setError(null);
+    try {
+      const extraction = await api.bootstrapFromDoc(file);
+      mergeBootstrap(extraction);
+      goToStep(1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to extract from document');
+      throw err;
+    } finally {
+      setIsExtracting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergeBootstrap]);
+
+  /**
+   * Step 0 — Bootstrap from a voice recording. Transcribed server-side.
+   */
+  const bootstrapFromVoice = useCallback(async (blob: Blob, mimeType: string) => {
+    setIsExtracting(true);
+    setError(null);
+    try {
+      const { extraction } = await api.bootstrapFromVoice(blob, mimeType);
+      mergeBootstrap(extraction);
+      goToStep(1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to transcribe and extract');
+      throw err;
+    } finally {
+      setIsExtracting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergeBootstrap]);
+
+  /** Skip the bootstrap step and go straight to the manual wizard. */
+  const skipBootstrap = () => goToStep(1);
+
+  // Final submit — creates all entities and marks onboarding complete.
+  //
+  // Guards against the 422 from POST /goals (report Chapter 5):
+  //   - Skip any goal/project/person with empty title/name after trimming.
+  //   - Coerce `level` to an integer 0..3 before createGoal.
   const complete = async () => {
     setIsSubmitting(true);
     setError(null);
@@ -128,17 +267,19 @@ export function useOnboarding() {
 
       // Create goals
       for (const goal of data.extractedGoals) {
+        if (!goal.title.trim()) continue;
         await api.createGoal({
-          title: goal.title,
-          level: goal.level,
+          title: goal.title.trim(),
+          level: normalizeLevel(goal.level),
           domain: goal.domain,
         });
       }
 
       // Create projects
       for (const project of data.extractedProjects) {
+        if (!project.title.trim()) continue;
         await api.createProject({
-          title: project.title,
+          title: project.title.trim(),
           domain: project.domain,
           status: project.status,
         });
@@ -146,13 +287,12 @@ export function useOnboarding() {
 
       // Create people (skip empty rows)
       for (const person of data.people) {
-        if (person.name.trim()) {
-          await api.createPerson({
-            name: person.name,
-            role: person.role,
-            relationship: person.relationship,
-          });
-        }
+        if (!person.name.trim()) continue;
+        await api.createPerson({
+          name: person.name.trim(),
+          role: person.role,
+          relationship: person.relationship,
+        });
       }
 
       // Create context memories
@@ -198,8 +338,13 @@ export function useOnboarding() {
     updateData,
     next,
     prev,
+    goToStep,
     extractGoals,
     extractProjects,
+    bootstrapFromDoc,
+    bootstrapFromVoice,
+    skipBootstrap,
+    mergeBootstrap,
     complete,
     isExtracting,
     isSubmitting,

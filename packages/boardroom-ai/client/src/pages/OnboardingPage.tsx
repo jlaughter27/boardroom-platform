@@ -5,6 +5,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { useToastStore } from '../components/ui';
 import { WizardStep } from '../components/onboarding/WizardStep';
+import { BootstrapStep } from '../components/onboarding/steps/BootstrapStep';
 import { AboutYouStep } from '../components/onboarding/steps/AboutYouStep';
 import { GoalsStep } from '../components/onboarding/steps/GoalsStep';
 import { ProjectsStep } from '../components/onboarding/steps/ProjectsStep';
@@ -98,6 +99,9 @@ export default function OnboardingPage() {
     prev,
     extractGoals,
     extractProjects,
+    bootstrapFromDoc,
+    bootstrapFromVoice,
+    skipBootstrap,
     complete,
     isExtracting,
     isSubmitting,
@@ -165,6 +169,27 @@ export default function OnboardingPage() {
               exit="exit"
               transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             >
+              {step === 0 && (
+                <div className="bg-card rounded-xl border border-border shadow-lg p-6 sm:p-8">
+                  <BootstrapStep
+                    onUploadDoc={async (file) => {
+                      setDirection(1);
+                      await bootstrapFromDoc(file);
+                    }}
+                    onUploadVoice={async (blob, mimeType) => {
+                      setDirection(1);
+                      await bootstrapFromVoice(blob, mimeType);
+                    }}
+                    onSkip={() => {
+                      setDirection(1);
+                      skipBootstrap();
+                    }}
+                    isProcessing={isExtracting}
+                    error={error}
+                  />
+                </div>
+              )}
+
               {step === 1 && (
                 <WizardStep
                   title="About You"
@@ -172,7 +197,7 @@ export default function OnboardingPage() {
                   stepNumber={1}
                   totalSteps={5}
                   onNext={handleNext}
-                  isFirst
+                  onPrev={handlePrev}
                   nextDisabled={!data.role.trim()}
                 >
                   <AboutYouStep data={data} onUpdate={updateData} />
