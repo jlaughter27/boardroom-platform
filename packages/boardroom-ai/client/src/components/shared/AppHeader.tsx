@@ -3,6 +3,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useSessionStore } from '../../stores/session.store';
 import { useCommandPaletteStore } from '../../stores/commandPalette.store';
 import { Avatar } from '../ui/Avatar';
+import { Logo } from './Logo';
 import { NotificationCenter } from './NotificationCenter';
 
 const pageTitles: Record<string, string> = {
@@ -46,7 +47,7 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
   return (
     <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-4 md:px-6 border-b border-border bg-background/80 backdrop-blur-md">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         {/* Mobile hamburger */}
         {onMenuToggle && (
           <button
@@ -59,7 +60,17 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
             </svg>
           </button>
         )}
-        <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+        {/* Mobile-only brand mark — Sidebar holds the brand on desktop, but on
+            mobile the sidebar collapses into the hamburger, so the header
+            becomes the only always-visible brand surface. */}
+        <Link
+          to="/"
+          className="md:hidden flex items-center gap-2 text-primary"
+          aria-label="BoardRoom AI home"
+        >
+          <Logo variant="icon" size={24} />
+        </Link>
+        <h1 className="text-lg font-semibold text-foreground truncate">{title}</h1>
         {breadcrumbs.length > 0 && (
           <div className="flex items-center gap-1.5 text-sm">
             {breadcrumbs.map((crumb, i) => (

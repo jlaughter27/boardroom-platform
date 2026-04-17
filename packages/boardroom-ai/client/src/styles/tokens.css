@@ -19,6 +19,18 @@
   --color-destructive: #b91c1c;
   --color-destructive-foreground: #ffffff;
 
+  /*
+   * Sidebar colors. The sidebar is INTENTIONALLY dark independent of
+   * the active theme — a product decision from the brand-system PR
+   * (docs/tasks/BRAND-SYSTEM.md). These values do NOT flip in dark
+   * mode. They only live here instead of hardcoded hex in Sidebar.tsx
+   * so the rest of the design system is the single source of truth.
+   */
+  --color-sidebar-bg: #1c1b1a;
+  --color-sidebar-border: #2a2a28;
+  --color-sidebar-foreground: #f1f1ec;
+  --color-sidebar-foreground-muted: rgba(241, 241, 236, 0.55);
+
   /* Semantic colors (Section 2.3 — Light) */
   --color-success: #15803d;
   --color-success-muted: rgba(21, 128, 61, 0.1);

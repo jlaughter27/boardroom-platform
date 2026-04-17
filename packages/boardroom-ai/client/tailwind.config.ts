@@ -46,6 +46,15 @@ export default {
           foreground: 'var(--color-destructive-foreground)',
         },
 
+        // Sidebar — intentionally dark regardless of theme. See
+        // client/src/styles/tokens.css for the rationale.
+        sidebar: {
+          DEFAULT: 'var(--color-sidebar-bg)',
+          border: 'var(--color-sidebar-border)',
+          foreground: 'var(--color-sidebar-foreground)',
+          'foreground-muted': 'var(--color-sidebar-foreground-muted)',
+        },
+
         // ── Semantic colors ──
         success: { DEFAULT: 'var(--color-success)', muted: 'var(--color-success-muted)' },
         warning: { DEFAULT: 'var(--color-warning)', muted: 'var(--color-warning-muted)' },

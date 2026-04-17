@@ -91,11 +91,19 @@ export default function DashboardPage() {
       <motion.div key="content" {...fadeIn} className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">
-              {getGreeting()}, {firstName}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+          <div className="flex items-center gap-3">
+            {/* Warm-gold accent bar — anchors the greeting with brand color
+                without adding another logo (Sidebar already carries one). */}
+            <span
+              className="h-10 w-1 rounded-full bg-gradient-to-b from-primary to-primary-warm"
+              aria-hidden
+            />
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground">
+                {getGreeting()}, {firstName}
+              </h1>
+              <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+            </div>
           </div>
           <Button variant="ghost" size="sm" onClick={openConfigurator}>
             <svg className="w-4 h-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
@@ -163,7 +171,14 @@ export default function DashboardPage() {
               ].map((item) => (
                 <motion.div key={item.title} {...staggerItem}>
                   <Card hover onClick={() => navigate(item.route)} className="text-center py-6">
-                    <span className="text-3xl mb-3 block">{item.icon}</span>
+                    {/* Warm-gold halo around the icon — turns placeholder emoji
+                        into a branded "quick action" chip. */}
+                    <span
+                      className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-2xl ring-1 ring-inset ring-primary/20"
+                      aria-hidden
+                    >
+                      {item.icon}
+                    </span>
                     <h3 className="text-sm font-medium text-foreground mb-1">{item.title}</h3>
                     <p className="text-xs text-muted-foreground">{item.desc}</p>
                   </Card>

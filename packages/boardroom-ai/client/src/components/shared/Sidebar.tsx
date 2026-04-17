@@ -235,7 +235,7 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: sidebarCollapsed ? 64 : 240 }}
       transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-      className="hidden md:flex flex-col bg-[#1c1b1a] border-r border-[#2a2a28] h-screen overflow-hidden flex-shrink-0 shadow-sm"
+      className="hidden md:flex flex-col bg-sidebar border-r border-sidebar-border h-screen overflow-hidden flex-shrink-0 shadow-sm"
     >
       <SidebarContent collapsed={sidebarCollapsed} />
     </motion.aside>
@@ -279,7 +279,7 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
             animate={{ x: 0 }}
             exit={{ x: -240 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="fixed left-0 top-0 bottom-0 w-60 flex flex-col bg-[#1c1b1a] border-r border-white/10 z-[var(--z-modal)] md:hidden"
+            className="fixed left-0 top-0 bottom-0 w-60 flex flex-col bg-sidebar border-r border-sidebar-border z-[var(--z-modal)] md:hidden"
           >
             <SidebarContent collapsed={false} onNavigate={onClose} />
           </motion.aside>

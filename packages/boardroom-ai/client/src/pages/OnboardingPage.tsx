@@ -13,12 +13,15 @@ import { ProjectsStep } from '../components/onboarding/steps/ProjectsStep';
 import { PeopleStep } from '../components/onboarding/steps/PeopleStep';
 import { ContextStep } from '../components/onboarding/steps/ContextStep';
 
+// Warm-gold palette for celebration — NO blue `--color-info` (off-brand).
+// Mixes the two primary tones with warm accents so the confetti reads as
+// unmistakably BoardRoom.
 const CONFETTI_COLORS = [
   'var(--color-primary)',
   'var(--color-primary-warm)',
+  'var(--color-primary-text)',
   'var(--color-success)',
   'var(--color-warning)',
-  'var(--color-info)',
 ];
 
 function CelebrationScreen() {

@@ -6,9 +6,20 @@ const sizes = {
   lg: 'w-10 h-10 text-sm',
 } as const;
 
+// Avatar background palette. Hand-picked to coexist with the warm-gold
+// brand (`bg-primary` slot included) while still giving users visual
+// distinction. Hash maps a name to a stable color so "Sarah" always gets
+// the same shade. Primary sits in position 2 so it shows up frequently
+// enough to feel intentional without dominating.
 const bgColors = [
-  'bg-blue-600', 'bg-emerald-600', 'bg-amber-600', 'bg-cyan-600',
-  'bg-rose-600', 'bg-sky-600', 'bg-teal-600', 'bg-orange-600',
+  'bg-primary',      // warm gold — brand reinforcement in avatar context
+  'bg-emerald-600',
+  'bg-amber-600',
+  'bg-cyan-600',
+  'bg-rose-600',
+  'bg-sky-600',
+  'bg-teal-600',
+  'bg-orange-600',
 ];
 
 function hashName(name: string): number {
