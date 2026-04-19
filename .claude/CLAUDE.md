@@ -14,6 +14,27 @@ Executive decision intelligence suite for solo founders, indie hackers, and cons
 
 ---
 
+## ⚡ Active Roadmap (READ THIS FIRST FOR ANY ONGOING WORK)
+
+The single source of truth for what to work on, why, and how is the **operator-ready roadmap** at:
+
+**[`docs/roadmap/`](../docs/roadmap/)** — built and validated by an 18-agent pipeline (4 researchers + 4 auditors + 8 builders + 3 reviewers + 1 final validator) on 2026-04-18.
+
+**For any new session:**
+1. Read [`docs/roadmap/STATUS/CURRENT-PHASE.md`](../docs/roadmap/STATUS/CURRENT-PHASE.md) (active phase + active task pointer)
+2. Read [`docs/roadmap/07-claude-instructions/CLAUDE-WORKFLOW.md`](../docs/roadmap/07-claude-instructions/CLAUDE-WORKFLOW.md) (which 2-3 files to load for your task type)
+3. Then load only the files that doc tells you to load. **Do not** read the entire `docs/` tree.
+
+**For a tour of the plan:** [`docs/roadmap/04-roadmap/ROADMAP-OVERVIEW.md`](../docs/roadmap/04-roadmap/ROADMAP-OVERVIEW.md)
+**For risk-first lens:** [`docs/roadmap/06-risks-and-mitigations/RISK-REGISTER.md`](../docs/roadmap/06-risks-and-mitigations/RISK-REGISTER.md)
+**For known issues + landmines:** [`docs/roadmap/02-current-state/`](../docs/roadmap/02-current-state/)
+
+The older `docs/MEM0_INTEGRATION_PLAN.md`, `docs/MEM0_RE_INTEGRATION_PLAN.md`, and `docs/MEM0_*` planning docs are SUPERSEDED by the roadmap and remain only as historical reference.
+
+End of every session: update `docs/roadmap/STATUS/CHANGELOG.md` and `STATUS/CURRENT-PHASE.md` per [`07-claude-instructions/HANDOFF-TEMPLATE.md`](../docs/roadmap/07-claude-instructions/HANDOFF-TEMPLATE.md).
+
+---
+
 ## Architecture & Service Boundaries
 
 ```
@@ -73,11 +94,13 @@ The DeepSeek v3.2 split is RETIRED (ADR-007). Existing type files in shared/ wer
 
 ## Before You Write Code
 
-1. Read this file completely.
-2. Check `docs/tasks/_TASK-INDEX.md` for current task status + dependencies.
-3. Check `docs/DECISIONS.md` for the 13 architectural decisions — don't re-litigate settled decisions.
-4. Check `docs/contracts/` for API contracts between services.
-5. Read `docs/FRAGILE-ZONES.md` if touching Docker, middleware ordering, Prisma, or env vars.
+1. **Check `docs/roadmap/STATUS/CURRENT-PHASE.md` FIRST** — it tells you the active phase + active task. The roadmap is the source of truth for ongoing work.
+2. Follow the load-order in `docs/roadmap/07-claude-instructions/CONTEXT-LOAD-ORDER.md` for your task type (only ~2-3 files needed per task).
+3. Read this file completely if it's your first session in this repo.
+4. Check `docs/DECISIONS.md` for the 13 architectural decisions — don't re-litigate settled decisions.
+5. Check `docs/contracts/` for API contracts between services.
+6. Read `docs/FRAGILE-ZONES.md` if touching Docker, middleware ordering, Prisma, or env vars.
+7. The older `docs/tasks/_TASK-INDEX.md` is HISTORICAL; the live task index is `docs/roadmap/STATUS/PHASE-PROGRESS-TRACKER.md`.
 6. Run `npm run typecheck` and `npm run test` before committing.
 
 ### Quick context docs (read in order for fastest ramp-up):
