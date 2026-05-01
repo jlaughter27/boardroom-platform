@@ -48,7 +48,7 @@ The Wave 4 final validator reconciled the 18-agent pipeline output. No code chan
 **ADR copies (item K) — TODO acknowledged:**
 - `08-references/adrs/` README updated to reflect that the 13 ADRs in `docs/DECISIONS.md` have not been split into one-file-per-ADR copies. Flagged a real inconsistency between `01-foundations/ADR-INDEX.md` (ADR-005/006/010/012 headlines) and `docs/DECISIONS.md` (different headlines for those numbers) — left BOTH intact and surfaced for user decision rather than silently rewriting either.
 
-**Files created:** 1 (`docs/research/omnimind-roadmap-2026/wave3-review/wave4-validator-summary.md`)
+**Files created:** 1 (`docs/_archive/research-wave-3-reviews/wave4-validator-summary.md` — archived in Phase D 2026-05-01; original path was `docs/research/omnimind-roadmap-2026/wave3-review/wave4-validator-summary.md`)
 **Files modified:** ~25 across all roadmap subdirectories
 **Files deleted:** 0 (parent already removed the 8 empty stub folders)
 
