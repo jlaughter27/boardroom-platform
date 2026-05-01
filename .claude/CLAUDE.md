@@ -29,7 +29,7 @@ The single source of truth for what to work on, why, and how is the **operator-r
 **For risk-first lens:** [`docs/roadmap/06-risks-and-mitigations/RISK-REGISTER.md`](../docs/roadmap/06-risks-and-mitigations/RISK-REGISTER.md)
 **For known issues + landmines:** [`docs/roadmap/02-current-state/`](../docs/roadmap/02-current-state/)
 
-The older `MEM0_*` planning docs (MEM0_INTEGRATION_PLAN, MEM0_RE_INTEGRATION_PLAN, MEM0_FINAL_DEV_ROADMAP, MEM0_RISK_MITIGATION_PLAN, MEM0_USAGE_EXAMPLES) are SUPERSEDED by the roadmap. They were archived to `docs/_archive/2026-04-pre-roadmap/` in a separate workstream — earlier versions are retrievable from git history if needed.
+The older `MEM0_*` planning docs (MEM0_INTEGRATION_PLAN, MEM0_RE_INTEGRATION_PLAN, MEM0_FINAL_DEV_ROADMAP, MEM0_RISK_MITIGATION_PLAN, MEM0_USAGE_EXAMPLES) are SUPERSEDED by the roadmap. They will be archived to `docs/_archive/` in a separate workstream — earlier versions are retrievable from git history if needed.
 
 End of every session: update `docs/STATUS/CHANGELOG.md` and `STATUS/CURRENT-PHASE.md` per [`07-claude-instructions/HANDOFF-TEMPLATE.md`](../docs/_meta/HANDOFF-TEMPLATE.md).
 
