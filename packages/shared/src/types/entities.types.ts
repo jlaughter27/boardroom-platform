@@ -1,5 +1,5 @@
 // Entity types — TASK-004 (DeepSeek)
-// Implement from: docs/schemas/database-schema.md
+// Implement from: packages/omnimind-api/prisma/schema.prisma (canonical entity definitions). The previous docs/schemas/database-schema.md stub was deleted in docs Phase D — schema.prisma is the source of truth.
 
 export interface Person {
   id: string;

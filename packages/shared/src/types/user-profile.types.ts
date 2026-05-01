@@ -1,5 +1,5 @@
 // UserProfile types — TASK-004 (DeepSeek)
-// Implement from: docs/MASTER-FRAMEWORK.md §4 Data Model
+// Implement from: docs/02-reference/MASTER-FRAMEWORK.md §4 Data Model
 
 export interface RiskProfile {
   financial: number;

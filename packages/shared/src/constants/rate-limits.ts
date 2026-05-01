@@ -1,6 +1,6 @@
 // Rate limit constants
 // Enforced at the API gateway and session manager layers.
-// Source: docs/MASTER-FRAMEWORK.md §7 Rate Limiting
+// Source: docs/02-reference/MASTER-FRAMEWORK.md §7 Rate Limiting
 
 /**
  * Platform-wide rate limits.

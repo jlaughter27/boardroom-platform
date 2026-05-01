@@ -1,5 +1,5 @@
 // User-facing modes — TASK-004 (DeepSeek)
-// Implement from: docs/MASTER-FRAMEWORK.md §3 User-Facing Modes
+// Implement from: docs/02-reference/MASTER-FRAMEWORK.md §3 User-Facing Modes
 
 import type { PersonaId } from './persona.types';
 

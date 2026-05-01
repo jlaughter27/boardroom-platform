@@ -33,7 +33,7 @@ responses. Session management. User authentication.
 ## Persona System
 - Prompts loaded from docs/prompts/*.system.md at startup (not hardcoded)
 - Context strategy in server/src/personas/context-strategy.ts
-- Each persona gets DIFFERENT memory slices (see docs/MASTER-FRAMEWORK.md)
+- Each persona gets DIFFERENT memory slices (see docs/02-reference/MASTER-FRAMEWORK.md)
 - Modes (Decide/StressTest/Plan/Quick) map to persona combos in mode-router.ts
 
 ## Frontend (client/)

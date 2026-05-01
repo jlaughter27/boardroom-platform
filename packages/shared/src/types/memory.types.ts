@@ -1,5 +1,5 @@
 // Memory types — TASK-004 (DeepSeek)
-// Implement from: docs/schemas/database-schema.md + docs/schemas/memory-ontology.md
+// Implement from: packages/omnimind-api/prisma/schema.prisma (Memory model) and docs/02-reference/MASTER-FRAMEWORK.md §4 Data Model.
 
 export enum MemoryClass {
   WORKING = 'WORKING',
