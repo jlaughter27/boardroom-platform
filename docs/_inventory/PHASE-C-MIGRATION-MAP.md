@@ -1,12 +1,31 @@
-# Phase C — Migration Map (v1.3)
+# Phase C — Migration Map (v1.4)
 
-> **Status:** v1.2 ratified by validators; v1.3 amendment 2026-05-01 captures Phase D entry findings.
-> **Generated:** 2026-04-30 (v1.0); revised 2026-04-30 (v1.1, v1.2); amended 2026-05-01 (v1.3)
+> **Status:** v1.2 ratified by validators; v1.3 captures Phase D entry findings; v1.4 captures post-divergence-audit Zeta pivot + verified post-PR-1 line numbers.
+> **Generated:** 2026-04-30 (v1.0); revised 2026-04-30 (v1.1, v1.2); amended 2026-05-01 (v1.3, v1.4)
 > **Source proposal:** `docs/_inventory/PHASE-B-PROPOSAL-V2.md` (validator-ratified)
 > **Active session:** master execution prompt v1.0
-> **Next:** Phase D execution per §10 (with v1.3 amendments)
+> **Next:** Phase D execution resumes after PR #3 (`feat(docs): roadmap pipeline + production bug fixes (foundations)`) merges to main
 >
-> **v1.3 Amendment (2026-05-01) — see `CHECKPOINT-phase-C.md` Addendum for full record:**
+> **v1.4 Amendment (2026-05-01) — Zeta plan pivot.** Phase D §10 commits 1-2 landed on `chore/docs-phase-D-migration` before a divergence audit revealed that §1.2 promotion sources, §2.2 wave3-reviews, and REALITY-BASELINE.md are absent on `origin/main` (the entire `docs/roadmap/` tree is only on `feature/folder-migration` via commit `dc23b2a`). Strategic pivot to **3-PR Zeta plan**:
+>
+> - **PR 1 (OPEN, ready-for-review):** `doc-reorg-foundations` branch off `origin/main` — 10 commits cherry-picked from feature/folder-migration: 9 production bug fixes (Cat B per agent audit) + dc23b2a roadmap pipeline (Cat A). Includes the canonical Tailwind/postcss fixes (`80534c2` brand polish + `dfe895a` prompt-loader/postcss). PR #3 at https://github.com/jlaughter27/boardroom-platform/pull/3. **PR title does NOT contain literal "Phase D" — §9.3 tripwire intentionally not triggered for this PR.**
+>
+> - **PR 2 (PAUSED — chore branch, this branch):** Phase D §10 bucket migration. After PR 1 merges:
+>   1. `git rebase --onto origin/main 6dcdffc^ chore/docs-phase-D-migration` (rebases the 4 useful chore commits — `6dcdffc` audit-trail, `f5b999d` scaffold, `a101a3c` sibling port, `461d108` state-update — onto post-merge main). The `8bd228d` cherry-pick of 6e06597 and `e805f57` defense-in-depth become obsolete (PR 1's `80534c2` and `dfe895a` are the canonical fixes); `git rebase` will report empty for those commits and skip them.
+>   2. Re-verify §11 hard-gates; resume §10 commits 3-12.
+>   3. PR 2 title MUST contain literal "Phase D" so §9.3 tripwire fires correctly.
+>
+> - **PR 3 (DEFERRED):** 13 Cat C/D commits (Phase 0/1 prep, including `97df169` Phase 0.25 security overhaul, `803b125` Phase 1 prep types, `c30df4b` validation-helpers TSC fixes, `ea24d43` quality-evaluator.system.md prompt). Open separately when Phase 1 actually starts.
+>
+> **Verified on post-PR-1 state (doc-reorg-foundations branch, 2026-05-01):**
+> - `.claude/CLAUDE.md` is 467 lines; cited line numbers in §7.2 (24, 25, 28, 29, 30, 32, 34, 97, 98, 100, 102, 103, 107-114, 161-168, 334, 418, 442) **all match expected content** ✓
+> - `README.md` is 112 lines; cited line numbers in §7.6 (15, 100, 101) **all match expected content** ✓
+> - `docs/prompts/*.system.md` count is **18, not 19**. The 19th prompt (`quality-evaluator.system.md`) was added by `ea24d43` (Cat C, deferred to PR 3). **§11 gate updated to ≥18** below.
+> - `wave4-validator-summary.md` inbound count = 1 (citation at `docs/roadmap/STATUS/CHANGELOG.md:262`); §10 commit 6 will edit that to drop count to 0 ✓
+> - `packages/shared/dist/` not tracked (count = 0) ✓
+> - Dockerfile prompts COPY directives at lines 14 and 51 (§9.4 / §11) ✓
+>
+> **v1.3 Amendment (2026-05-01) — see `CHECKPOINT-phase-C.md` Addendum for full record (still valid):**
 > - §10 outcome (c) was added in v1.2 round-3 risk-MED. Validator at Phase D entry verified it is **impossible** for this codebase: vite's `root: 'client'` does NOT change `process.cwd()`; postcss CWD remains `packages/boardroom-ai/` regardless of `root`. Only outcomes (a) and (b) exist. (c) note retained below for historical record but marked as invalidated.
 > - §10 pre-step 0a result: **outcome (b) confirmed** — main builds CSS=4612 bytes / 0 utility classes; cherry-pick of 6e06597 onto clean main produces 37961 bytes / 162 classes (validator-verified).
 > - §10 pre-step 0b' (replaces 0b): cherry-pick 6e06597 + defense-in-depth follow-up commit using path-anchored content paths (90d8894 approach) for CWD independence. Both commits include `Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>`.
@@ -567,7 +586,7 @@ All must be true before opening Phase D PR. Each is a blocking pre-flight assert
 - [x] Sibling `/Users/Joshua/boardroom-platform/docs/MASTER-DREAM-ROADMAP.md` accessible
 - [ ] **Tailwind/postcss build verification done** (per §10 pre-step 0a) — outcome documented in PR description
 - [ ] **wave4-validator-summary.md inbound count is 0 AFTER §10 commit 6 lands** (CHANGELOG.md:262 edit included; **1B exception NOT permitted** per locked DECISION-1)
-- [ ] `ls docs/prompts/*.system.md | wc -l` returns ≥19
+- [ ] `ls docs/prompts/*.system.md | wc -l` returns ≥18 (v1.4: lowered from 19; the 19th prompt `quality-evaluator.system.md` is added by `ea24d43` which is deferred to PR 3 per Zeta plan)
 - [ ] `git ls-files packages/shared/dist/ | wc -l` returns 0 (dist still untracked)
 - [ ] `*.bak` added to root `.gitignore`
 
