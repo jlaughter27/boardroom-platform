@@ -1,0 +1,111 @@
+{
+  "_comment": "Curated subset of the docs tree for tooling. Auto-generation lives in docs/_inventory/scripts/inventory.py; this file is regenerated post-Phase-D-merge with --curated flag. Until that script is updated, this is a hand-written skeleton matching INDEX.md.",
+  "_version": 1,
+  "_generated": "2026-05-01",
+  "_schema": {
+    "buckets": "Map of bucket-name → {description, files: [{path, summary, role}]}"
+  },
+
+  "buckets": {
+    "01-orientation": {
+      "description": "First-touch onboarding for new contributors. ≤3 files at a time.",
+      "files": [
+        {"path": "docs/01-orientation/PROJECT-BRIEF.md", "summary": "1-page product context", "role": "orientation"},
+        {"path": "docs/01-orientation/CURRENT-STATE.md", "summary": "What's live, what's next", "role": "orientation"},
+        {"path": "docs/01-orientation/ARCHITECTURE-QUICK-REF.md", "summary": "File tree, data flows, auth", "role": "orientation"}
+      ]
+    },
+
+    "02-reference": {
+      "description": "Durable reference (specs, ADRs, framework docs). Stable; updated rarely.",
+      "files": [
+        {"path": "docs/02-reference/MASTER-FRAMEWORK.md", "summary": "Complete product + technical spec (~80kb)", "role": "spec", "is_hub": true},
+        {"path": "docs/02-reference/DECISIONS.md", "summary": "13 ADRs with rationale", "role": "adr-index", "is_hub": true},
+        {"path": "docs/02-reference/FRAGILE-ZONES.md", "summary": "What breaks easily", "role": "reference"},
+        {"path": "docs/02-reference/MASTER-DEV-PLAN.md", "summary": "Full dev plan with multi-agent validation framework", "role": "plan"},
+        {"path": "docs/02-reference/MASTER-DREAM-ROADMAP.md", "summary": "Aspirational long-horizon roadmap", "role": "plan"}
+      ]
+    },
+
+    "03-operations": {
+      "description": "Runbooks for deploy, recovery, ops.",
+      "files": [
+        {"path": "docs/03-operations/DEPLOYMENT-RUNBOOK.md", "summary": "Railway config, env vars, common deploy issues", "role": "runbook", "is_hub": true},
+        {"path": "docs/03-operations/DEPLOY-RAILWAY.md", "summary": "Step-by-step Railway deployment", "role": "runbook"},
+        {"path": "docs/03-operations/REALITY-BASELINE.md", "summary": "What the system actually does today (vs the spec)", "role": "runbook"}
+      ]
+    },
+
+    "_reports": {
+      "description": "Historical reports — preserved for audit, not maintained.",
+      "files": [
+        {"path": "docs/_reports/FRONTEND-POLISH-REPORT.md", "summary": "Frontend polish wave outcome", "role": "historical"},
+        {"path": "docs/_reports/PHASE-5-REPORT.md", "summary": "Phase 5 completion report", "role": "historical"},
+        {"path": "docs/_reports/REMEDIATION-REPORT.md", "summary": "First remediation pass report", "role": "historical"},
+        {"path": "docs/_reports/REMEDIATION-2-REPORT.md", "summary": "Second remediation pass report", "role": "historical"}
+      ]
+    },
+
+    "STATUS": {
+      "description": "Live session state. Updated every session.",
+      "files": [
+        {"path": "docs/STATUS/CURRENT-PHASE.md", "summary": "Active phase + active task pointer", "role": "live", "load_first": true},
+        {"path": "docs/STATUS/CHANGELOG.md", "summary": "Phase-level event log", "role": "live"},
+        {"path": "docs/STATUS/DECISIONS-LOG.md", "summary": "Single source of truth for non-ADR decisions", "role": "live"},
+        {"path": "docs/STATUS/BLOCKERS.md", "summary": "Open questions and blockers", "role": "live"},
+        {"path": "docs/STATUS/PHASE-PROGRESS-TRACKER.md", "summary": "Live progress per phase", "role": "live"}
+      ]
+    },
+
+    "_meta": {
+      "description": "Agent-instruction meta (load order, handoff templates, session checklists).",
+      "files": [
+        {"path": "docs/_meta/CLAUDE-WORKFLOW.md", "summary": "Workflow specifically for Claude sessions", "role": "agent-meta"},
+        {"path": "docs/_meta/CONTEXT-LOAD-ORDER.md", "summary": "Which 2-3 docs to read for whatever task", "role": "agent-meta"},
+        {"path": "docs/_meta/PROMPT-TEMPLATES.md", "summary": "Reusable session-kickoff and task-handoff prompt templates", "role": "agent-meta"},
+        {"path": "docs/_meta/HANDOFF-TEMPLATE.md", "summary": "Session-end handoff format", "role": "agent-meta"},
+        {"path": "docs/_meta/SESSION-END-CHECKLIST.md", "summary": "Explicit close-out checklist", "role": "agent-meta"}
+      ]
+    },
+
+    "_archive": {
+      "description": "Frozen content. Never edited after archival.",
+      "subdirs": {
+        "orchestrator-prompts": "16 one-shot orchestrator prompts (PHASE-0..5, UI-A..C, REMEDIATION-1..2, etc.)",
+        "research-wave-3-reviews": "4 wave-3 reviewer outputs from the 18-agent pipeline"
+      }
+    },
+
+    "roadmap": {
+      "description": "OmniMind memory-system roadmap (151-file pipeline output). Treated as a self-contained subtree.",
+      "files": [
+        {"path": "docs/roadmap/MASTER-INDEX.md", "summary": "Roadmap-internal index", "role": "roadmap-meta"},
+        {"path": "docs/roadmap/EXECUTIVE-SUMMARY.md", "summary": "2-page roadmap summary", "role": "roadmap-meta"},
+        {"path": "docs/roadmap/PROJECT-CONTEXT.md", "summary": "5-minute roadmap context dump", "role": "roadmap-meta"},
+        {"path": "docs/roadmap/04-roadmap/ROADMAP-OVERVIEW.md", "summary": "Master timeline + dependency graph", "role": "roadmap-meta"}
+      ]
+    },
+
+    "top-level-meta": {
+      "description": "Top-level platform documentation that doesn't fit a single bucket.",
+      "files": [
+        {"path": "docs/INDEX.md", "summary": "This index — categorized map of the docs tree", "role": "self"},
+        {"path": "docs/INDEX.json", "summary": "Machine-readable subset of the docs tree (this file)", "role": "self"},
+        {"path": "docs/LOAD-MAP.json", "summary": "Task-type → file mapping", "role": "self"},
+        {"path": "docs/GLOSSARY.md", "summary": "Code prefixes, statuses, modes, persona names", "role": "self"},
+        {"path": "docs/CONVENTIONS.md", "summary": "Naming, lifecycle, stub format conventions", "role": "self"}
+      ]
+    }
+  },
+
+  "non_curated_dirs": {
+    "_comment": "Directories present in docs/ but not enumerated above. The full file list lives in docs/_inventory/files.json and the live tree.",
+    "paths": [
+      "docs/contracts/",
+      "docs/prompts/",
+      "docs/research/",
+      "docs/tasks/",
+      "docs/_inventory/"
+    ]
+  }
+}
