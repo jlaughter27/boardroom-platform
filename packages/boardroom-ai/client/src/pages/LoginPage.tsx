@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useAuthStore } from '../stores/auth.store';
 import { Button, Input, useToastStore } from '../components/ui';
+import { Logo } from '../components/shared/Logo';
 
 /* ─── Rotating social proof ─── */
 const TESTIMONIALS = [
@@ -104,11 +105,9 @@ export default function LoginPage() {
             transition={{ delay: 0.15, duration: 0.5 }}
           >
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-warm flex items-center justify-center shadow-lg">
-                <span className="text-white font-bold text-lg">B</span>
-              </div>
-              <h1 className="font-display text-2xl font-bold text-foreground tracking-tight">
-                <span className="text-blue-600 dark:text-blue-400">Board</span><span className="text-foreground">Room AI</span>
+              <Logo variant="icon" size={40} className="text-primary drop-shadow-[0_0_16px_rgba(212,163,26,0.4)]" />
+              <h1 className="font-display text-2xl font-bold tracking-tight">
+                <span className="text-primary">Board</span><span className="text-foreground">Room AI</span>
               </h1>
             </div>
           </motion.div>
@@ -124,7 +123,7 @@ export default function LoginPage() {
             <h2 className="text-4xl font-bold text-foreground leading-tight tracking-tight mb-4">
               Your AI-powered
               <br />
-              <span className="text-blue-600 dark:text-blue-400">
+              <span className="text-primary">
                 executive team.
               </span>
             </h2>
@@ -219,11 +218,9 @@ export default function LoginPage() {
           {/* Mobile-only brand header */}
           <div className="lg:hidden text-center mb-10">
             <div className="flex items-center justify-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-warm flex items-center justify-center shadow-lg">
-                <span className="text-white font-bold text-lg">B</span>
-              </div>
-              <h1 className="font-display text-2xl font-bold text-foreground tracking-tight">
-                <span className="text-blue-600 dark:text-blue-400">Board</span><span className="text-foreground">Room AI</span>
+              <Logo variant="icon" size={40} className="text-primary" />
+              <h1 className="font-display text-2xl font-bold tracking-tight">
+                <span className="text-primary">Board</span><span className="text-foreground">Room AI</span>
               </h1>
             </div>
             <p className="text-muted-foreground text-sm">

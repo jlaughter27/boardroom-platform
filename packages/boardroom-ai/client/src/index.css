@@ -47,13 +47,17 @@ body {
   background: transparent;
 }
 
+/*
+ * Scrollbar thumbs carry a subtle warm-gold tint at rest and go fully
+ * brand-colored on hover. High-frequency surface, low-cost reinforcement.
+ */
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--color-ring);
   border-radius: 3px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted-foreground);
+  background: var(--color-primary);
 }
 
 ::-webkit-scrollbar {
@@ -66,12 +70,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--color-ring);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted-foreground);
+  background: var(--color-primary);
 }
 
 /* === REDUCED MOTION === */
@@ -91,11 +95,17 @@ body {
   100% { background-position: 200% 0; }
 }
 
+/*
+ * Skeleton shimmer carries a whisper of warm-gold at the peak of its
+ * gradient so the whole app feels "loading on brand" instead of loading
+ * on neutral gray. --color-ring is primary-at-0.3-opacity — the highlight
+ * is sensed, not seen.
+ */
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
     var(--color-muted) 25%,
-    var(--color-accent) 50%,
+    var(--color-ring) 50%,
     var(--color-muted) 75%
   );
   background-size: 200% 100%;

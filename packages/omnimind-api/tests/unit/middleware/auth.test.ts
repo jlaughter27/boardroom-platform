@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { apiKeyAuth } from '../../../src/middleware/auth';
+import { apiKeyAuth, __resetApiKeyForTest } from '../../../src/middleware/auth';
 
 describe('apiKeyAuth middleware', () => {
   let mockReq: Partial<Request>;
@@ -20,6 +20,8 @@ describe('apiKeyAuth middleware', () => {
     };
     mockNext = vi.fn();
     originalEnv = process.env.OMNIMIND_API_KEY;
+    // Reset the cached API key so each test reads a fresh process.env.
+    __resetApiKeyForTest();
   });
 
   afterEach(() => {
@@ -28,6 +30,7 @@ describe('apiKeyAuth middleware', () => {
     } else {
       delete process.env.OMNIMIND_API_KEY;
     }
+    __resetApiKeyForTest();
   });
 
   it('should allow health endpoint without API key', () => {
@@ -71,11 +74,20 @@ describe('apiKeyAuth middleware', () => {
     expect(mockRes.status).toHaveBeenCalledWith(401);
   });
 
-  it('should reject all requests when API key is not configured', () => {
+  it('should return 500 when API key is not configured', () => {
     delete process.env.OMNIMIND_API_KEY;
-    // Should throw during initialization
-    expect(() => {
-      apiKeyAuth(mockReq as Request, mockRes as Response, mockNext);
-    }).toThrow('FATAL: OMNIMIND_API_KEY environment variable is not set.');
+    __resetApiKeyForTest();
+    mockReq.headers = { 'x-api-key': 'any-key' };
+
+    // The middleware catches the FATAL error from getApiKey() and responds
+    // with a 500 instead of crashing the process.
+    apiKeyAuth(mockReq as Request, mockRes as Response, mockNext);
+
+    expect(mockRes.status).toHaveBeenCalledWith(500);
+    expect(mockRes.json).toHaveBeenCalledWith({
+      error: 'internal_error',
+      message: 'Server configuration error',
+    });
+    expect(mockNext).not.toHaveBeenCalled();
   });
 });

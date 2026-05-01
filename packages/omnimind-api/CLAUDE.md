@@ -28,9 +28,20 @@ Every first-class entity has its own route + service file:
 - user-profile (user-profile.routes.ts + user-profile.service.ts)
 - context (context.routes.ts + context-assembler.service.ts)
 - health (health.routes.ts)
+- cortex (cortex.routes.ts + cortex-{memo,patterns,contradictions}.service.ts) — Phase 2, live
+- outcome-reviews (outcome-review.routes.ts + outcome-review.service.ts)
+- relationships (relationships.routes.ts + relationship.service.ts)
+- oauth, subscription, custom-personas, auth — supporting routes
 
 If adding a new entity, you need: type in shared/, Zod schema in shared/,
 route file, service file, Prisma model, and contract update.
+
+## Disabled / quarantined code
+`src/services/_disabled/` and `src/routes/_disabled/` hold mem0 integration
+artifacts and dead orphan routes (memory-graph, memory-health,
+embedding-monitoring, memory-maintenance). They reference Prisma models that
+don't exist and were broking typecheck. See repo-root audit plan for context.
+Excluded from build/typecheck via `tsconfig.json`.
 
 ## API Contract
 See docs/contracts/omnimind-api.contract.md for every endpoint spec.

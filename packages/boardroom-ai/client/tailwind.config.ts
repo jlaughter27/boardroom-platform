@@ -1,8 +1,20 @@
 import type { Config } from 'tailwindcss';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Anchor content paths to this config file so Tailwind finds the source
+// files regardless of the CWD vite was launched from. Without this,
+// `./src/**/*` is resolved from whatever pnpm's CWD is (usually the
+// package root, not client/) and Tailwind fails with "No utility
+// classes were detected".
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default {
   darkMode: 'class',
-  content: ['./src/**/*.{ts,tsx}', './index.html'],
+  content: [
+    path.resolve(__dirname, 'src/**/*.{ts,tsx}'),
+    path.resolve(__dirname, 'index.html'),
+  ],
   theme: {
     extend: {
       colors: {
@@ -32,6 +44,15 @@ export default {
         destructive: {
           DEFAULT: 'var(--color-destructive)',
           foreground: 'var(--color-destructive-foreground)',
+        },
+
+        // Sidebar — intentionally dark regardless of theme. See
+        // client/src/styles/tokens.css for the rationale.
+        sidebar: {
+          DEFAULT: 'var(--color-sidebar-bg)',
+          border: 'var(--color-sidebar-border)',
+          foreground: 'var(--color-sidebar-foreground)',
+          'foreground-muted': 'var(--color-sidebar-foreground-muted)',
         },
 
         // ── Semantic colors ──

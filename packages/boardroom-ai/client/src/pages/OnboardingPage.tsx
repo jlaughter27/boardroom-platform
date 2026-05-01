@@ -4,19 +4,24 @@ import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { useToastStore } from '../components/ui';
+import { Logo } from '../components/shared/Logo';
 import { WizardStep } from '../components/onboarding/WizardStep';
+import { BootstrapStep } from '../components/onboarding/steps/BootstrapStep';
 import { AboutYouStep } from '../components/onboarding/steps/AboutYouStep';
 import { GoalsStep } from '../components/onboarding/steps/GoalsStep';
 import { ProjectsStep } from '../components/onboarding/steps/ProjectsStep';
 import { PeopleStep } from '../components/onboarding/steps/PeopleStep';
 import { ContextStep } from '../components/onboarding/steps/ContextStep';
 
+// Warm-gold palette for celebration — NO blue `--color-info` (off-brand).
+// Mixes the two primary tones with warm accents so the confetti reads as
+// unmistakably BoardRoom.
 const CONFETTI_COLORS = [
   'var(--color-primary)',
   'var(--color-primary-warm)',
+  'var(--color-primary-text)',
   'var(--color-success)',
   'var(--color-warning)',
-  'var(--color-info)',
 ];
 
 function CelebrationScreen() {
@@ -98,6 +103,9 @@ export default function OnboardingPage() {
     prev,
     extractGoals,
     extractProjects,
+    bootstrapFromDoc,
+    bootstrapFromVoice,
+    skipBootstrap,
     complete,
     isExtracting,
     isSubmitting,
@@ -144,10 +152,16 @@ export default function OnboardingPage() {
       <div className="w-full max-w-2xl relative z-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="font-display text-3xl font-bold mb-2">
-            <span className="text-blue-600 dark:text-blue-400">Welcome</span> <span className="text-foreground">to BoardRoom</span>
-          </h1>
-          <p className="text-muted-foreground">Let's set up your AI advisory board in a few minutes.</p>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Logo variant="icon" size={44} className="text-primary drop-shadow-[0_0_24px_rgba(212,163,26,0.4)]" />
+            <h1 className="font-display text-3xl font-bold tracking-tight">
+              <span className="text-primary">Welcome</span>{' '}
+              <span className="text-foreground">to BoardRoom</span>
+            </h1>
+          </div>
+          <p className="text-muted-foreground">
+            Let's set up your AI advisory board in a few minutes.
+          </p>
         </div>
 
         {showCelebration ? (
@@ -165,6 +179,27 @@ export default function OnboardingPage() {
               exit="exit"
               transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             >
+              {step === 0 && (
+                <div className="bg-card rounded-xl border border-border shadow-lg p-6 sm:p-8">
+                  <BootstrapStep
+                    onUploadDoc={async (file) => {
+                      setDirection(1);
+                      await bootstrapFromDoc(file);
+                    }}
+                    onUploadVoice={async (blob, mimeType) => {
+                      setDirection(1);
+                      await bootstrapFromVoice(blob, mimeType);
+                    }}
+                    onSkip={() => {
+                      setDirection(1);
+                      skipBootstrap();
+                    }}
+                    isProcessing={isExtracting}
+                    error={error}
+                  />
+                </div>
+              )}
+
               {step === 1 && (
                 <WizardStep
                   title="About You"
@@ -172,7 +207,7 @@ export default function OnboardingPage() {
                   stepNumber={1}
                   totalSteps={5}
                   onNext={handleNext}
-                  isFirst
+                  onPrev={handlePrev}
                   nextDisabled={!data.role.trim()}
                 >
                   <AboutYouStep data={data} onUpdate={updateData} />

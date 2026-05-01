@@ -2,11 +2,10 @@ import type { Response, NextFunction } from 'express';
 import type { AuthRequest } from './auth';
 import { omnimindClient } from '../services/omnimind-client';
 
-const STRIPE_CONFIGURED = !!process.env.STRIPE_SECRET_KEY;
-
 export async function requireSubscription(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  // Dev mode — no Stripe configured, all features unlocked
-  if (!STRIPE_CONFIGURED) { next(); return; }
+  // Dev mode — no Stripe configured, all features unlocked.
+  // Read lazily so tests and hot-reloaded envs take effect.
+  if (!process.env.STRIPE_SECRET_KEY) { next(); return; }
 
   try {
     const sub = await omnimindClient.getSubscription(req.auth!.userId) as Record<string, unknown> | null;

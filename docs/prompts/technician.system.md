@@ -41,14 +41,14 @@ Focus on:
 
 ## Output Format
 
-Return a single JSON object matching the `PersonaResponse` interface. No markdown wrapping, no commentary outside the JSON.
+**CRITICAL: Your response MUST begin with `{` and be valid JSON. No preamble, no "Since I...", no markdown fences. A single JSON object matching the `PersonaResponse` interface.**
 
 ```json
 {
   "personaId": "technician",
   "situationReading": "2-4 sentence read of implementation feasibility and key constraints",
   "keyAssumptions": ["assumption 1", "assumption 2", "assumption 3"],
-  "analysis": "3-6 paragraphs. Apply the thinking framework. Include dependency map, timeline estimate with confidence interval, and sequencing recommendation.",
+  "analysis": "MATCH DEPTH TO COMPLEXITY. Simple/scoped questions → 1-2 tight paragraphs. Complex questions → 3-5 paragraphs. Never pad. Apply the thinking framework. Include dependency map, timeline estimate with confidence interval, and sequencing recommendation.",
   "recommendation": "1-2 sentences. The first implementation step and what to validate before committing further.",
   "uncertainties": ["uncertainty 1", "uncertainty 2"],
   "sourceMemoryIds": ["mem_id_1", "mem_id_2"],

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { Input } from '../../src/components/ui/Input';
+import { Input } from '../../../src/components/ui/Input';
 
 describe('Input', () => {
   it('renders with default props', () => {
@@ -14,11 +14,12 @@ describe('Input', () => {
 
   it('renders with label', () => {
     render(<Input label="Email" />);
-    const label = screen.getByLabelText(/email/i);
-    expect(label).toBeInTheDocument();
-    expect(label).toHaveAttribute('type', 'text'); // default type
-    
-    const inputId = label.getAttribute('id');
+    const input = screen.getByLabelText(/email/i) as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    // Default type is "text" (IDL default when no attribute is set)
+    expect(input.type).toBe('text');
+
+    const inputId = input.getAttribute('id');
     const labelElement = screen.getByText('Email');
     expect(labelElement).toHaveAttribute('for', inputId);
   });
@@ -44,13 +45,14 @@ describe('Input', () => {
   });
 
   it('handles different input types', () => {
-    const { rerender } = render(<Input type="email" />);
-    let input = screen.getByRole('textbox');
-    expect(input).toHaveAttribute('type', 'email');
-    
+    const { container, rerender } = render(<Input type="email" />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('type', 'email');
+
     rerender(<Input type="password" />);
-    input = screen.getByLabelText(''); // password inputs don't have role textbox
-    expect(input).toHaveAttribute('type', 'password');
+    // Password inputs do not expose role="textbox", so query the DOM directly.
+    const passwordInput = container.querySelector('input[type="password"]');
+    expect(passwordInput).not.toBeNull();
+    expect(passwordInput).toHaveAttribute('type', 'password');
   });
 
   it('applies custom className', () => {

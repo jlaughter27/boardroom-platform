@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useUIStore } from '../../stores/ui.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { Avatar } from '../ui/Avatar';
+import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '../../lib/cn';
 
@@ -136,18 +137,22 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
     <>
       {/* Brand */}
       <div className="flex items-center justify-between h-14 px-4 border-b border-white/10">
-        <AnimatePresence>
-          {!collapsed && (
-            <motion.span
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="font-display text-lg font-bold tracking-tight"
-            >
-              <span className="text-blue-400">Board</span><span className="text-white">Room AI</span>
-            </motion.span>
-          )}
-        </AnimatePresence>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Logo variant="icon" size={28} className="text-primary shrink-0" />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.span
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="font-display text-lg font-semibold tracking-tight whitespace-nowrap"
+              >
+                <span className="text-primary">Board</span>
+                <span className="text-white">Room AI</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </div>
         <button
           onClick={toggleSidebar}
           className="hidden lg:block text-white/40 hover:text-white/80 p-1.5 rounded-md hover:bg-white/10 transition-colors"
@@ -230,7 +235,7 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: sidebarCollapsed ? 64 : 240 }}
       transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-      className="hidden md:flex flex-col bg-[#1c1b1a] border-r border-[#2a2a28] h-screen overflow-hidden flex-shrink-0 shadow-sm"
+      className="hidden md:flex flex-col bg-sidebar border-r border-sidebar-border h-screen overflow-hidden flex-shrink-0 shadow-sm"
     >
       <SidebarContent collapsed={sidebarCollapsed} />
     </motion.aside>
@@ -274,7 +279,7 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
             animate={{ x: 0 }}
             exit={{ x: -240 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="fixed left-0 top-0 bottom-0 w-60 flex flex-col bg-[#1c1b1a] border-r border-white/10 z-[var(--z-modal)] md:hidden"
+            className="fixed left-0 top-0 bottom-0 w-60 flex flex-col bg-sidebar border-r border-sidebar-border z-[var(--z-modal)] md:hidden"
           >
             <SidebarContent collapsed={false} onNavigate={onClose} />
           </motion.aside>

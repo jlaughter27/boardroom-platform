@@ -14,6 +14,27 @@ Executive decision intelligence suite for solo founders, indie hackers, and cons
 
 ---
 
+## ⚡ Active Roadmap (READ THIS FIRST FOR ANY ONGOING WORK)
+
+The single source of truth for what to work on, why, and how is the **operator-ready roadmap** at:
+
+**[`docs/roadmap/`](../docs/roadmap/)** — built and validated by an 18-agent pipeline (4 researchers + 4 auditors + 8 builders + 3 reviewers + 1 final validator) on 2026-04-18.
+
+**For any new session:**
+1. Read [`docs/roadmap/STATUS/CURRENT-PHASE.md`](../docs/roadmap/STATUS/CURRENT-PHASE.md) (active phase + active task pointer)
+2. Read [`docs/roadmap/07-claude-instructions/CLAUDE-WORKFLOW.md`](../docs/roadmap/07-claude-instructions/CLAUDE-WORKFLOW.md) (which 2-3 files to load for your task type)
+3. Then load only the files that doc tells you to load. **Do not** read the entire `docs/` tree.
+
+**For a tour of the plan:** [`docs/roadmap/04-roadmap/ROADMAP-OVERVIEW.md`](../docs/roadmap/04-roadmap/ROADMAP-OVERVIEW.md)
+**For risk-first lens:** [`docs/roadmap/06-risks-and-mitigations/RISK-REGISTER.md`](../docs/roadmap/06-risks-and-mitigations/RISK-REGISTER.md)
+**For known issues + landmines:** [`docs/roadmap/02-current-state/`](../docs/roadmap/02-current-state/)
+
+The older `docs/MEM0_INTEGRATION_PLAN.md`, `docs/MEM0_RE_INTEGRATION_PLAN.md`, and `docs/MEM0_*` planning docs are SUPERSEDED by the roadmap and remain only as historical reference.
+
+End of every session: update `docs/roadmap/STATUS/CHANGELOG.md` and `STATUS/CURRENT-PHASE.md` per [`07-claude-instructions/HANDOFF-TEMPLATE.md`](../docs/roadmap/07-claude-instructions/HANDOFF-TEMPLATE.md).
+
+---
+
 ## Architecture & Service Boundaries
 
 ```
@@ -73,11 +94,13 @@ The DeepSeek v3.2 split is RETIRED (ADR-007). Existing type files in shared/ wer
 
 ## Before You Write Code
 
-1. Read this file completely.
-2. Check `docs/tasks/_TASK-INDEX.md` for current task status + dependencies.
-3. Check `docs/DECISIONS.md` for the 13 architectural decisions — don't re-litigate settled decisions.
-4. Check `docs/contracts/` for API contracts between services.
-5. Read `docs/FRAGILE-ZONES.md` if touching Docker, middleware ordering, Prisma, or env vars.
+1. **Check `docs/roadmap/STATUS/CURRENT-PHASE.md` FIRST** — it tells you the active phase + active task. The roadmap is the source of truth for ongoing work.
+2. Follow the load-order in `docs/roadmap/07-claude-instructions/CONTEXT-LOAD-ORDER.md` for your task type (only ~2-3 files needed per task).
+3. Read this file completely if it's your first session in this repo.
+4. Check `docs/DECISIONS.md` for the 13 architectural decisions — don't re-litigate settled decisions.
+5. Check `docs/contracts/` for API contracts between services.
+6. Read `docs/FRAGILE-ZONES.md` if touching Docker, middleware ordering, Prisma, or env vars.
+7. The older `docs/tasks/_TASK-INDEX.md` is HISTORICAL; the live task index is `docs/roadmap/STATUS/PHASE-PROGRESS-TRACKER.md`.
 6. Run `npm run typecheck` and `npm run test` before committing.
 
 ### Quick context docs (read in order for fastest ramp-up):
@@ -335,7 +358,7 @@ If you add a new top-level API route, add it to the SPA fallback exclusion list 
 ### Commands:
 ```bash
 npm run typecheck          # TypeScript across all packages
-npm run test               # Vitest across all packages (110+ tests)
+npm run test               # Vitest across all packages (708+ tests)
 npm run test:e2e           # End-to-end test flows
 npm run eval:retrieval     # Retrieval quality evaluation
 npm run eval:personas      # Persona distinctiveness evaluation
@@ -410,22 +433,35 @@ Post-implementation review:
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| 0 — Foundation | ✅ Complete | Prisma schema, CRUD, validation, retrieval, Docker, agent runtime |
+| 0 — Foundation | ✅ Complete | Prisma schema (34 models), CRUD, validation, retrieval, Docker, agent runtime |
 | 1 — Multi-Persona | ✅ Complete | 7 personas, dispatch, streaming, synthesis, extraction, eval |
-| 2 — Cortex Intelligence | 📋 Spec'd | Pattern detection, weekly memos, contradiction alerts, simulation |
-| 3 — Integrations | 📋 Spec'd | Google Calendar, Gmail, Stripe billing, custom personas |
-| 4+ — Collaboration | 📋 Future | Multi-user, scaling |
+| 2 — Cortex Intelligence | ✅ Complete | Pattern detection (cron Mon 3am), weekly memos (cron Sun 6pm), contradiction alerts (cron Tue 9pm), simulation. Routes + services + prompts + UI all wired. |
+| 3 — Integrations | ✅ Partial | Google Calendar, Gmail, Stripe billing, custom personas — routes + services exist and are mounted |
+| 4+ — Collaboration | 📋 Future | Multi-user rooms (stub: `// app.use('/rooms', roomsRouter)` in index.ts), scaling |
 
 Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-INDEX.md` for the master index.
 
 ---
 
-## Known Limitations (as of 2026-04-08)
+## Known Limitations (as of 2026-04-15)
 
-1. No CI/CD gate — manual typecheck/test before push
-2. In-memory rate limiting — resets on restart, no cross-instance coordination
-3. Public domain for service-to-service calls (should be Railway private networking)
-4. `prisma db push` instead of proper migration history
-5. Subscription middleware fails open when OmniMind is unreachable
-6. No monitoring/alerting beyond health checks
-7. Single Railway instance per service (no horizontal scaling)
+1. **No CI/CD gate** — manual typecheck/test before push. No `.github/workflows/`.
+2. **In-memory rate limiting** — resets on restart, no cross-instance coordination. The Redis-backed alternative was quarantined under `_disabled/` (decision: revisit when scaling beyond 1 instance).
+3. **Public domain for service-to-service calls** — `OMNIMIND_API_URL` is the public Railway domain. Should be Railway private networking (cuts an internet round-trip per request, eliminates public surface). Pending Railway config change.
+4. `prisma db push` instead of proper migration history.
+5. Subscription middleware fails open when OmniMind is unreachable.
+6. No monitoring/alerting beyond health checks. Correlation IDs (`x-request-id`) ARE propagated across the seam since 2026-04-15 — log aggregation can join on them.
+7. Single Railway instance per service (no horizontal scaling).
+
+## Resilience layer (omnimind-client.ts)
+
+Configured via env vars (all optional with sensible defaults):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `OMNIMIND_TIMEOUT_MS` | 10000 | AbortController timeout per request |
+| `OMNIMIND_RETRY_MAX` | 3 | Max attempts for GET/HEAD on 502/503/504 + network errors |
+| `OMNIMIND_BREAKER_THRESHOLD` | 5 | Consecutive 5xx/network failures before circuit opens |
+| `OMNIMIND_BREAKER_COOLDOWN_MS` | 15000 | OPEN → HALF_OPEN cooldown |
+
+4xx never retries and never trips the breaker. Breaker state is exposed via `omnimindClient.breaker.toJSON()`.

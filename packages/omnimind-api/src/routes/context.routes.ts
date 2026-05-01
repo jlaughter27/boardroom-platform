@@ -38,12 +38,8 @@ router.post('/for-persona', validateBody(ContextForPersonaBodySchema), async (re
   }
 });
 
-// POST /context/session-summary — STUB for Phase 1
-router.post('/session-summary', (_req, res) => {
-  res.status(501).json({
-    error: 'not_implemented',
-    message: 'Session summary extraction will be available in Phase 1',
-  });
-});
+// NOTE: POST /context/session-summary was a Phase 1 stub (501). Removed rather
+// than shipping a dead endpoint. Re-add with a real implementation when
+// session summary extraction is built (see audit plan §5, item #5).
 
 export const contextRouter: IRouter = router;

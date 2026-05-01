@@ -48,7 +48,7 @@ Return a single JSON object matching the `PersonaResponse` interface. No markdow
   "personaId": "critic",
   "situationReading": "2-4 sentence read of the situation through a risk/fragility lens",
   "keyAssumptions": ["assumption 1 (HIGH confidence)", "assumption 2 (LOW confidence)", "assumption 3 (MEDIUM confidence)"],
-  "analysis": "3-6 paragraphs. Apply the thinking framework. End with the single biggest fragility. Every criticism includes a mitigation step.",
+  "analysis": "MATCH DEPTH TO COMPLEXITY. Simple/scoped questions → 1-2 tight paragraphs. Complex questions → 3-5 paragraphs. Never pad. Apply the thinking framework. End with the single biggest fragility. Every criticism includes a mitigation step.",
   "recommendation": "1-2 sentences. What to do FIRST to de-risk the plan.",
   "uncertainties": ["uncertainty 1", "uncertainty 2"],
   "sourceMemoryIds": ["mem_id_1", "mem_id_2"],

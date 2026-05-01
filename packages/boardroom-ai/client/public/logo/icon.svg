@@ -1,0 +1,27 @@
+<!--
+  BoardRoom AI icon — warm gold hexagon containing a "C" network graph.
+  Matches the full wordmark PNGs in the same directory. Uses currentColor
+  so the icon inherits text color in contexts where that matters (e.g.
+  hover states, sidebar active items). Default gold is set via inline fill.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Hexagon outline -->
+  <path d="M32 4 L56 18 V46 L32 60 L8 46 V18 Z" stroke-width="3" />
+
+  <!-- "C" arc (opens to the right) -->
+  <path d="M41 22 A13 13 0 1 0 41 42" stroke-width="3" />
+
+  <!-- Network nodes (top of the C, connected) -->
+  <line x1="22" y1="22" x2="31" y2="17" stroke-width="2" />
+  <line x1="31" y1="17" x2="41" y2="22" stroke-width="2" />
+  <line x1="22" y1="42" x2="31" y2="47" stroke-width="2" />
+  <line x1="31" y1="47" x2="41" y2="42" stroke-width="2" />
+
+  <!-- Filled nodes -->
+  <circle cx="22" cy="22" r="2.8" fill="currentColor" stroke="none" />
+  <circle cx="31" cy="17" r="2.8" fill="currentColor" stroke="none" />
+  <circle cx="41" cy="22" r="2.8" fill="currentColor" stroke="none" />
+  <circle cx="22" cy="42" r="2.8" fill="currentColor" stroke="none" />
+  <circle cx="31" cy="47" r="2.8" fill="currentColor" stroke="none" />
+  <circle cx="41" cy="42" r="2.8" fill="currentColor" stroke="none" />
+</svg>

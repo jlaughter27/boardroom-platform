@@ -1,6 +1,29 @@
-# BoardRoom AI + OmniMind Platform
+<p align="center">
+  <img src="packages/boardroom-ai/client/public/logo/wordmark-dark.png" alt="BoardRoom AI" width="560" />
+</p>
 
-An executive decision intelligence suite. Multi-persona AI analysis + persistent cognitive memory layer.
+<h1 align="center">BoardRoom AI + OmniMind Platform</h1>
+
+<p align="center">
+  <strong>Your AI-powered executive team.</strong><br />
+  Multi-persona decision intelligence that remembers your context, challenges your thinking, and keeps you aligned.
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="docs/MASTER-FRAMEWORK.md">Spec</a> ·
+  <a href="docs/tasks/BRAND-SYSTEM.md">Brand</a>
+</p>
+
+---
+
+## What it does
+
+- **Seven-persona advisory board.** Optimist, Critic, Alternate, Technician, Questionnaire, Doer, and a CEO that synthesizes them — each with its own model, context slice, and output contract.
+- **Persistent cognitive memory.** Every decision, commitment, and insight is validated, embedded, and retrievable via a hybrid (structured + FTS + trigram + vector) pipeline.
+- **Onboarding bootstrap.** Skip the 5-step wizard. Hand your AI of choice a dense briefing prompt, drop the response back, and BoardRoom populates the whole profile in one shot.
+- **Warm gold brand system.** Full light/dark token system with a dark sidebar that's intentional regardless of theme.
 
 ## Quick Start
 

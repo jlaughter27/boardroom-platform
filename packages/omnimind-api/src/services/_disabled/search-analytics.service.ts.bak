@@ -1,0 +1,1113 @@
+import type { PrismaClient } from '@prisma/client';
+import { logger } from '../lib/logger';
+
+export interface SearchEvent {
+  userId: string;
+  sessionId: string;
+  query: string;
+  queryHash: string;
+  timestamp: Date;
+  resultCount: number;
+  processingTimeMs: number;
+  cacheHit: boolean;
+  intent?: string;
+  filters?: Record<string, any>;
+  entities?: Array<{ type: string; text: string }>;
+  userAgent?: string;
+  ipAddress?: string;
+}
+
+export interface ClickEvent {
+  userId: string;
+  sessionId: string;
+  queryHash: string;
+  resultId: string;
+  resultPosition: number;
+  clickTimestamp: Date;
+  dwellTimeMs?: number;
+  scrollDepth?: number;
+  interactionType: 'click' | 'preview' | 'save' | 'share';
+}
+
+export interface RelevanceFeedback {
+  userId: string;
+  queryHash: string;
+  resultId: string;
+  relevanceScore: number; // 1-5 scale
+  feedbackType: 'explicit' | 'implicit';
+  feedbackSource: 'rating' | 'click' | 'dwell_time' | 'save' | 'share';
+  timestamp: Date;
+  comments?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface SearchAnalyticsMetrics {
+  // Search performance metrics
+  totalSearches: number;
+  averageProcessingTimeMs: number;
+  cacheHitRate: number;
+  zeroResultRate: number;
+  averageResultCount: number;
+  
+  // User engagement metrics
+  clickThroughRate: number;
+  averageDwellTimeMs: number;
+  saveRate: number;
+  shareRate: number;
+  
+  // Relevance metrics
+  averageRelevanceScore: number;
+  explicitFeedbackCount: number;
+  implicitFeedbackCount: number;
+  
+  // Intent analysis
+  intentDistribution: Record<string, number>;
+  topQueries: Array<{ query: string; count: number }>;
+  topFilters: Record<string, string[]>;
+  
+  // Time-based metrics
+  searchesByHour: Record<string, number>;
+  searchesByDay: Record<string, number>;
+  
+  // System performance
+  errorRate: number;
+  timeoutRate: number;
+  memoryUsageMB: number;
+}
+
+export interface ABTestConfig {
+  testId: string;
+  name: string;
+  description: string;
+  variants: Array<{
+    id: string;
+    name: string;
+    weight: number;
+    config: Record<string, any>;
+  }>;
+  startDate: Date;
+  endDate?: Date;
+  metrics: string[];
+  targetUsers?: string[];
+  targetQueries?: string[];
+}
+
+export interface ABTestResult {
+  testId: string;
+  variantResults: Record<string, {
+    searchCount: number;
+    averageProcessingTimeMs: number;
+    clickThroughRate: number;
+    averageRelevanceScore: number;
+    cacheHitRate: number;
+    statisticalSignificance: number;
+    confidenceInterval: [number, number];
+  }>;
+  winner?: string;
+  confidence: number;
+  totalParticipants: number;
+  durationDays: number;
+}
+
+export class SearchAnalyticsService {
+  private prisma: PrismaClient;
+  
+  constructor(prisma: PrismaClient) {
+    this.prisma = prisma;
+  }
+  
+  /**
+   * Log a search event
+   */
+  async logSearchEvent(event: SearchEvent): Promise<void> {
+    try {
+      await this.prisma.searchEvent.create({
+        data: {
+          userId: event.userId,
+          sessionId: event.sessionId,
+          query: event.query,
+          queryHash: event.queryHash,
+          timestamp: event.timestamp,
+          resultCount: event.resultCount,
+          processingTimeMs: event.processingTimeMs,
+          cacheHit: event.cacheHit,
+          intent: event.intent,
+          filters: event.filters ? JSON.stringify(event.filters) : null,
+          entities: event.entities ? JSON.stringify(event.entities) : null,
+          userAgent: event.userAgent,
+          ipAddress: event.ipAddress,
+          metadata: {
+            loggedAt: new Date().toISOString()
+          }
+        }
+      });
+      
+      logger.debug('Search event logged', {
+        userId: event.userId,
+        queryHash: event.queryHash,
+        processingTimeMs: event.processingTimeMs
+      });
+      
+    } catch (error) {
+      logger.error('Failed to log search event', {
+        error: error instanceof Error ? error.message : String(error),
+        userId: event.userId,
+        query: event.query
+      });
+    }
+  }
+  
+  /**
+   * Log a click event
+   */
+  async logClickEvent(event: ClickEvent): Promise<void> {
+    try {
+      await this.prisma.clickEvent.create({
+        data: {
+          userId: event.userId,
+          sessionId: event.sessionId,
+          queryHash: event.queryHash,
+          resultId: event.resultId,
+          resultPosition: event.resultPosition,
+          clickTimestamp: event.clickTimestamp,
+          dwellTimeMs: event.dwellTimeMs,
+          scrollDepth: event.scrollDepth,
+          interactionType: event.interactionType,
+          metadata: {
+            loggedAt: new Date().toISOString()
+          }
+        }
+      });
+      
+      // Update search event with click information
+      await this.prisma.searchEvent.updateMany({
+        where: {
+          userId: event.userId,
+          sessionId: event.sessionId,
+          queryHash: event.queryHash
+        },
+        data: {
+          hasClicks: true,
+          clickCount: { increment: 1 }
+        }
+      });
+      
+      logger.debug('Click event logged', {
+        userId: event.userId,
+        queryHash: event.queryHash,
+        resultId: event.resultId,
+        interactionType: event.interactionType
+      });
+      
+    } catch (error) {
+      logger.error('Failed to log click event', {
+        error: error instanceof Error ? error.message : String(error),
+        userId: event.userId,
+        resultId: event.resultId
+      });
+    }
+  }
+  
+  /**
+   * Submit relevance feedback
+   */
+  async submitRelevanceFeedback(feedback: RelevanceFeedback): Promise<void> {
+    try {
+      await this.prisma.relevanceFeedback.create({
+        data: {
+          userId: feedback.userId,
+          queryHash: feedback.queryHash,
+          resultId: feedback.resultId,
+          relevanceScore: feedback.relevanceScore,
+          feedbackType: feedback.feedbackType,
+          feedbackSource: feedback.feedbackSource,
+          timestamp: feedback.timestamp,
+          comments: feedback.comments,
+          metadata: feedback.metadata ? JSON.stringify(feedback.metadata) : null
+        }
+      });
+      
+      logger.info('Relevance feedback submitted', {
+        userId: feedback.userId,
+        queryHash: feedback.queryHash,
+        relevanceScore: feedback.relevanceScore,
+        feedbackType: feedback.feedbackType
+      });
+      
+      // Update search result relevance scores
+      await this.updateResultRelevanceScore(
+        feedback.resultId,
+        feedback.relevanceScore,
+        feedback.feedbackType
+      );
+      
+    } catch (error) {
+      logger.error('Failed to submit relevance feedback', {
+        error: error instanceof Error ? error.message : String(error),
+        userId: feedback.userId,
+        resultId: feedback.resultId
+      });
+    }
+  }
+  
+  /**
+   * Update result relevance score based on feedback
+   */
+  private async updateResultRelevanceScore(
+    resultId: string,
+    score: number,
+    feedbackType: 'explicit' | 'implicit'
+  ): Promise<void> {
+    try {
+      // Get current relevance stats
+      const result = await this.prisma.searchResultRelevance.findUnique({
+        where: { resultId }
+      });
+      
+      const weight = feedbackType === 'explicit' ? 0.7 : 0.3;
+      
+      if (result) {
+        // Update existing score using weighted moving average
+        const newScore = (result.averageRelevance * result.feedbackCount + score * weight) / 
+                         (result.feedbackCount + weight);
+        
+        await this.prisma.searchResultRelevance.update({
+          where: { resultId },
+          data: {
+            averageRelevance: newScore,
+            feedbackCount: { increment: 1 },
+            lastFeedbackAt: new Date(),
+            explicitFeedbackCount: feedbackType === 'explicit' ? 
+              { increment: 1 } : undefined,
+            implicitFeedbackCount: feedbackType === 'implicit' ? 
+              { increment: 1 } : undefined
+          }
+        });
+      } else {
+        // Create new relevance entry
+        await this.prisma.searchResultRelevance.create({
+          data: {
+            resultId,
+            averageRelevance: score,
+            feedbackCount: 1,
+            firstFeedbackAt: new Date(),
+            lastFeedbackAt: new Date(),
+            explicitFeedbackCount: feedbackType === 'explicit' ? 1 : 0,
+            implicitFeedbackCount: feedbackType === 'implicit' ? 1 : 0
+          }
+        });
+      }
+      
+    } catch (error) {
+      logger.error('Failed to update relevance score', {
+        error: error instanceof Error ? error.message : String(error),
+        resultId
+      });
+    }
+  }
+  
+  /**
+   * Get search analytics metrics for a time period
+   */
+  async getAnalyticsMetrics(
+    startDate: Date,
+    endDate: Date,
+    userId?: string
+  ): Promise<SearchAnalyticsMetrics> {
+    try {
+      // Build where clause
+      const where: any = {
+        timestamp: {
+          gte: startDate,
+          lte: endDate
+        }
+      };
+      
+      if (userId) {
+        where.userId = userId;
+      }
+      
+      // Get search events
+      const searchEvents = await this.prisma.searchEvent.findMany({
+        where,
+        select: {
+          processingTimeMs: true,
+          cacheHit: true,
+          resultCount: true,
+          intent: true,
+          query: true,
+          filters: true,
+          hasClicks: true,
+          clickCount: true
+        }
+      });
+      
+      // Get click events
+      const clickEvents = await this.prisma.clickEvent.findMany({
+        where: {
+          clickTimestamp: {
+            gte: startDate,
+            lte: endDate
+          },
+          ...(userId && { userId })
+        },
+        select: {
+          dwellTimeMs: true,
+          interactionType: true
+        }
+      });
+      
+      // Get relevance feedback
+      const feedback = await this.prisma.relevanceFeedback.findMany({
+        where: {
+          timestamp: {
+            gte: startDate,
+            lte: endDate
+          },
+          ...(userId && { userId })
+        },
+        select: {
+          relevanceScore: true,
+          feedbackType: true
+        }
+      });
+      
+      // Calculate metrics
+      const totalSearches = searchEvents.length;
+      const totalClicks = clickEvents.length;
+      const totalFeedback = feedback.length;
+      
+      // Search performance metrics
+      const averageProcessingTimeMs = totalSearches > 0
+        ? searchEvents.reduce((sum, e) => sum + e.processingTimeMs, 0) / totalSearches
+        : 0;
+      
+      const cacheHitCount = searchEvents.filter(e => e.cacheHit).length;
+      const cacheHitRate = totalSearches > 0 ? cacheHitCount / totalSearches : 0;
+      
+      const zeroResultCount = searchEvents.filter(e => e.resultCount === 0).length;
+      const zeroResultRate = totalSearches > 0 ? zeroResultCount / totalSearches : 0;
+      
+      const averageResultCount = totalSearches > 0
+        ? searchEvents.reduce((sum, e) => sum + e.resultCount, 0) / totalSearches
+        : 0;
+      
+      // User engagement metrics
+      const clickThroughRate = totalSearches > 0 ? totalClicks / totalSearches : 0;
+      
+      const dwellTimes = clickEvents.filter(e => e.dwellTimeMs).map(e => e.dwellTimeMs!);
+      const averageDwellTimeMs = dwellTimes.length > 0
+        ? dwellTimes.reduce((sum, t) => sum + t, 0) / dwellTimes.length
+        : 0;
+      
+      const saveCount = clickEvents.filter(e => e.interactionType === 'save').length;
+      const saveRate = totalClicks > 0 ? saveCount / totalClicks : 0;
+      
+      const shareCount = clickEvents.filter(e => e.interactionType === 'share').length;
+      const shareRate = totalClicks > 0 ? shareCount / totalClicks : 0;
+      
+      // Relevance metrics
+      const averageRelevanceScore = totalFeedback > 0
+        ? feedback.reduce((sum, f) => sum + f.relevanceScore, 0) / totalFeedback
+        : 0;
+      
+      const explicitFeedbackCount = feedback.filter(f => f.feedbackType === 'explicit').length;
+      const implicitFeedbackCount = feedback.filter(f => f.feedbackType === 'implicit').length;
+      
+      // Intent analysis
+      const intentDistribution: Record<string, number> = {};
+      searchEvents.forEach(event => {
+        if (event.intent) {
+          intentDistribution[event.intent] = (intentDistribution[event.intent] || 0) + 1;
+        }
+      });
+      
+      // Top queries
+      const queryCounts: Record<string, number> = {};
+      searchEvents.forEach(event => {
+        queryCounts[event.query] = (queryCounts[event.query] || 0) + 1;
+      });
+      
+      const topQueries = Object.entries(queryCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([query, count]) => ({ query, count }));
+      
+      // Top filters
+      const topFilters: Record<string, string[]> = {};
+      searchEvents.forEach(event => {
+        if (event.filters) {
+          try {
+            const filters = JSON.parse(event.filters as string);
+            Object.entries(filters).forEach(([key, value]) => {
+              if (!topFilters[key]) {
+                topFilters[key] = [];
+              }
+              if (typeof value === 'string' && !topFilters[key].includes(value)) {
+                topFilters[key].push(value);
+              }
+            });
+          } catch (error) {
+            // Ignore filter parsing errors
+          }
+        }
+      });
+      
+      // Time-based metrics (simplified)
+      const searchesByHour: Record<string, number> = {};
+      const searchesByDay: Record<string, number> = {};
+      
+      searchEvents.forEach(event => {
+        const hour = new Date(event.timestamp).getHours().toString().padStart(2, '0');
+        searchesByHour[hour] = (searchesByHour[hour] || 0) + 1;
+        
+        const day = new Date(event.timestamp).toISOString().split('T')[0];
+        searchesByDay[day] = (searchesByDay[day] || 0) + 1;
+      });
+      
+      return {
+        totalSearches,
+        averageProcessingTimeMs,
+        cacheHitRate,
+        zeroResultRate,
+        averageResultCount,
+        clickThroughRate,
+        averageDwellTimeMs,
+        saveRate,
+        shareRate,
+        averageRelevanceScore,
+        explicitFeedbackCount,
+        implicitFeedbackCount,
+        intentDistribution,
+        topQueries,
+        topFilters,
+        searchesByHour,
+        searchesByDay,
+        errorRate: 0, // Would need error tracking
+        timeoutRate: 0, // Would need timeout tracking
+        memoryUsageMB: 0 // Would need system monitoring
+      };
+      
+    } catch (error) {
+      logger.error('Failed to get analytics metrics', {
+        error: error instanceof Error ? error.message : String(error),
+        startDate,
+        endDate,
+        userId
+      });
+      
+      // Return empty metrics
+      return {
+        totalSearches: 0,
+        averageProcessingTimeMs: 0,
+        cacheHitRate: 0,
+        zeroResultRate: 0,
+        averageResultCount: 0,
+        clickThroughRate: 0,
+        averageDwellTimeMs: 0,
+        saveRate: 0,
+        shareRate: 0,
+        averageRelevanceScore: 0,
+        explicitFeedbackCount: 0,
+        implicitFeedbackCount: 0,
+        intentDistribution: {},
+        topQueries: [],
+        topFilters: {},
+        searchesByHour: {},
+        searchesByDay: {},
+        errorRate: 0,
+        timeoutRate: 0,
+        memoryUsageMB: 0
+      };
+    }
+  }
+  
+  /**
+   * Create A/B test configuration
+   */
+  async createABTest(config: ABTestConfig): Promise<string> {
+    try {
+      // Validate variant weights
+      const totalWeight = config.variants.reduce((sum, v) => sum + v.weight, 0);
+      if (Math.abs(totalWeight - 1) > 0.01) {
+        throw new Error(`Variant weights must sum to 1 (current: ${totalWeight})`);
+      }
+      
+      const test = await this.prisma.aBTest.create({
+        data: {
+          testId: config.testId,
+          name: config.name,
+          description: config.description,
+          variants: JSON.stringify(config.variants),
+          startDate: config.startDate,
+          endDate: config.endDate,
+          metrics: config.metrics,
+          targetUsers: config.targetUsers ? JSON.stringify(config.targetUsers) : null,
+          targetQueries: config.targetQueries ? JSON.stringify(config.targetQueries) : null,
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      });
+      
+      logger.info('A/B test created', {
+        testId: config.testId,
+        name: config.name,
+        variantCount: config.variants.length
+      });
+      
+      return test.testId;
+      
+    } catch (error) {
+      logger.error('Failed to create A/B test', {
+        error: error instanceof Error ? error.message : String(error),
+        testId: config.testId
+      });
+      throw error;
+    }
+  }
+  
+  /**
+   * Assign user to A/B test variant
+   */
+  async assignToABTest(
+    testId: string,
+    userId: string,
+    query?: string
+  ): Promise<string | null> {
+    try {
+      // Get test configuration
+      const test = await this.prisma.aBTest.findUnique({
+        where: { testId },
+        select: {
+          variants: true,
+          targetUsers: true,
+          targetQueries: true,
+          status: true
+        }
+      });
+      
+      if (!test || test.status !== 'active') {
+        return null;
+      }
+      
+      // Parse variants
+      const variants = JSON.parse(test.variants as string) as ABTestConfig['variants'];
+      
+      // Check if user is in target users
+      if (test.targetUsers) {
+        const targetUsers = JSON.parse(test.targetUsers as string) as string[];
+        if (!targetUsers.includes(userId)) {
+          return null;
+        }
+      }
+      
+      // Check if query matches target queries
+      if (query && test.targetQueries) {
+        const targetQueries = JSON.parse(test.targetQueries as string) as string[];
+        const queryLower = query.toLowerCase();
+        const matches = targetQueries.some(target => 
+          queryLower.includes(target.toLowerCase())
+        );
+        if (!matches) {
+          return null;
+        }
+      }
+      
+      // Assign variant based on weighted random selection
+      const random = Math.random();
+      let cumulativeWeight = 0;
+      
+      for (const variant of variants) {
+        cumulativeWeight += variant.weight;
+        if (random <= cumulativeWeight) {
+          // Log assignment
+          await this.prisma.aBTestAssignment.create({
+            data: {
+              testId,
+              userId,
+              variantId: variant.id,
+              assignedAt: new Date(),
+              query: query || null
+            }
+          });
+          
+          return variant.id;
+        }
+      }
+      
+      // Fallback to first variant
+      const firstVariant = variants[0];
+      await this.prisma.aBTestAssignment.create({
+        data: {
+          testId,
+          userId,
+          variantId: firstVariant.id,
+          assignedAt: new Date(),
+          query: query || null
+        }
+      });
+      
+      return firstVariant.id;
+      
+    } catch (error) {
+      logger.error('Failed to assign to A/B test', {
+        error: error instanceof Error ? error.message : String(error),
+        testId,
+        userId
+      });
+      return null;
+    }
+  }
+  
+  /**
+   * Get A/B test results
+   */
+  async getABTestResults(testId: string): Promise<A/BTestResult> {
+    try {
+      // Get test configuration
+      const test = await this.prisma.aBTest.findUnique({
+        where: { testId },
+        select: {
+          variants: true,
+          startDate: true,
+          endDate: true,
+          createdAt: true
+        }
+      });
+      
+      if (!test) {
+        throw new Error(`Test ${testId} not found`);
+      }
+      
+      const variants = JSON.parse(test.variants as string) as ABTestConfig['variants'];
+      const variantIds = variants.map(v => v.id);
+      
+      // Get assignments
+      const assignments = await this.prisma.aBTestAssignment.findMany({
+        where: { testId },
+        select: {
+          variantId: true,
+          userId: true,
+          assignedAt: true
+        }
+      });
+      
+      // Get search events for assigned users
+      const userIds = [...new Set(assignments.map(a => a.userId))];
+      const searchEvents = await this.prisma.searchEvent.findMany({
+        where: {
+          userId: { in: userIds },
+          timestamp: {
+            gte: test.startDate,
+            lte: test.endDate || new Date()
+          }
+        },
+        select: {
+          userId: true,
+          processingTimeMs: true,
+          cacheHit: true,
+          hasClicks: true,
+          timestamp: true
+        }
+      });
+      
+      // Get click events
+      const clickEvents = await this.prisma.clickEvent.findMany({
+        where: {
+          userId: { in: userIds },
+          clickTimestamp: {
+            gte: test.startDate,
+            lte: test.endDate || new Date()
+          }
+        },
+        select: {
+          userId: true,
+          clickTimestamp: true
+        }
+      });
+      
+      // Get relevance feedback
+      const feedback = await this.prisma.relevanceFeedback.findMany({
+        where: {
+          userId: { in: userIds },
+          timestamp: {
+            gte: test.startDate,
+            lte: test.endDate || new Date()
+          }
+        },
+        select: {
+          userId: true,
+          relevanceScore: true
+        }
+      });
+      
+      // Calculate metrics per variant
+      const variantResults: A/BTestResult['variantResults'] = {};
+      const totalParticipants = assignments.length;
+      
+      for (const variantId of variantIds) {
+        const variantAssignments = assignments.filter(a => a.variantId === variantId);
+        const variantUserIds = variantAssignments.map(a => a.userId);
+        
+        const variantSearches = searchEvents.filter(e => variantUserIds.includes(e.userId));
+        const variantClicks = clickEvents.filter(e => variantUserIds.includes(e.userId));
+        const variantFeedback = feedback.filter(f => variantUserIds.includes(f.userId));
+        
+        const searchCount = variantSearches.length;
+        const clickCount = variantClicks.length;
+        const feedbackCount = variantFeedback.length;
+        
+        // Calculate metrics
+        const averageProcessingTimeMs = searchCount > 0
+          ? variantSearches.reduce((sum, e) => sum + e.processingTimeMs, 0) / searchCount
+          : 0;
+        
+        const cacheHitCount = variantSearches.filter(e => e.cacheHit).length;
+        const cacheHitRate = searchCount > 0 ? cacheHitCount / searchCount : 0;
+        
+        const clickThroughRate = searchCount > 0 ? clickCount / searchCount : 0;
+        
+        const averageRelevanceScore = feedbackCount > 0
+          ? variantFeedback.reduce((sum, f) => sum + f.relevanceScore, 0) / feedbackCount
+          : 0;
+        
+        // Simple statistical significance (for demo purposes)
+        // In production, use proper statistical tests
+        const statisticalSignificance = Math.min(0.95, 0.5 + (searchCount / 1000));
+        const confidenceInterval: [number, number] = [
+          clickThroughRate * 0.9,
+          clickThroughRate * 1.1
+        ];
+        
+        variantResults[variantId] = {
+          searchCount,
+          averageProcessingTimeMs,
+          clickThroughRate,
+          averageRelevanceScore,
+          cacheHitRate,
+          statisticalSignificance,
+          confidenceInterval
+        };
+      }
+      
+      // Determine winner (simplified - based on click-through rate)
+      let winner: string | undefined;
+      let highestCTR = 0;
+      
+      for (const [variantId, results] of Object.entries(variantResults)) {
+        if (results.clickThroughRate > highestCTR && results.searchCount > 100) {
+          highestCTR = results.clickThroughRate;
+          winner = variantId;
+        }
+      }
+      
+      const durationDays = Math.ceil(
+        (new Date().getTime() - test.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      
+      return {
+        testId,
+        variantResults,
+        winner,
+        confidence: winner ? variantResults[winner].statisticalSignificance : 0,
+        totalParticipants,
+        durationDays
+      };
+      
+    } catch (error) {
+      logger.error('Failed to get A/B test results', {
+        error: error instanceof Error ? error.message : String(error),
+        testId
+      });
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * Get search result performance by relevance score
+   */
+  async getResultPerformance(
+    resultId: string,
+    timeRange?: { startDate: Date; endDate: Date }
+  ): Promise<{
+    resultId: string;
+    totalImpressions: number;
+    totalClicks: number;
+    clickThroughRate: number;
+    averagePosition: number;
+    averageRelevanceScore: number;
+    feedbackCount: number;
+    performanceTrend: Array<{ date: string; impressions: number; clicks: number }>;
+  }> {
+    try {
+      const where: any = { resultId };
+      
+      if (timeRange) {
+        where.timestamp = {
+          gte: timeRange.startDate,
+          lte: timeRange.endDate
+        };
+      }
+      
+      // Get click events for this result
+      const clickEvents = await this.prisma.clickEvent.findMany({
+        where,
+        select: {
+          clickTimestamp: true,
+          resultPosition: true,
+          dwellTimeMs: true
+        }
+      });
+      
+      // Get relevance feedback
+      const feedback = await this.prisma.relevanceFeedback.findMany({
+        where: { resultId },
+        select: {
+          relevanceScore: true,
+          timestamp: true,
+          feedbackType: true
+        }
+      });
+      
+      // Calculate metrics
+      const totalClicks = clickEvents.length;
+      const totalImpressions = totalClicks * 3; // Simplified - would need impression tracking
+      const clickThroughRate = totalImpressions > 0 ? totalClicks / totalImpressions : 0;
+      
+      const averagePosition = totalClicks > 0
+        ? clickEvents.reduce((sum, e) => sum + e.resultPosition, 0) / totalClicks
+        : 0;
+      
+      const averageRelevanceScore = feedback.length > 0
+        ? feedback.reduce((sum, f) => sum + f.relevanceScore, 0) / feedback.length
+        : 0;
+      
+      // Calculate performance trend (by day)
+      const performanceTrend: Record<string, { impressions: number; clicks: number }> = {};
+      
+      clickEvents.forEach(event => {
+        const date = event.clickTimestamp.toISOString().split('T')[0];
+        if (!performanceTrend[date]) {
+          performanceTrend[date] = { impressions: 0, clicks: 0 };
+        }
+        performanceTrend[date].clicks++;
+      });
+      
+      // Add impressions (simplified)
+      Object.keys(performanceTrend).forEach(date => {
+        performanceTrend[date].impressions = performanceTrend[date].clicks * 3;
+      });
+      
+      const trendArray = Object.entries(performanceTrend)
+        .map(([date, metrics]) => ({ date, ...metrics }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      
+      return {
+        resultId,
+        totalImpressions,
+        totalClicks,
+        clickThroughRate,
+        averagePosition,
+        averageRelevanceScore,
+        feedbackCount: feedback.length,
+        performanceTrend: trendArray
+      };
+      
+    } catch (error) {
+      logger.error('Failed to get result performance', {
+        error: error instanceof Error ? error.message : String(error),
+        resultId
+      });
+      
+      return {
+        resultId,
+        totalImpressions: 0,
+        totalClicks: 0,
+        clickThroughRate: 0,
+        averagePosition: 0,
+        averageRelevanceScore: 0,
+        feedbackCount: 0,
+        performanceTrend: []
+      };
+    }
+  }
+  
+  /**
+   * Generate search quality report
+   */
+  async generateQualityReport(
+    startDate: Date,
+    endDate: Date
+  ): Promise<{
+    summary: {
+      totalSearches: number;
+      successfulSearches: number;
+      failedSearches: number;
+      averageLatencyMs: number;
+      userSatisfactionScore: number;
+    };
+    topIssues: Array<{
+      issue: string;
+      count: number;
+      percentage: number;
+      examples: string[];
+    }>;
+    recommendations: string[];
+  }> {
+    try {
+      // Get search events
+      const searchEvents = await this.prisma.searchEvent.findMany({
+        where: {
+          timestamp: { gte: startDate, lte: endDate }
+        },
+        select: {
+          query: true,
+          processingTimeMs: true,
+          resultCount: true,
+          hasClicks: true,
+          cacheHit: true
+        }
+      });
+      
+      // Get click events
+      const clickEvents = await this.prisma.clickEvent.findMany({
+        where: {
+          clickTimestamp: { gte: startDate, lte: endDate }
+        },
+        select: {
+          queryHash: true,
+          dwellTimeMs: true
+        }
+      });
+      
+      // Calculate summary metrics
+      const totalSearches = searchEvents.length;
+      const successfulSearches = searchEvents.filter(e => e.resultCount > 0).length;
+      const failedSearches = searchEvents.filter(e => e.resultCount === 0).length;
+      
+      const averageLatencyMs = totalSearches > 0
+        ? searchEvents.reduce((sum, e) => sum + e.processingTimeMs, 0) / totalSearches
+        : 0;
+      
+      // Calculate user satisfaction score (simplified)
+      const clickThroughRate = totalSearches > 0
+        ? clickEvents.length / totalSearches
+        : 0;
+      
+      const cacheHitRate = totalSearches > 0
+        ? searchEvents.filter(e => e.cacheHit).length / totalSearches
+        : 0;
+      
+      const userSatisfactionScore = (
+        clickThroughRate * 0.4 +
+        cacheHitRate * 0.3 +
+        (successfulSearches / totalSearches) * 0.3
+      ) * 100;
+      
+      // Identify top issues
+      
+      const issues: Record<string, { count: number; examples: string[] }> = {
+        "Zero results": { count: 0, examples: [] },
+        "High latency (>1000ms)": { count: 0, examples: [] },
+        "No clicks": { count: 0, examples: [] },
+        "Cache miss": { count: 0, examples: [] }
+      };
+      searchEvents.forEach(event => {
+        if (event.resultCount === 0) {
+          issues['Zero results'].count++;
+          if (issues['Zero results'].examples.length < 5) {
+            issues['Zero results'].examples.push(event.query);
+          }
+        }
+        
+        if (event.processingTimeMs > 1000) {
+          issues['High latency (>1000ms)'].count++;
+          if (issues['High latency (>1000ms)'].examples.length < 5) {
+            issues['High latency (>1000ms)'].examples.push(event.query);
+          }
+        }
+        
+        if (!event.hasClicks) {
+          issues['No clicks'].count++;
+          if (issues['No clicks'].examples.length < 5) {
+            issues['No clicks'].examples.push(event.query);
+          }
+        }
+        
+        if (!event.cacheHit) {
+          issues['Cache miss'].count++;
+          if (issues['Cache miss'].examples.length < 5) {
+            issues['Cache miss'].examples.push(event.query);
+          }
+        }
+      });
+      
+      const topIssues = Object.entries(issues)
+        .filter(([_, data]) => data.count > 0)
+        .map(([issue, data]) => ({
+          issue,
+          count: data.count,
+          percentage: (data.count / totalSearches) * 100,
+          examples: data.examples
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+      
+      // Generate recommendations
+      const recommendations: string[] = [];
+      
+      if (issues['Zero results'].count > totalSearches * 0.1) {
+        recommendations.push('Consider expanding search index or improving query understanding for zero-result queries');
+      }
+      
+      if (issues['High latency (>1000ms)'].count > totalSearches * 0.05) {
+        recommendations.push('Optimize search algorithms and consider adding more caching layers');
+      }
+      
+      if (issues['No clicks'].count > totalSearches * 0.3) {
+        recommendations.push('Improve result ranking and relevance scoring algorithms');
+      }
+      
+      if (cacheHitRate < 0.5) {
+        recommendations.push('Increase cache TTL and implement more aggressive caching strategies');
+      }
+      
+      if (userSatisfactionScore < 70) {
+        recommendations.push('Conduct user research to understand pain points and improve search experience');
+      }
+      
+      return {
+        summary: {
+          totalSearches,
+          successfulSearches,
+          failedSearches,
+          averageLatencyMs,
+          userSatisfactionScore
+        },
+        topIssues,
+        recommendations
+      };
+      
+    } catch (error) {
+      logger.error('Failed to generate quality report', {
+        error: error instanceof Error ? error.message : String(error),
+        startDate,
+        endDate
+      });
+      
+      return {
+        summary: {
+          totalSearches: 0,
+          successfulSearches: 0,
+          failedSearches: 0,
+          averageLatencyMs: 0,
+          userSatisfactionScore: 0
+        },
+        topIssues: [],
+        recommendations: []
+      };
+    }
+  }
+}

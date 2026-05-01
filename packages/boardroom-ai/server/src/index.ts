@@ -10,6 +10,7 @@ import { healthRouter } from './routes/health.routes';
 import { sessionsRouter } from './routes/sessions.routes';
 import { entitiesRouter } from './routes/entities.routes';
 import { onboardingRouter } from './routes/onboarding.routes';
+import { onboardingBootstrapRouter } from './routes/onboarding-bootstrap.routes';
 import { cortexRouter } from './routes/cortex.routes';
 import { calendarRouter } from './routes/calendar.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
@@ -67,6 +68,7 @@ if (process.env.NODE_ENV === 'production') {
         || req.path.startsWith('/onboarding') || req.path.startsWith('/cortex')
         || req.path.startsWith('/calendar') || req.path.startsWith('/custom-personas')
         || req.path.startsWith('/integrations')) {
+      // /onboarding matches both /onboarding and /onboarding-bootstrap — no extra clause needed
       next(); // Pass to API routes
       return;
     }
@@ -88,6 +90,7 @@ app.use(authMiddleware);
 app.use('/subscription', subscriptionRouter);
 app.use('/sessions', requireSubscription, sessionsRouter);
 app.use('/onboarding', onboardingRouter);
+app.use('/onboarding-bootstrap', onboardingBootstrapRouter);
 app.use('/', entitiesRouter);
 app.use('/cortex', cortexRouter);
 app.use('/calendar', calendarRouter);
