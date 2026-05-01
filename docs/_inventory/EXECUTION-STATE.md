@@ -50,13 +50,24 @@
 
 `docs/_inventory/CHECKPOINT-phase-C.md` — 2026-05-01. Phase C exits with `PHASE-C-MIGRATION-MAP.md` v1.2 ratified by architecture + risk validators (round 3, both PASS_WITH_NOTES, both `stuck_state_signal: false`).
 
-**Phase D entry status (2026-05-01, post-validator):**
-- §10 pre-step 0a: COMPLETE. Verified main's Tailwind broken (CSS=4612 bytes / 0 utility classes vs feature/folder-migration's 39590 bytes / 162 classes). Validator independently re-verified by cherry-picking 6e06597 onto clean main → produced 37961 bytes / 162 classes. Outcome (b) confirmed; my 4th-outcome amendment was based on a false CWD inference (vite `root` does not change `process.cwd()`); locked plan stands with rationale clarification.
-- §10 pre-step 0b': COMPLETE. Branched `chore/docs-phase-D-migration` off `origin/main` (SHA 7604ad9). Cherry-picked 6e06597 (new SHA 8bd228d, Opus Co-Authored-By trailer preserved). Build verification on chore branch: CSS=37961 bytes / 162 utility classes. Defense-in-depth follow-up commit (e805f57) replaces relative content paths with `path.resolve(__dirname, ...)` anchored via `fileURLToPath(import.meta.url)`. Re-built: identical 37961 bytes / 162 classes. CWD-independent.
-- §10 pre-step 0c: COMPLETE. `git push origin --delete claude/quizzical-hopper` succeeded. `git ls-remote origin claude/quizzical-hopper` returns empty.
-- §10 pre-step 0d (NEW): NEXT — commit `docs/_inventory/` to chore branch as audit-trail addition.
+**Phase D entry status (2026-05-01, post-validator):** all pre-steps complete. Then a divergence audit revealed `docs/roadmap/` (151 files), REALITY-BASELINE, wave3-reviews are absent on origin/main. Strategic pivot to **Zeta plan** (split into 3 PRs): PR 1 ships roadmap+bug-fixes off origin/main; PR 2 = Phase D bucket migration on top; PR 3 = Phase 0/1 prep deferred.
+
+- §10 pre-step 0a: COMPLETE. Verified main's Tailwind broken (CSS=4612 bytes / 0 utility classes vs feature/folder-migration's 39590 bytes / 162 classes). Outcome (b) confirmed.
+- §10 pre-step 0b': COMPLETE. Cherry-picked 6e06597 (chore branch SHA 8bd228d) + defense-in-depth (e805f57). Will be DROPPED on rebase after PR 1 merges (superseded by `80534c2` brand polish + `dfe895a` prompt-loader/postcss work).
+- §10 pre-step 0c: COMPLETE. `claude/quizzical-hopper` deleted from origin.
+- §10 pre-step 0d: COMPLETE. `docs/_inventory/` committed to chore branch (`6dcdffc`).
 - §11 cascade gate: SATISFIED (snapshot 11756f6 is empty, branch ref preserved, dangling worktree is inert).
-- Local main has accidental cherry-pick from validator's `/tmp/main-tailwind-check` worktree (SHA 9184f25 — unpushed). Working around: chore branch was created from `origin/main` directly, so unaffected. Local main can be reset to origin/main at user's convenience; not blocking.
+- Local main has accidental cherry-pick (9184f25) from validator's `/tmp/main-tailwind-check` — not pushed; reset to origin/main after PR 1 merges.
+
+**Zeta plan status (2026-05-01):**
+- **PR 1** OPEN AS DRAFT: https://github.com/jlaughter27/boardroom-platform/pull/3 — branch `doc-reorg-foundations`, 10 commits cherry-picked from feature/folder-migration (1 Cat A `dc23b2a`/`049293c` roadmap pipeline + 9 Cat B production bug fixes). Title: `feat(docs): roadmap pipeline + production bug fixes (foundations)` — does NOT contain literal "Phase D" so §9.3 tripwire won't fire on this PR.
+- **PR 2** PENDING — Phase D bucket migration. Resume after PR 1 merges. Will rebase chore branch onto new origin/main, drop redundant `8bd228d`/`e805f57` Tailwind commits, re-verify §7.2/§7.6 line numbers against post-merge `.claude/CLAUDE.md` and `README.md`, then continue §10 commits 4-12. PR 2 will contain literal "Phase D" and trigger §9.3 tripwire correctly.
+- **PR 3** DEFERRED — 13 Cat C/D commits (Phase 0/1 prep, including `97df169` Phase 0.25 security fixes, `803b125` Phase 1 types, `c30df4b` validation-helpers TSC fixes). Open separately when Phase 1 starts.
+
+**Open coordination items added 2026-05-01:**
+- `claude/distracted-satoshi` dormancy tripwire re-anchored: now "PR 1 merge + 14d" instead of "Phase D merge + 14d" (PR 1 lands first).
+- After PR 1 merges, run a fresh Phase A inventory against new origin/main to update hub counts (the `42 (hub)` and `25 (hub)` counts in the migration map were tabulated against feature/folder-migration's tree; post-PR-1 main may produce smaller numbers).
+- Shared TSC has 4 pre-existing errors in validation-helpers.ts (lines 314, 341, 366, 368). PR 1 fixed 1 of 5 errors on main. Remaining 4 fixed by `c30df4b` in PR 3.
 
 ---
 
