@@ -1,8 +1,22 @@
-# Master Execution Prompt — BoardRoom AI / OmniMind
+# Master Execution Prompt — BoardRoom AI / OmniMind (v1.0.2)
 
 > **What this is.** A self-contained working prompt for any new Claude Code session to resume the BoardRoom platform's docs-consolidation + product-execution workstream. It is designed for **long, deliberate, self-debating sessions** with explicit compaction points so context never drifts.
 >
 > **How to use.** Open a fresh Claude session in this repo. Paste the entire contents of this file as the first user message. Claude reads `EXECUTION-STATE.md` and the last `CHECKPOINT-*.md` first, then proceeds.
+>
+> **Version history.**
+> - v1.0 (2026-04-30): initial bootstrap covering Phase B → E.
+> - v1.0.1 (lessons logged after Phase C exit, baked at Phase D entry):
+>   - Run `gh pr list` first for any branch/PR decision.
+>   - Scope expansion is a stuck-state trigger, not a judgment call. Ask, don't extend.
+>   - Path math is a recurring failure class — use explicit depth-table per file location with concrete trace examples, not regex.
+>   - Pre-merge state assumptions need verification, not inference.
+> - v1.0.2 (lessons logged after Phase D exit, this version):
+>   - Vite `root` does NOT change `process.cwd()`. POSTCSS plugins resolve content paths from CWD, not from config-stated `root`. Verify CWD with a probe (`node -e 'console.log(process.cwd())'` inside the loaded postcss config), not by reading config keys.
+>   - Phase A inventory must check tree state against the actual merge target, not just the working tree. Run `git ls-tree -r origin/main` AND `git ls-tree -r <working-branch>` and report any divergence as a hard pre-flight gate (any path the migration map references must exist on origin/main, or be explicitly listed as "to-be-added-by-PR-N" in the gate).
+>   - Migration map line-number citations must include a "verified against branch X at SHA Y" stamp. Citations against feature-branch-tip are fragile when execution targets origin/main.
+>   - Git's rename detection threshold gives up when the destination has both content move AND new tiny stub at old path. Document the move table in the commit message body when this happens — `git log --follow` won't help future audits.
+>   - Side effects of `find ... -delete` patterns: scope tightly when running broad transformations. `find packages -name '*.bak' -delete` will pick up tracked-but-stale `.bak` files in `_disabled/` quarantine dirs that you didn't mean to touch.
 
 ---
 

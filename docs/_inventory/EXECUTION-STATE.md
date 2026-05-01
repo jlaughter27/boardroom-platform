@@ -33,9 +33,9 @@
 |---|---|---|---|
 | A — Inventory | done | files.json, summary.md, orphans.md, hubs.md exist | 2026-04-30 |
 | B — Target tree design | done | `PHASE-B-PROPOSAL-V2.md` ratified by 3 validators | 2026-04-30 |
-| C — Migration map | done | `PHASE-C-MIGRATION-MAP.md` v1.2 PASS_WITH_NOTES from arch+risk round 3 | 2026-05-01 |
-| D — Execute migration (move + stubs + code edits + CI) | active | PR opened with all 6 validators green | 2026-05-01 |
-| E — Stub cleanup | pending | Phase E tripwire fires → cleanup PR merged | — |
+| C — Migration map | done | `PHASE-C-MIGRATION-MAP.md` v1.4 (final) | 2026-05-01 |
+| D — Execute migration (move + stubs + code edits + CI) | exit-pr-draft | PR #4 open as draft. 12 §10 commits + 5 prep + 1 audit-trail + 1 phase-exit checkpoint = 19 commits on chore branch. Verification clean (doc-links 7/7, prompts ≥18, JSON valid, no stale paths). | 2026-05-01 |
+| E — Stub cleanup | armed | Phase E tripwire test in `tests/e2e/phase-e-stub-cleanup-due.test.ts` fires 30d post-merge of PR #4 | — |
 | P0-1 — Unified Prisma migration | blocked-on-D | All 10 new + 7 extended models in one migration | — |
 | P0-2 — Feature flag system | blocked-on-D | Orphan migration reconciled + new flag stack live | — |
 | P0-3 — Cortex scheduler refactor | blocked-on-P0-1 | Pluggable registry + shadow-mode | — |
@@ -48,7 +48,9 @@
 
 ## Last checkpoint
 
-`docs/_inventory/CHECKPOINT-phase-C.md` — 2026-05-01. Phase C exits with `PHASE-C-MIGRATION-MAP.md` v1.2 ratified by architecture + risk validators (round 3, both PASS_WITH_NOTES, both `stuck_state_signal: false`).
+`docs/_inventory/CHECKPOINT-phase-D.md` — 2026-05-01. Phase D exits with PR #4 open as draft. Migration map v1.4 ratified by execution (no validator FAIL on the v1.4 plan; the only Phase D validator was at entry and resulted in REJECT_THIRD_OPTION which kept the locked plan).
+
+`docs/_inventory/CHECKPOINT-phase-C.md` (preserved) — 2026-05-01. Phase C exits with `PHASE-C-MIGRATION-MAP.md` v1.2/v1.4 ratified by architecture + risk validators.
 
 **Phase D entry status (2026-05-01, post-validator):** all pre-steps complete. Then a divergence audit revealed `docs/roadmap/` (151 files), REALITY-BASELINE, wave3-reviews are absent on origin/main. Strategic pivot to **Zeta plan** (split into 3 PRs): PR 1 ships roadmap+bug-fixes off origin/main; PR 2 = Phase D bucket migration on top; PR 3 = Phase 0/1 prep deferred.
 
@@ -59,10 +61,10 @@
 - §11 cascade gate: SATISFIED (snapshot 11756f6 is empty, branch ref preserved, dangling worktree is inert).
 - Local main has accidental cherry-pick (9184f25) from validator's `/tmp/main-tailwind-check` — not pushed; reset to origin/main after PR 1 merges.
 
-**Zeta plan status (2026-05-01):**
-- **PR 1** OPEN AS DRAFT: https://github.com/jlaughter27/boardroom-platform/pull/3 — branch `doc-reorg-foundations`, 10 commits cherry-picked from feature/folder-migration (1 Cat A `dc23b2a`/`049293c` roadmap pipeline + 9 Cat B production bug fixes). Title: `feat(docs): roadmap pipeline + production bug fixes (foundations)` — does NOT contain literal "Phase D" so §9.3 tripwire won't fire on this PR.
-- **PR 2** PENDING — Phase D bucket migration. Resume after PR 1 merges. Will rebase chore branch onto new origin/main, drop redundant `8bd228d`/`e805f57` Tailwind commits, re-verify §7.2/§7.6 line numbers against post-merge `.claude/CLAUDE.md` and `README.md`, then continue §10 commits 4-12. PR 2 will contain literal "Phase D" and trigger §9.3 tripwire correctly.
-- **PR 3** DEFERRED — 13 Cat C/D commits (Phase 0/1 prep, including `97df169` Phase 0.25 security fixes, `803b125` Phase 1 types, `c30df4b` validation-helpers TSC fixes). Open separately when Phase 1 starts.
+**Zeta plan status (2026-05-01, end-of-Phase-D):**
+- **PR 1** MERGED: https://github.com/jlaughter27/boardroom-platform/pull/3 → merge SHA `403747d` on 2026-05-01T15:57:06Z. doc-reorg-foundations branch deleted from origin. 10 cherry-picked commits + merge commit on origin/main.
+- **PR 2** OPEN AS DRAFT: https://github.com/jlaughter27/boardroom-platform/pull/4 — branch `chore/docs-phase-D-migration`. 19 commits ahead of origin/main: 12 §10 commits + 5 prep + 1 audit-trail + 1 phase-exit checkpoint. Title: `chore(docs): Phase D — consolidation and bucket migration` — contains literal "Phase D" so §9.3 tripwire fires correctly on merge.
+- **PR 3** DEFERRED — 13 Cat C/D commits (Phase 0/1 prep, including `97df169` Phase 0.25 security fixes, `803b125` Phase 1 types, `c30df4b` validation-helpers TSC fixes, `ea24d43` adds `quality-evaluator.system.md` taking prompt count to 19). Open separately when Phase 1 starts.
 
 **Open coordination items added 2026-05-01:**
 - `claude/distracted-satoshi` dormancy tripwire re-anchored: now "PR 1 merge + 14d" instead of "Phase D merge + 14d" (PR 1 lands first).
