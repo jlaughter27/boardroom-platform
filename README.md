@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="#architecture">Architecture</a> ·
-  <a href="docs/MASTER-FRAMEWORK.md">Spec</a> ·
+  <a href="docs/02-reference/MASTER-FRAMEWORK.md">Spec</a> ·
   <a href="docs/tasks/BRAND-SYSTEM.md">Brand</a>
 </p>
 
@@ -97,8 +97,8 @@ boardroom-platform/
 
 ## Documentation
 
-- [Master Framework](docs/MASTER-FRAMEWORK.md) — Complete product + technical spec
-- [Decisions Log](docs/DECISIONS.md) — All architectural decisions with rationale
+- [Master Framework](docs/02-reference/MASTER-FRAMEWORK.md) — Complete product + technical spec
+- [Decisions Log](docs/02-reference/DECISIONS.md) — All architectural decisions with rationale
 - [Task Index](docs/tasks/_TASK-INDEX.md) — Current work status and dependencies
 - [API Contracts](docs/contracts/) — Service-to-service API agreements
 
