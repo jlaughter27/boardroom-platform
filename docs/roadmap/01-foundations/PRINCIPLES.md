@@ -3,7 +3,7 @@
 **Audience:** Claude or human about to make a judgment call that isn't covered by an ADR.
 **Purpose:** ADRs lock down specific technical choices. Principles lock down the *style of thinking*. When two valid options exist and the ADRs don't decide, these do.
 
-These are not commandments — they're the consistent biases that produced the current roadmap shape. If a phase decision violates one, that's not automatically wrong, but it deserves a `DEC-N` entry in [`STATUS/DECISIONS-LOG.md`](../STATUS/DECISIONS-LOG.md) explaining why.
+These are not commandments — they're the consistent biases that produced the current roadmap shape. If a phase decision violates one, that's not automatically wrong, but it deserves a `DEC-N` entry in [`STATUS/DECISIONS-LOG.md`](../../STATUS/DECISIONS-LOG.md) explaining why.
 
 ---
 

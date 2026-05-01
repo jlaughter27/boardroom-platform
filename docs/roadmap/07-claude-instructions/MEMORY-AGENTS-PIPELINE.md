@@ -46,7 +46,7 @@ Each builder reads Wave 1 outputs + writes one section of the roadmap:
 | B2 | Phase-folder builder | `docs/roadmap/04-roadmap/PHASE-*/` |
 | B3 | Make-it-10 features specker | `docs/roadmap/05-features-to-10/` |
 | B4 | Risk register builder | `docs/roadmap/06-risks-and-mitigations/` |
-| B5 | Claude-instructions builder | `docs/roadmap/07-claude-instructions/` |
+| B5 | Claude-instructions builder | `docs/_meta/` |
 | B6 | References + research index builder | `docs/roadmap/03-research/` + `docs/roadmap/08-references/` |
 
 ### Wave 3 (PARALLEL, ~5 min) — Reviewers
@@ -102,4 +102,4 @@ The parent Claude session orchestrates. Sample invocation pattern (pseudo-code):
 11. Manual synthesis: present findings + update CLAUDE.md
 ```
 
-See `07-claude-instructions/PROMPT-TEMPLATES.md` for the per-agent prompt scaffolds.
+See `../../_meta/PROMPT-TEMPLATES.md` for the per-agent prompt scaffolds.
