@@ -63,13 +63,11 @@ Every doc lives in exactly one of these buckets. Adding a new doc means picking 
 
 ### Stub format (post-move redirects)
 
-When a doc moves to a new bucket and inbound references still point at the old path, leave a stub:
+When a doc moves to a new bucket and inbound references still point at the old path, leave a stub. The stub format is a single line: a blockquote containing the literal text `Moved to`, the new path in backticks, a period, and the HTML comment `<!-- AGENT_REDIRECT_ONLY -->`. Example (with the leading `>` shown as `&gt;` so this prose is not itself flagged by the Phase E tripwire):
 
-```markdown
-> Moved to `<new-path>`. <!-- AGENT_REDIRECT_ONLY -->
-```
+&gt; Moved to `<new-path>`. `<!-- AGENT_REDIRECT_ONLY -->`
 
-The HTML marker `<!-- AGENT_REDIRECT_ONLY -->` is grep-able by the Phase E tripwire test. Stubs are scaffolding only — Phase E deletes them all within 30 days of Phase D's merge.
+The HTML marker is grep-able by the Phase E tripwire test (`tests/e2e/phase-e-stub-cleanup-due.test.ts`) which uses an anchored regex `^> Moved to .*<!-- AGENT_REDIRECT_ONLY -->` to only match real stubs and not prose like this paragraph. Stubs are scaffolding only — Phase E deletes them all within 30 days of Phase D's merge.
 
 ### Code lifecycle
 

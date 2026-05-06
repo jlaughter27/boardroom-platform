@@ -24,7 +24,11 @@
 import { execSync } from 'child_process';
 import { describe, it, expect } from 'vitest';
 
-const STUB_MARKER = '<!-- AGENT_REDIRECT_ONLY -->';
+// Anchored pattern: a real redirect stub is a line that STARTS with "> Moved to"
+// AND contains the AGENT_REDIRECT_ONLY HTML marker. Matching just the marker by
+// itself yields false positives — inventory/conventions docs DESCRIBE the stub
+// format and contain the marker as documentation, not as a redirect.
+const STUB_PATTERN = '^> Moved to .*<!-- AGENT_REDIRECT_ONLY -->';
 const GRACE_DAYS = 30;
 const GRACE_MS = GRACE_DAYS * 24 * 3600 * 1000;
 
@@ -48,13 +52,18 @@ function phaseDMergeDate(): Date | null {
 }
 
 /**
- * Count files in `docs/` containing the AGENT_REDIRECT_ONLY marker.
- * Uses git grep for speed and to respect .gitignore.
+ * Count files in `docs/` containing a real redirect stub.
+ * A real stub is a file with at least one line matching `^> Moved to .*<!-- AGENT_REDIRECT_ONLY -->`.
+ * Uses git grep -l with -E (extended regex) for speed and to respect .gitignore.
+ *
+ * Excludes docs/_inventory/ (these files DOCUMENT the stub format in prose,
+ * containing the marker as text but not as a redirect — Phase E should not
+ * treat them as overdue stubs).
  */
 function countStubs(): number {
   try {
     const out = execSync(
-      `git grep -l '${STUB_MARKER}' -- docs/ | wc -l`,
+      `git grep -l -E '${STUB_PATTERN}' -- docs/ ':!docs/_inventory/' | wc -l`,
       { encoding: 'utf8' }
     ).trim();
     return parseInt(out, 10) || 0;
