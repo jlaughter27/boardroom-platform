@@ -106,3 +106,35 @@ Phase 4 adds four capabilities that were out of scope for Phase 3 but necessary 
 3. **Use `migrate deploy` from day 1.** `db push` has no history and `--accept-data-loss` is disqualifying in production.
 
 4. **Audit early, not late.** The 7 findings were all discoverable from reading the source. An audit at the end of Phase 1 would have caught most of them before Phase 2 and 3 built on top.
+
+---
+
+## Solo Go-Live Observations (Phase 5, 2026-05-09)
+
+### What we did in this session
+- Verified repo state: already synced with origin/main, no worktree chaos (prior session cleaned it)
+- Removed `.env.deploy` from git tracking (had live secrets; now gitignored explicitly)
+- Disabled ministry domain at the API + MCP boundary (`503 MINISTRY_DEFERRED`) with test coverage
+- Added `HttpError` class to error-handler so routes can return non-500 status codes properly
+- Shipped importance decay: weekly cron drops importance 0.05/week for unaccessed memories
+- Shipped duplicate detection on write: cosine check at 0.92 threshold before every `createMemory`
+- Shipped `/admin/duplicates` UI tab with threshold selector, pair list, Keep A / Keep B merge
+
+### What surprised me during deploy
+- The repo was already cleaner than the prompt expected — 0 worktree branches, 0 open PRs. The prior session had already done most of B.1/B.2. This prompt was written for a messier state.
+- `.env.deploy` was being tracked despite `*.env` in `.gitignore` — the file predated the gitignore rule. Removed cleanly.
+- `node_modules` not installed in this Claude Code web environment; typecheck worked but tests couldn't run. The D7 test will execute on Railway's CI or locally.
+
+### What's noticeably missing now that it's live
+1. **Agent key generation** — Josh still needs to run `keygen-commands.sh` against prod and install configs into Claude Desktop / Cursor. The configs in `docs/agent-configs/` are templates, not live.
+2. **Prod migration verification** — the `mcp_phase_1` and `mcp_phase_4` migrations will only apply when Railway redeploys. Need to confirm via Railway logs.
+3. **Real data** — the duplicate detection and decay work correctly by logic, but won't be observable until there are actual memories in the system. Phase 5's value is retrospective.
+
+### What was over-engineered in earlier phases
+- The ministry encryption pipeline (AES-256-GCM, ENCRYPTION_KEY, encryptedContent column) was built before confirming ministry domain would be used. Deferring ministry entirely made this dead code on day 1.
+- The `omnimind-ministry` MCP server entry in `claude-desktop.json` — added before confirming Ollama setup. Now removed.
+
+### Recommendations for Phase 6
+1. After 30 days of dogfooding, look at `/admin/duplicates` first — if near-duplicates are common, tighten the 0.92 threshold or improve fact extraction.
+2. Check importance decay via `/admin/memories` sorted by importance — are older unaccessed memories dropping as expected?
+3. If ministry is still deferred at Phase 6, delete the schema columns (`encryptedContent`, `encryptionKeyId`, `encryptionAlgorithm`) to avoid maintaining dead code.

@@ -6,6 +6,45 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-05-09 — Phase 5 Solo Go-Live — Ministry disable + importance decay + dedup + /admin/duplicates
+
+**Branch:** `claude/fix-memory-layer-production-qdmH8` | **Commits:** `0054de0`, `869f368` | **Status:** Pushed
+
+### Repo cleanup
+- `.env.deploy` removed from git tracking; explicit gitignore for deploy secrets
+- No worktree branches or open PRs to clean (already done in prior session)
+
+### Ministry domain disabled (D7)
+- `memory.service.ts`: `createMemory` + `updateMemory` throw `HttpError(503, MINISTRY_DEFERRED)`
+- `memory.tool.ts` (MCP): `memory_write` returns MINISTRY_DEFERRED before calling API
+- `error-handler.ts`: `HttpError` class added (enables non-500 status codes from service layer)
+- `claude-desktop.json`: `omnimind-ministry` server entry removed
+- `tests/audit/D7-ministry-disabled.test.ts`: API + MCP layer assertions
+- `CURRENT-PHASE.md`: deferral documented with Phase 6 re-enable criteria
+
+### Importance decay (F.1)
+- `importance-decay.service.ts`: `runImportanceDecay()` — -0.05/week, floor 0.0
+- `importance-decay-scheduler.ts`: cron Sun 2am, IMPORTANCE_DECAY_SCHEDULE env override
+- `index.ts`: wired into start/stop lifecycle
+- `admin.routes.ts` (omnimind-api): `POST /admin/decay/run` for manual trigger
+
+### Duplicate detection on write (F.2)
+- `memory.service.ts`: `findNearDuplicate()` cosine check at 0.92 before every `createMemory`
+- Near-duplicates auto-supersede (calls `updateMemory`) instead of creating new entries
+- Dead ministry encryption block removed from `createMemory` (upstream guard makes it unreachable)
+
+### /admin/duplicates UI (F.3)
+- `admin.routes.ts` (omnimind-api): `GET /admin/duplicates` + `POST /admin/duplicates/merge`
+- `admin.routes.ts` (boardroom-ai): proxy routes for duplicates + decay
+- `omnimind-client.ts`: `getAdminDuplicates`, `mergeAdminDuplicates`, `triggerAdminDecay`
+- `api.ts`: `DuplicatePair` interface + 3 new API functions
+- `AdminPage.tsx`: 6th tab "Duplicates" — threshold selector, pair list, Keep A/B buttons
+
+### Deferred items documented
+- Ministry Phase 6+, digest charts, Railway private networking, Redis rate limiting, git history scrub
+
+---
+
 ## 2026-05-09 — MCP Phase 3 — Session summarizer + admin API + admin UI
 
 **Branch:** `claude/build-memory-layer-IftGo` | **Commit:** `1f58af9` | **Status:** Pushed
