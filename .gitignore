@@ -11,3 +11,9 @@ coverage/
 backups/
 packages/omnimind-api/prisma/migrations/*_migration.sql
 !packages/omnimind-api/prisma/migrations/migration_lock.toml
+
+# Never commit deploy secrets
+.env.deploy
+.env.production
+.env.local
+.env.staging
