@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
+import { useEntitiesStore } from './entities.store';
+import { useMemoryStore } from './memory.store';
+import { useCortexStore } from './cortex.store';
+import { useNotificationStore } from './notification.store';
+import { useUIStore } from './ui.store';
+import { useSessionStore } from './session.store';
 
 import type { AuthUser } from '@boardroom/shared';
 
@@ -49,6 +55,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     await api.logout();
+    // Reset all stores to prevent data leakage between users
+    useEntitiesStore.getState().reset();
+    useMemoryStore.getState().reset();
+    useCortexStore.getState().reset();
+    useNotificationStore.getState().reset();
+    useUIStore.getState().reset();
+    useSessionStore.getState().reset();
     set({ user: null, isAuthenticated: false });
   },
 

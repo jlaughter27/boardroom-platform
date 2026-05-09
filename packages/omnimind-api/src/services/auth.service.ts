@@ -1,4 +1,5 @@
 import { prisma } from '../lib/db';
+import bcrypt from 'bcryptjs';
 
 export interface RegisterUserInput {
   email: string;
@@ -13,6 +14,27 @@ export interface AuthUser {
   passwordHash: string;
   teamId: string;
   createdAt: Date;
+}
+
+/** AuthUser without the passwordHash — safe to return over the wire. */
+export type SafeUser = Omit<AuthUser, 'passwordHash'>;
+
+/** Strip passwordHash from an AuthUser. */
+export function toSafeUser(user: AuthUser): SafeUser {
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+
+/**
+ * Verify email + password server-side. Returns SafeUser if valid, null otherwise.
+ * This keeps the passwordHash inside OmniMind — it never leaves the service.
+ */
+export async function verifyCredentials(email: string, password: string): Promise<SafeUser | null> {
+  const user = await getUserByEmail(email);
+  if (!user) return null;
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) return null;
+  return toSafeUser(user);
 }
 
 /**

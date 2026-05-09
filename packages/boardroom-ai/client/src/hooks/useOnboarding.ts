@@ -287,12 +287,13 @@ export function useOnboarding() {
 
       // Create people (skip empty rows)
       for (const person of data.people) {
-        if (!person.name.trim()) continue;
-        await api.createPerson({
-          name: person.name.trim(),
-          role: person.role,
-          relationship: person.relationship,
-        });
+        if (person.name.trim()) {
+          await api.createPerson({
+            name: person.name.trim(),
+            role: person.role,
+            relationshipToUser: person.relationship,
+          });
+        }
       }
 
       // Create context memories

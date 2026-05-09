@@ -66,7 +66,17 @@ ${contradictions.map(c => `- ${c.description} (${c.severity})`).join('\n') || 'N
 
   // Calculate score change from last memo
   const lastMemo = await prisma.weeklyMemo.findFirst({ where: { userId }, orderBy: { weekStart: 'desc' } });
-  const scoreChange = lastMemo ? memoData.thinkingQualityScore - lastMemo.thinkingQualityScore : 0;
+  const lastScore = lastMemo ? (lastMemo.thinkingQualityScore > 10 ? lastMemo.thinkingQualityScore / 10 : lastMemo.thinkingQualityScore) : 0;
+  const scoreChange = lastMemo ? memoData.thinkingQualityScore - lastScore : 0;
+
+  // Idempotency: check if memo already exists for this week (match on weekStart only)
+  const existingMemo = await prisma.weeklyMemo.findFirst({
+    where: { userId, weekStart: { gte: weekStart, lte: now } },
+  });
+  if (existingMemo) {
+    logger.info('Weekly memo already exists for this period', { userId, memoId: existingMemo.id });
+    return existingMemo;
+  }
 
   // Store
   const memo = await prisma.weeklyMemo.create({

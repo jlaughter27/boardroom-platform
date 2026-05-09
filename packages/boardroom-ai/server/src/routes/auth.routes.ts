@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
-import { hashPassword, verifyPassword, createToken, authMiddleware, type AuthRequest } from '../middleware/auth';
+import { hashPassword, createToken, authMiddleware, type AuthRequest } from '../middleware/auth';
 import { loginLimiter, registerLimiter } from '../middleware/auth-rate-limiter';
 import { validateBody } from '../middleware/validate';
 import { RegisterBodySchema, LoginBodySchema } from '@boardroom/shared';
 import { omnimindClient } from '../services/omnimind-client';
+
+const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
+const getApiKey = () => {
+  const key = process.env.OMNIMIND_API_KEY;
+  if (!key) throw new Error('FATAL: OMNIMIND_API_KEY is not set');
+  return key;
+};
 
 const router: IRouter = Router();
 
@@ -30,20 +37,36 @@ router.post('/register', registerLimiter, validateBody(RegisterBodySchema), asyn
   }
 });
 
-// POST /auth/login
+// POST /auth/login — delegates credential verification to OmniMind /auth/verify
+// so that passwordHash never travels over the wire.
 router.post('/login', loginLimiter, validateBody(LoginBodySchema), async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const user = await omnimindClient.getUserByEmail(email);
-    if (!user) {
+
+    // Call OmniMind's /auth/verify endpoint (server-side bcrypt compare)
+    const verifyRes = await fetch(`${OMNIMIND_URL}/auth/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': getApiKey(),
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (verifyRes.status === 401) {
       res.status(401).json({ error: 'unauthorized', message: 'Invalid email or password' });
       return;
     }
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
-      res.status(401).json({ error: 'unauthorized', message: 'Invalid email or password' });
-      return;
+
+    if (!verifyRes.ok) {
+      const errBody = await verifyRes.json().catch(() => ({ error: 'upstream_error' }));
+      throw Object.assign(new Error(`OmniMind POST /auth/verify: ${verifyRes.status}`), {
+        status: verifyRes.status,
+        upstream: errBody,
+      });
     }
+
+    const user = (await verifyRes.json()) as { id: string; email: string; name: string; teamId: string };
     const token = createToken({ userId: user.id, email: user.email, teamId: user.teamId });
     res.cookie('boardroom_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.json({ userId: user.id, name: user.name });

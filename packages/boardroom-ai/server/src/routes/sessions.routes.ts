@@ -17,8 +17,21 @@ const router: IRouter = Router();
 router.use(checkSessionLimit);
 
 // In-memory session store (Phase 1 -- will persist to OmniMind later)
-const sessions = new Map<string, SessionState>();
+const MAX_SESSIONS = 10000;
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+const sessions = new Map<string, SessionState & { createdAt: number }>();
 let sessionCounter = 0;
+
+// Cleanup stale sessions every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (now - session.createdAt > SESSION_TTL_MS) {
+      sessions.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
 
 function getOrchestrator(): CEOOrchestrator {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -31,14 +44,20 @@ router.post('/', validateBody(CreateSessionBodySchema), (req: AuthRequest, res, 
   try {
     const { question, mode } = req.body as { question: string; mode: UserMode; roomId?: string };
 
+    if (sessions.size >= MAX_SESSIONS) {
+      res.status(503).json({ error: 'capacity_exceeded', message: 'Too many active sessions. Please try again later.' });
+      return;
+    }
+
     const id = `session_${++sessionCounter}_${Date.now()}`;
-    const session: SessionState = {
+    const session: SessionState & { createdAt: number } = {
       id,
       userId: req.auth!.userId,
       question,
       mode,
       personaResponses: new Map(),
       synthesis: null,
+      createdAt: Date.now(),
     };
     sessions.set(id, session);
 

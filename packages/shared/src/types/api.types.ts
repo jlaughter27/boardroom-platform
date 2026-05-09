@@ -25,7 +25,7 @@ export interface CreateMemoryResponse {
   status: 'created';
   validation: {
     syncPassed: boolean;
-    asyncJobsQueued: string[];
+    errors: string[];
   };
 }
 

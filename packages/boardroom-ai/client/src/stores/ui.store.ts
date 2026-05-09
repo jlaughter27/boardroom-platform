@@ -28,6 +28,7 @@ interface UIState {
   closeConfigurator: () => void;
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  reset: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -56,6 +57,14 @@ export const useUIStore = create<UIState>((set) => ({
     applyTheme(theme);
     set({ theme });
   },
+
+  reset: () =>
+    set({
+      sidebarCollapsed: false,
+      activeModal: null,
+      dismissedQuestions: new Set<string>(),
+      configuratorOpen: false,
+    }),
 }));
 
 // Listen for system preference changes when theme is 'system'

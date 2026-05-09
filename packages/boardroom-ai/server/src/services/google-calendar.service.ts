@@ -1,6 +1,29 @@
 import { google } from 'googleapis';
+import crypto from 'crypto';
 import type { CalendarEvent, CalendarSyncStatus } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
+
+const STATE_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret';
+
+export function signState(userId: string, provider: string): string {
+  const payload = `${provider}:${userId}`;
+  const hmac = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
+  return `${payload}:${hmac}`;
+}
+
+export function verifyState(state: string | undefined, provider: string): string | null {
+  if (!state) return null;
+  const parts = state.split(':');
+  if (parts.length < 3) return null;
+  const hmac = parts.pop()!;
+  const payload = parts.join(':');
+  const expected = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
+  const hmacBuf = Buffer.from(hmac);
+  const expectedBuf = Buffer.from(expected);
+  if (hmacBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(hmacBuf, expectedBuf)) return null;
+  if (!payload.startsWith(`${provider}:`)) return null;
+  return payload.slice(provider.length + 1);
+}
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -20,7 +43,7 @@ export function getAuthUrl(userId: string): string | null {
   return client.generateAuthUrl({
     access_type: 'offline',
     scope: ['https://www.googleapis.com/auth/calendar.readonly'],
-    state: userId,
+    state: signState(userId, 'calendar'),
     prompt: 'consent',
   });
 }

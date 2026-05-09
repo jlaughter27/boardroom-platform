@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { IRouter } from 'express';
 import type { AuthRequest } from '../middleware/auth';
 import * as calendarService from '../services/google-calendar.service';
+import { verifyState } from '../services/google-calendar.service';
 
 const router: IRouter = Router();
 
@@ -21,8 +22,9 @@ router.get('/auth-url', (req: AuthRequest, res) => {
 router.get('/callback', async (req, res, next) => {
   try {
     const code = req.query.code as string;
-    const userId = req.query.state as string;
-    if (!code || !userId) { res.status(400).send('Missing code or state'); return; }
+    const state = req.query.state as string;
+    const userId = verifyState(state, 'calendar');
+    if (!code || !userId) { res.status(400).send('Invalid OAuth state'); return; }
     await calendarService.handleCallback(userId, code);
     res.redirect('/settings?calendar=connected');
   } catch (err) { next(err); }
