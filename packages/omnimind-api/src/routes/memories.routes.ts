@@ -3,7 +3,7 @@ import type { Router as IRouter } from 'express';
 import { CreateMemoryRequestSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
-import { backfillEmbeddings } from '../services/embedding.service';
+import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
 
 const router: IRouter = Router();
 
@@ -42,6 +42,69 @@ router.post('/backfill-embeddings', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /memories/search-similar — cosine similarity search with threshold (used by MCP fact-extractor dedup)
+// Must appear before /:id routes
+router.post('/search-similar', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const { query, threshold = 0.85, limit = 1, domain } = req.body as {
+      query: string;
+      threshold?: number;
+      limit?: number;
+      domain?: string;
+    };
+    if (!query || typeof query !== 'string') {
+      res.status(400).json({ error: 'validation_failed', details: [{ field: 'query', message: 'query is required' }] }); return;
+    }
+
+    const embedding = await generateEmbeddingWithRetry(query, domain);
+    if (!embedding) {
+      res.json({ memories: [] }); return;
+    }
+
+    const safeThreshold = Math.max(0, Math.min(1, threshold));
+    const safeLimit = Math.min(Math.max(1, limit), 20);
+
+    const rows = await prisma.$queryRaw<Array<{
+      id: string; title: string; content: string; domain: string;
+      tags: string[]; importance: number; source_type: string;
+      tenant_id: string; source_weight: number;
+      created_at: Date; updated_at: Date; similarity: number;
+    }>>`
+      SELECT id, title, content, domain, tags, importance, source_type,
+             tenant_id, source_weight, created_at, updated_at,
+             1 - (embedding <=> ${embedding}::vector) AS similarity
+      FROM "memory_entries"
+      WHERE "user_id" = ${userId}
+        AND embedding IS NOT NULL
+        AND "deleted_at" IS NULL
+        AND status != 'ARCHIVED'
+        AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
+      ORDER BY embedding <=> ${embedding}::vector
+      LIMIT ${safeLimit}
+    `;
+
+    const memories = rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      content: r.content,
+      domain: r.domain,
+      tags: r.tags,
+      importance: r.importance,
+      sourceType: r.source_type,
+      tenantId: r.tenant_id,
+      sourceWeight: r.source_weight,
+      similarity: r.similarity,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+
+    res.json({ memories });
+  } catch (err) { next(err); }
+});
+
 // POST /memories/validate — dry-run (must be before /:id to avoid matching "validate" as id)
 router.post('/validate', async (req, res, next) => {
   try {
@@ -62,10 +125,12 @@ router.get('/', async (req, res, next) => {
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
     const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
+    const tenantId = req.query.tenantId as string | undefined;
     const result = await memoryService.searchMemories(userId, {
       q: req.query.q as string | undefined,
       domain: req.query.domain as string | undefined,
       tags,
+      tenantId,
       memoryClass: req.query.memoryClass as string | undefined,
       status: req.query.status as string | undefined,
       since: req.query.since as string | undefined,

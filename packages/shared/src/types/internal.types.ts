@@ -24,6 +24,7 @@ export interface ScoredResult {
   tags?: string[];
   importance?: number;
   lastAccessedAt?: Date | null;
+  sourceWeight?: number;
 }
 
 export interface ContextPackage {
