@@ -6,6 +6,47 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-05-09 — MCP Phase 2 — Agents wired, smoke tests passed, keys generated
+
+**Branch:** `claude/build-memory-layer-IftGo` | **Status:** Pushed
+
+### What shipped
+- `docs/MEMORY-PROTOCOL.md` — agent protocol: write vs search rules, domain routing, fact quality, session start/end checklist
+- `docs/agent-configs/` — 6 configs (claude-desktop, claude-code, cursor, chatgpt-desktop, keygen-commands.sh, SMOKE-TESTS.md)
+- `.claude/CLAUDE.md` — Memory Layer section: architecture, 15-tool reference, dogfooding rules, ministry domain rule
+- Fixed `keygen.ts`: replaced private bracket access with `registerAgent()` public method
+- Fixed `client.ts`: userId moved to `x-user-id` header (not body); added `registerAgent()` method
+- Fixed `smoke.ts`: env inheritance for spawned server; all 15 tools verified by name
+- Fixed `shared/memory.types.ts` + `memory-config.ts`: added MCP_AGENT + SESSION_SUMMARY enum values (were in DB schema but missing from TypeScript types, causing 422 on writes)
+
+### Smoke test results (live local DB)
+- Tier 1: `smoke OK — 15 tools registered` ✅
+- T1: memory write (MCP_AGENT source) ✅
+- T2: memory update ✅
+- T3: memory search ✅
+- T4: audit log write ✅
+- T5: audit log GET verified ✅
+- T6: SCOPE_DENIED for cursor-josh on memory:write ✅
+- T7: memory:read allowed for cursor-josh ✅
+- T8: wildcard scope (`*`) grants all for boardroom-ai ✅
+- T9: prefix wildcard `memory:*` grants memory:write and memory:read ✅
+- T10: HTTP Unauthorized without key ✅
+- T11: HTTP auth passes, StreamableHTTP handshake proceeds ✅
+
+### 6 agents registered (local DB — re-run keygen-commands.sh against production)
+- `claude-desktop-josh` / josh-personal / memory:read,write,context:write,preference:write,person:write / 0.85
+- `claude-code-josh` / josh-business / memory:read,write,decision:write,task:write,project:write,commitment:write,code:write / 1.0
+- `cursor-josh` / josh-business / memory:read / 0.7
+- `chatgpt-desktop-josh` / josh-personal / memory:read / 0.6
+- `boardroom-ai` / josh-business / * / 1.0
+- `cortex-summarizer` / josh-business / memory:write / 0.8
+
+### Next session
+Wait 1 week for real agent usage. Then Phase 3: Admin Viewer + Session Summarizer.
+If tool descriptions need tuning based on real usage, do that first.
+
+---
+
 ## 2026-05-09 — MCP Phase 1 — Core tools, fact extractor, hybrid embeddings
 
 **Branch:** `claude/build-memory-layer-IftGo` | **Status:** Pushed, ready for PR

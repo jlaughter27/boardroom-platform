@@ -1,9 +1,9 @@
 # Current Phase
 
-**Phase in flight:** MCP Phase 2 — Wire Agents (NEXT)
-**Active task (within current phase):** Phase 1 complete — awaiting Phase 2 kickoff
+**Phase in flight:** MCP Phase 2 — Wire Agents (COMPLETE — awaiting 1-week dogfood period)
+**Active task (within current phase):** Dogfood with real agents before Phase 3
 **Last update:** 2026-05-09
-**Updated by:** Claude (MCP Phase 1 execution session)
+**Updated by:** Claude (MCP Phase 2 execution session)
 
 ---
 
