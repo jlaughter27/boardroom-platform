@@ -94,6 +94,8 @@ export const SOURCE_WEIGHTS: Record<string, number> = {
   BOARDROOM_SESSION: 0.8,
   API_IMPORT: 0.7,
   AGENT_EXTRACTED: 0.5,
+  MCP_AGENT: 0.85,
+  SESSION_SUMMARY: 0.7,
 };
 
 /**

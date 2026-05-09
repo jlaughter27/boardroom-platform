@@ -1,8 +1,5 @@
-import { createMcpServer } from './server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { spawn } from 'child_process';
 
 export async function runSmoke(): Promise<void> {
   console.log('[smoke] Starting OmniMind-MCP smoke test...');
@@ -16,14 +13,13 @@ export async function runSmoke(): Promise<void> {
     }
   }
 
-  // Spawn MCP server as child process
-  const child = spawn(process.execPath, [__filename.replace('smoke', 'index')], {
-    env: { ...process.env },
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-
   const client = new Client({ name: 'smoke-client', version: '0.1.0' });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [__filename.replace('smoke', 'index')] });
+  // Pass full env so the spawned server inherits all OMNIMIND_MCP_* vars
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [__filename.replace('smoke.js', 'index.js')],
+    env: { ...process.env } as Record<string, string>,
+  });
 
   try {
     await client.connect(transport);
@@ -34,17 +30,21 @@ export async function runSmoke(): Promise<void> {
     const toolNames = tools.tools.map(t => t.name);
     console.log(`[smoke] ✅ Tools available (${toolNames.length}): ${toolNames.join(', ')}`);
 
-    const requiredTools = ['memory_write', 'memory_search', 'status_get'];
-    for (const t of requiredTools) {
-      if (!toolNames.includes(t)) {
-        throw new Error(`Missing required tool: ${t}`);
-      }
-    }
+    const requiredTools = [
+      'memory_write', 'memory_search', 'memory_supersede',
+      'decision_log',
+      'task_upsert', 'task_status', 'task_list', 'task_complete', 'task_block',
+      'project_status', 'project_summary',
+      'person_get',
+      'commitment_log', 'commitment_list',
+      'status_get',
+    ];
+    const missing = requiredTools.filter(t => !toolNames.includes(t));
+    if (missing.length > 0) throw new Error(`Missing tools: ${missing.join(', ')}`);
 
-    console.log('[smoke] ✅ All required tools present');
-    console.log('[smoke] Smoke test PASSED ✅');
+    console.log('[smoke] ✅ All 15 required tools present');
+    console.log(`[smoke] smoke OK — ${toolNames.length} tools registered`);
   } finally {
     await transport.close().catch(() => {});
-    child.kill();
   }
 }

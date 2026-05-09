@@ -32,18 +32,21 @@ export async function runKeygen(): Promise<void> {
   const keyHash = hashApiKey(rawKey);
   const scopeList = scopes.split(',').map(s => s.trim()).filter(Boolean);
 
-  await client['request']?.('POST', '/mcp/agents', {
-    name: agent,
-    apiKeyHash: keyHash,
-    tenantId: tenant,
-    scopes: scopeList,
-    sourceWeight,
-  }).catch(() => {
-    // Registration endpoint may not exist yet — print key for manual DB insert
-    console.warn('\n[keygen] Could not register via API. Use the SQL below to insert manually:\n');
-    console.log(`INSERT INTO agents (name, api_key_hash, tenant_id, scopes, source_weight)
-VALUES ('${agent}', '${keyHash}', '${tenant}', ARRAY[${scopeList.map(s => `'${s}'`).join(', ')}], ${sourceWeight});`);
-  });
+  try {
+    await client.registerAgent({
+      name: agent,
+      apiKeyHash: keyHash,
+      tenantId: tenant,
+      scopes: scopeList,
+      sourceWeight,
+    });
+    console.log(`[keygen] ✅ Agent registered via API`);
+  } catch (err) {
+    console.warn(`\n[keygen] Could not register via API (${(err as Error).message}). Use the SQL below to insert manually:\n`);
+    console.log(`INSERT INTO "Agent" (id, name, api_key_hash, tenant_id, scopes, source_weight, created_at)`);
+    console.log(`VALUES (gen_random_uuid(), '${agent}', '${keyHash}', '${tenant}', ARRAY[${scopeList.map(s => `'${s}'`).join(', ')}], ${sourceWeight}, NOW())\n`);
+    console.log(`ON CONFLICT (name) DO UPDATE SET api_key_hash = EXCLUDED.api_key_hash, scopes = EXCLUDED.scopes, source_weight = EXCLUDED.source_weight;`);
+  }
 
   console.log('\n=== API KEY — COPY NOW, NEVER SHOWN AGAIN ===');
   console.log(`Agent:        ${agent}`);
