@@ -1,13 +1,16 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
+import { archiveCutoffDate } from './forgetting-curve';
 
 export async function fulltextSearch(
   userId: string,
   query: string,
-  options: { limit?: number },
+  options: { limit?: number; includeArchived?: boolean },
   prisma: PrismaClient
 ): Promise<ScoredResult[]> {
   if (!query || query.trim().length === 0) return [];
+  const includeArchived = options.includeArchived ?? false;
+  const cutoff = archiveCutoffDate().toISOString();
 
   // Convert query to tsquery format (AND all words). Rules to satisfy tests:
   // - hyphens are removed (join words)
@@ -23,13 +26,17 @@ export async function fulltextSearch(
   const limit = options.limit ?? 20;
 
   // Build SQL string for spy expectations (tests assert LIMIT and tsquery strings)
+  const curveClause = includeArchived
+    ? 'TRUE'
+    : `(importance >= 0.4 OR last_accessed_at >= '${cutoff}')`;
   const sql = `
-      SELECT id, title, content, tags, importance, last_accessed_at,
+      SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
              ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQueryRaw})) as rank
       FROM memory_entries
       WHERE user_id = ${userId}
         AND deleted_at IS NULL
         AND status != 'ARCHIVED'
+        AND ${curveClause}
         AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQueryRaw})
       ORDER BY rank DESC
       LIMIT ${limit}
@@ -44,6 +51,7 @@ export async function fulltextSearch(
         tags: string[];
         importance: number;
         last_accessed_at: Date | null;
+        source_weight: number;
         rank: number;
       }>
     >(sql as any);
@@ -59,6 +67,7 @@ export async function fulltextSearch(
       tags: r.tags,
       importance: r.importance,
       lastAccessedAt: r.last_accessed_at,
+      sourceWeight: r.source_weight,
     }));
   } catch {
     // FTS may fail if extensions aren't enabled yet — degrade gracefully

@@ -16,6 +16,14 @@ export interface SearchMemoriesParams {
   includeArchived?: boolean;
 }
 
+export interface SearchSimilarParams {
+  query: string;
+  userId: string;
+  threshold?: number;
+  limit?: number;
+  domain?: string;
+}
+
 export interface MemoryRecord {
   id: string;
   title: string;
@@ -107,6 +115,16 @@ export class OmniMindClient {
 
   async getMemory(id: string, userId: string): Promise<MemoryRecord> {
     return this.request<MemoryRecord>('GET', `/memories/${id}`, undefined, userId);
+  }
+
+  async searchSimilar(params: SearchSimilarParams): Promise<MemoryRecord[]> {
+    const result = await this.request<{ memories: MemoryRecord[] }>(
+      'POST',
+      '/memories/search-similar',
+      { query: params.query, threshold: params.threshold, limit: params.limit, domain: params.domain },
+      params.userId
+    );
+    return result.memories ?? [];
   }
 
   async logAudit(entry: {

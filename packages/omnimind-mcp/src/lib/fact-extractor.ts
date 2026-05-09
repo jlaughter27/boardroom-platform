@@ -82,15 +82,14 @@ export async function extractAndDedup(
   const results: FactWithAction[] = [];
 
   for (const fact of rawFacts) {
-    let hits: Awaited<ReturnType<OmniMindClient['searchMemories']>> = [];
+    let hits: Awaited<ReturnType<OmniMindClient['searchSimilar']>> = [];
 
     try {
-      hits = await client.searchMemories({
+      hits = await client.searchSimilar({
         query: fact.text,
-        tenantId: ctx.tenantId,
         userId,
+        threshold: SIMILARITY_THRESHOLD,
         limit: 1,
-        similarityThreshold: SIMILARITY_THRESHOLD,
       });
     } catch {
       // Search failure → treat as new fact (conservative: never silently drop writes)

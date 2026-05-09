@@ -51,6 +51,10 @@ export async function structuredFilter(
     where: where as any,
     take: options.limit ?? 20,
     orderBy: { importance: 'desc' },
+    select: {
+      id: true, content: true, title: true, tags: true,
+      importance: true, lastAccessedAt: true, sourceWeight: true,
+    },
   });
 
   return results.map(r => ({
@@ -64,5 +68,6 @@ export async function structuredFilter(
     tags: r.tags,
     importance: r.importance,
     lastAccessedAt: r.lastAccessedAt,
+    sourceWeight: r.sourceWeight,
   }));
 }

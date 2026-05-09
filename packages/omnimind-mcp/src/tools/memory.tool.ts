@@ -28,6 +28,13 @@ const MemorySupersededInput = z.object({
   userId: z.string().describe('User ID'),
 });
 
+function redactForAudit(input: Record<string, unknown>): Record<string, unknown> {
+  if (input.domain === 'ministry') {
+    return { ...input, content: '[REDACTED:ministry]' };
+  }
+  return input;
+}
+
 export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'memory_write',
@@ -36,8 +43,9 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
     async execute(raw: unknown): Promise<MemoryWriteResult> {
       requireScope(ctx, 'memory:write');
       const input = MemoryWriteInput.parse(raw);
+      const auditInput = redactForAudit(input as Record<string, unknown>);
 
-      return withAudit(client, ctx, 'memory_write', input, async () => {
+      return withAudit(client, ctx, 'memory_write', auditInput, async () => {
         const created: string[] = [];
         const updated: string[] = [];
 
@@ -142,7 +150,18 @@ export function memorySupersedeT(client: OmniMindClient, ctx: AgentContext) {
       requireScope(ctx, 'memory:write');
       const input = MemorySupersededInput.parse(raw);
 
-      return withAudit(client, ctx, 'memory_supersede', input, async () => {
+      // Check domain of the existing memory to decide whether to redact
+      let auditInput: Record<string, unknown> = input as Record<string, unknown>;
+      try {
+        const existing = await client.getMemory(input.id, input.userId);
+        if (existing?.domain === 'ministry') {
+          auditInput = { ...auditInput, newContent: '[REDACTED:ministry]' };
+        }
+      } catch {
+        // If lookup fails, log as-is (fail open on audit redaction)
+      }
+
+      return withAudit(client, ctx, 'memory_supersede', auditInput, async () => {
         const mem = await client.updateMemory(input.id, {
           content: input.newContent,
           sourceType: 'MCP_AGENT',

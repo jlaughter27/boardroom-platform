@@ -1,7 +1,7 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { runValidationPipeline } from '../memory/validation/pipeline';
 import { SOURCE_WEIGHTS } from '@boardroom/shared';
-import { embedMemory } from './embedding.service';
+import { embedMemory, generateEmbeddingWithRetry } from './embedding.service';
 import { logger } from '../lib/logger';
 
 // Create memory — validate first, then write
@@ -22,6 +22,19 @@ export async function createMemory(
   },
   prisma: PrismaClient
 ) {
+  // Rule 9: ministry domain requires Ollama. Pre-check embedding availability
+  // BEFORE writing to DB so the write is refused cleanly if Ollama is down.
+  if (input.domain === 'ministry') {
+    const sampleText = `${input.title ?? ''}\n${input.content}`.slice(0, 100);
+    const testEmbedding = await generateEmbeddingWithRetry(sampleText, 'ministry');
+    if (!testEmbedding) {
+      return {
+        success: false as const,
+        errors: [{ field: 'domain', message: 'Ministry embedding unavailable — Ollama is down. Write refused.' }],
+      };
+    }
+  }
+
   // Run validation pipeline
   const validation = await runValidationPipeline(input, userId, input.domain, prisma);
   if (!validation.valid) {
@@ -86,6 +99,7 @@ export async function searchMemories(
     q?: string;
     domain?: string;
     tags?: string[];
+    tenantId?: string;
     memoryClass?: string;
     status?: string;
     since?: string;
@@ -104,6 +118,7 @@ export async function searchMemories(
     deletedAt: null,
   };
 
+  if (filters.tenantId) where.tenantId = filters.tenantId;
   if (filters.domain) where.domain = filters.domain;
   if (filters.memoryClass) where.memoryClass = filters.memoryClass as any;
   if (filters.status) {
