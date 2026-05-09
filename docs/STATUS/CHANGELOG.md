@@ -6,7 +6,37 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
-## 2026-04-18 — Wave 4 validator pass — Reconciliation
+## 2026-05-09 — MCP Phase 1 — Core tools, fact extractor, hybrid embeddings
+
+**Branch:** `claude/build-memory-layer-IftGo` | **Status:** Pushed, ready for PR
+
+### What shipped
+- New `packages/omnimind-mcp` package (15 MCP tools, stdio + HTTP transports, keygen CLI, smoke test)
+- 15 tools: `memory_write`, `memory_search`, `memory_supersede`, `decision_log`, `task_upsert/status/list/complete/block`, `project_status/summary`, `person_get`, `commitment_log/list`, `status_get`
+- Fact extractor (`lib/fact-extractor.ts`): Claude Haiku extracts atomic facts, cosine-dedup at 0.85 threshold, graceful fallback on LLM failure, empty input → empty array
+- Hybrid embeddings: Ollama `bge-base-en-v1.5` for `domain=ministry` (768-dim padded to 1536), OpenAI for all other domains. Ministry path NEVER falls back to OpenAI — write refused if Ollama unavailable
+- Forgetting curve in `structured-filter.ts`: default search excludes `importance < 0.4 AND lastAccessedAt < 90d`
+- `sourceWeight` multiplier wired into `ranker.ts`
+- Prisma schema: `Tenant`, `Agent`, `McpAuditLog` models; `MemoryEntry` extended; `MCP_AGENT` + `SESSION_SUMMARY` enum values; migration SQL at `prisma/migrations/20260509000000_mcp_phase_1/`
+- MCP audit routes: `POST/GET /mcp/audit`, `POST/GET /mcp/agents`
+- Scope enforcement: `requireScope()` with exact, `*`, and `prefix:*` wildcard support
+- 43 vitest tests across 7 test files (all passing)
+- ADR-014 added: hybrid embedding routing rationale
+
+### Gate results
+- `pnpm typecheck` — ✅ 5/5 packages green
+- `pnpm test` — ✅ 43/43 tests pass
+- `pnpm build` — ✅ 4/4 packages build clean
+- Fixed 4 pre-existing Zod v3→v4 errors in `shared/validation-helpers.ts`
+- Fixed `@types/node` missing from `omnimind-api` devDependencies
+- Excluded dead code (`incremental-embedding.service.ts`, `memory-cleanup-scheduler.ts`) from typecheck
+
+### Next session
+Phase 2: Wire agents — keygen for all 6 agents, `docs/MEMORY-PROTOCOL.md`, Claude Desktop config, smoke test checklist, `.claude/CLAUDE.md` memory layer section.
+
+---
+
+## 2026-05-09 — Phase 0, 0.25 — Foundation + Security Fixes
 
 The Wave 4 final validator reconciled the 18-agent pipeline output. No code changes; documentation-only fixes.
 
