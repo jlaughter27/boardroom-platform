@@ -1,0 +1,25 @@
+{
+  "_comment": "ChatGPT Desktop MCP configuration for josh-personal tenant. chatgpt-desktop-josh is read-only (memory:read, sourceWeight=0.6). ChatGPT Desktop uses HTTP transport rather than stdio. Start the HTTP server first: node dist/index.js http",
+  "mcpServers": {
+    "omnimind": {
+      "type": "http",
+      "url": "http://localhost:3334",
+      "headers": {
+        "x-mcp-api-key": "REPLACE_WITH_MCP_API_KEY"
+      }
+    }
+  },
+  "_http_server_startup": {
+    "command": "node",
+    "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js", "http"],
+    "env": {
+      "OMNIMIND_MCP_AGENT_NAME": "chatgpt-desktop-josh",
+      "OMNIMIND_MCP_TENANT_ID": "josh-personal",
+      "OMNIMIND_MCP_SCOPES": "memory:read",
+      "OMNIMIND_MCP_SOURCE_WEIGHT": "0.6",
+      "OMNIMIND_MCP_API_KEY": "REPLACE_WITH_MCP_API_KEY",
+      "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
+      "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY"
+    }
+  }
+}

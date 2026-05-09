@@ -465,3 +465,92 @@ Configured via env vars (all optional with sensible defaults):
 | `OMNIMIND_BREAKER_COOLDOWN_MS` | 15000 | OPEN → HALF_OPEN cooldown |
 
 4xx never retries and never trips the breaker. Breaker state is exposed via `omnimindClient.breaker.toJSON()`.
+
+---
+
+## Memory Layer (OmniMind-MCP)
+
+`packages/omnimind-mcp` is the MCP server that gives external agents structured access to the OmniMind memory store. It is **not** part of the BoardRoom AI service — it's a separate process connecting directly to OmniMind API via HTTP.
+
+**Full protocol:** `docs/MEMORY-PROTOCOL.md`  
+**Agent configs:** `docs/agent-configs/`  
+**Smoke tests:** `docs/agent-configs/SMOKE-TESTS.md`  
+**Keygen:** `docs/agent-configs/keygen-commands.sh`
+
+### MCP Architecture
+
+```
+External agents (Claude Desktop, Claude Code, Cursor, ChatGPT)
+    ↓ MCP (stdio or HTTP on port 3334)
+omnimind-mcp server (packages/omnimind-mcp)
+    ↓ HTTP (OMNIMIND_API_KEY)
+OmniMind API (port 3333)
+    ↓ Prisma
+PostgreSQL
+```
+
+### 15 Available Tools
+
+| Tool | Scope Required | Purpose |
+|------|---------------|---------|
+| `memory_write` | `memory:write` | Write content — fact extractor runs automatically |
+| `memory_search` | `memory:read` | Hybrid search (semantic + FTS + trigram) |
+| `memory_supersede` | `memory:write` | Replace an existing memory by ID |
+| `decision_log` | `decision:write` | Log a resolved decision with rationale |
+| `task_upsert` | `task:write` | Create or update a task |
+| `task_status` | `memory:read` | Get a task's current status |
+| `task_list` | `memory:read` | List tasks by project/status |
+| `task_complete` | `task:write` | Mark a task done |
+| `task_block` | `task:write` | Mark a task blocked with reason |
+| `project_status` | `memory:read` | Get project health snapshot |
+| `project_summary` | `memory:read` | Get project + recent decisions |
+| `person_get` | `memory:read` | Look up a person by name |
+| `commitment_log` | `commitment:write` | Log a commitment to someone |
+| `commitment_list` | `memory:read` | List open commitments |
+| `status_get` | `memory:read` | Composite: decisions + tasks + blockers + commitments |
+
+### Running MCP
+
+```bash
+# Stdio (default — for Claude Desktop / Claude Code)
+OMNIMIND_MCP_AGENT_NAME=claude-code-josh \
+OMNIMIND_MCP_TENANT_ID=josh-business \
+OMNIMIND_MCP_SCOPES="memory:read,memory:write,decision:write,task:write,project:write,commitment:write,code:write" \
+OMNIMIND_MCP_SOURCE_WEIGHT=1.0 \
+OMNIMIND_API_URL=https://omnimind-api-production.up.railway.app \
+OMNIMIND_API_KEY=<key> \
+node packages/omnimind-mcp/dist/index.js
+
+# HTTP (port 3334 — for ChatGPT or any HTTP MCP client)
+node packages/omnimind-mcp/dist/index.js http
+
+# Smoke test
+node packages/omnimind-mcp/dist/index.js smoke
+
+# Generate new agent key (run once, store in 1Password)
+node packages/omnimind-mcp/dist/index.js keygen --agent <name> --tenant <id> --scopes '<list>' --source-weight <float>
+```
+
+### Dogfooding Rules (applies to Claude Code sessions in this repo)
+
+Every Claude Code session working in this repo SHOULD use the memory layer:
+- **Start of session:** call `status_get`, then `memory_search` for the domain being worked on
+- **Decisions made:** call `decision_log`
+- **Tasks identified:** call `task_upsert`
+- **End of session:** call `memory_write` with a context summary of what was done and what's next
+
+The system is only useful if it's used. Inconsistent use = stale data = broken trust.
+
+### Ministry Domain Rule (non-negotiable)
+
+`domain: 'ministry'` content uses Ollama `bge-base-en-v1.5` for embeddings. If Ollama is unavailable, the write is refused — it does NOT fall back to OpenAI. This is intentional (data sovereignty). Never work around it.
+
+### Three Tenants
+
+| Tenant ID | Contents |
+|-----------|----------|
+| `josh-personal` | Personal goals, relationships, non-work decisions |
+| `josh-business` | Business strategy, projects, technical architecture |
+| `tgfc-ministry` | Ministry projects, pastoral data (local embeddings only) |
+
+Cross-tenant reads are not possible from MCP tools. Each agent operates in exactly one tenant.
