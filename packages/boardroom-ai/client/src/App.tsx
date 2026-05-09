@@ -21,6 +21,7 @@ const PeopleDirectoryPage = lazy(() => import('./pages/PeopleDirectoryPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const CustomPersonasPage = lazy(() => import('./pages/CustomPersonasPage'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
+const AdminPage = lazy(() => import('./pages/AdminPage'));
 
 function ProtectedRoute() {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -113,6 +114,7 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/personas" element={<CustomPersonasPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
+                <Route path="/admin" element={<AdminPage />} />
               </Route>
             </Route>
           </Route>

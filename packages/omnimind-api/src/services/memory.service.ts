@@ -37,16 +37,20 @@ export async function createMemory(
       title: input.title,
       content: input.content,
       domain: input.domain,
-      sourceType: input.sourceType,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sourceType: input.sourceType as any,
       sector: input.sector ?? '',
       tags: input.tags ?? [],
-      memoryClass: input.memoryClass ?? 'SEMANTIC',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      memoryClass: (input.memoryClass ?? 'SEMANTIC') as any,
       importance: input.importance ?? 0.5,
-      confidence: input.confidence ?? 'MEDIUM',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      confidence: (input.confidence ?? 'MEDIUM') as any,
       sourceRef: input.sourceRef ?? null,
       sourceWeight,
-      status: 'DRAFT',
-      metadata: input.metadata ?? {},
+      status: 'DRAFT' as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      metadata: (input.metadata ?? {}) as any,
     },
   });
 

@@ -807,3 +807,90 @@ export async function bootstrapFromVoice(blob: Blob, mimeType: string): Promise<
   }
   return res.json() as Promise<BootstrapVoiceResponse>;
 }
+
+// ---------------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------------
+
+export interface AdminStats {
+  memories: number;
+  agents: number;
+  tenants: number;
+  auditEntries: number;
+  sessionSummaries: number;
+  lastActivity: string | null;
+}
+
+export interface AdminAgent {
+  id: string;
+  name: string;
+  tenantId: string;
+  scopes: string[];
+  sourceWeight: number;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminAuditEntry {
+  id: string;
+  agentId: string;
+  tenantId: string;
+  toolName: string;
+  inputJson: unknown;
+  outputJson: unknown;
+  errorMessage: string | null;
+  durationMs: number;
+  createdAt: string;
+}
+
+export interface AdminMemory {
+  id: string;
+  title: string;
+  content: string;
+  domain: string;
+  sourceType: string;
+  agentId: string | null;
+  tenantId: string | null;
+  importance: number;
+  tags: string[];
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminContradiction {
+  id: string;
+  memoryAId: string;
+  memoryBId: string;
+  description: string;
+  severity: string;
+  detectedAt: string;
+  resolvedAt: string | null;
+}
+
+export function getAdminStats() {
+  return request<AdminStats>('/admin/stats');
+}
+
+export function getAdminAgents() {
+  return request<{ agents: AdminAgent[] }>('/admin/agents');
+}
+
+export function getAdminAudit(params?: { agentId?: string; tenantId?: string; toolName?: string; limit?: number; offset?: number }) {
+  const qs = params ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))).toString() : '';
+  return request<{ entries: AdminAuditEntry[]; total: number; offset: number; limit: number }>(`/admin/audit${qs}`);
+}
+
+export function getAdminMemories(params?: { agentId?: string; tenantId?: string; domain?: string; sourceType?: string; q?: string; limit?: number; offset?: number }) {
+  const qs = params ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))).toString() : '';
+  return request<{ memories: AdminMemory[]; total: number; offset: number; limit: number }>(`/admin/memories${qs}`);
+}
+
+export function getAdminContradictions(params?: { limit?: number; offset?: number }) {
+  const qs = params ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))).toString() : '';
+  return request<{ alerts: AdminContradiction[]; total: number }>(`/admin/contradictions${qs}`);
+}
+
+export function triggerAdminSummarize() {
+  return request<{ status: string; message: string }>('/admin/summarize', { method: 'POST' });
+}

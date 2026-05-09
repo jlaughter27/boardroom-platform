@@ -1,0 +1,19 @@
+{
+  "_comment": "Claude Code MCP configuration for josh-business tenant. Add to project .claude/mcp.json or global ~/.claude/mcp.json. claude-code-josh has full write scopes and sourceWeight=1.0.",
+  "mcpServers": {
+    "omnimind": {
+      "command": "node",
+      "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"],
+      "env": {
+        "OMNIMIND_MCP_AGENT_NAME": "claude-code-josh",
+        "OMNIMIND_MCP_TENANT_ID": "josh-business",
+        "OMNIMIND_MCP_SCOPES": "memory:read,memory:write,decision:write,task:write,project:write,commitment:write,code:write",
+        "OMNIMIND_MCP_SOURCE_WEIGHT": "1.0",
+        "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
+        "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
+        "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY",
+        "OLLAMA_URL": "http://localhost:11434"
+      }
+    }
+  }
+}

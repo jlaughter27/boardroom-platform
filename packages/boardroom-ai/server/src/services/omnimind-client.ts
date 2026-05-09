@@ -488,6 +488,34 @@ export class OmniMindClient {
   async health() {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');
   }
+
+  // Admin (no userId — cross-agent views)
+  async getAdminStats() {
+    return this.request('GET', '/admin/stats');
+  }
+
+  async getAdminAgents() {
+    return this.request('GET', '/admin/agents');
+  }
+
+  async getAdminAudit(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/audit${qs}`);
+  }
+
+  async getAdminMemories(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/memories${qs}`);
+  }
+
+  async getAdminContradictions(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/contradictions${qs}`);
+  }
+
+  async triggerAdminSummarize() {
+    return this.request('POST', '/admin/summarize');
+  }
 }
 
 // Singleton

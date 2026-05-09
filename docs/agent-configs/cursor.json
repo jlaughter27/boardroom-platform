@@ -1,0 +1,18 @@
+{
+  "_comment": "Cursor MCP configuration for josh-business tenant. cursor-josh is read-only (memory:read only, sourceWeight=0.7). Add to Cursor settings under MCP Servers.",
+  "mcpServers": {
+    "omnimind": {
+      "command": "node",
+      "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"],
+      "env": {
+        "OMNIMIND_MCP_AGENT_NAME": "cursor-josh",
+        "OMNIMIND_MCP_TENANT_ID": "josh-business",
+        "OMNIMIND_MCP_SCOPES": "memory:read",
+        "OMNIMIND_MCP_SOURCE_WEIGHT": "0.7",
+        "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
+        "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
+        "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY"
+      }
+    }
+  }
+}

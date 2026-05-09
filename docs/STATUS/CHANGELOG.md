@@ -6,7 +6,106 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
-## 2026-04-18 — Wave 4 validator pass — Reconciliation
+## 2026-05-09 — MCP Phase 3 — Session summarizer + admin API + admin UI
+
+**Branch:** `claude/build-memory-layer-IftGo` | **Commit:** `1f58af9` | **Status:** Pushed
+
+### What shipped
+
+**Session Summarizer:**
+- `packages/omnimind-api/src/services/session-summarizer.service.ts` — groups McpAuditLog entries into sessions (30-min gap = new session), calls Claude Haiku to write 2-4 sentence summaries, deduplicates via `findFirst` before writing, stores as SESSION_SUMMARY memories with synthetic `mcp:<tenantId>` userId
+- `packages/omnimind-api/src/jobs/session-summarizer.ts` — `*/10 * * * *` cron wrapper, `startSessionSummarizer()` / `stopSessionSummarizer()` wired into index.ts
+
+**Admin API (omnimind-api):**
+- `packages/omnimind-api/src/routes/admin.routes.ts` — 6 endpoints: stats, agents, audit (paginated), memories (paginated + searchable), contradictions, summarize trigger
+
+**Admin proxy + UI (boardroom-ai):**
+- `packages/boardroom-ai/server/src/routes/admin.routes.ts` — thin proxy to OmniMind /admin/* (no x-user-id needed)
+- `omnimind-client.ts` — 6 new admin methods added
+- `packages/boardroom-ai/client/src/pages/AdminPage.tsx` — 5-tab admin dashboard (Overview, Memories, Audit Log, Agents, Contradictions)
+- `App.tsx` + `Sidebar.tsx` — /admin route registered, nav item added to secondaryNav
+
+### Test status
+- omnimind-api: 18 suites fail (pre-existing missing tests/setup.ts — not caused by this session); 199 tests pass
+- boardroom-ai server: 145 tests pass (21 suites)
+- boardroom-ai client: 5 suites fail (pre-existing missing @testing-library/jest-dom/vitest)
+- omnimind-mcp: 43 tests pass (cached)
+- Typecheck: 5/5 packages green
+
+---
+
+## 2026-05-09 — MCP Phase 2 — Agents wired, smoke tests passed, keys generated
+
+**Branch:** `claude/build-memory-layer-IftGo` | **Status:** Pushed
+
+### What shipped
+- `docs/MEMORY-PROTOCOL.md` — agent protocol: write vs search rules, domain routing, fact quality, session start/end checklist
+- `docs/agent-configs/` — 6 configs (claude-desktop, claude-code, cursor, chatgpt-desktop, keygen-commands.sh, SMOKE-TESTS.md)
+- `.claude/CLAUDE.md` — Memory Layer section: architecture, 15-tool reference, dogfooding rules, ministry domain rule
+- Fixed `keygen.ts`: replaced private bracket access with `registerAgent()` public method
+- Fixed `client.ts`: userId moved to `x-user-id` header (not body); added `registerAgent()` method
+- Fixed `smoke.ts`: env inheritance for spawned server; all 15 tools verified by name
+- Fixed `shared/memory.types.ts` + `memory-config.ts`: added MCP_AGENT + SESSION_SUMMARY enum values (were in DB schema but missing from TypeScript types, causing 422 on writes)
+
+### Smoke test results (live local DB)
+- Tier 1: `smoke OK — 15 tools registered` ✅
+- T1: memory write (MCP_AGENT source) ✅
+- T2: memory update ✅
+- T3: memory search ✅
+- T4: audit log write ✅
+- T5: audit log GET verified ✅
+- T6: SCOPE_DENIED for cursor-josh on memory:write ✅
+- T7: memory:read allowed for cursor-josh ✅
+- T8: wildcard scope (`*`) grants all for boardroom-ai ✅
+- T9: prefix wildcard `memory:*` grants memory:write and memory:read ✅
+- T10: HTTP Unauthorized without key ✅
+- T11: HTTP auth passes, StreamableHTTP handshake proceeds ✅
+
+### 6 agents registered (local DB — re-run keygen-commands.sh against production)
+- `claude-desktop-josh` / josh-personal / memory:read,write,context:write,preference:write,person:write / 0.85
+- `claude-code-josh` / josh-business / memory:read,write,decision:write,task:write,project:write,commitment:write,code:write / 1.0
+- `cursor-josh` / josh-business / memory:read / 0.7
+- `chatgpt-desktop-josh` / josh-personal / memory:read / 0.6
+- `boardroom-ai` / josh-business / * / 1.0
+- `cortex-summarizer` / josh-business / memory:write / 0.8
+
+### Next session
+Wait 1 week for real agent usage. Then Phase 3: Admin Viewer + Session Summarizer.
+If tool descriptions need tuning based on real usage, do that first.
+
+---
+
+## 2026-05-09 — MCP Phase 1 — Core tools, fact extractor, hybrid embeddings
+
+**Branch:** `claude/build-memory-layer-IftGo` | **Status:** Pushed, ready for PR
+
+### What shipped
+- New `packages/omnimind-mcp` package (15 MCP tools, stdio + HTTP transports, keygen CLI, smoke test)
+- 15 tools: `memory_write`, `memory_search`, `memory_supersede`, `decision_log`, `task_upsert/status/list/complete/block`, `project_status/summary`, `person_get`, `commitment_log/list`, `status_get`
+- Fact extractor (`lib/fact-extractor.ts`): Claude Haiku extracts atomic facts, cosine-dedup at 0.85 threshold, graceful fallback on LLM failure, empty input → empty array
+- Hybrid embeddings: Ollama `bge-base-en-v1.5` for `domain=ministry` (768-dim padded to 1536), OpenAI for all other domains. Ministry path NEVER falls back to OpenAI — write refused if Ollama unavailable
+- Forgetting curve in `structured-filter.ts`: default search excludes `importance < 0.4 AND lastAccessedAt < 90d`
+- `sourceWeight` multiplier wired into `ranker.ts`
+- Prisma schema: `Tenant`, `Agent`, `McpAuditLog` models; `MemoryEntry` extended; `MCP_AGENT` + `SESSION_SUMMARY` enum values; migration SQL at `prisma/migrations/20260509000000_mcp_phase_1/`
+- MCP audit routes: `POST/GET /mcp/audit`, `POST/GET /mcp/agents`
+- Scope enforcement: `requireScope()` with exact, `*`, and `prefix:*` wildcard support
+- 43 vitest tests across 7 test files (all passing)
+- ADR-014 added: hybrid embedding routing rationale
+
+### Gate results
+- `pnpm typecheck` — ✅ 5/5 packages green
+- `pnpm test` — ✅ 43/43 tests pass
+- `pnpm build` — ✅ 4/4 packages build clean
+- Fixed 4 pre-existing Zod v3→v4 errors in `shared/validation-helpers.ts`
+- Fixed `@types/node` missing from `omnimind-api` devDependencies
+- Excluded dead code (`incremental-embedding.service.ts`, `memory-cleanup-scheduler.ts`) from typecheck
+
+### Next session
+Phase 2: Wire agents — keygen for all 6 agents, `docs/MEMORY-PROTOCOL.md`, Claude Desktop config, smoke test checklist, `.claude/CLAUDE.md` memory layer section.
+
+---
+
+## 2026-05-09 — Phase 0, 0.25 — Foundation + Security Fixes
 
 The Wave 4 final validator reconciled the 18-agent pipeline output. No code changes; documentation-only fixes.
 

@@ -3,7 +3,8 @@
 // See docs/02-reference/MASTER-FRAMEWORK.md Section 4 for complete data model spec
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
@@ -205,6 +206,11 @@ model MemoryEntry {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
+  // MCP fields — which agent wrote this and from which tenant
+  agentId        String?       @map("agent_id")
+  tenantId       String        @default("josh-personal") @map("tenant_id")
+  embeddingModel String        @default("openai-text-embedding-3-small") @map("embedding_model")
+
   // Relations via join table
   entityLinks    MemoryEntityLink[]
 
@@ -215,6 +221,8 @@ model MemoryEntry {
   @@index([userId, domain])
   @@index([userId, memoryClass])
   @@index([userId, status])
+  @@index([tenantId, deletedAt])
+  @@index([agentId, createdAt])
   @@map("memory_entries")
 }
 
@@ -245,6 +253,8 @@ enum SourceType {
   BOARDROOM_SESSION
   API_IMPORT
   AGENT_EXTRACTED
+  MCP_AGENT
+  SESSION_SUMMARY
 }
 
 // ============================================================
@@ -740,4 +750,46 @@ model OAuthToken {
   @@unique([userId, provider])
   @@index([userId])
   @@map("oauth_tokens")
+}
+
+// ============================================================
+// NEW: OmniMind-MCP — Tenants, Agents, Audit Log
+// ============================================================
+
+model Tenant {
+  id        String   @id
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("tenants")
+}
+
+model Agent {
+  id           String    @id @default(cuid())
+  name         String    @unique
+  apiKeyHash   String    @map("api_key_hash")
+  tenantId     String    @map("tenant_id")
+  scopes       String[]
+  sourceWeight Float     @default(1.0) @map("source_weight")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastSeenAt   DateTime? @map("last_seen_at")
+
+  @@index([tenantId])
+  @@map("agents")
+}
+
+model McpAuditLog {
+  id           String   @id @default(cuid())
+  agentId      String   @map("agent_id")
+  tenantId     String   @map("tenant_id")
+  toolName     String   @map("tool_name")
+  inputJson    Json     @map("input_json")
+  outputJson   Json?    @map("output_json")
+  errorMessage String?  @map("error_message")
+  durationMs   Int      @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([agentId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("mcp_audit_logs")
 }

@@ -305,16 +305,9 @@ export const createEmailSchema = (options: {
   message?: string;
 } = {}) => {
   const { required = true, message = 'Invalid email address' } = options;
-  
-  let schema = z.string().trim().email({ message });
-  
-  if (required) {
-    schema = schema.min(1, 'Email is required');
-  } else {
-    schema = schema.optional();
-  }
-  
-  return schema;
+  const base = z.string().trim().email({ message });
+  if (!required) return base.optional();
+  return base.min(1, 'Email is required');
 };
 
 /**
@@ -332,16 +325,9 @@ export const createUrlSchema = (options: {
   message?: string;
 } = {}) => {
   const { required = true, message = 'Invalid URL' } = options;
-  
-  let schema = z.string().trim().url({ message });
-  
-  if (required) {
-    schema = schema.min(1, 'URL is required');
-  } else {
-    schema = schema.optional();
-  }
-  
-  return schema;
+  const base = z.string().trim().url({ message });
+  if (!required) return base.optional();
+  return base.min(1, 'URL is required');
 };
 
 /**
@@ -359,14 +345,7 @@ export const createPhoneSchema = (options: {
   message?: string;
 } = {}) => {
   const { required = true, message = 'Invalid phone number' } = options;
-  
-  let schema = z.string().trim().refine(isValidPhoneNumber, { message });
-  
-  if (required) {
-    schema = schema.min(1, 'Phone number is required');
-  } else {
-    schema = schema.optional();
-  }
-  
-  return schema;
+  const base = z.string().trim().refine(isValidPhoneNumber, { message });
+  if (!required) return base.optional();
+  return base;
 };

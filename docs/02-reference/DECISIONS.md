@@ -71,3 +71,9 @@ All architectural decisions are logged here with rationale. Check before proposi
 **Date:** 2026-04-07 | **Status:** Accepted
 **Decision:** Dashboard widgets defined as JSON configuration objects stored in UserProfile.dashboardLayout. Each widget has type (enum), position, size, and visibility. Rendered by a WidgetRenderer that maps type → built-in component. No user-uploaded code. Max 8 visible widgets.
 **Rationale:** Simple, secure, extensible. New widget types added by devs, configuration by users. Default layout matches current hardcoded dashboard for zero-change upgrade.
+
+## ADR-014: Hybrid Embedding — Ollama for Ministry, OpenAI for Everything Else
+**Date:** 2026-05-09 | **Status:** Accepted
+**Decision:** `domain: 'ministry'` content is embedded using Ollama `bge-base-en-v1.5` (768-dim, padded to 1536 with zeros). All other domains use OpenAI `text-embedding-3-small` (1536-dim). The Ollama path NEVER falls back to OpenAI — if Ollama is unavailable, the write is refused with a clear error. Padding is applied by `padTo1536()` in `embedding.service.ts`.
+**Rationale:** Ministry-domain content (sermon notes, prayer logs, pastoral data) must not leave the local machine. Ollama provides fully local inference at acceptable quality. Zero-padding to 1536 enables cosine similarity against OpenAI embeddings at slight quality cost, which is acceptable given the domain isolation requirement outweighs retrieval precision.
+**Alternatives rejected:** OpenAI for all domains (data sovereignty violation for ministry), separate vector column per embedding model (schema complexity, query joins), silently falling back to OpenAI when Ollama is down (security violation — domain isolation is non-negotiable).

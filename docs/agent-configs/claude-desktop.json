@@ -1,0 +1,34 @@
+{
+  "_comment": "Claude Desktop MCP configuration for josh-personal tenant. Merge into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS).",
+  "mcpServers": {
+    "omnimind-personal": {
+      "command": "node",
+      "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"],
+      "env": {
+        "OMNIMIND_MCP_AGENT_NAME": "claude-desktop-josh",
+        "OMNIMIND_MCP_TENANT_ID": "josh-personal",
+        "OMNIMIND_MCP_SCOPES": "memory:read,memory:write,context:write,preference:write,person:write",
+        "OMNIMIND_MCP_SOURCE_WEIGHT": "0.85",
+        "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
+        "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
+        "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY",
+        "OLLAMA_URL": "http://localhost:11434"
+      }
+    },
+    "omnimind-ministry": {
+      "_comment": "Separate server instance for ministry tenant — different agentId scope isolation.",
+      "command": "node",
+      "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"],
+      "env": {
+        "OMNIMIND_MCP_AGENT_NAME": "claude-desktop-josh",
+        "OMNIMIND_MCP_TENANT_ID": "tgfc-ministry",
+        "OMNIMIND_MCP_SCOPES": "memory:read,memory:write,context:write,preference:write,person:write",
+        "OMNIMIND_MCP_SOURCE_WEIGHT": "0.85",
+        "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
+        "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
+        "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY",
+        "OLLAMA_URL": "http://localhost:11434"
+      }
+    }
+  }
+}

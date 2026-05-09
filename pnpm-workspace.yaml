@@ -2,3 +2,4 @@ packages:
   - "packages/shared"
   - "packages/omnimind-api"
   - "packages/boardroom-ai"
+  - "packages/omnimind-mcp"
