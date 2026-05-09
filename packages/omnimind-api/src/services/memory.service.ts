@@ -3,6 +3,7 @@ import { runValidationPipeline } from '../memory/validation/pipeline';
 import { SOURCE_WEIGHTS } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry } from './embedding.service';
 import { logger } from '../lib/logger';
+import { encrypt, decrypt } from '../lib/crypto';
 
 // Create memory — validate first, then write
 export async function createMemory(
@@ -44,11 +45,18 @@ export async function createMemory(
   // Auto-set source weight based on sourceType (fallback to MANUAL weight)
   const sourceWeight = (SOURCE_WEIGHTS as Record<string, number>)[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
 
+  // Ministry content: encrypt before writing to DB (AES-256-GCM via crypto.ts)
+  const isMinistry = input.domain === 'ministry';
+  const storedContent = isMinistry ? '' : input.content;
+  const encryptedContentBuf = isMinistry
+    ? Buffer.from(encrypt(input.content), 'utf-8')
+    : undefined;
+
   const memory = await prisma.memoryEntry.create({
     data: {
       userId,
       title: input.title,
-      content: input.content,
+      content: storedContent,
       domain: input.domain,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sourceType: input.sourceType as any,
@@ -64,6 +72,11 @@ export async function createMemory(
       status: 'DRAFT' as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       metadata: (input.metadata ?? {}) as any,
+      ...(encryptedContentBuf && {
+        encryptedContent: encryptedContentBuf,
+        encryptionKeyId: 'env:ENCRYPTION_KEY',
+        encryptionAlgorithm: 'aes-256-gcm',
+      }),
     },
   });
 
@@ -84,12 +97,24 @@ export async function createMemory(
   };
 }
 
+// Decrypt ministry content in-place (mutates a copy)
+function decryptMemory<T extends { domain: string; content: string; encryptedContent: Buffer | Uint8Array | null }>(
+  mem: T
+): T & { content: string } {
+  if (mem.domain === 'ministry' && mem.encryptedContent) {
+    const encoded = Buffer.from(mem.encryptedContent).toString('utf-8');
+    return { ...mem, content: decrypt(encoded) };
+  }
+  return mem;
+}
+
 // Get single memory by ID, scoped to userId
 export async function getMemory(userId: string, id: string, prisma: PrismaClient) {
   const memory = await prisma.memoryEntry.findFirst({
     where: { id, userId, deletedAt: null },
   });
-  return memory;
+  if (!memory) return null;
+  return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
 }
 
 // Search/filter memories
@@ -143,10 +168,14 @@ export async function searchMemories(
     [sortBy]: sortOrder,
   };
 
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     prisma.memoryEntry.findMany({ where, orderBy, take: limit, skip: offset }),
     prisma.memoryEntry.count({ where }),
   ]);
+
+  const items = rawItems.map(m =>
+    decryptMemory(m as typeof m & { encryptedContent: Buffer | null })
+  );
 
   return { items, total, offset, limit };
 }
@@ -164,13 +193,18 @@ export async function updateMemory(
   });
   if (!existing) return null;
 
-  // Increment version for optimistic concurrency
+  // Re-encrypt if updating ministry content
+  const updateData: Record<string, unknown> = { ...input, version: { increment: 1 } };
+  if (existing.domain === 'ministry' && typeof input.content === 'string') {
+    updateData.content = '';
+    updateData.encryptedContent = Buffer.from(encrypt(input.content as string), 'utf-8');
+    updateData.encryptionKeyId = 'env:ENCRYPTION_KEY';
+    updateData.encryptionAlgorithm = 'aes-256-gcm';
+  }
+
   const memory = await prisma.memoryEntry.update({
     where: { id },
-    data: {
-      ...input,
-      version: { increment: 1 },
-    },
+    data: updateData as Parameters<typeof prisma.memoryEntry.update>[0]['data'],
   });
 
   // Re-embed if content or title changed (sync for test determinism)
@@ -182,7 +216,7 @@ export async function updateMemory(
     }
   }
 
-  return memory;
+  return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
 }
 
 // Archive (soft delete)

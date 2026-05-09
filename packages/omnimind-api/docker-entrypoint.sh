@@ -18,6 +18,7 @@ echo "Extensions enabled"
 prisma migrate resolve $SCHEMA --applied 20250410_add_search_indexes 2>/dev/null || true
 prisma migrate resolve $SCHEMA --applied 20260407000000_add_embedding_column 2>/dev/null || true
 prisma migrate resolve $SCHEMA --applied 20260509000000_mcp_phase_1 2>/dev/null || true
+prisma migrate resolve $SCHEMA --applied 20260509000001_mcp_phase_4 2>/dev/null || true
 
 echo "Migration baseline resolved"
 

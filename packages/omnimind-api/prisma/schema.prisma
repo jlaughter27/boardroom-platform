@@ -211,6 +211,11 @@ model MemoryEntry {
   tenantId       String        @default("josh-personal") @map("tenant_id")
   embeddingModel String        @default("openai-text-embedding-3-small") @map("embedding_model")
 
+  // Phase 4: AES-256-GCM encryption for ministry domain
+  encryptedContent   Bytes?   @map("encrypted_content")
+  encryptionKeyId    String?  @map("encryption_key_id")
+  encryptionAlgorithm String? @default("aes-256-gcm") @map("encryption_algorithm")
+
   // Relations via join table
   entityLinks    MemoryEntityLink[]
 
@@ -792,4 +797,26 @@ model McpAuditLog {
   @@index([agentId, createdAt])
   @@index([tenantId, createdAt])
   @@map("mcp_audit_logs")
+}
+
+// ============================================================
+// Phase 4: Weekly Digest
+// ============================================================
+
+model WeeklyDigest {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  weekStart   DateTime @map("week_start")
+  weekEnd     DateTime @map("week_end")
+  memoriesCreated Int  @default(0) @map("memories_created")
+  memoriesUpdated Int  @default(0) @map("memories_updated")
+  decisionsLogged Int  @default(0) @map("decisions_logged")
+  tasksCompleted  Int  @default(0) @map("tasks_completed")
+  topDomains  String[] @default([]) @map("top_domains")
+  highlights  String[] @default([]) @map("highlights")
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, weekStart])
+  @@map("weekly_digests")
 }

@@ -5,6 +5,7 @@ import { prisma } from './lib/db';
 import { logger } from './lib/logger';
 import { apiKeyAuth } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limiter';
+import { agentRateLimiter } from './middleware/agent-rate-limiter';
 import { errorHandler } from './middleware/error-handler';
 import { healthRouter } from './routes/health.routes';
 import { memoriesRouter } from './routes/memories.routes';
@@ -27,6 +28,7 @@ import mcpRouter from './routes/mcp.routes';
 import adminRouter from './routes/admin.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
 import { startSessionSummarizer, stopSessionSummarizer } from './jobs/session-summarizer';
+import { startWeeklyDigestScheduler, stopWeeklyDigestScheduler } from './jobs/weekly-digest-scheduler';
 import { validateOmniMindEnv } from './lib/env';
 
 if (process.env.NODE_ENV !== 'test') {
@@ -42,6 +44,7 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(apiKeyAuth);
 app.use(rateLimiter);
+app.use(agentRateLimiter);
 
 // Routes
 app.use('/health', healthRouter);
@@ -74,6 +77,7 @@ const shutdown = async () => {
   logger.info('Shutting down OmniMind API...');
   stopCortexScheduler();
   stopSessionSummarizer();
+  stopWeeklyDigestScheduler();
   await prisma.$disconnect();
   process.exit(0);
 };
@@ -87,6 +91,7 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info(`OmniMind API running on port ${port}`, { port });
     startCortexScheduler();
     startSessionSummarizer();
+    startWeeklyDigestScheduler();
   });
 }
 
