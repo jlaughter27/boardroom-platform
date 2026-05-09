@@ -6,7 +6,7 @@ import { trigramSearch } from '../retrieval/trigram-search';
 import { semanticSearch } from '../retrieval/semantic-search';
 import { rankAndDeduplicate } from '../retrieval/ranker';
 import { packageForPersona, type ContextPackage } from '../retrieval/context-packager';
-import { generateEmbedding } from './embedding.service';
+import { generateEmbeddingWithRetry as generateEmbedding } from './embedding.service';
 import type { ScoredResult } from '../retrieval/structured-filter';
 
 export async function assembleContextForPersona(

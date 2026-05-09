@@ -1,5 +1,9 @@
 import type { ScoredResult } from './structured-filter';
 
+export interface ScoredResultWithSourceWeight extends ScoredResult {
+  sourceWeight?: number;
+}
+
 const LAYER_WEIGHTS = {
   structured: 0.3,
   fts: 0.25,
@@ -38,7 +42,7 @@ export function rankAndDeduplicate(
     }
   }
 
-  // Apply boosts
+  // Apply boosts + sourceWeight multiplier
   const now = Date.now();
   const recencyThreshold = RECENCY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
@@ -50,6 +54,11 @@ export function rankAndDeduplicate(
     // Importance boost
     if (item.importance && item.importance >= 0.8) {
       item.weightedScore += IMPORTANCE_BOOST;
+    }
+    // sourceWeight: trust multiplier from originating agent (1.0 = full trust)
+    const sw = (item as ScoredResultWithSourceWeight).sourceWeight ?? 1.0;
+    if (sw !== 1.0) {
+      item.weightedScore *= Math.max(0, Math.min(1.5, sw));
     }
   }
 

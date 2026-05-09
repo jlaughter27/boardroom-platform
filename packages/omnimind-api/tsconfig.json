@@ -27,7 +27,9 @@
     "**/*.test.ts",
     "**/*.spec.ts",
     "src/services/_disabled/**",
-    "src/routes/_disabled/**"
+    "src/routes/_disabled/**",
+    "src/services/incremental-embedding.service.ts",
+    "src/jobs/memory-cleanup-scheduler.ts"
   ],
   "references": [{ "path": "../shared" }]
 }

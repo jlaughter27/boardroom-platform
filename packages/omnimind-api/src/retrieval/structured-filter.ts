@@ -9,11 +9,24 @@ export async function structuredFilter(
   options: { domain?: string; tags?: string[]; limit?: number },
   prisma: PrismaClient
 ): Promise<ScoredResult[]> {
+  const includeArchived = (options as { includeArchived?: boolean }).includeArchived ?? false;
+  const archiveCutoffMs = 90 * 24 * 60 * 60 * 1000;
+  const archiveCutoff = new Date(Date.now() - archiveCutoffMs);
+
   const where: Record<string, unknown> = {
     userId,
     deletedAt: null,
     status: { not: 'ARCHIVED' },
   };
+
+  // Forgetting curve: exclude low-importance memories not accessed in 90 days
+  // unless caller explicitly opts in with includeArchived
+  if (!includeArchived) {
+    where.OR = [
+      { importance: { gte: 0.4 } },
+      { lastAccessedAt: { gte: archiveCutoff } },
+    ];
+  }
 
   if (options.domain) where.domain = options.domain;
   if (options.tags && options.tags.length > 0) {
@@ -21,10 +34,17 @@ export async function structuredFilter(
   }
   // Simple contains match for structured filter
   if (query) {
-    where.OR = [
+    const contentFilter = [
       { title: { contains: query, mode: 'insensitive' } },
       { content: { contains: query, mode: 'insensitive' } },
     ];
+    // Merge with existing OR clause if present (forgetting curve)
+    if (where.OR) {
+      where.AND = [{ OR: where.OR }, { OR: contentFilter }];
+      delete where.OR;
+    } else {
+      where.OR = contentFilter;
+    }
   }
 
   const results = await prisma.memoryEntry.findMany({

@@ -23,6 +23,7 @@ import { oauthRouter } from './routes/oauth.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { relationshipsRouter } from './routes/relationships.routes';
+import mcpRouter from './routes/mcp.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
 import { validateOmniMindEnv } from './lib/env';
 
@@ -60,6 +61,7 @@ app.use('/oauth', oauthRouter);
 app.use('/subscription', subscriptionRouter);
 app.use('/custom-personas', customPersonasRouter);
 app.use('/relationships', relationshipsRouter);
+app.use('/mcp', mcpRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);
