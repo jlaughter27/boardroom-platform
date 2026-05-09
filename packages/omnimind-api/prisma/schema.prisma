@@ -1,6 +1,6 @@
 // BoardRoom Platform — Unified Prisma Schema
 // Ported from boardroom-ai (9 original models) + extended with OmniMind entities
-// See docs/MASTER-FRAMEWORK.md Section 4 for complete data model spec
+// See docs/02-reference/MASTER-FRAMEWORK.md Section 4 for complete data model spec
 
 generator client {
   provider = "prisma-client-js"

@@ -1,0 +1,173 @@
+{
+  "_comment": "Task-type → file load order for Claude sessions. Each entry lists the 2-3 docs to read FIRST when picking up that task type. Built from docs/_meta/CONTEXT-LOAD-ORDER.md. Hand-curated; update when adding new task categories.",
+  "_version": 1,
+  "_generated": "2026-05-01",
+  "_schema": {
+    "task_type": ["string — short identifier"],
+    "load": ["array of file paths relative to repo root, in read order"],
+    "rationale": ["one-line why these files"]
+  },
+
+  "session-start": {
+    "load": [
+      "docs/STATUS/CURRENT-PHASE.md",
+      "docs/_meta/CLAUDE-WORKFLOW.md"
+    ],
+    "rationale": "Active phase pointer + workflow instructions; everything else flows from these."
+  },
+
+  "session-end": {
+    "load": [
+      "docs/_meta/SESSION-END-CHECKLIST.md",
+      "docs/_meta/HANDOFF-TEMPLATE.md"
+    ],
+    "rationale": "Explicit close-out checklist + handoff format."
+  },
+
+  "new-feature": {
+    "load": [
+      "docs/02-reference/MASTER-FRAMEWORK.md",
+      "docs/02-reference/DECISIONS.md",
+      "docs/STATUS/CURRENT-PHASE.md"
+    ],
+    "rationale": "Spec + ADRs to align with prior decisions, then current phase to scope."
+  },
+
+  "bug-fix": {
+    "load": [
+      "docs/02-reference/FRAGILE-ZONES.md",
+      "docs/01-orientation/CURRENT-STATE.md"
+    ],
+    "rationale": "Known fragile zones + actual current state of subsystems."
+  },
+
+  "deploy": {
+    "load": [
+      "docs/03-operations/DEPLOYMENT-RUNBOOK.md",
+      "docs/03-operations/REALITY-BASELINE.md",
+      "docs/02-reference/FRAGILE-ZONES.md"
+    ],
+    "rationale": "Runbook + reality baseline + fragile zones the deploy can disturb."
+  },
+
+  "schema-change": {
+    "load": [
+      "packages/omnimind-api/prisma/schema.prisma",
+      "docs/02-reference/MASTER-FRAMEWORK.md",
+      "docs/02-reference/DECISIONS.md"
+    ],
+    "rationale": "Canonical schema + framework's data model + ADRs."
+  },
+
+  "persona-change": {
+    "load": [
+      "docs/prompts/",
+      "docs/02-reference/MASTER-FRAMEWORK.md",
+      "packages/boardroom-ai/CLAUDE.md"
+    ],
+    "rationale": "Prompts directory + framework's persona system + boardroom-specific persona docs."
+  },
+
+  "memory-system-change": {
+    "load": [
+      "docs/roadmap/04-roadmap/ROADMAP-OVERVIEW.md",
+      "docs/roadmap/01-foundations/CONSTRAINTS.md",
+      "docs/02-reference/MASTER-FRAMEWORK.md"
+    ],
+    "rationale": "Memory-system roadmap timeline + foundational constraints + framework spec."
+  },
+
+  "research-or-audit": {
+    "load": [
+      "docs/_archive/research-wave-3-reviews/README.md",
+      "docs/research/",
+      "docs/02-reference/DECISIONS.md"
+    ],
+    "rationale": "Prior research output index + raw research dir + ADR baseline."
+  },
+
+  "doc-tree-migration": {
+    "load": [
+      "docs/_inventory/PHASE-C-MIGRATION-MAP.md",
+      "docs/_inventory/EXECUTION-STATE.md",
+      "docs/_inventory/MASTER-EXECUTION-PROMPT.md"
+    ],
+    "rationale": "Migration map + live state + master execution prompt for the doc-tree consolidation work."
+  },
+
+  "code-review": {
+    "load": [
+      "docs/02-reference/DECISIONS.md",
+      "docs/02-reference/FRAGILE-ZONES.md"
+    ],
+    "rationale": "ADRs to flag re-litigation + fragile zones to flag risky changes."
+  },
+
+  "phase-handoff": {
+    "load": [
+      "docs/STATUS/CURRENT-PHASE.md",
+      "docs/STATUS/PHASE-PROGRESS-TRACKER.md",
+      "docs/_meta/HANDOFF-TEMPLATE.md"
+    ],
+    "rationale": "Active phase + per-phase progress + handoff format."
+  },
+
+  "rollback": {
+    "load": [
+      "docs/03-operations/DEPLOYMENT-RUNBOOK.md",
+      "docs/_inventory/PHASE-C-MIGRATION-MAP.md"
+    ],
+    "rationale": "Deploy runbook (general rollback) + migration map §13 (Phase D-specific rollback variants)."
+  },
+
+  "test-debugging": {
+    "load": [
+      "docs/01-orientation/CURRENT-STATE.md",
+      "docs/02-reference/FRAGILE-ZONES.md",
+      "tests/e2e/"
+    ],
+    "rationale": "Current state of the system + fragile zones + e2e test directory."
+  },
+
+  "frontend-change": {
+    "load": [
+      "packages/boardroom-ai/CLAUDE.md",
+      "docs/02-reference/MASTER-FRAMEWORK.md"
+    ],
+    "rationale": "Frontend service rules + framework's UI references."
+  },
+
+  "agent-runtime-change": {
+    "load": [
+      "packages/boardroom-ai/CLAUDE.md",
+      "docs/02-reference/DECISIONS.md",
+      "docs/02-reference/FRAGILE-ZONES.md"
+    ],
+    "rationale": "Boardroom CLAUDE.md (agent runtime context) + ADRs (custom-runtime decision) + fragile zones."
+  },
+
+  "validator-or-eval": {
+    "load": [
+      "docs/02-reference/MASTER-DEV-PLAN.md",
+      "eval/"
+    ],
+    "rationale": "Dev plan's multi-agent validation framework + eval directory."
+  },
+
+  "first-time-orientation": {
+    "load": [
+      "docs/01-orientation/PROJECT-BRIEF.md",
+      "docs/01-orientation/CURRENT-STATE.md",
+      "docs/01-orientation/ARCHITECTURE-QUICK-REF.md"
+    ],
+    "rationale": "All three orientation files in order — fastest ramp-up."
+  },
+
+  "phase-e-cleanup": {
+    "load": [
+      "docs/_inventory/PHASE-C-MIGRATION-MAP.md",
+      "tests/e2e/phase-e-stub-cleanup-due.test.ts"
+    ],
+    "rationale": "Migration map for stub locations + the tripwire test for Phase E cleanup gating."
+  }
+}

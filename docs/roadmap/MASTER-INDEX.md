@@ -4,7 +4,7 @@
 **Purpose:** Organized by intent ("I want to understand X"), not by directory. Every roadmap file should be discoverable from here.
 **How to use:** Skim the section headings, find your intent, jump to the file.
 
-If you can't find what you need here, the answer is probably "it doesn't exist yet" — open `STATUS/BLOCKERS.md` and add it.
+If you can't find what you need here, the answer is probably "it doesn't exist yet" — open `../STATUS/BLOCKERS.md` and add it.
 
 ---
 
@@ -15,9 +15,9 @@ If you can't find what you need here, the answer is probably "it doesn't exist y
 | [`README.md`](README.md) | Top-level entry point — explains the directory structure of the roadmap |
 | [`PROJECT-CONTEXT.md`](PROJECT-CONTEXT.md) | 5-minute context dump on what omnimind is, the architecture, the 13 ADRs, the 5 layers |
 | [`EXECUTIVE-SUMMARY.md`](EXECUTIVE-SUMMARY.md) | 2-page version of the entire roadmap for quick catch-up |
-| [`07-claude-instructions/CONTEXT-LOAD-ORDER.md`](07-claude-instructions/CONTEXT-LOAD-ORDER.md) | For Claude: which 2-3 docs to read for whatever task you're picking up |
+| [`../_meta/CONTEXT-LOAD-ORDER.md`](../_meta/CONTEXT-LOAD-ORDER.md) | For Claude: which 2-3 docs to read for whatever task you're picking up |
 | [`07-claude-instructions/SESSION-START-CHECKLIST.md`](07-claude-instructions/SESSION-START-CHECKLIST.md) | The 8-minute cold-start checklist for picking up a phase |
-| [`07-claude-instructions/PROMPT-TEMPLATES.md`](07-claude-instructions/PROMPT-TEMPLATES.md) | Reusable session-kickoff and task-handoff prompt templates |
+| [`../_meta/PROMPT-TEMPLATES.md`](../_meta/PROMPT-TEMPLATES.md) | Reusable session-kickoff and task-handoff prompt templates |
 
 ## I want to understand the current state of the system
 
@@ -124,23 +124,23 @@ Each `PHASE-N-{slug}/` folder contains `README.md` (what + prereqs + exit criter
 
 | File | One-line description |
 |---|---|
-| [`STATUS/CURRENT-PHASE.md`](STATUS/CURRENT-PHASE.md) | Which phase is active right now; what task is in flight |
-| [`STATUS/PHASE-PROGRESS-TRACKER.md`](STATUS/PHASE-PROGRESS-TRACKER.md) | Per-task tracker across all phases (todo / wip / done / blocked) |
+| [`../STATUS/CURRENT-PHASE.md`](../STATUS/CURRENT-PHASE.md) | Which phase is active right now; what task is in flight |
+| [`../STATUS/PHASE-PROGRESS-TRACKER.md`](../STATUS/PHASE-PROGRESS-TRACKER.md) | Per-task tracker across all phases (todo / wip / done / blocked) |
 | [`STATUS/PHASE-COMPLETION-CRITERIA.md`](STATUS/PHASE-COMPLETION-CRITERIA.md) | Exact signoff checklist used at end of every phase |
-| [`STATUS/BLOCKERS.md`](STATUS/BLOCKERS.md) | Open blockers needing user input or external resolution |
-| [`STATUS/CHANGELOG.md`](STATUS/CHANGELOG.md) | Append-only log of phase completions and significant scope changes |
-| [`STATUS/DECISIONS-LOG.md`](STATUS/DECISIONS-LOG.md) | Append-only log of decisions taken during execution (DEC-N entries) |
+| [`../STATUS/BLOCKERS.md`](../STATUS/BLOCKERS.md) | Open blockers needing user input or external resolution |
+| [`../STATUS/CHANGELOG.md`](../STATUS/CHANGELOG.md) | Append-only log of phase completions and significant scope changes |
+| [`../STATUS/DECISIONS-LOG.md`](../STATUS/DECISIONS-LOG.md) | Append-only log of decisions taken during execution (DEC-N entries) |
 
 ## I want to know how to run the meta-process (Claude orchestration)
 
 | File | One-line description |
 |---|---|
-| [`07-claude-instructions/CLAUDE-WORKFLOW.md`](07-claude-instructions/CLAUDE-WORKFLOW.md) | Task-type → docs routing table (the spine of session orchestration) |
-| [`07-claude-instructions/CONTEXT-LOAD-ORDER.md`](07-claude-instructions/CONTEXT-LOAD-ORDER.md) | For Claude: read these N docs in this order before starting any task |
+| [`../_meta/CLAUDE-WORKFLOW.md`](../_meta/CLAUDE-WORKFLOW.md) | Task-type → docs routing table (the spine of session orchestration) |
+| [`../_meta/CONTEXT-LOAD-ORDER.md`](../_meta/CONTEXT-LOAD-ORDER.md) | For Claude: read these N docs in this order before starting any task |
 | [`07-claude-instructions/SESSION-START-CHECKLIST.md`](07-claude-instructions/SESSION-START-CHECKLIST.md) | The 8-minute cold-start checklist |
-| [`07-claude-instructions/SESSION-END-CHECKLIST.md`](07-claude-instructions/SESSION-END-CHECKLIST.md) | What to update before closing a session (CURRENT-PHASE, CHANGELOG, etc.) |
-| [`07-claude-instructions/PROMPT-TEMPLATES.md`](07-claude-instructions/PROMPT-TEMPLATES.md) | Reusable session-kickoff and task-handoff prompt templates |
-| [`07-claude-instructions/HANDOFF-TEMPLATE.md`](07-claude-instructions/HANDOFF-TEMPLATE.md) | Format for end-of-session handoff (status, blockers, next-action) |
+| [`../_meta/SESSION-END-CHECKLIST.md`](../_meta/SESSION-END-CHECKLIST.md) | What to update before closing a session (CURRENT-PHASE, CHANGELOG, etc.) |
+| [`../_meta/PROMPT-TEMPLATES.md`](../_meta/PROMPT-TEMPLATES.md) | Reusable session-kickoff and task-handoff prompt templates |
+| [`../_meta/HANDOFF-TEMPLATE.md`](../_meta/HANDOFF-TEMPLATE.md) | Format for end-of-session handoff (status, blockers, next-action) |
 | [`07-claude-instructions/AGENT-DISPATCH-PATTERNS.md`](07-claude-instructions/AGENT-DISPATCH-PATTERNS.md) | When to spawn an Explore subagent vs handle directly |
 | [`07-claude-instructions/COMMIT-AND-PR-CONVENTIONS.md`](07-claude-instructions/COMMIT-AND-PR-CONVENTIONS.md) | Commit message format, PR template, signoff conventions |
 | [`07-claude-instructions/COMMON-PITFALLS.md`](07-claude-instructions/COMMON-PITFALLS.md) | The 12 most common Claude mistakes with detection commands and fixes |
@@ -152,7 +152,7 @@ Each `PHASE-N-{slug}/` folder contains `README.md` (what + prereqs + exit criter
 | Role | Read these in order |
 |---|---|
 | **Founder / business reader** | `EXECUTIVE-SUMMARY.md` → `04-roadmap/ROADMAP-OVERVIEW.md` → `06-risks-and-mitigations/RISK-REGISTER.md` |
-| **New Claude session, picking up a phase** | `PROJECT-CONTEXT.md` → `STATUS/CURRENT-PHASE.md` → the active `04-roadmap/PHASE-N-*/README.md` → `01-foundations/CONSTRAINTS.md` |
+| **New Claude session, picking up a phase** | `PROJECT-CONTEXT.md` → `../STATUS/CURRENT-PHASE.md` → the active `04-roadmap/PHASE-N-*/README.md` → `01-foundations/CONSTRAINTS.md` |
 | **New human contributor (engineer)** | `PROJECT-CONTEXT.md` → `02-current-state/CAPABILITIES-INVENTORY.md` → `01-foundations/CONSTRAINTS.md` → `04-roadmap/ROADMAP-OVERVIEW.md` → cherry-pick from `08-references/` |
 | **Auditing for risk** | `EXECUTIVE-SUMMARY.md` → `06-risks-and-mitigations/RISK-REGISTER.md` → `02-current-state/CAPABILITIES-INVENTORY.md` (scale-ceiling rationale) → wave 1 audit outputs |
 | **Pricing / cost analysis** | `01-foundations/COST-MODEL.md` → `06-risks-and-mitigations/COST-RISKS.md` → wave 1 scalability audit section C |
@@ -160,4 +160,4 @@ Each `PHASE-N-{slug}/` folder contains `README.md` (what + prereqs + exit criter
 
 ---
 
-**If something below this line exists in the repo but isn't indexed above, that's a bug — surface it via `STATUS/BLOCKERS.md` so a future session can add it.**
+**If something below this line exists in the repo but isn't indexed above, that's a bug — surface it via `../STATUS/BLOCKERS.md` so a future session can add it.**

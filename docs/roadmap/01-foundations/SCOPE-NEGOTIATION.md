@@ -95,7 +95,7 @@ Without all five steps, the change isn't real — future sessions will rediscove
 
 **Cross-references:**
 - [`01-foundations/CONSTRAINTS.md`](CONSTRAINTS.md) — what Claude can never change without explicit ADR-level approval
-- [`STATUS/BLOCKERS.md`](../STATUS/BLOCKERS.md) — where to surface scope blockers
-- [`STATUS/DECISIONS-LOG.md`](../STATUS/DECISIONS-LOG.md) — where every scope change gets recorded
-- [`STATUS/CHANGELOG.md`](../STATUS/CHANGELOG.md) — phase-level event log
+- [`STATUS/BLOCKERS.md`](../../STATUS/BLOCKERS.md) — where to surface scope blockers
+- [`STATUS/DECISIONS-LOG.md`](../../STATUS/DECISIONS-LOG.md) — where every scope change gets recorded
+- [`STATUS/CHANGELOG.md`](../../STATUS/CHANGELOG.md) — phase-level event log
 - [`04-roadmap/DEFERRED/README.md`](../04-roadmap/DEFERRED/README.md) — where deferred items live with their triggers

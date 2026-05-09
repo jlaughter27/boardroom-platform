@@ -12,6 +12,11 @@ RUN pnpm install --frozen-lockfile
 COPY packages/shared/ packages/shared/
 COPY packages/boardroom-ai/ packages/boardroom-ai/
 COPY docs/prompts/ docs/prompts/
+COPY scripts/check-prompts-integrity.sh scripts/check-prompts-integrity.sh
+
+# Fail fast if the runtime persona-prompt count drops accidentally during a build.
+# Catches: COPY glob mismatch, accidental file delete, missed .system.md in a refactor.
+RUN bash scripts/check-prompts-integrity.sh
 
 # Build shared package explicitly first — pnpm workspace symlinks in Docker
 # can prevent TypeScript from finding .d.ts files through node_modules resolution
@@ -51,5 +56,6 @@ COPY --from=builder /app/packages/shared/package.json ./node_modules/@boardroom/
 COPY --from=builder /app/docs/prompts/ ./docs/prompts/
 
 ENV NODE_ENV=production
+ENV PROMPTS_DIR=/app/docs/prompts
 EXPOSE 3001
 CMD ["node", "dist/server/index.js"]

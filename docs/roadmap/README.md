@@ -4,7 +4,7 @@
 **Status:** Operator-ready scaffold + agent-validated content
 **Supersedes:** `docs/MEM0_RE_INTEGRATION_PLAN.md` and `docs/MEM0_INTEGRATION_PLAN.md`
 
-> **If you are Claude and this is a new session, read [`07-claude-instructions/CLAUDE-WORKFLOW.md`](07-claude-instructions/CLAUDE-WORKFLOW.md) FIRST.**
+> **If you are Claude and this is a new session, read [`../_meta/CLAUDE-WORKFLOW.md`](../_meta/CLAUDE-WORKFLOW.md) FIRST.**
 > It tells you which 2-3 files to load for whatever task you're picking up.
 
 ---
@@ -31,8 +31,8 @@ This roadmap exists so that any future Claude session can pick up *any* phase, *
 
 ## Quick links by task
 
-- **"I'm starting fresh, where do I begin?"** → [`07-claude-instructions/CLAUDE-WORKFLOW.md`](07-claude-instructions/CLAUDE-WORKFLOW.md)
-- **"What's the next concrete thing to ship?"** → [`STATUS/CURRENT-PHASE.md`](STATUS/CURRENT-PHASE.md)
+- **"I'm starting fresh, where do I begin?"** → [`../_meta/CLAUDE-WORKFLOW.md`](../_meta/CLAUDE-WORKFLOW.md)
+- **"What's the next concrete thing to ship?"** → [`../STATUS/CURRENT-PHASE.md`](../STATUS/CURRENT-PHASE.md)
 - **"What's the entire plan?"** → [`04-roadmap/ROADMAP-OVERVIEW.md`](04-roadmap/ROADMAP-OVERVIEW.md)
 - **"What can break?"** → [`06-risks-and-mitigations/RISK-REGISTER.md`](06-risks-and-mitigations/RISK-REGISTER.md)
 - **"What does omnimind actually do today?"** → [`02-current-state/CAPABILITIES-INVENTORY.md`](02-current-state/CAPABILITIES-INVENTORY.md)
@@ -51,7 +51,7 @@ This roadmap exists so that any future Claude session can pick up *any* phase, *
 
 | Frozen (don't edit without ADR) | Living (update as work progresses) |
 |---|---|
-| `01-foundations/CONSTRAINTS.md` | `STATUS/CURRENT-PHASE.md` |
-| `04-roadmap/PHASE-N/README.md` (only via revision) | `STATUS/CHANGELOG.md` |
-| `06-risks-and-mitigations/*` (re-audit quarterly) | `STATUS/DECISIONS-LOG.md` |
-| `01-foundations/ADR-INDEX.md` (additive only) | `STATUS/BLOCKERS.md` |
+| `01-foundations/CONSTRAINTS.md` | `../STATUS/CURRENT-PHASE.md` |
+| `04-roadmap/PHASE-N/README.md` (only via revision) | `../STATUS/CHANGELOG.md` |
+| `06-risks-and-mitigations/*` (re-audit quarterly) | `../STATUS/DECISIONS-LOG.md` |
+| `01-foundations/ADR-INDEX.md` (additive only) | `../STATUS/BLOCKERS.md` |

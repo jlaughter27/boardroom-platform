@@ -1,5 +1,5 @@
 // Persona configuration constants
-// REFERENCE VALUES from: docs/MASTER-FRAMEWORK.md §3 Persona System
+// REFERENCE VALUES from: docs/02-reference/MASTER-FRAMEWORK.md §3 Persona System
 // Model assignments, token budgets, and prompt file paths for each persona.
 
 import type { BuiltInPersonaId, PersonaConfig } from '../types/persona.types';
@@ -8,7 +8,7 @@ import type { BuiltInPersonaId, PersonaConfig } from '../types/persona.types';
  * Configuration for each BoardRoom persona.
  * Maps persona IDs to their model tier, token budget, and system prompt.
  *
- * Source: docs/MASTER-FRAMEWORK.md §3 Persona System
+ * Source: docs/02-reference/MASTER-FRAMEWORK.md §3 Persona System
  */
 export const PERSONA_CONFIGS: Readonly<Record<BuiltInPersonaId, PersonaConfig>> & Readonly<Record<string, PersonaConfig>> = {
   // Bug #4 — persona latency fix:

@@ -95,6 +95,6 @@ Every roadmap phase touches exactly one or two layers. Knowing which helps you r
 
 ## Where to go next
 
-- **For your task:** [`07-claude-instructions/CONTEXT-LOAD-ORDER.md`](07-claude-instructions/CONTEXT-LOAD-ORDER.md) tells you exactly which 2-3 docs to read for whatever you're doing
+- **For your task:** [`../_meta/CONTEXT-LOAD-ORDER.md`](../_meta/CONTEXT-LOAD-ORDER.md) tells you exactly which 2-3 docs to read for whatever you're doing
 - **For the master plan:** [`04-roadmap/ROADMAP-OVERVIEW.md`](04-roadmap/ROADMAP-OVERVIEW.md)
-- **For status right now:** [`STATUS/CURRENT-PHASE.md`](STATUS/CURRENT-PHASE.md)
+- **For status right now:** [`../STATUS/CURRENT-PHASE.md`](../STATUS/CURRENT-PHASE.md)
