@@ -3,7 +3,38 @@ import { runValidationPipeline } from '../memory/validation/pipeline';
 import { SOURCE_WEIGHTS } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry } from './embedding.service';
 import { logger } from '../lib/logger';
-import { encrypt, decrypt } from '../lib/crypto';
+import { decrypt } from '../lib/crypto';
+import { HttpError } from '../middleware/error-handler';
+
+const MINISTRY_DEFERRED_MSG =
+  'Ministry-domain memories are deferred. Single-user testing mode. ' +
+  'Re-enable via Phase 6 (Ollama + encryption rollout) when ready.';
+
+const DEDUP_THRESHOLD = 0.92;
+
+async function findNearDuplicate(
+  userId: string,
+  embedding: number[],
+  threshold: number,
+  prisma: PrismaClient
+): Promise<{ id: string; importance: number; tags: string[] } | null> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ id: string; importance: number; tags: string[] }>>`
+      SELECT id, importance, tags
+      FROM "memory_entries"
+      WHERE user_id = ${userId}
+        AND embedding IS NOT NULL
+        AND deleted_at IS NULL
+        AND status != 'ARCHIVED'
+        AND 1 - (embedding <=> ${embedding}::vector) >= ${threshold}
+      ORDER BY embedding <=> ${embedding}::vector
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // Create memory — validate first, then write
 export async function createMemory(
@@ -23,15 +54,27 @@ export async function createMemory(
   },
   prisma: PrismaClient
 ) {
-  // Rule 9: ministry domain requires Ollama. Pre-check embedding availability
-  // BEFORE writing to DB so the write is refused cleanly if Ollama is down.
+  // Ministry domain is explicitly deferred (Phase 6+). Refuse at the boundary.
   if (input.domain === 'ministry') {
-    const sampleText = `${input.title ?? ''}\n${input.content}`.slice(0, 100);
-    const testEmbedding = await generateEmbeddingWithRetry(sampleText, 'ministry');
-    if (!testEmbedding) {
+    throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
+  }
+
+  // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating
+  const embedText = `${input.title} ${input.content}`.slice(0, 8000);
+  const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
+  if (dedupeEmbedding) {
+    const dupe = await findNearDuplicate(userId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
+    if (dupe) {
+      logger.info({ dupeId: dupe.id }, 'Near-duplicate detected — auto-superseding existing memory');
+      await updateMemory(userId, dupe.id, {
+        title: input.title,
+        content: input.content,
+        importance: Math.max(dupe.importance, input.importance ?? 0.5),
+        tags: Array.from(new Set([...dupe.tags, ...(input.tags ?? [])])),
+      }, prisma);
       return {
-        success: false as const,
-        errors: [{ field: 'domain', message: 'Ministry embedding unavailable — Ollama is down. Write refused.' }],
+        success: true as const,
+        data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
       };
     }
   }
@@ -45,18 +88,11 @@ export async function createMemory(
   // Auto-set source weight based on sourceType (fallback to MANUAL weight)
   const sourceWeight = (SOURCE_WEIGHTS as Record<string, number>)[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
 
-  // Ministry content: encrypt before writing to DB (AES-256-GCM via crypto.ts)
-  const isMinistry = input.domain === 'ministry';
-  const storedContent = isMinistry ? '' : input.content;
-  const encryptedContentBuf = isMinistry
-    ? Buffer.from(encrypt(input.content), 'utf-8')
-    : undefined;
-
   const memory = await prisma.memoryEntry.create({
     data: {
       userId,
       title: input.title,
-      content: storedContent,
+      content: input.content,
       domain: input.domain,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sourceType: input.sourceType as any,
@@ -72,11 +108,6 @@ export async function createMemory(
       status: 'DRAFT' as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       metadata: (input.metadata ?? {}) as any,
-      ...(encryptedContentBuf && {
-        encryptedContent: encryptedContentBuf,
-        encryptionKeyId: 'env:ENCRYPTION_KEY',
-        encryptionAlgorithm: 'aes-256-gcm',
-      }),
     },
   });
 
@@ -193,14 +224,12 @@ export async function updateMemory(
   });
   if (!existing) return null;
 
-  // Re-encrypt if updating ministry content
-  const updateData: Record<string, unknown> = { ...input, version: { increment: 1 } };
-  if (existing.domain === 'ministry' && typeof input.content === 'string') {
-    updateData.content = '';
-    updateData.encryptedContent = Buffer.from(encrypt(input.content as string), 'utf-8');
-    updateData.encryptionKeyId = 'env:ENCRYPTION_KEY';
-    updateData.encryptionAlgorithm = 'aes-256-gcm';
+  // Ministry domain is deferred — refuse updates too
+  if (existing.domain === 'ministry') {
+    throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
   }
+
+  const updateData: Record<string, unknown> = { ...input, version: { increment: 1 } };
 
   const memory = await prisma.memoryEntry.update({
     where: { id },

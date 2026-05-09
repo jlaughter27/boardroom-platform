@@ -66,4 +66,28 @@ router.post('/summarize', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.get('/duplicates', async (req, res, next) => {
+  try {
+    const { threshold } = req.query as Record<string, string>;
+    const params: Record<string, string> = {};
+    if (threshold) params.threshold = threshold;
+    const data = await omnimindClient.getAdminDuplicates(params);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/duplicates/merge', async (req, res, next) => {
+  try {
+    const data = await omnimindClient.mergeAdminDuplicates(req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/decay/run', async (_req, res, next) => {
+  try {
+    const data = await omnimindClient.triggerAdminDecay();
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 export const adminRouter: IRouter = router;

@@ -1,9 +1,9 @@
 # Current Phase
 
-**Phase in flight:** MCP Phase 4 — Hardening (encryption, rate limiting, digest, backup) — IN PROGRESS
-**Active task (within current phase):** All 4 hardening deliverables shipped; docs complete
+**Phase in flight:** MCP Phase 5 — Observability + Solo Go-Live
+**Active task (within current phase):** Importance decay, duplicate detection, /admin/duplicates tab
 **Last update:** 2026-05-09
-**Updated by:** Claude (audit remediation + Phase 4 execution session)
+**Updated by:** Claude (solo go-live session)
 
 ---
 
@@ -67,11 +67,33 @@
 
 ---
 
-## Next actions (Phase 5 — Observability + Scaling)
+## Phase 5 — Solo Go-Live (in flight)
 
-1. Importance decay job — weekly cron, drop importance 0.05/week for unaccessed memories
-2. Duplicate detection pipeline — on write, cosine check; auto-supersede if >0.92
-3. `GET /admin/duplicates` endpoint + UI tab
-4. Add digest charts to AdminPage (weekly trend sparklines)
-5. Railway private networking for service-to-service calls (eliminate public internet round-trip)
-6. Redis-backed rate limiting (when >1 Railway instance)
+### Shipped this session
+1. ✅ `security`: `.env.deploy` removed from git tree; explicit gitignore rules
+2. ✅ `ministry disabled`: API throws `503 MINISTRY_DEFERRED`; MCP tool returns error without API call; agent configs cleaned up; test D7 added
+3. ✅ `importance decay`: weekly cron (Sun 2am), drops importance 0.05/week for unaccessed memories, floor 0.0
+4. ✅ `duplicate detection`: on write, cosine check at 0.92; auto-supersede existing memory
+5. ✅ `/admin/duplicates`: endpoint + UI tab (pair list + merge button)
+
+---
+
+## Deferred (with rationale — re-evaluate at Phase 6)
+
+- **Ministry domain** — API and MCP tool refuse with `503 MINISTRY_DEFERRED`.
+  Re-enable when: (a) Ollama running on Railway or local-only writes confirmed,
+  (b) ministry encryption tested end-to-end, (c) at least one non-Josh user
+  has pastoral interactions worth memorializing.
+- **Digest charts** — Not enough data yet. Revisit after 30 days of dogfooding (>30 memories).
+- **Railway private networking** — Latency optimization, not a blocker. Public domain works.
+- **Redis rate limiting** — Solo = always 1 Railway instance. Re-evaluate at 500+ users.
+- **.env.deploy git history scrub** — Low priority given $5 spend cap. Use `git filter-repo` when rotating to a new repo or before open-sourcing.
+
+---
+
+## Next session prerequisites (Phase 6)
+
+1. Josh installs agent configs from `docs/agent-configs/` into Claude Desktop, Claude Code, Cursor
+2. Generate prod agent keys via `bash docs/agent-configs/keygen-commands.sh`
+3. 30 days of dogfooding → observe via `/admin`, note what's missing
+4. Then define Phase 6 scope based on real usage patterns

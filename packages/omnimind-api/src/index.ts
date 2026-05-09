@@ -29,6 +29,7 @@ import adminRouter from './routes/admin.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
 import { startSessionSummarizer, stopSessionSummarizer } from './jobs/session-summarizer';
 import { startWeeklyDigestScheduler, stopWeeklyDigestScheduler } from './jobs/weekly-digest-scheduler';
+import { startImportanceDecayScheduler, stopImportanceDecayScheduler } from './jobs/importance-decay-scheduler';
 import { validateOmniMindEnv } from './lib/env';
 
 if (process.env.NODE_ENV !== 'test') {
@@ -78,6 +79,7 @@ const shutdown = async () => {
   stopCortexScheduler();
   stopSessionSummarizer();
   stopWeeklyDigestScheduler();
+  stopImportanceDecayScheduler();
   await prisma.$disconnect();
   process.exit(0);
 };
@@ -92,6 +94,7 @@ if (process.env.NODE_ENV !== 'test') {
     startCortexScheduler();
     startSessionSummarizer();
     startWeeklyDigestScheduler();
+    startImportanceDecayScheduler();
   });
 }
 

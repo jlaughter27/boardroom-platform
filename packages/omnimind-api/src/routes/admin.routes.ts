@@ -174,4 +174,66 @@ router.post('/summarize', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /admin/duplicates — list memory pairs with cosine similarity above threshold
+router.get('/duplicates', async (req, res, next) => {
+  try {
+    const threshold = Math.max(0, Math.min(1, parseFloat((req.query.threshold as string) ?? '0.85')));
+    const pairs = await prisma.$queryRaw<Array<{
+      a_id: string; a_title: string; a_created: Date;
+      b_id: string; b_title: string; b_created: Date;
+      cosine: number;
+    }>>`
+      SELECT
+        a.id       AS a_id,
+        a.title    AS a_title,
+        a.created_at AS a_created,
+        b.id       AS b_id,
+        b.title    AS b_title,
+        b.created_at AS b_created,
+        1 - (a.embedding <=> b.embedding) AS cosine
+      FROM "memory_entries" a
+      JOIN "memory_entries" b
+        ON a.id < b.id
+       AND a.user_id = b.user_id
+      WHERE a.embedding IS NOT NULL
+        AND b.embedding IS NOT NULL
+        AND a.deleted_at IS NULL
+        AND b.deleted_at IS NULL
+        AND 1 - (a.embedding <=> b.embedding) > ${threshold}
+      ORDER BY cosine DESC
+      LIMIT 100
+    `;
+    res.json({ pairs, threshold });
+  } catch (err) { next(err); }
+});
+
+// POST /admin/duplicates/merge — keep newer memory, archive older
+router.post('/duplicates/merge', async (req, res, next) => {
+  try {
+    const { keepId, archiveId, userId } = req.body as { keepId: string; archiveId: string; userId: string };
+    if (!keepId || !archiveId || !userId) {
+      res.status(400).json({ error: 'keepId, archiveId, and userId are required' });
+      return;
+    }
+
+    // Soft-delete the archived entry
+    await prisma.memoryEntry.updateMany({
+      where: { id: archiveId, userId, deletedAt: null },
+      data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
+    });
+
+    logger.info({ keepId, archiveId }, '[admin] Duplicate merge: archived older memory');
+    res.json({ status: 'ok', kept: keepId, archived: archiveId });
+  } catch (err) { next(err); }
+});
+
+// POST /admin/decay/run — trigger importance decay manually
+router.post('/decay/run', async (_req, res, next) => {
+  try {
+    const { runImportanceDecay } = await import('../services/importance-decay.service');
+    const result = await runImportanceDecay();
+    res.json({ status: 'ok', ...result });
+  } catch (err) { next(err); }
+});
+
 export default router;

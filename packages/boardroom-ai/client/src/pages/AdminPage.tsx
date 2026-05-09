@@ -5,9 +5,9 @@ import { PageWrapper, Button, Skeleton } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn } from '../lib/motion';
 import * as api from '../lib/api';
-import type { AdminStats, AdminAgent, AdminAuditEntry, AdminMemory, AdminContradiction } from '../lib/api';
+import type { AdminStats, AdminAgent, AdminAuditEntry, AdminMemory, AdminContradiction, DuplicatePair } from '../lib/api';
 
-type Tab = 'overview' | 'memories' | 'audit' | 'agents' | 'contradictions';
+type Tab = 'overview' | 'memories' | 'audit' | 'agents' | 'contradictions' | 'duplicates';
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -361,6 +361,108 @@ function ContradictionsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Duplicates tab
+// ---------------------------------------------------------------------------
+
+function DuplicatesTab() {
+  const [pairs, setPairs] = useState<DuplicatePair[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [merging, setMerging] = useState<string | null>(null);
+  const [threshold, setThreshold] = useState(0.85);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.getAdminDuplicates(threshold)
+      .then((r) => setPairs(r.pairs))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [threshold]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleMerge(keepId: string, archiveId: string) {
+    setMerging(archiveId);
+    try {
+      await api.mergeAdminDuplicates(keepId, archiveId, 'admin');
+      setPairs((prev) => prev.filter((p) => !(p.a_id === keepId && p.b_id === archiveId) && !(p.a_id === archiveId && p.b_id === keepId)));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setMerging(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      <div className="flex items-center gap-3">
+        <label className="text-xs text-muted-foreground">Similarity threshold</label>
+        <select
+          value={threshold}
+          onChange={(e) => setThreshold(parseFloat(e.target.value))}
+          className="text-xs border border-border rounded px-2 py-1 bg-background text-foreground"
+        >
+          <option value={0.92}>0.92 (auto-merged on write)</option>
+          <option value={0.85}>0.85 (likely duplicates)</option>
+          <option value={0.75}>0.75 (similar content)</option>
+        </select>
+        <Button size="sm" variant="outline" onClick={load}>Refresh</Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{pairs.length} pair{pairs.length !== 1 ? 's' : ''} found</p>
+      {loading ? (
+        <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-md" />)}</div>
+      ) : (
+        <div className="space-y-2">
+          {pairs.map((p) => (
+            <div key={`${p.a_id}-${p.b_id}`} className="bg-card border border-border rounded-md p-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0 grid grid-cols-2 gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground mb-0.5">A — {relativeTime(p.a_created)}</p>
+                    <p className="text-foreground text-xs truncate">{truncate(p.a_title, 50)}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground mb-0.5">B — {relativeTime(p.b_created)}</p>
+                    <p className="text-foreground text-xs truncate">{truncate(p.b_title, 50)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-mono text-primary">{(p.cosine * 100).toFixed(1)}%</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={merging === p.b_id}
+                    onClick={() => handleMerge(p.a_id, p.b_id)}
+                    className="text-xs"
+                  >
+                    {merging === p.b_id ? 'Merging…' : 'Keep A'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={merging === p.a_id}
+                    onClick={() => handleMerge(p.b_id, p.a_id)}
+                    className="text-xs"
+                  >
+                    {merging === p.a_id ? 'Merging…' : 'Keep B'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {pairs.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">No duplicate pairs found at this threshold.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AdminPage
 // ---------------------------------------------------------------------------
 
@@ -370,6 +472,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'audit', label: 'Audit Log' },
   { id: 'agents', label: 'Agents' },
   { id: 'contradictions', label: 'Contradictions' },
+  { id: 'duplicates', label: 'Duplicates' },
 ];
 
 export default function AdminPage() {
@@ -405,6 +508,7 @@ export default function AdminPage() {
           {tab === 'audit' && <AuditTab />}
           {tab === 'agents' && <AgentsTab />}
           {tab === 'contradictions' && <ContradictionsTab />}
+          {tab === 'duplicates' && <DuplicatesTab />}
         </div>
       </motion.div>
     </PageWrapper>
