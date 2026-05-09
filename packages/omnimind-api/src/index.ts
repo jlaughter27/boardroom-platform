@@ -24,7 +24,9 @@ import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { relationshipsRouter } from './routes/relationships.routes';
 import mcpRouter from './routes/mcp.routes';
+import adminRouter from './routes/admin.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
+import { startSessionSummarizer, stopSessionSummarizer } from './jobs/session-summarizer';
 import { validateOmniMindEnv } from './lib/env';
 
 if (process.env.NODE_ENV !== 'test') {
@@ -62,6 +64,7 @@ app.use('/subscription', subscriptionRouter);
 app.use('/custom-personas', customPersonasRouter);
 app.use('/relationships', relationshipsRouter);
 app.use('/mcp', mcpRouter);
+app.use('/admin', adminRouter);
 
 // Error handler (must be last)
 app.use(errorHandler);
@@ -70,6 +73,7 @@ app.use(errorHandler);
 const shutdown = async () => {
   logger.info('Shutting down OmniMind API...');
   stopCortexScheduler();
+  stopSessionSummarizer();
   await prisma.$disconnect();
   process.exit(0);
 };
@@ -82,6 +86,7 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(port, () => {
     logger.info(`OmniMind API running on port ${port}`, { port });
     startCortexScheduler();
+    startSessionSummarizer();
   });
 }
 

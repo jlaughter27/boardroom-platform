@@ -16,6 +16,7 @@ import { calendarRouter } from './routes/calendar.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { integrationsRouter } from './routes/integrations.routes';
+import { adminRouter } from './routes/admin.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { logger } from './lib/logger';
 import { validateBoardRoomEnv } from './lib/env';
@@ -67,7 +68,7 @@ if (process.env.NODE_ENV === 'production') {
         || req.path.startsWith('/sessions') || req.path.startsWith('/subscription')
         || req.path.startsWith('/onboarding') || req.path.startsWith('/cortex')
         || req.path.startsWith('/calendar') || req.path.startsWith('/custom-personas')
-        || req.path.startsWith('/integrations')) {
+        || req.path.startsWith('/integrations') || req.path.startsWith('/admin')) {
       // /onboarding matches both /onboarding and /onboarding-bootstrap — no extra clause needed
       next(); // Pass to API routes
       return;
@@ -96,6 +97,7 @@ app.use('/cortex', cortexRouter);
 app.use('/calendar', calendarRouter);
 app.use('/custom-personas', customPersonasRouter);
 app.use('/integrations', integrationsRouter);
+app.use('/admin', adminRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
 // Error handler (must be last)
