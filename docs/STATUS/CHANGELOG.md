@@ -6,6 +6,34 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-05-09 — MCP Phase 3 — Session summarizer + admin API + admin UI
+
+**Branch:** `claude/build-memory-layer-IftGo` | **Commit:** `1f58af9` | **Status:** Pushed
+
+### What shipped
+
+**Session Summarizer:**
+- `packages/omnimind-api/src/services/session-summarizer.service.ts` — groups McpAuditLog entries into sessions (30-min gap = new session), calls Claude Haiku to write 2-4 sentence summaries, deduplicates via `findFirst` before writing, stores as SESSION_SUMMARY memories with synthetic `mcp:<tenantId>` userId
+- `packages/omnimind-api/src/jobs/session-summarizer.ts` — `*/10 * * * *` cron wrapper, `startSessionSummarizer()` / `stopSessionSummarizer()` wired into index.ts
+
+**Admin API (omnimind-api):**
+- `packages/omnimind-api/src/routes/admin.routes.ts` — 6 endpoints: stats, agents, audit (paginated), memories (paginated + searchable), contradictions, summarize trigger
+
+**Admin proxy + UI (boardroom-ai):**
+- `packages/boardroom-ai/server/src/routes/admin.routes.ts` — thin proxy to OmniMind /admin/* (no x-user-id needed)
+- `omnimind-client.ts` — 6 new admin methods added
+- `packages/boardroom-ai/client/src/pages/AdminPage.tsx` — 5-tab admin dashboard (Overview, Memories, Audit Log, Agents, Contradictions)
+- `App.tsx` + `Sidebar.tsx` — /admin route registered, nav item added to secondaryNav
+
+### Test status
+- omnimind-api: 18 suites fail (pre-existing missing tests/setup.ts — not caused by this session); 199 tests pass
+- boardroom-ai server: 145 tests pass (21 suites)
+- boardroom-ai client: 5 suites fail (pre-existing missing @testing-library/jest-dom/vitest)
+- omnimind-mcp: 43 tests pass (cached)
+- Typecheck: 5/5 packages green
+
+---
+
 ## 2026-05-09 — MCP Phase 2 — Agents wired, smoke tests passed, keys generated
 
 **Branch:** `claude/build-memory-layer-IftGo` | **Status:** Pushed
