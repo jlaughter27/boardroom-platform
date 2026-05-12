@@ -43,6 +43,18 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
     async execute(raw: unknown): Promise<MemoryWriteResult> {
       requireScope(ctx, 'memory:write');
       const input = MemoryWriteInput.parse(raw);
+
+      // Ministry domain is explicitly deferred (Phase 6+)
+      if (input.domain === 'ministry') {
+        return {
+          created: [],
+          updated: [],
+          skipped: 0,
+          error: 'MINISTRY_DEFERRED',
+          message: 'Ministry-domain memories are deferred. Use a non-ministry domain. Ministry path will return in Phase 6+.',
+        } as unknown as MemoryWriteResult;
+      }
+
       const auditInput = redactForAudit(input as Record<string, unknown>);
 
       return withAudit(client, ctx, 'memory_write', auditInput, async () => {

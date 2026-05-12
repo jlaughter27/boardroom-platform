@@ -894,3 +894,28 @@ export function getAdminContradictions(params?: { limit?: number; offset?: numbe
 export function triggerAdminSummarize() {
   return request<{ status: string; message: string }>('/admin/summarize', { method: 'POST' });
 }
+
+export interface DuplicatePair {
+  a_id: string;
+  a_title: string;
+  a_created: string;
+  b_id: string;
+  b_title: string;
+  b_created: string;
+  cosine: number;
+}
+
+export function getAdminDuplicates(threshold = 0.85) {
+  return request<{ pairs: DuplicatePair[]; threshold: number }>(`/admin/duplicates?threshold=${threshold}`);
+}
+
+export function mergeAdminDuplicates(keepId: string, archiveId: string, userId: string) {
+  return request<{ status: string; kept: string; archived: string }>('/admin/duplicates/merge', {
+    method: 'POST',
+    body: JSON.stringify({ keepId, archiveId, userId }),
+  });
+}
+
+export function triggerAdminDecay() {
+  return request<{ status: string; decayed: number }>('/admin/decay/run', { method: 'POST' });
+}

@@ -516,6 +516,19 @@ export class OmniMindClient {
   async triggerAdminSummarize() {
     return this.request('POST', '/admin/summarize');
   }
+
+  async getAdminDuplicates(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/duplicates${qs}`);
+  }
+
+  async mergeAdminDuplicates(body: Record<string, unknown>) {
+    return this.request('POST', '/admin/duplicates/merge', body);
+  }
+
+  async triggerAdminDecay() {
+    return this.request('POST', '/admin/decay/run');
+  }
 }
 
 // Singleton
