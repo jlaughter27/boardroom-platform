@@ -30,27 +30,55 @@ function resolvePromptsDir(): string {
 const PROMPTS_DIR = resolvePromptsDir();
 const cache = new Map<string, string>();
 
+const MAX_INCLUDE_DEPTH = 4;
+const INCLUDE_PATTERN = /\{\{include:([a-zA-Z0-9_\-./]+)\}\}/g;
+
+/**
+ * Resolve `{{include:path}}` tokens in a prompt body. The path is relative to
+ * the prompts directory and may omit the `.md` extension. Included files may
+ * themselves contain include tokens up to MAX_INCLUDE_DEPTH levels deep.
+ */
+function resolveIncludes(body: string, depth: number, stack: string[]): string {
+  if (depth > MAX_INCLUDE_DEPTH) {
+    throw new Error(
+      `prompt-loader: include depth exceeded ${MAX_INCLUDE_DEPTH} (stack: ${stack.join(' -> ')})`
+    );
+  }
+  return body.replace(INCLUDE_PATTERN, (_match, rawPath: string) => {
+    if (stack.includes(rawPath)) {
+      throw new Error(`prompt-loader: include cycle detected (${[...stack, rawPath].join(' -> ')})`);
+    }
+    const withExt = rawPath.endsWith('.md') ? rawPath : `${rawPath}.md`;
+    const filePath = join(PROMPTS_DIR, withExt);
+    const content = readFileSync(filePath, 'utf-8');
+    return resolveIncludes(content, depth + 1, [...stack, rawPath]);
+  });
+}
+
 export function loadPrompt(personaId: PersonaId): string {
   const cached = cache.get(personaId);
   if (cached) return cached;
 
   const filePath = join(PROMPTS_DIR, `${personaId}.system.md`);
-  const content = readFileSync(filePath, 'utf-8');
-  cache.set(personaId, content);
-  return content;
+  const raw = readFileSync(filePath, 'utf-8');
+  const assembled = resolveIncludes(raw, 0, [personaId]);
+  cache.set(personaId, assembled);
+  return assembled;
 }
 
 /**
  * Load any system prompt by filename (without .system.md extension).
+ * Also supports `{{include:...}}` token resolution.
  */
 export function loadSystemPrompt(name: string): string {
   const cached = cache.get(name);
   if (cached) return cached;
 
   const filePath = join(PROMPTS_DIR, `${name}.system.md`);
-  const content = readFileSync(filePath, 'utf-8');
-  cache.set(name, content);
-  return content;
+  const raw = readFileSync(filePath, 'utf-8');
+  const assembled = resolveIncludes(raw, 0, [name]);
+  cache.set(name, assembled);
+  return assembled;
 }
 
 export function reloadPrompts(): void {
