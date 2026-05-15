@@ -5,7 +5,7 @@ import { SynthesisReportSchema, QuestionnaireResponseSchema, DoerTaskBreakdownSc
 import { PERSONA_CONFIGS, MODEL_MAP } from '@boardroom/shared';
 import { MODE_CONFIGS, type UserMode } from '@boardroom/shared';
 import { Agent } from './agent';
-import { initSSE, sendSSE } from './streaming';
+import { initSSE, sendSSE, abortOnClose } from './streaming';
 import { loadPrompt } from '../lib/prompt-loader';
 import type { OmniMindClient } from '../services/omnimind-client';
 import { toolRegistry } from '../tools';
@@ -56,6 +56,11 @@ export class CEOOrchestrator {
 
   async dispatch(session: SessionState, res: Response): Promise<void> {
     initSSE(res);
+    // AGT-04: if the client closes the connection, abort in-flight work so
+    // we stop being billed for tokens nobody is reading. The signal is
+    // surfaced via res.locals so child streaming helpers can opt in.
+    const abortController = abortOnClose(res);
+    res.locals.abortSignal = abortController.signal;
     const start = Date.now();
     const modeConfig = MODE_CONFIGS[session.mode];
     const personaIds = modeConfig.personas as PersonaId[];
@@ -174,12 +179,16 @@ export class CEOOrchestrator {
     }
 
     const durationMs = Date.now() - start;
-    sendSSE(res, { type: 'dispatch_complete', personaCount, durationMs });
-    res.end();
+    if (!abortController.signal.aborted) {
+      sendSSE(res, { type: 'dispatch_complete', personaCount, durationMs });
+      res.end();
+    }
   }
 
   async synthesize(session: SessionState, res: Response): Promise<void> {
     initSSE(res);
+    // AGT-04: wire client-disconnect → abort signal for the synthesis stream.
+    const abortController = abortOnClose(res);
 
     const formattedOutputs = Array.from(session.personaResponses.entries())
       .map(([id, resp]) => {
@@ -256,21 +265,31 @@ export class CEOOrchestrator {
 
     // Streaming synthesis path (existing behavior)
     try {
-      const stream = await this.client.messages.stream({
-        model,
-        max_tokens: PERSONA_CONFIGS.ceo.maxOutputTokens,
-        system: prompt,
-        messages: [{
-          role: 'user',
-          content: userContent,
-        }],
-      });
+      const stream = await this.client.messages.stream(
+        {
+          model,
+          max_tokens: PERSONA_CONFIGS.ceo.maxOutputTokens,
+          system: prompt,
+          messages: [{
+            role: 'user',
+            content: userContent,
+          }],
+        },
+        // AGT-04: tear down the upstream stream when the client disconnects.
+        { signal: abortController.signal } as Parameters<typeof this.client.messages.stream>[1],
+      );
 
       for await (const event of stream) {
+        if (abortController.signal.aborted) break;
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           fullText += event.delta.text;
           sendSSE(res, { type: 'delta', text: event.delta.text });
         }
+      }
+
+      if (abortController.signal.aborted) {
+        // Client gone — exit without writing further SSE events.
+        return;
       }
 
       const jsonStr = fullText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -283,11 +302,17 @@ export class CEOOrchestrator {
 
       sendSSE(res, { type: 'synthesis_complete', report, qualityScore });
     } catch (error) {
+      if (abortController.signal.aborted) {
+        // Client gave up — swallow the error and exit cleanly.
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Synthesis failed';
       sendSSE(res, { type: 'error', error: message });
     }
 
-    res.end();
+    if (!abortController.signal.aborted) {
+      res.end();
+    }
   }
 
   async runQuestionnaire(session: SessionState): Promise<QuestionnaireResponse> {

@@ -48,22 +48,34 @@ export class Agent {
     const model = MODEL_MAP[this.config.model];
     let fullText = '';
 
+    // AGT-04: pick up the orchestrator-installed abort signal so a client
+    // disconnect cancels the upstream Anthropic stream.
+    const abortSignal = (res.locals?.abortSignal as AbortSignal | undefined);
+
     try {
       res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId, model: this.config.model })}\n\n`);
 
-      const stream = await this.client.messages.stream({
-        model,
-        max_tokens: this.config.maxOutputTokens,
-        system: this.systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      });
+      const stream = await this.client.messages.stream(
+        {
+          model,
+          max_tokens: this.config.maxOutputTokens,
+          system: this.systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        },
+        abortSignal
+          ? ({ signal: abortSignal } as Parameters<typeof this.client.messages.stream>[1])
+          : undefined,
+      );
 
       for await (const event of stream) {
+        if (abortSignal?.aborted) break;
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           fullText += event.delta.text;
           res.write(`data: ${JSON.stringify({ type: 'delta', personaId, text: event.delta.text })}\n\n`);
         }
       }
+
+      if (abortSignal?.aborted) return null;
 
       const jsonStr = fullText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       const parsed = JSON.parse(jsonStr);
@@ -72,6 +84,7 @@ export class Agent {
       res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId, response: validated })}\n\n`);
       return validated;
     } catch (error) {
+      if (abortSignal?.aborted) return null;
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId, error: message })}\n\n`);
       return null;
