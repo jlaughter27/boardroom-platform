@@ -1,6 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { authMiddleware, AuthRequest, verifyToken, createToken, hashPassword, verifyPassword } from '../../src/middleware/auth';
 import jwt from 'jsonwebtoken';
+
+// authMiddleware now makes an async OmniMind call to validate password-changed-at.
+// Stub it out so tests don't need a running OmniMind server and can run synchronously.
+vi.mock('../../src/services/omnimind-client', () => ({
+  omnimindClient: {
+    getPasswordChangedAt: vi.fn().mockResolvedValue({ passwordChangedAt: null }),
+  },
+}));
 
 export const TEST_JWT_SECRET = 'test-jwt-secret-for-unit-tests-only';
 export const TEST_USER_ID = 'test-user-123';
@@ -77,14 +85,18 @@ describe('authMiddleware', () => {
   });
 
   describe('authentication scenarios', () => {
-    it('should call next() with valid JWT token', () => {
+    it('should call next() with valid JWT token', async () => {
       const token = createTestToken();
       const req = mockAuthRequest(token);
       const res = mockAuthResponse();
       const next = mockNextFunction();
-      
+
       authMiddleware(req, res, next);
-      
+      // Flush the promise chain: loadPasswordChangedAt → getPasswordChangedAt → .then
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
       expect(next).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
       expect(req.auth).toMatchObject({
@@ -139,16 +151,20 @@ describe('authMiddleware', () => {
       });
     });
 
-    it('should set auth payload with different user ID', () => {
+    it('should set auth payload with different user ID', async () => {
       const differentUserId = 'different-user-456';
       const token = createTestToken({ userId: differentUserId });
-      
+
       const req = mockAuthRequest(token);
       const res = mockAuthResponse();
       const next = mockNextFunction();
-      
+
       authMiddleware(req, res, next);
-      
+      // Flush the promise chain: loadPasswordChangedAt → getPasswordChangedAt → .then
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
       expect(next).toHaveBeenCalled();
       expect(req.auth?.userId).toBe(differentUserId);
       expect(req.auth?.email).toBe(TEST_EMAIL);

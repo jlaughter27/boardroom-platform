@@ -12,6 +12,10 @@ import * as api from './lib/api';
 import LoginPage from './pages/LoginPage';
 import OnboardingPage from './pages/OnboardingPage';
 
+// UX-1.3 / UX-1.4 — password reset + email verification flows are public.
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+
 // Lazy — loaded on demand
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const DecisionLabPage = lazy(() => import('./pages/DecisionLabPage'));
@@ -116,6 +120,8 @@ export default function App() {
       <Suspense fallback={PageFallback}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route element={<ProtectedRoute />}>
             {/* Onboarding — no sidebar/layout */}
             <Route path="/onboarding" element={<OnboardingPage />} />

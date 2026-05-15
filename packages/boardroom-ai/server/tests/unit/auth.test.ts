@@ -10,6 +10,14 @@ import {
 } from '../../src/middleware/auth';
 import type { Response } from 'express';
 
+// authMiddleware now makes an async OmniMind call to validate password-changed-at.
+// Stub it out so tests don't need a running OmniMind server.
+vi.mock('../../src/services/omnimind-client', () => ({
+  omnimindClient: {
+    getPasswordChangedAt: vi.fn().mockResolvedValue({ passwordChangedAt: null }),
+  },
+}));
+
 describe('auth', () => {
   const originalEnv = process.env;
 
@@ -24,22 +32,26 @@ describe('auth', () => {
   });
 
   describe('authMiddleware()', () => {
-    it('allows request with valid token cookie', () => {
+    it('allows request with valid token cookie', async () => {
       const authPayload: AuthPayload = { userId: 'user-123', email: 'test@test.com', teamId: 'team-123' };
       const token = createToken(authPayload);
-      
+
       const mockReq = {
         cookies: { boardroom_token: token },
       };
-      
+
       const mockRes: Partial<Response> = {
         status: vi.fn().mockReturnThis(),
         json: vi.fn().mockReturnThis(),
       };
-      
+
       const next = vi.fn();
 
       authMiddleware(mockReq as any, mockRes as Response, next);
+      // Flush the promise chain: loadPasswordChangedAt → getPasswordChangedAt → .then
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(next).toHaveBeenCalled();
       // JWT decoding adds iat/exp, so match subset of fields rather than deep-equal.

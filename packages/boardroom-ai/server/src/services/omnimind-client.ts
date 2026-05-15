@@ -275,6 +275,53 @@ export class OmniMindClient {
     );
   }
 
+  // Wave 3 Track E — auth-extras
+  async oauthLookupOrCreate(input: { provider: 'google' | 'github'; providerUserId: string; email: string; name: string }) {
+    return this.request<{
+      user: { id: string; email: string; name: string; teamId: string };
+      created: boolean;
+      linked: boolean;
+    }>('POST', '/auth/oauth/lookup-or-create', undefined, input);
+  }
+
+  async getUserByEmailForReset(email: string) {
+    // Wraps a GET that returns 404 silently — callers MUST treat 404 as
+    // "no user" and still return 200 to the public to avoid email-enumeration.
+    try {
+      return await this.request<{ id: string; email: string; name: string; teamId: string }>(
+        'GET', `/auth/user-by-email/${encodeURIComponent(email)}`,
+      );
+    } catch (err) {
+      const e = err as Error & { status?: number };
+      if (e.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async setPassword(userId: string, passwordHash: string) {
+    return this.request<{ status: string }>(
+      'POST', '/auth/set-password', undefined, { userId, passwordHash },
+    );
+  }
+
+  async markEmailVerified(userId: string) {
+    return this.request<{ status: string }>(
+      'POST', '/auth/mark-email-verified', undefined, { userId },
+    );
+  }
+
+  async getPasswordChangedAt(userId: string) {
+    return this.request<{ passwordChangedAt: string | null }>(
+      'GET', `/auth/password-changed-at/${userId}`,
+    );
+  }
+
+  async getEmailVerifiedAt(userId: string) {
+    return this.request<{ emailVerifiedAt: string | null }>(
+      'GET', `/auth/email-verified-at/${userId}`,
+    );
+  }
+
   // Entity CRUD (proxy for BoardRoom server routes)
   async createGoal(userId: string, input: unknown) {
     return this.request('POST', '/goals', userId, input);
