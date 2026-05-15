@@ -61,15 +61,18 @@ export default {
         danger: { DEFAULT: 'var(--color-danger)', muted: 'var(--color-danger-muted)' },
         info: { DEFAULT: 'var(--color-info)', muted: 'var(--color-info-muted)' },
 
-        // ── Persona colors (hardcoded — Phase 5 will add CSS var indirection) ──
+        // ── Persona colors — CSS var indirection with dark-mode variants
+        //    (defined in tokens.css). Hardcoded hexes retained as a fallback
+        //    via the var() default value for any context where Tailwind's
+        //    extracted output is rendered without our stylesheet.
         persona: {
-          optimist: '#22c55e',
-          critic: '#ef4444',
-          alternate: '#a855f7',
-          technician: '#3b82f6',
-          questionnaire: '#eab308',
-          doer: '#f97316',
-          ceo: '#06b6d4',
+          optimist: 'var(--persona-optimist, #16a34a)',
+          critic: 'var(--persona-critic, #dc2626)',
+          alternate: 'var(--persona-alternate, #9333ea)',
+          technician: 'var(--persona-technician, #2563eb)',
+          questionnaire: 'var(--persona-questionnaire, #ca8a04)',
+          doer: 'var(--persona-doer, #ea580c)',
+          ceo: 'var(--persona-ceo, #0891b2)',
         },
 
         // ── Status colors (hardcoded, work for both modes) ──
@@ -88,10 +91,12 @@ export default {
         display: ['var(--font-display)'],
       },
       borderRadius: {
+        xs: 'var(--radius-xs)',
         sm: 'var(--radius-sm)',
         md: 'var(--radius-md)',
         lg: 'var(--radius-lg)',
         xl: 'var(--radius-xl)',
+        full: 'var(--radius-full)',
       },
       boxShadow: {
         sm: 'var(--shadow-sm)',

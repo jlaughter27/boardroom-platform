@@ -83,11 +83,22 @@
   --space-16: 4rem;
 
   /* === RADII === */
+  /* 5-step scale. Surface guidance:
+   *   xs  = 4px  — micro chips, indicator dots
+   *   sm  = 6px  — small badges
+   *   md  = 8px  — inputs, buttons, selects (canonical control radius)
+   *   lg  = 12px — cards, modals, popovers, sheets
+   *   full= 9999px — pills, avatars, status dots
+   */
+  --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  --radius-xl: 1rem; /* retained for legacy callers; new code: use lg */
   --radius-full: 9999px;
+
+  /* === CONTROL HEIGHT === */
+  --control-height: 2.25rem; /* 36px — canonical for Button/Input/Select */
 
   /* === TRANSITIONS === */
   --duration-fast: 150ms;
@@ -95,6 +106,22 @@
   --duration-slow: 400ms;
   --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /* === MOTION LANGUAGE (Framer-consumable seconds + bezier arrays via JS) === */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 320ms;
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+  /* === PERSONA COLORS (light) === */
+  --persona-optimist: #16a34a;
+  --persona-critic: #dc2626;
+  --persona-alternate: #9333ea;
+  --persona-technician: #2563eb;
+  --persona-questionnaire: #ca8a04;
+  --persona-doer: #ea580c;
+  --persona-ceo: #0891b2;
 
   /* === Z-INDEX SCALE === */
   --z-base: 0;
@@ -142,6 +169,30 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
 
+  /* Persona colors (dark) — bumped saturation/luminance for dark cream bg */
+  --persona-optimist: #4ade80;
+  --persona-critic: #f87171;
+  --persona-alternate: #c084fc;
+  --persona-technician: #60a5fa;
+  --persona-questionnaire: #facc15;
+  --persona-doer: #fb923c;
+  --persona-ceo: #22d3ee;
+}
+
+/* Respect user motion preference globally for Framer/CSS animations */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+    --motion-duration-slow: 0ms;
+  }
+}
+
+/* Tabular numerals utility — Tailwind already exposes `tabular-nums`, but
+ * this class is a convenience for non-Tailwind sites and is loaded globally. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
 /* === KEYFRAMES === */

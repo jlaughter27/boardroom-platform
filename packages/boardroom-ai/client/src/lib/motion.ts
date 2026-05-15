@@ -12,6 +12,42 @@ export const useReducedMotion = () => {
   return reduced;
 };
 
+/**
+ * Motion tokens — mirror the `--motion-duration-*` CSS vars in seconds for
+ * Framer Motion's `transition` props. Framer expects seconds-as-number;
+ * tokens.css stores ms strings for CSS consumers. Keep these two layers
+ * in sync if you change either.
+ *
+ * `MOTION.reduced` is set automatically by the media query in tokens.css
+ * (it zeroes the CSS vars under prefers-reduced-motion), but Framer runs
+ * via JS rAF and won't see the CSS-var swap. Components that drive Framer
+ * transitions should call `useReducedMotion()` and pass `duration: 0` when
+ * reduced is true, OR consume `motionTransition()` below.
+ */
+export const MOTION = {
+  duration: {
+    fast: 0.12,
+    base: 0.2,
+    slow: 0.32,
+  },
+  ease: {
+    standard: [0.4, 0, 0.2, 1] as [number, number, number, number],
+    emphasized: [0.2, 0, 0, 1] as [number, number, number, number],
+  },
+} as const;
+
+/** Build a Framer transition that respects prefers-reduced-motion. */
+export function motionTransition(
+  speed: keyof typeof MOTION.duration = 'base',
+  ease: keyof typeof MOTION.ease = 'standard',
+  reducedMotion = false
+) {
+  return {
+    duration: reducedMotion ? 0 : MOTION.duration[speed],
+    ease: MOTION.ease[ease],
+  };
+}
+
 export const fadeIn = {
   initial: { opacity: 0 },
   animate: { opacity: 1 },
