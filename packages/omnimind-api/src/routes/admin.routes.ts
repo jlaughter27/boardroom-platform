@@ -182,20 +182,46 @@ router.get('/memories', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /admin/contradictions — contradiction alerts across all users
+// GET /admin/contradictions — contradiction alerts (tenant-scoped by default)
 router.get('/contradictions', async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string ?? '50', 10), 200);
     const offset = parseInt(req.query.offset as string ?? '0', 10);
 
+    // F-210: ContradictionAlert has no `tenantId` column of its own, so we
+    // scope via the set of userIds that own at least one memory in the
+    // caller's tenant. This mirrors the F-102 fix pattern for /admin/* —
+    // without it, any holder of OMNIMIND_API_KEY could read every tenant's
+    // contradiction alerts (which can contain semi-sensitive titles).
+    const tenantId = resolveTenantFilter(req);
+
+    let userIdScope: string[] | null = null;
+    if (tenantId) {
+      const memoryUsers = await prisma.memoryEntry.findMany({
+        where: { tenantId, deletedAt: null },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      userIdScope = memoryUsers.map(m => m.userId);
+      // No memories for this tenant → no contradictions either.
+      if (userIdScope.length === 0) {
+        res.json({ alerts: [], total: 0, offset, limit });
+        return;
+      }
+    }
+
+    const where = userIdScope
+      ? { resolvedAt: null, userId: { in: userIdScope } }
+      : { resolvedAt: null };
+
     const [alerts, total] = await Promise.all([
       prisma.contradictionAlert.findMany({
-        where: { resolvedAt: null },
+        where,
         orderBy: { detectedAt: 'desc' },
         take: limit,
         skip: offset,
       }),
-      prisma.contradictionAlert.count({ where: { resolvedAt: null } }),
+      prisma.contradictionAlert.count({ where }),
     ]);
 
     res.json({ alerts, total, offset, limit });

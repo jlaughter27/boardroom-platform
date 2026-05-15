@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
 import { archiveCutoffDate } from './forgetting-curve';
+import { logger } from '../lib/logger';
 
 export interface TrigramSearchOptions {
   limit?: number;
@@ -91,7 +92,10 @@ export async function trigramSearch(
       lastAccessedAt: r.last_accessed_at,
       sourceWeight: r.source_weight,
     }));
-  } catch {
+  } catch (err) {
+    // F-204: log before returning [] so a broken pg_trgm install or schema
+    // drift doesn't silently degrade retrieval to zero results.
+    logger.error('[trigram] retrieval failed', { error: err });
     // pg_trgm may not be enabled yet — degrade gracefully
     return [];
   }

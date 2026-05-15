@@ -1,19 +1,10 @@
 import { z } from 'zod';
 import { extractAndDedup } from '../lib/fact-extractor';
 import { requireScope } from '../lib/namespace';
-import { withAudit } from '../lib/audit';
+import { withAudit, writeAuditLog } from '../lib/audit';
+import { DomainSchema } from '../lib/schemas';
 import type { OmniMindClient } from '../lib/client';
 import type { AgentContext, MemoryWriteResult } from '../types';
-
-/**
- * Normalize domain so refusal gates (ministry) cannot be bypassed by case or
- * whitespace. WS-6 F-101. Mirrors the same transform in @boardroom/shared's
- * CreateMemoryRequestSchema so MCP-side gate and API-side gate agree.
- */
-const DomainSchema = z
-  .string()
-  .min(1)
-  .transform(s => s.trim().toLowerCase());
 
 const MemoryWriteInput = z.object({
   content: z.string().min(1).max(10000).describe('The memory content to store'),
@@ -57,7 +48,19 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
       const input = MemoryWriteInput.parse(raw);
 
       // Ministry domain is explicitly deferred (Phase 6+)
+      // F-212: log the refused attempt before the early return so forensics on
+      // misconfigured/hostile agents have an audit trail. The ministry-redactor
+      // in writeAuditLog ensures the content field is replaced with the
+      // [REDACTED:ministry] marker before persistence.
       if (input.domain === 'ministry') {
+        await writeAuditLog(client, {
+          agentId: ctx.agentId,
+          tenantId: ctx.tenantId,
+          toolName: 'memory_write',
+          inputJson: input as unknown,
+          errorMessage: 'MINISTRY_DEFERRED',
+          durationMs: 0,
+        });
         return {
           created: [],
           updated: [],

@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
 import { archiveCutoffDate } from './forgetting-curve';
+import { logger } from '../lib/logger';
 
 export interface SemanticSearchOptions {
   limit?: number;
@@ -79,6 +80,9 @@ export async function semanticSearch(
       sourceWeight: r.source_weight,
     }));
   } catch (err) {
+    // F-204: log before returning [] so a broken pgvector install, OpenAI 401,
+    // or schema-drift error doesn't silently degrade retrieval to zero results.
+    logger.error('[semantic] retrieval failed', { error: err });
     // pgvector may not be enabled or no embeddings exist
     return [];
   }

@@ -42,8 +42,14 @@ export async function runKeygen(): Promise<void> {
     });
     console.log(`[keygen] ✅ Agent registered via API`);
   } catch (err) {
+    // F-208: Prisma maps the Agent model to the lowercase `agents` table via
+    // @@map. The previous SQL fallback referenced `"Agent"` (PascalCase) and
+    // failed with `relation "Agent" does not exist` when copy-pasted into psql.
+    // gen_random_uuid() vs Prisma's cuid() drift is intentional for the manual
+    // fallback path — pgcrypto's UUID is a valid id and avoids forcing the
+    // operator to install/run cuid manually.
     console.warn(`\n[keygen] Could not register via API (${(err as Error).message}). Use the SQL below to insert manually:\n`);
-    console.log(`INSERT INTO "Agent" (id, name, api_key_hash, tenant_id, scopes, source_weight, created_at)`);
+    console.log(`INSERT INTO "agents" (id, name, api_key_hash, tenant_id, scopes, source_weight, created_at)`);
     console.log(`VALUES (gen_random_uuid(), '${agent}', '${keyHash}', '${tenant}', ARRAY[${scopeList.map(s => `'${s}'`).join(', ')}], ${sourceWeight}, NOW())\n`);
     console.log(`ON CONFLICT (name) DO UPDATE SET api_key_hash = EXCLUDED.api_key_hash, scopes = EXCLUDED.scopes, source_weight = EXCLUDED.source_weight;`);
   }

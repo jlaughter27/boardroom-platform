@@ -5,8 +5,8 @@ import { prisma } from './lib/db';
 import { logger } from './lib/logger';
 import { apiKeyAuth } from './middleware/auth';
 import { agentContextMiddleware } from './middleware/agent-context';
-import { rateLimiter } from './middleware/rate-limiter';
-import { agentRateLimiter } from './middleware/agent-rate-limiter';
+import { rateLimiter, stopRateLimiter } from './middleware/rate-limiter';
+import { agentRateLimiter, stopAgentRateLimiter } from './middleware/agent-rate-limiter';
 import { errorHandler } from './middleware/error-handler';
 import { healthRouter } from './routes/health.routes';
 import { memoriesRouter } from './routes/memories.routes';
@@ -85,6 +85,9 @@ const shutdown = async () => {
   stopWeeklyDigestScheduler();
   stopImportanceDecayScheduler();
   stopEmbeddingRetryScheduler();
+  // F-209: clear the rate-limiter cleanup intervals so we can exit cleanly.
+  stopRateLimiter();
+  stopAgentRateLimiter();
   await prisma.$disconnect();
   process.exit(0);
 };
