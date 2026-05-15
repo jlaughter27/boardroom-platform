@@ -27,6 +27,15 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 const app: ReturnType<typeof express> = express();
+
+// MID-02: Railway terminates TLS at its load balancer and forwards via
+// X-Forwarded-For. Without trust proxy, req.ip is the LB's IP for every
+// request — express-rate-limit then buckets the whole world into one
+// shared bucket. Setting trust proxy=1 tells Express to trust ONE hop of
+// X-Forwarded-* (the Railway LB) and surface the real client IP.
+// Critical for launch — see docs/_audits/2026-05-15-launch-prep/02-backend-routes.md.
+app.set('trust proxy', 1);
+
 const port = process.env.PORT || process.env.BOARDROOM_PORT || 3001;
 
 // Global middleware
