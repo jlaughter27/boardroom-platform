@@ -65,7 +65,7 @@ export async function createMemory(
   if (dedupeEmbedding) {
     const dupe = await findNearDuplicate(userId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
     if (dupe) {
-      logger.info({ dupeId: dupe.id }, 'Near-duplicate detected — auto-superseding existing memory');
+      logger.info('Near-duplicate detected — auto-superseding existing memory', { dupeId: dupe.id });
       await updateMemory(userId, dupe.id, {
         title: input.title,
         content: input.content,
