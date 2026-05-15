@@ -48,10 +48,24 @@ export type MemoryInput = z.infer<typeof MemorySchema>;
 
 // ── Create Memory Request Schema ──
 
+/**
+ * Normalize domain values so refusal gates (e.g. ministry) cannot be bypassed
+ * by case variation or padding. WS-6 F-101.
+ *
+ * Trim whitespace, lowercase, reject empty. The downstream refusal check
+ * (`memory.service.ts`) compares against `'ministry'` (lowercase) — anything
+ * that should be refused MUST normalize to that form here.
+ */
+const DomainSchema = z
+  .string()
+  .min(1)
+  .transform(s => s.trim().toLowerCase())
+  .refine(s => s.length > 0, { message: 'domain cannot be empty after trim' });
+
 export const CreateMemoryRequestSchema = z.object({
   title: z.string().min(1).describe('Short title summarizing the memory'),
   content: z.string().min(1).describe('Full text content of the memory'),
-  domain: z.string().min(1).describe('Knowledge domain this memory belongs to'),
+  domain: DomainSchema.describe('Knowledge domain this memory belongs to'),
   sourceType: SourceTypeSchema.describe('How this memory was created'),
   sector: z.string().optional().describe('Sector within the domain'),
   tags: z.array(z.string()).optional().describe('Searchable tags'),
@@ -69,7 +83,7 @@ export type CreateMemoryRequestInput = z.infer<typeof CreateMemoryRequestSchema>
 export const UpdateMemoryRequestSchema = z.object({
   title: z.string().min(1).optional().describe('Short title summarizing the memory'),
   content: z.string().min(1).optional().describe('Full text content of the memory'),
-  domain: z.string().min(1).optional().describe('Knowledge domain this memory belongs to'),
+  domain: DomainSchema.optional().describe('Knowledge domain this memory belongs to'),
   sourceType: SourceTypeSchema.optional().describe('How this memory was created'),
   sector: z.string().optional().describe('Sector within the domain'),
   tags: z.array(z.string()).optional().describe('Searchable tags'),

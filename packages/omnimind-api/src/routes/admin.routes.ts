@@ -211,40 +211,75 @@ router.post('/summarize', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /admin/duplicates — list memory pairs with cosine similarity above threshold
+// GET /admin/duplicates — list memory pairs with cosine similarity above threshold.
+// WS-6 F-102 — tenant-scoped by default; ?includeAllTenants=true requires
+// explicit opt-in (and is still bounded by the caller's API key auth).
 router.get('/duplicates', async (req, res, next) => {
   try {
     const threshold = Math.max(0, Math.min(1, parseFloat((req.query.threshold as string) ?? '0.85')));
-    const pairs = await prisma.$queryRaw<Array<{
-      a_id: string; a_title: string; a_created: Date;
-      b_id: string; b_title: string; b_created: Date;
-      cosine: number;
-    }>>`
-      SELECT
-        a.id       AS a_id,
-        a.title    AS a_title,
-        a.created_at AS a_created,
-        b.id       AS b_id,
-        b.title    AS b_title,
-        b.created_at AS b_created,
-        1 - (a.embedding <=> b.embedding) AS cosine
-      FROM "memory_entries" a
-      JOIN "memory_entries" b
-        ON a.id < b.id
-       AND a.user_id = b.user_id
-      WHERE a.embedding IS NOT NULL
-        AND b.embedding IS NOT NULL
-        AND a.deleted_at IS NULL
-        AND b.deleted_at IS NULL
-        AND 1 - (a.embedding <=> b.embedding) > ${threshold}
-      ORDER BY cosine DESC
-      LIMIT 100
-    `;
+    const tenantId = resolveTenantFilter(req);
+
+    const pairs = tenantId
+      ? await prisma.$queryRaw<Array<{
+          a_id: string; a_title: string; a_created: Date;
+          b_id: string; b_title: string; b_created: Date;
+          cosine: number;
+        }>>`
+          SELECT
+            a.id       AS a_id,
+            a.title    AS a_title,
+            a.created_at AS a_created,
+            b.id       AS b_id,
+            b.title    AS b_title,
+            b.created_at AS b_created,
+            1 - (a.embedding <=> b.embedding) AS cosine
+          FROM "memory_entries" a
+          JOIN "memory_entries" b
+            ON a.id < b.id
+           AND a.user_id = b.user_id
+           AND a.tenant_id = b.tenant_id
+          WHERE a.embedding IS NOT NULL
+            AND b.embedding IS NOT NULL
+            AND a.deleted_at IS NULL
+            AND b.deleted_at IS NULL
+            AND a.tenant_id = ${tenantId}
+            AND 1 - (a.embedding <=> b.embedding) > ${threshold}
+          ORDER BY cosine DESC
+          LIMIT 100
+        `
+      : await prisma.$queryRaw<Array<{
+          a_id: string; a_title: string; a_created: Date;
+          b_id: string; b_title: string; b_created: Date;
+          cosine: number;
+        }>>`
+          SELECT
+            a.id       AS a_id,
+            a.title    AS a_title,
+            a.created_at AS a_created,
+            b.id       AS b_id,
+            b.title    AS b_title,
+            b.created_at AS b_created,
+            1 - (a.embedding <=> b.embedding) AS cosine
+          FROM "memory_entries" a
+          JOIN "memory_entries" b
+            ON a.id < b.id
+           AND a.user_id = b.user_id
+          WHERE a.embedding IS NOT NULL
+            AND b.embedding IS NOT NULL
+            AND a.deleted_at IS NULL
+            AND b.deleted_at IS NULL
+            AND 1 - (a.embedding <=> b.embedding) > ${threshold}
+          ORDER BY cosine DESC
+          LIMIT 100
+        `;
     res.json({ pairs, threshold });
   } catch (err) { next(err); }
 });
 
-// POST /admin/duplicates/merge — keep newer memory, archive older
+// POST /admin/duplicates/merge — keep newer memory, archive older.
+// WS-6 F-102 — verify the archive target belongs to the caller's tenant before
+// any soft-delete. Cross-tenant merges are refused with 404 (deliberate — don't
+// reveal existence of memories in other tenants).
 router.post('/duplicates/merge', async (req, res, next) => {
   try {
     const { keepId, archiveId, userId } = req.body as { keepId: string; archiveId: string; userId: string };
@@ -253,13 +288,27 @@ router.post('/duplicates/merge', async (req, res, next) => {
       return;
     }
 
-    // Soft-delete the archived entry
+    const callerTenant = req.agentContext?.tenantId ?? null;
+
+    // Verify the archive target belongs to the caller's tenant (when context is
+    // attached). If no agent context is present (legacy admin call), allow the
+    // operation but log it — that path is gated only by OMNIMIND_API_KEY.
+    const targetWhere: Record<string, unknown> = { id: archiveId, userId, deletedAt: null };
+    if (callerTenant) targetWhere.tenantId = callerTenant;
+
+    const target = await prisma.memoryEntry.findFirst({ where: targetWhere });
+    if (!target) {
+      // Don't distinguish "not found" from "wrong tenant" — same response in both.
+      res.status(404).json({ error: 'not_found', message: 'Memory not found' });
+      return;
+    }
+
     await prisma.memoryEntry.updateMany({
       where: { id: archiveId, userId, deletedAt: null },
       data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
     });
 
-    logger.info('[admin] Duplicate merge: archived older memory', { keepId, archiveId });
+    logger.info('[admin] Duplicate merge: archived older memory', { keepId, archiveId, tenantId: callerTenant });
     res.json({ status: 'ok', kept: keepId, archived: archiveId });
   } catch (err) { next(err); }
 });

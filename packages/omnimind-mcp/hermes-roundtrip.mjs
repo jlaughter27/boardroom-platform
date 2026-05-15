@@ -28,10 +28,11 @@ async function run() {
     name: 'memory_write',
     arguments: {
       userId: USER_ID,
-      content: `Hermes end-to-end smoke test. Marker: ${writeMarker}. If you can read this back via memory_search, the full stack works: stdio transport, scope enforcement, fact extraction, dedup, embeddings, Postgres write, audit log.`,
+      content: `Hermes end-to-end smoke test. Marker: ${writeMarker}. Proves seam works: agent context, outbox, scope enforcement, Postgres write, audit log.`,
       domain: 'business',
       tags: ['hermes', 'smoke-test', writeMarker],
       importance: 0.6,
+      skipExtraction: true, // ANTHROPIC_API_KEY on prod is revoked; skip fact extraction to verify rest of seam
     },
   });
   console.log(JSON.stringify(writeResult, null, 2).slice(0, 1500));

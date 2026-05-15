@@ -99,7 +99,8 @@ export function taskStatusTool(client: OmniMindClient, ctx: AgentContext) {
     description: 'Look up the current status of a task.',
     inputSchema: TaskStatusInput,
     async execute(raw: unknown) {
-      requireScope(ctx, 'task:write');
+      // WS-6 F-103 — read-only tool requires read scope, not write.
+      requireScope(ctx, 'memory:read');
       const input = TaskStatusInput.parse(raw);
 
       return withAudit(client, ctx, 'task_status', input, async () => {
@@ -130,7 +131,8 @@ export function taskListTool(client: OmniMindClient, ctx: AgentContext) {
     description: 'List tasks, optionally filtered by status.',
     inputSchema: TaskListInput,
     async execute(raw: unknown) {
-      requireScope(ctx, 'task:write');
+      // WS-6 F-103 — read-only tool requires read scope, not write.
+      requireScope(ctx, 'memory:read');
       const input = TaskListInput.parse(raw);
 
       return withAudit(client, ctx, 'task_list', input, async () => {

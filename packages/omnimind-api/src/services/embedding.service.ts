@@ -56,11 +56,15 @@ async function ollamaEmbed(text: string): Promise<number[]> {
 
 // Ministry domain MUST use Ollama — never send to OpenAI
 // All other domains use OpenAI text-embedding-3-small
+//
+// WS-6 F-101 — normalize domain so case/whitespace variants don't bypass the
+// Ollama-only routing (which would otherwise send ministry text to OpenAI).
 export async function generateEmbeddingWithRetry(
   text: string,
   domain?: string
 ): Promise<number[] | null> {
-  if (domain === 'ministry') {
+  const normalizedDomain = domain?.trim().toLowerCase();
+  if (normalizedDomain === 'ministry') {
     try {
       const vec = await ollamaEmbed(text);
       return padTo1536(vec);

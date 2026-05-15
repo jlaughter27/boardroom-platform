@@ -6,7 +6,7 @@ import type { AgentContext } from '../src/types';
 
 const MEM = { id: 'task-1', title: 'Build MCP', content: 'Task: Build MCP\nStatus: todo', domain: 'business', tags: ['task', 'task:todo'], importance: 0.6, sourceType: 'MCP_AGENT', tenantId: 'josh-business', createdAt: '', updatedAt: '' };
 
-function makeCtx(scopes = ['task:write']): AgentContext {
+function makeCtx(scopes = ['task:write', 'memory:read']): AgentContext {
   return { agentId: 'ag', agentName: 'ag', tenantId: 'josh-business', scopes, sourceWeight: 1.0 };
 }
 
