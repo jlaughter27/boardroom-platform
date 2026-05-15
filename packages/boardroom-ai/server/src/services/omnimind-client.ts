@@ -256,6 +256,12 @@ export class OmniMindClient {
     );
   }
 
+  async deleteUser(id: string) {
+    return this.request<{ id: string; status: string }>(
+      'DELETE', `/auth/user/${id}`
+    );
+  }
+
   async getUserById(id: string) {
     return this.request<{ id: string; email: string; name: string; teamId: string } | null>(
       'GET', `/auth/user/${id}`

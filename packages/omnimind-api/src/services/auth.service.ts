@@ -75,6 +75,8 @@ export async function getUserByEmail(email: string): Promise<AuthUser | null> {
   });
 
   if (!user) return null;
+  // Soft-deleted users cannot log in
+  if ((user as { deletedAt?: Date | null }).deletedAt) return null;
 
   return {
     id: user.id,
@@ -101,6 +103,8 @@ export async function getUserById(id: string): Promise<Omit<AuthUser, 'passwordH
   });
 
   if (!user) return null;
+  // Soft-deleted users are treated as not-found
+  if ((user as { deletedAt?: Date | null }).deletedAt) return null;
 
   return {
     id: user.id,
@@ -109,4 +113,30 @@ export async function getUserById(id: string): Promise<Omit<AuthUser, 'passwordH
     teamId: user.teamMemberships[0]?.teamId ?? '',
     createdAt: user.createdAt,
   };
+}
+
+/**
+ * Soft-delete a user. Sets deletedAt and anonymizes email so it can be
+ * reused for a fresh signup. Cascading cleanup of personal data is left
+ * to a follow-up 30-day hard-delete job.
+ *
+ * Returns true if a user was deleted, false if none was found.
+ */
+export async function softDeleteUser(id: string): Promise<boolean> {
+  const existing = await prisma.user.findUnique({ where: { id } });
+  if (!existing) return false;
+  if ((existing as { deletedAt?: Date | null }).deletedAt) return true; // already gone — idempotent
+
+  const now = new Date();
+  const anonymizedEmail = `deleted+${id}@deleted.local`;
+  await prisma.user.update({
+    where: { id },
+    data: {
+      deletedAt: now,
+      email: anonymizedEmail,
+      // Invalidate password — any leaked hash cannot reactivate the account
+      passwordHash: 'DELETED',
+    } as { deletedAt: Date; email: string; passwordHash: string },
+  });
+  return true;
 }

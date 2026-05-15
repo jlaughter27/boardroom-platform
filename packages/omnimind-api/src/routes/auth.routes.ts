@@ -81,4 +81,18 @@ router.get('/user/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// DELETE /auth/user/:id — soft-delete the user account (GDPR compliance)
+router.delete('/user/:id', async (req, res, next) => {
+  try {
+    const userId = req.params.id;
+    const result = await authService.softDeleteUser(userId);
+    if (!result) {
+      res.status(404).json({ error: 'not_found', message: 'User not found' });
+      return;
+    }
+    logger.info('User soft-deleted', { userId });
+    res.json({ id: userId, status: 'deleted' });
+  } catch (err) { next(err); }
+});
+
 export const authRouter: IRouter = router;

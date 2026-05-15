@@ -72,4 +72,18 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// DELETE /auth/account — self-serve account deletion (soft-delete via OmniMind)
+router.delete('/account', authMiddleware, async (req: AuthRequest, res, next) => {
+  try {
+    const userId = req.auth!.userId;
+    await omnimindClient.deleteUser(userId);
+    res.clearCookie('boardroom_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    });
+    res.json({ status: 'deleted' });
+  } catch (err) { next(err); }
+});
+
 export const authRouter = router;
