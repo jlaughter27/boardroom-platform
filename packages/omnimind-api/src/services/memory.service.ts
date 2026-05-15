@@ -5,12 +5,52 @@ import { embedMemory, generateEmbeddingWithRetry } from './embedding.service';
 import { logger } from '../lib/logger';
 import { decrypt } from '../lib/crypto';
 import { HttpError } from '../middleware/error-handler';
+import type { AgentContext } from '../middleware/agent-context';
+
+export type { AgentContext };
 
 const MINISTRY_DEFERRED_MSG =
   'Ministry-domain memories are deferred. Single-user testing mode. ' +
   'Re-enable via Phase 6 (Ollama + encryption rollout) when ready.';
 
 const DEDUP_THRESHOLD = 0.92;
+
+/**
+ * Backward-compat shim: legacy callers pass (userId, input, prisma).
+ * New callers pass (userId, input, agentContext, prisma).
+ *
+ * Detect Prisma vs. AgentContext by structural shape:
+ *   - Real PrismaClient instances expose a `memoryEntry` model client
+ *     AND many `$`-prefixed methods.
+ *   - Mocked Prisma in tests typically has `memoryEntry`.
+ *   - AgentContext has primitive fields (agentId, tenantId, sourceWeight).
+ */
+function isPrismaLike(x: unknown): x is PrismaClient {
+  if (!x || typeof x !== 'object') return false;
+  const obj = x as Record<string, unknown>;
+  // Real client: $connect. Mocked client: memoryEntry model object.
+  return (
+    typeof obj.$connect === 'function' ||
+    (typeof obj.memoryEntry === 'object' && obj.memoryEntry !== null)
+  );
+}
+
+function resolveContextAndPrisma(
+  a: AgentContext | PrismaClient | undefined,
+  b: PrismaClient | undefined
+): { agentContext: AgentContext | undefined; prisma: PrismaClient } {
+  if (isPrismaLike(a)) {
+    return { agentContext: undefined, prisma: a as PrismaClient };
+  }
+  if (b) {
+    return { agentContext: a as AgentContext | undefined, prisma: b };
+  }
+  // Neither shape matched — caller is broken. Surface a clear error so the
+  // route handler sees it instead of a cryptic Prisma null deref later.
+  throw new Error(
+    'memory.service: prisma client is required as 3rd or 4th argument'
+  );
+}
 
 async function findNearDuplicate(
   userId: string,
@@ -52,8 +92,14 @@ export async function createMemory(
     sourceRef?: string | null;
     metadata?: Record<string, unknown>;
   },
-  prisma: PrismaClient
+  agentContextOrPrisma?: AgentContext | PrismaClient,
+  prismaArg?: PrismaClient
 ) {
+  // Backward-compat: this function used to take (userId, input, prisma).
+  // New signature: (userId, input, agentContext?, prisma).
+  // Detect which arg is which based on shape.
+  const { agentContext, prisma } = resolveContextAndPrisma(agentContextOrPrisma, prismaArg);
+
   // Ministry domain is explicitly deferred (Phase 6+). Refuse at the boundary.
   if (input.domain === 'ministry') {
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
@@ -65,13 +111,15 @@ export async function createMemory(
   if (dedupeEmbedding) {
     const dupe = await findNearDuplicate(userId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
     if (dupe) {
+      // CRITICAL: pass the agent context through the dedup update path so we don't strip
+      // tenantId / agentId / sourceWeight on the merge (fix for Bug #3).
       logger.info('Near-duplicate detected — auto-superseding existing memory', { dupeId: dupe.id });
       await updateMemory(userId, dupe.id, {
         title: input.title,
         content: input.content,
         importance: Math.max(dupe.importance, input.importance ?? 0.5),
         tags: Array.from(new Set([...dupe.tags, ...(input.tags ?? [])])),
-      }, prisma);
+      }, agentContext, prisma);
       return {
         success: true as const,
         data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
@@ -85,8 +133,11 @@ export async function createMemory(
     return { success: false as const, errors: validation.errors };
   }
 
-  // Auto-set source weight based on sourceType (fallback to MANUAL weight)
-  const sourceWeight = (SOURCE_WEIGHTS as Record<string, number>)[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
+  // Source weight resolution: agent context (from header / Agent table) wins,
+  // else fall back to the static sourceType lookup table.
+  const fallbackSourceWeight =
+    (SOURCE_WEIGHTS as Record<string, number>)[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
+  const sourceWeight = agentContext?.sourceWeight ?? fallbackSourceWeight;
 
   const memory = await prisma.memoryEntry.create({
     data: {
@@ -108,6 +159,14 @@ export async function createMemory(
       status: 'DRAFT' as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       metadata: (input.metadata ?? {}) as any,
+      // Agent context — present for MCP writes, absent for BoardRoom AI writes
+      // (which will keep the schema default of tenantId='josh-personal' and agentId=NULL).
+      ...(agentContext
+        ? {
+            agentId: agentContext.agentId,
+            tenantId: agentContext.tenantId,
+          }
+        : {}),
     },
   });
 
@@ -139,11 +198,21 @@ function decryptMemory<T extends { domain: string; content: string; encryptedCon
   return mem;
 }
 
-// Get single memory by ID, scoped to userId
-export async function getMemory(userId: string, id: string, prisma: PrismaClient) {
-  const memory = await prisma.memoryEntry.findFirst({
-    where: { id, userId, deletedAt: null },
-  });
+// Get single memory by ID, scoped to userId AND tenantId (when context is present)
+export async function getMemory(
+  userId: string,
+  id: string,
+  agentContextOrPrisma?: AgentContext | PrismaClient,
+  prismaArg?: PrismaClient
+) {
+  const { agentContext, prisma } = resolveContextAndPrisma(agentContextOrPrisma, prismaArg);
+
+  const where: Prisma.MemoryEntryWhereInput = { id, userId, deletedAt: null };
+  if (agentContext?.tenantId) {
+    where.tenantId = agentContext.tenantId;
+  }
+
+  const memory = await prisma.memoryEntry.findFirst({ where });
   if (!memory) return null;
   return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
 }
@@ -163,9 +232,17 @@ export async function searchMemories(
     sortOrder?: string;
     limit?: number;
     offset?: number;
+    /**
+     * Admin-only escape hatch: when true, do NOT enforce the tenant filter
+     * derived from agentContext. Filtering by `filters.tenantId` still applies.
+     */
+    includeAllTenants?: boolean;
   },
-  prisma: PrismaClient
+  agentContextOrPrisma?: AgentContext | PrismaClient,
+  prismaArg?: PrismaClient
 ) {
+  const { agentContext, prisma } = resolveContextAndPrisma(agentContextOrPrisma, prismaArg);
+
   const limit = Math.min(filters.limit ?? 20, 100);
   const offset = filters.offset ?? 0;
 
@@ -174,7 +251,19 @@ export async function searchMemories(
     deletedAt: null,
   };
 
-  if (filters.tenantId) where.tenantId = filters.tenantId;
+  // Tenant resolution precedence:
+  //   1. Explicit `filters.tenantId` (admin / cross-tenant routes)
+  //   2. `agentContext.tenantId` (MCP requests carrying x-tenant-id)
+  //   3. unscoped (legacy BoardRoom AI behavior) — only allowed if includeAllTenants is true
+  //
+  // Default: if neither a filter nor a context tenant is present, leave unfiltered.
+  // The MCP route layer will pass `req.agentContext`, so MCP traffic is always scoped.
+  if (filters.tenantId) {
+    where.tenantId = filters.tenantId;
+  } else if (agentContext?.tenantId && !filters.includeAllTenants) {
+    where.tenantId = agentContext.tenantId;
+  }
+
   if (filters.domain) where.domain = filters.domain;
   if (filters.memoryClass) where.memoryClass = filters.memoryClass as any;
   if (filters.status) {
@@ -216,12 +305,19 @@ export async function updateMemory(
   userId: string,
   id: string,
   input: Record<string, unknown>,
-  prisma: PrismaClient
+  agentContextOrPrisma?: AgentContext | PrismaClient,
+  prismaArg?: PrismaClient
 ) {
-  // Verify ownership
-  const existing = await prisma.memoryEntry.findFirst({
-    where: { id, userId, deletedAt: null },
-  });
+  const { agentContext, prisma } = resolveContextAndPrisma(agentContextOrPrisma, prismaArg);
+
+  // Verify ownership AND tenant match (when context is present).
+  // This prevents cross-tenant updates: agent in tenant A cannot mutate a memory in tenant B.
+  const ownershipWhere: Prisma.MemoryEntryWhereInput = { id, userId, deletedAt: null };
+  if (agentContext?.tenantId) {
+    ownershipWhere.tenantId = agentContext.tenantId;
+  }
+
+  const existing = await prisma.memoryEntry.findFirst({ where: ownershipWhere });
   if (!existing) return null;
 
   // Ministry domain is deferred — refuse updates too
@@ -229,7 +325,24 @@ export async function updateMemory(
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
   }
 
-  const updateData: Record<string, unknown> = { ...input, version: { increment: 1 } };
+  // Propagate agent context onto the update — this is the path that the dedup
+  // branch in createMemory takes when superseding an existing row. Without
+  // this, the dedup branch silently dropped tenantId/agentId/sourceWeight
+  // (Bug #3 from Hermes findings).
+  // Agent-supplied input values for these fields are overridden — context wins.
+  const contextOverrides = agentContext
+    ? {
+        agentId: agentContext.agentId,
+        tenantId: agentContext.tenantId,
+        sourceWeight: agentContext.sourceWeight,
+      }
+    : {};
+
+  const updateData: Record<string, unknown> = {
+    ...input,
+    ...contextOverrides,
+    version: { increment: 1 },
+  };
 
   const memory = await prisma.memoryEntry.update({
     where: { id },
@@ -249,10 +362,20 @@ export async function updateMemory(
 }
 
 // Archive (soft delete)
-export async function archiveMemory(userId: string, id: string, prisma: PrismaClient) {
-  const existing = await prisma.memoryEntry.findFirst({
-    where: { id, userId, deletedAt: null },
-  });
+export async function archiveMemory(
+  userId: string,
+  id: string,
+  agentContextOrPrisma?: AgentContext | PrismaClient,
+  prismaArg?: PrismaClient
+) {
+  const { agentContext, prisma } = resolveContextAndPrisma(agentContextOrPrisma, prismaArg);
+
+  const where: Prisma.MemoryEntryWhereInput = { id, userId, deletedAt: null };
+  if (agentContext?.tenantId) {
+    where.tenantId = agentContext.tenantId;
+  }
+
+  const existing = await prisma.memoryEntry.findFirst({ where });
   if (!existing) return null;
 
   await prisma.memoryEntry.update({

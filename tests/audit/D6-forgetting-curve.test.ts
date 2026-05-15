@@ -53,7 +53,9 @@ describe('D6 — Forgetting Curve', () => {
       },
     };
 
-    const results = await structuredFilter('user-1', 'old stale', { limit: 10 }, mockPrisma as any);
+    // includeAllTenants: true preserves pre-WS-1 behavior for this legacy
+    // forgetting-curve smoke test. Production callers now pass tenantId.
+    const results = await structuredFilter('user-1', 'old stale', { limit: 10, includeAllTenants: true }, mockPrisma as any);
 
     // The query should have included the forgetting curve OR clause
     // Verify the findMany was called with the forgetting curve filter
@@ -70,8 +72,12 @@ describe('D6 — Forgetting Curve', () => {
       },
     };
 
-    // @ts-expect-error — includeArchived is passed via options duck-typing
-    const results = await structuredFilter('user-1', 'old stale', { limit: 10, includeArchived: true }, mockPrisma as any);
+    const results = await structuredFilter(
+      'user-1',
+      'old stale',
+      { limit: 10, includeArchived: true, includeAllTenants: true },
+      mockPrisma as any
+    );
 
     const callArgs = mockPrisma.memoryEntry.findMany.mock.calls[0][0];
     // When includeArchived, the OR clause (forgetting curve) should NOT be added

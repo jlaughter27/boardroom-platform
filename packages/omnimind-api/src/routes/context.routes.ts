@@ -30,6 +30,11 @@ router.post('/for-persona', validateBody(ContextForPersonaBodySchema), async (re
     const result = await assembleContextForPersona(userId, query, persona, prisma, {
       maxItems,
       includeEntities,
+      // Tenant scope: MCP requests carry x-tenant-id via req.agentContext.
+      // Legacy non-MCP callers (BoardRoom AI) have no agentContext — they
+      // opt into all-tenants so the existing behavior is preserved.
+      tenantId: req.agentContext?.tenantId,
+      includeAllTenants: !req.agentContext?.tenantId,
     });
 
     res.json(result);

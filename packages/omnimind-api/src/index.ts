@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { prisma } from './lib/db';
 import { logger } from './lib/logger';
 import { apiKeyAuth } from './middleware/auth';
+import { agentContextMiddleware } from './middleware/agent-context';
 import { rateLimiter } from './middleware/rate-limiter';
 import { agentRateLimiter } from './middleware/agent-rate-limiter';
 import { errorHandler } from './middleware/error-handler';
@@ -44,6 +45,8 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(apiKeyAuth);
+// agent-context MUST follow apiKeyAuth: it reads x-api-key for Agent fallback lookup.
+app.use(agentContextMiddleware);
 app.use(rateLimiter);
 app.use(agentRateLimiter);
 

@@ -3,21 +3,38 @@ import type { ScoredResult } from '@boardroom/shared';
 
 export type { ScoredResult };
 
+export interface StructuredFilterOptions {
+  domain?: string;
+  tags?: string[];
+  limit?: number;
+  includeArchived?: boolean;
+  /** Tenant scope. Required unless `includeAllTenants` is true. */
+  tenantId?: string;
+  /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
+  includeAllTenants?: boolean;
+}
+
 export async function structuredFilter(
   userId: string,
   query: string,
-  options: { domain?: string; tags?: string[]; limit?: number },
+  options: StructuredFilterOptions,
   prisma: PrismaClient
 ): Promise<ScoredResult[]> {
-  const includeArchived = (options as { includeArchived?: boolean }).includeArchived ?? false;
+  const includeArchived = options.includeArchived ?? false;
   const archiveCutoffMs = 90 * 24 * 60 * 60 * 1000;
   const archiveCutoff = new Date(Date.now() - archiveCutoffMs);
+
+  // Safer default: no tenant + no explicit cross-tenant flag => return 0 results.
+  if (!options.tenantId && !options.includeAllTenants) return [];
 
   const where: Record<string, unknown> = {
     userId,
     deletedAt: null,
     status: { not: 'ARCHIVED' },
   };
+  if (options.tenantId) {
+    where.tenantId = options.tenantId;
+  }
 
   // Forgetting curve: exclude low-importance memories not accessed in 90 days
   // unless caller explicitly opts in with includeArchived

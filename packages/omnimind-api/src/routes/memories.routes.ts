@@ -22,7 +22,7 @@ router.post('/', async (req, res, next) => {
       return;
     }
 
-    const result = await memoryService.createMemory(userId, parseResult.data, prisma);
+    const result = await memoryService.createMemory(userId, parseResult.data, req.agentContext, prisma);
     if (!result.success) {
       res.status(422).json({ error: 'validation_failed', details: result.errors });
       return;
@@ -67,24 +67,49 @@ router.post('/search-similar', async (req, res, next) => {
     const safeThreshold = Math.max(0, Math.min(1, threshold));
     const safeLimit = Math.min(Math.max(1, limit), 20);
 
-    const rows = await prisma.$queryRaw<Array<{
-      id: string; title: string; content: string; domain: string;
-      tags: string[]; importance: number; source_type: string;
-      tenant_id: string; source_weight: number;
-      created_at: Date; updated_at: Date; similarity: number;
-    }>>`
-      SELECT id, title, content, domain, tags, importance, source_type,
-             tenant_id, source_weight, created_at, updated_at,
-             1 - (embedding <=> ${embedding}::vector) AS similarity
-      FROM "memory_entries"
-      WHERE "user_id" = ${userId}
-        AND embedding IS NOT NULL
-        AND "deleted_at" IS NULL
-        AND status != 'ARCHIVED'
-        AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
-      ORDER BY embedding <=> ${embedding}::vector
-      LIMIT ${safeLimit}
-    `;
+    // CRITICAL: filter by tenantId when agent context is present.
+    // Previously this route dropped the tenant scope entirely (Bug #2 from Hermes findings),
+    // letting an MCP agent in tenant A see semantically-similar memories from tenant B.
+    const tenantId = req.agentContext?.tenantId ?? null;
+
+    const rows = tenantId
+      ? await prisma.$queryRaw<Array<{
+          id: string; title: string; content: string; domain: string;
+          tags: string[]; importance: number; source_type: string;
+          tenant_id: string; source_weight: number;
+          created_at: Date; updated_at: Date; similarity: number;
+        }>>`
+          SELECT id, title, content, domain, tags, importance, source_type,
+                 tenant_id, source_weight, created_at, updated_at,
+                 1 - (embedding <=> ${embedding}::vector) AS similarity
+          FROM "memory_entries"
+          WHERE "user_id" = ${userId}
+            AND tenant_id = ${tenantId}
+            AND embedding IS NOT NULL
+            AND "deleted_at" IS NULL
+            AND status != 'ARCHIVED'
+            AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
+          ORDER BY embedding <=> ${embedding}::vector
+          LIMIT ${safeLimit}
+        `
+      : await prisma.$queryRaw<Array<{
+          id: string; title: string; content: string; domain: string;
+          tags: string[]; importance: number; source_type: string;
+          tenant_id: string; source_weight: number;
+          created_at: Date; updated_at: Date; similarity: number;
+        }>>`
+          SELECT id, title, content, domain, tags, importance, source_type,
+                 tenant_id, source_weight, created_at, updated_at,
+                 1 - (embedding <=> ${embedding}::vector) AS similarity
+          FROM "memory_entries"
+          WHERE "user_id" = ${userId}
+            AND embedding IS NOT NULL
+            AND "deleted_at" IS NULL
+            AND status != 'ARCHIVED'
+            AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
+          ORDER BY embedding <=> ${embedding}::vector
+          LIMIT ${safeLimit}
+        `;
 
     const memories = rows.map(r => ({
       id: r.id,
@@ -138,7 +163,7 @@ router.get('/', async (req, res, next) => {
       sortOrder: req.query.sortOrder as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
-    }, prisma);
+    }, req.agentContext, prisma);
 
     res.json(result);
   } catch (err) { next(err); }
@@ -150,7 +175,7 @@ router.get('/:id', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const memory = await memoryService.getMemory(userId, req.params.id, prisma);
+    const memory = await memoryService.getMemory(userId, req.params.id, req.agentContext, prisma);
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     res.json(memory);
@@ -172,7 +197,7 @@ router.patch('/:id', async (req, res, next) => {
       return;
     }
 
-    const memory = await memoryService.updateMemory(userId, req.params.id, parseResult.data, prisma);
+    const memory = await memoryService.updateMemory(userId, req.params.id, parseResult.data, req.agentContext, prisma);
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     res.json(memory);
@@ -185,7 +210,7 @@ router.delete('/:id', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const result = await memoryService.archiveMemory(userId, req.params.id, prisma);
+    const result = await memoryService.archiveMemory(userId, req.params.id, req.agentContext, prisma);
     if (!result) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     res.json(result);

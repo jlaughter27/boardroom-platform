@@ -14,6 +14,14 @@ import type { AgentContext, McpTool } from './types';
 export function createMcpServer(ctx?: AgentContext) {
   const agentCtx = ctx ?? resolveAgentFromEnv();
   const client = createOmniMindClient();
+  // Bind agent identity to the client so every outbound HTTP request carries
+  // x-agent-id, x-tenant-id, x-source-weight. The server-side middleware
+  // reads these to populate req.agentContext.
+  client.setAgentHeaders({
+    agentId: agentCtx.agentId,
+    tenantId: agentCtx.tenantId,
+    sourceWeight: agentCtx.sourceWeight,
+  });
 
   const server = new McpServer({
     name: 'omnimind-mcp',
