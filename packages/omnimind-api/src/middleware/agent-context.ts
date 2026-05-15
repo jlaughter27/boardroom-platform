@@ -45,6 +45,11 @@ function parseSourceWeight(raw: unknown): number | null {
   if (raw === undefined || raw === null) return null;
   const s = Array.isArray(raw) ? raw[0] : raw;
   if (typeof s !== 'string') return null;
+  // F-217: gate the input with a strict decimal regex before Number(). Without
+  // this, scientific-notation ("1e308") and hex ("0xFF") inputs parsed cleanly
+  // and were then clamped to 2 — effectively letting a hostile header bump the
+  // caller above all other agents in the sourceWeight ranking tiebreaker.
+  if (!/^\d+(\.\d+)?$/.test(s.trim())) return null;
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
   // Clamp to [0, 2] — the schema allows arbitrary floats but anything outside

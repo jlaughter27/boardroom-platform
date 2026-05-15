@@ -17,10 +17,26 @@ async function sleep(ms: number) {
 // tests (and hot-reloaded envs) can't override it, and the service is
 // impossible to run without the key set even though the missing-key path is
 // handled gracefully.
+//
+// F-213: memoize the OpenAI client keyed on the current apiKey value. The
+// previous implementation built a new OpenAI({apiKey}) on every call — with
+// the outbox retry cron firing every 2 minutes and processing batches of 50
+// that meant 50 needless constructor calls per tick. We re-init only when the
+// env var changes (e.g. a hot-rotation after key revoke).
+let cachedClient: OpenAI | null = null;
+let cachedApiKey: string | null = null;
+
 function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
+  const apiKey = process.env.OPENAI_API_KEY ?? null;
+  if (!apiKey) {
+    cachedClient = null;
+    cachedApiKey = null;
+    return null;
+  }
+  if (cachedClient && cachedApiKey === apiKey) return cachedClient;
+  cachedClient = new OpenAI({ apiKey });
+  cachedApiKey = apiKey;
+  return cachedClient;
 }
 
 // Pad a vector to 1536 dims with zeros (ministry embeddings are 768-dim)
