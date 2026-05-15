@@ -38,6 +38,6 @@ const priorityColors: Record<number, string> = {
 };
 
 export function PriorityDot({ priority }: { priority: number }) {
-  const color = priorityColors[priority] ?? 'bg-text-tertiary';
+  const color = priorityColors[priority] ?? 'bg-muted-foreground';
   return <span className={`inline-block w-2 h-2 rounded-full ${color}`} />;
 }

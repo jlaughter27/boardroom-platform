@@ -256,6 +256,12 @@ export class OmniMindClient {
     );
   }
 
+  async deleteUser(id: string) {
+    return this.request<{ id: string; status: string }>(
+      'DELETE', `/auth/user/${id}`
+    );
+  }
+
   async getUserById(id: string) {
     return this.request<{ id: string; email: string; name: string; teamId: string } | null>(
       'GET', `/auth/user/${id}`
@@ -333,6 +339,37 @@ export class OmniMindClient {
 
   async deleteTask(userId: string, id: string) {
     return this.request('DELETE', `/tasks/${id}`, userId);
+  }
+
+  // Decision Sessions (BoardRoom-owned decision flow, persisted via OmniMind)
+  async createDecisionSession(userId: string, input: { id?: string; question: string; mode?: string; roomId?: string | null }) {
+    return this.request<{ id: string; userId: string; question: string; mode: string | null; personaResponses: Record<string, unknown>; ceoSynthesis: string | null; createdAt: string; updatedAt: string }>(
+      'POST', '/decision-sessions', userId, input
+    );
+  }
+
+  async getDecisionSession(userId: string, id: string) {
+    return this.request<{ id: string; userId: string; question: string; mode: string | null; personaResponses: Record<string, unknown>; ceoSynthesis: string | null; createdAt: string; updatedAt: string } | null>(
+      'GET', `/decision-sessions/${id}`, userId
+    );
+  }
+
+  async listDecisionSessions(userId: string, limit?: number, offset?: number) {
+    const qs = new URLSearchParams();
+    if (limit !== undefined) qs.set('limit', String(limit));
+    if (offset !== undefined) qs.set('offset', String(offset));
+    const q = qs.toString();
+    return this.request<{ items: Array<{ id: string; question: string; mode: string | null; personaResponses: Record<string, unknown>; ceoSynthesis: string | null; createdAt: string }>; total: number; offset: number; limit: number }>(
+      'GET', `/decision-sessions${q ? `?${q}` : ''}`, userId
+    );
+  }
+
+  async updateDecisionSession(userId: string, id: string, input: { question?: string; mode?: string; personaResponses?: Record<string, unknown>; ceoSynthesis?: unknown }) {
+    return this.request('PATCH', `/decision-sessions/${id}`, userId, input);
+  }
+
+  async deleteDecisionSession(userId: string, id: string) {
+    return this.request('DELETE', `/decision-sessions/${id}`, userId);
   }
 
   // User profile

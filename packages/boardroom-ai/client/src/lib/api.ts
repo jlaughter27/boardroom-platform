@@ -147,6 +147,10 @@ export function logout() {
   return request<{ status: string }>('/auth/logout', { method: 'POST' });
 }
 
+export function deleteAccount() {
+  return request<{ status: string }>('/auth/account', { method: 'DELETE' });
+}
+
 export function getMe() {
   return request<AuthUser>('/auth/me');
 }

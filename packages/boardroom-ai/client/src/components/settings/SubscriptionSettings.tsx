@@ -158,7 +158,7 @@ export function SubscriptionSettings() {
       <h2 className="text-lg font-semibold text-foreground mb-4">Subscription</h2>
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-text-tertiary" />
+          <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground" />
           <span className="text-sm text-muted-foreground font-medium">
             {sub?.status === 'CANCELED' ? 'Canceled' : 'Expired'}
           </span>

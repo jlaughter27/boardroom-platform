@@ -47,7 +47,7 @@ export function ProjectsStep({ data, onUpdate, onExtract, isExtracting }: Props)
           onChange={(e) => onUpdate({ projectsText: e.target.value })}
           placeholder="e.g. We're rebuilding our mobile app, migrating to a new CRM, preparing for a Series B fundraise..."
           rows={4}
-          className="w-full bg-background border border-borderrounded-md px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-all duration-fast outline-none resize-none"
+          className="w-full bg-background border border-border rounded-md px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-all duration-fast outline-none resize-none"
         />
         <Button
           variant="secondary"

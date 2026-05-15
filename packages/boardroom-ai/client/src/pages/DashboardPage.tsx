@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { DashboardConfigurator } from '../components/dashboard/DashboardConfigurator';
+import { EntityForm } from '../components/dashboard/EntityForm';
+import { Modal } from '../components/shared/Modal';
 import { useWidgetLayout } from '../hooks/useWidgetLayout';
 import { useUIStore } from '../stores/ui.store';
 import { useEntitiesStore } from '../stores/entities.store';
@@ -45,7 +48,8 @@ export default function DashboardPage() {
     useWidgetLayout();
   const { configuratorOpen, openConfigurator, closeConfigurator } = useUIStore();
   usePageTitle('Dashboard');
-  const { error: entitiesError, clearError: clearEntitiesError } = useEntitiesStore();
+  const { error: entitiesError, clearError: clearEntitiesError, createGoal } = useEntitiesStore();
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
   const { error: cortexError, clearError: clearCortexError } = useCortexStore();
   const user = useAuthStore((s) => s.user);
   const warnings = useCognitiveLoad();
@@ -165,12 +169,12 @@ export default function DashboardPage() {
               className="grid grid-cols-1 md:grid-cols-3 gap-4"
             >
               {[
-                { title: 'Create a Goal', desc: 'Set your first objective to track', icon: '\uD83C\uDFAF', route: '/' },
-                { title: 'Start a Decision', desc: 'Analyze your first decision with AI', icon: '\u2696\uFE0F', route: '/decisions' },
-                { title: 'Add Team Members', desc: 'Build your stakeholder network', icon: '\uD83D\uDC65', route: '/people' },
+                { title: 'Create a Goal', desc: 'Set your first objective to track', icon: '\uD83C\uDFAF', onClick: () => setGoalModalOpen(true) },
+                { title: 'Start a Decision', desc: 'Analyze your first decision with AI', icon: '\u2696\uFE0F', onClick: () => navigate('/decisions') },
+                { title: 'Add Team Members', desc: 'Build your stakeholder network', icon: '\uD83D\uDC65', onClick: () => navigate('/people') },
               ].map((item) => (
                 <motion.div key={item.title} {...staggerItem}>
-                  <Card hover onClick={() => navigate(item.route)} className="text-center py-6">
+                  <Card hover onClick={item.onClick} className="text-center py-6">
                     {/* Warm-gold halo around the icon — turns placeholder emoji
                         into a branded "quick action" chip. */}
                     <span
@@ -199,6 +203,17 @@ export default function DashboardPage() {
       </motion.div>
         )}
       </AnimatePresence>
+
+      <Modal isOpen={goalModalOpen} onClose={() => setGoalModalOpen(false)} title="Create a Goal">
+        <EntityForm
+          entityType="goal"
+          onSubmit={async (data) => {
+            await createGoal(data);
+            setGoalModalOpen(false);
+          }}
+          onCancel={() => setGoalModalOpen(false)}
+        />
+      </Modal>
     </PageWrapper>
   );
 }
