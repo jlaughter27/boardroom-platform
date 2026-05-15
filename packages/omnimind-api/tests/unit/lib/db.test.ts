@@ -1,45 +1,62 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-// Create hoisted mocks that will be available before module imports
+// WS-7: This entire test file is OBSOLETE.
+// It tests:
+//   - getPrismaClient(userId) — does not exist in current src/lib/db.ts
+//   - attachRLSClient middleware — does not exist
+//   - systemPrisma + db-audit (withRLS, createSystemClient) — module removed
+//   - Prisma $on('error'|'query') event handler wiring — removed
+// Current src/lib/db.ts is 3 lines: `export const prisma = new PrismaClient()`.
+// The RLS / per-user-scoped Prisma client design was reverted; tenant
+// filtering now happens at the service layer (see WS-1 agentContext).
+//
+// Behavior coverage:
+//   - Tenant isolation is covered by tests/e2e/E2E-2-tenant-isolation.test.ts
+//     (WS-5) and tests/audit/D8/D9 — both exercise the real service-layer
+//     filtering rather than the deleted middleware.
+//   - Singleton Prisma export is exercised by every integration test that
+//     imports `prisma` from src/lib/db.
+//
+// Cost to revive: would require reintroducing the RLS-middleware design
+// (~1 day of architecture work). Out of scope for WS-7.
+//
+// Hoisted stubs kept so describe.skip + the dead it-block bodies still
+// type-check.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockWithRLS = vi.hoisted(() => vi.fn());
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockCreateSystemClient = vi.hoisted(() => vi.fn());
 const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
 }));
-
-// Create a mock Prisma client instance that will be returned by the constructor
 const mockPrismaInstance = vi.hoisted(() => ({
   $on: vi.fn(),
 }));
-
-// Mock PrismaClient constructor that returns our mock instance
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockPrismaConstructor = vi.hoisted(() => vi.fn(() => mockPrismaInstance));
-
-// Mock dependencies BEFORE importing the module
-vi.mock('../../../src/lib/db-audit', () => ({
-  withRLS: mockWithRLS,
-  createSystemClient: mockCreateSystemClient,
-}));
 
 vi.mock('../../../src/lib/logger', () => ({
   logger: mockLogger,
 }));
 
-vi.mock('@prisma/client', () => ({
-  PrismaClient: mockPrismaConstructor,
-}));
+// Stand-ins for deleted symbols so the dead it-block bodies still type-check.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+const getPrismaClient: any = () => undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+const systemPrisma: any = undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+const attachRLSClient: any = undefined;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const moduleLoadOnCalls: unknown[] = [];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const moduleLoadCreateSystemClientCalls: unknown[] = [];
+import { prisma } from '../../../src/lib/db';
+// reference `prisma` to satisfy the unused-import lint
+void prisma;
 
-// Now import the module after mocks are set up
-import { getPrismaClient, systemPrisma, prisma, attachRLSClient } from '../../../src/lib/db';
-
-// Snapshot the module-load state BEFORE any vi.clearAllMocks() so the
-// Prisma event-handler tests can still verify what happened at import time.
-const moduleLoadOnCalls = [...(mockPrismaInstance.$on as any).mock.calls];
-const moduleLoadCreateSystemClientCalls = [...mockCreateSystemClient.mock.calls];
-
-describe('db.ts', () => {
+describe.skip('db.ts (skipped — see file header)', () => {
   let mockRLSClient: any;
   let consoleLogSpy: any;
 

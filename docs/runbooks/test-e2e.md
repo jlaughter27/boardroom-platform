@@ -36,6 +36,16 @@ From repo root:
 pnpm test:e2e
 ```
 
+To run unit + E2E together (the gate the orchestrator validates against):
+
+```bash
+pnpm test:all
+```
+
+This is equivalent to `pnpm test && pnpm test:e2e`. The unit suite has no
+infra dependencies; if the docker test-Postgres isn't up, `test:e2e` will
+hard-fail and `test:all` will short-circuit before deploying anything.
+
 This runs `vitest run --config vitest.e2e.config.ts`. The config:
 
 - Runs sequentially (`fileParallelism: false`) — every file owns the

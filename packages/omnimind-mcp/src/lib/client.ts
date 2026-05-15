@@ -133,8 +133,20 @@ export class OmniMindClient {
       ...(params.includeArchived && { includeArchived: 'true' }),
     });
 
-    const result = await this.request<{ memories: MemoryRecord[] }>('GET', `/memories?${qs}`, undefined, params.userId);
-    return result.memories ?? [];
+    // WS-7.3 shape bug fix: the GET /memories route returns
+    //   { items: MemoryRecord[], total: number, offset: number, limit: number }
+    // (matches the standard listing envelope used elsewhere in the API). The
+    // client previously read `result.memories`, which is always undefined →
+    // `searchMemories` silently returned `[]`. Surfaced by WS-5 E2E-2 (which
+    // had to route around it). The /memories/search-similar POST endpoint
+    // does still return `{ memories: [...] }` — that one is correct.
+    const result = await this.request<{ items?: MemoryRecord[]; memories?: MemoryRecord[] }>(
+      'GET',
+      `/memories?${qs}`,
+      undefined,
+      params.userId
+    );
+    return result.items ?? result.memories ?? [];
   }
 
   async createMemory(params: CreateMemoryParams, userId: string): Promise<MemoryRecord> {
