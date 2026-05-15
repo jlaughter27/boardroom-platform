@@ -1,20 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import { rateLimiter } from '../../../src/middleware/rate-limiter';
-
-const RATE_LIMITS = { MAX_QUERIES_PER_MINUTE: 60 };
+// WS-7: use the real shared constant — the test previously hardcoded 60,
+// but `RATE_LIMITS.MAX_QUERIES_PER_MINUTE` is 20 in packages/shared. The
+// arithmetic assertions below scale with it.
+import { RATE_LIMITS } from '@boardroom/shared';
 
 describe('rateLimiter middleware', () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let mockNext: NextFunction;
   let originalDateNow: () => number;
+  // WS-7: the rate-limiter holds bucket state in a module-level Map that
+  // outlives a single test. Use a unique user per test so buckets don't
+  // collide. Tests that intentionally compare across users override this.
+  let testUserId: string;
+  let testCounter = 0;
 
   beforeEach(() => {
+    testCounter += 1;
+    testUserId = `user-test-${testCounter}-${Date.now()}`;
     mockReq = {
       path: '/memories',
       method: 'GET',
-      headers: { 'x-user-id': 'user-123' },
+      headers: { 'x-user-id': testUserId },
     };
     mockRes = {
       status: vi.fn().mockReturnThis(),
@@ -44,10 +53,11 @@ describe('rateLimiter middleware', () => {
   });
 
   it('should allow requests under the rate limit', () => {
-    for (let i = 0; i < 30; i++) {
+    const underLimit = Math.floor(RATE_LIMITS.MAX_QUERIES_PER_MINUTE / 2);
+    for (let i = 0; i < underLimit; i++) {
       rateLimiter(mockReq as Request, mockRes as Response, mockNext);
     }
-    expect(mockNext).toHaveBeenCalledTimes(30);
+    expect(mockNext).toHaveBeenCalledTimes(underLimit);
     expect(mockRes.status).not.toHaveBeenCalled();
   });
 
@@ -83,8 +93,9 @@ describe('rateLimiter middleware', () => {
   });
 
   it('should track rate limits per method per user', () => {
-    const userA = 'user-a';
-    const userB = 'user-b';
+    // WS-7: unique per-test IDs so buckets are fresh.
+    const userA = `user-a-${testCounter}-${Date.now()}`;
+    const userB = `user-b-${testCounter}-${Date.now()}`;
     
     // User A makes 60 GET requests
     mockReq.headers = { 'x-user-id': userA };

@@ -8,15 +8,24 @@ import {
   validateMemoryInput,
 } from '../../../src/services/memory.service';
 import { runValidationPipeline } from '../../../src/memory/validation/pipeline';
-import { embedMemory } from '../../../src/services/embedding.service';
+import { embedMemory, generateEmbeddingWithRetry } from '../../../src/services/embedding.service';
 import { SOURCE_WEIGHTS } from '@boardroom/shared';
 
 // Mock dependencies
 vi.mock('../../../src/memory/validation/pipeline');
-vi.mock('../../../src/services/embedding.service');
+// WS-7: vi.mock without a factory turns every export into undefined, which
+// breaks `generateEmbeddingWithRetry(...).catch(...)` in createMemory.
+// Provide a factory that returns Promise-shaped resolves.
+vi.mock('../../../src/services/embedding.service', () => ({
+  embedMemory: vi.fn().mockResolvedValue(undefined),
+  generateEmbeddingWithRetry: vi.fn().mockResolvedValue(null),
+  getEmbeddingStatus: vi.fn().mockResolvedValue('ready'),
+}));
 vi.mock('../../../src/lib/logger', () => ({
   logger: {
     error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
@@ -77,6 +86,9 @@ describe('Memory Service', () => {
         'business',
         mockPrisma
       );
+      // WS-7: WS-1 added agentId propagation. Non-MCP callers default to
+      // 'boardroom-ai' (the service-layer counterpart to the migration's
+      // 'legacy' DB default). Update assertion to match the live signature.
       expect(mockPrisma.memoryEntry.create).toHaveBeenCalledWith({
         data: {
           userId: 'user-1',
@@ -93,6 +105,7 @@ describe('Memory Service', () => {
           sourceWeight: SOURCE_WEIGHTS.MANUAL,
           status: 'DRAFT',
           metadata: { custom: 'data' },
+          agentId: 'boardroom-ai',
         },
       });
       expect(embedMemory).toHaveBeenCalledWith('mem-123');
@@ -142,6 +155,7 @@ describe('Memory Service', () => {
       
       await createMemory('user-1', inputWithoutOptional, mockPrisma);
       
+      // WS-7: WS-1 added agentId propagation (see comment above).
       expect(mockPrisma.memoryEntry.create).toHaveBeenCalledWith({
         data: {
           userId: 'user-1',
@@ -158,24 +172,28 @@ describe('Memory Service', () => {
           sourceWeight: SOURCE_WEIGHTS.MANUAL,
           status: 'DRAFT',
           metadata: {},
+          agentId: 'boardroom-ai',
         },
       });
     });
 
     it('should use source weight based on sourceType', async () => {
+      // WS-7: 'EMAIL' is no longer a valid SourceType — WS-4.2 introduced
+      // strict validation. Use MCP_AGENT, which is in the canonical set and
+      // has its own distinct sourceWeight.
       const input = {
         ...validInput,
-        sourceType: 'EMAIL',
+        sourceType: 'MCP_AGENT',
       };
-      
+
       mockPrisma.memoryEntry.create.mockResolvedValue({ id: 'mem-123' });
-      
+
       await createMemory('user-1', input, mockPrisma);
-      
+
       expect(mockPrisma.memoryEntry.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            sourceWeight: SOURCE_WEIGHTS.EMAIL,
+            sourceWeight: SOURCE_WEIGHTS.MCP_AGENT,
           }),
         })
       );
@@ -184,12 +202,17 @@ describe('Memory Service', () => {
 
   describe('getMemory', () => {
     it('should return memory when found', async () => {
+      // WS-7: include `domain` so the service's decryptMemory() pass through
+      // normalizeDomain() doesn't crash on undefined.
       const mockMemory = {
         id: 'mem-123',
         userId: 'user-1',
         title: 'Test',
+        domain: 'business',
+        content: 'Test content',
+        encryptedContent: null,
       };
-      
+
       mockPrisma.memoryEntry.findFirst.mockResolvedValue(mockMemory);
       
       const result = await getMemory('user-1', 'mem-123', mockPrisma);
@@ -211,7 +234,12 @@ describe('Memory Service', () => {
 
   describe('searchMemories', () => {
     it('should search with default parameters', async () => {
-      const mockItems = [{ id: 'mem-1' }, { id: 'mem-2' }];
+      // WS-7: searchMemories passes each row through decryptMemory(),
+      // which calls normalizeDomain(mem.domain). Include `domain` on each.
+      const mockItems = [
+        { id: 'mem-1', domain: 'business', content: 'c1', encryptedContent: null },
+        { id: 'mem-2', domain: 'business', content: 'c2', encryptedContent: null },
+      ];
       const mockTotal = 2;
       
       mockPrisma.memoryEntry.findMany.mockResolvedValue(mockItems);
@@ -290,12 +318,16 @@ describe('Memory Service', () => {
 
   describe('updateMemory', () => {
     it('should update memory when found', async () => {
+      // WS-7: include `domain` for normalizeDomain in service's update path.
       const existingMemory = {
         id: 'mem-123',
         userId: 'user-1',
         version: 1,
+        domain: 'business',
+        content: 'existing',
+        encryptedContent: null,
       };
-      
+
       const updatedMemory = {
         ...existingMemory,
         title: 'Updated',
@@ -331,7 +363,15 @@ describe('Memory Service', () => {
     });
 
     it('should trigger embedding when content or title changed', async () => {
-      const existingMemory = { id: 'mem-123', userId: 'user-1', version: 1 };
+      // WS-7: include `domain` for normalizeDomain.
+      const existingMemory = {
+        id: 'mem-123',
+        userId: 'user-1',
+        version: 1,
+        domain: 'business',
+        content: 'existing',
+        encryptedContent: null,
+      };
       mockPrisma.memoryEntry.findFirst.mockResolvedValue(existingMemory);
       mockPrisma.memoryEntry.update.mockResolvedValue({ ...existingMemory, version: 2 });
       

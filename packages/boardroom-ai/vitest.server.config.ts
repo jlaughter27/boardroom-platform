@@ -8,6 +8,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // WS-7: bump from the 5s default. calculator-tool and tool-registry
+    // import `mathjs` (a ~3.5s synchronous JIT compile on first use) and
+    // can exceed 5s under parallel `turbo run test` CPU contention. The
+    // tests themselves are fast — the cold mathjs initialization is the
+    // tail. 15s gives a generous margin without masking real hangs.
+    testTimeout: 15000,
+    hookTimeout: 15000,
     include: ['server/tests/**/*.{test,spec}.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/client/**'],
     coverage: {

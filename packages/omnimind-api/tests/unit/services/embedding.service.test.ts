@@ -176,10 +176,13 @@ describe('embedding.service.ts', () => {
       mockPrisma.memoryEntry.findUnique.mockResolvedValue(null);
 
       await embedMemory('non-existent-id');
-      
+
+      // WS-7: embedMemory now also selects `domain` so the ministry vs.
+      // OpenAI routing decision has the field available without an extra
+      // round-trip. Update the test expectation to match.
       expect(mockPrisma.memoryEntry.findUnique).toHaveBeenCalledWith({
         where: { id: 'non-existent-id' },
-        select: { id: true, title: true, content: true },
+        select: { id: true, title: true, content: true, domain: true },
       });
       // Should not proceed to generate embedding
       expect(mockOpenAIClient.embeddings.create).not.toHaveBeenCalled();
@@ -199,10 +202,11 @@ describe('embedding.service.ts', () => {
       });
 
       await embedMemory('memory-123');
-      
+
+      // WS-7: embedMemory now also selects `domain` (see comment above).
       expect(mockPrisma.memoryEntry.findUnique).toHaveBeenCalledWith({
         where: { id: 'memory-123' },
-        select: { id: true, title: true, content: true },
+        select: { id: true, title: true, content: true, domain: true },
       });
       
       expect(mockOpenAIClient.embeddings.create).toHaveBeenCalledWith({
