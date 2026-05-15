@@ -64,6 +64,40 @@ jobs:
       # with pgvector + pg_trgm extensions. Wire up a service container
       # (postgres:16 + extensions) before enabling that suite in CI.
 
+  lint:
+    name: Lint + Tailwind guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # Wave 3 Track G — keep this job separate from typecheck/test/build so
+      # a lint failure (almost always a quick local fix) doesn't drown out
+      # signal from heavier failures.
+      - name: ESLint (workspace)
+        run: pnpm lint
+      # Belt-and-suspenders grep gate for the specific patterns Wave 2 had
+      # to repair. The ESLint rule `boardroom/no-class-concat` already
+      # catches these, but a literal grep is cheaper to reason about and
+      # gives us a second line of defence if someone disables ESLint
+      # locally with eslint-disable comments.
+      - name: Grep gate — phantom Tailwind tokens + class-concat typos
+        run: |
+          set -eo pipefail
+          BAD_PATTERNS='bg-text-tertiary|border-t-line|border-borderrounded|border-border-mx'
+          if grep -rE "$BAD_PATTERNS" packages/boardroom-ai/client/src/; then
+            echo "::error::Found banned Tailwind class patterns above. See docs/_audits/2026-05-15-launch-prep/WAVE-3-DEV-PROMPT.md Track G."
+            exit 1
+          fi
+          echo "Grep gate clean."
+
   build:
     name: Build (boardroom-ai)
     runs-on: ubuntu-latest
