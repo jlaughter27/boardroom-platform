@@ -9,7 +9,7 @@ describe('Input', () => {
     expect(input).toBeInTheDocument();
     expect(input).toHaveClass('bg-card');
     expect(input).toHaveClass('border-border');
-    expect(input).toHaveClass('rounded-xl');
+    expect(input).toHaveClass('rounded-md');
   });
 
   it('renders with label', () => {
@@ -32,7 +32,7 @@ describe('Input', () => {
     expect(error).toBeInTheDocument();
     expect(error).toHaveClass('text-destructive');
     expect(input).toHaveClass('border-destructive');
-    expect(input).toHaveClass('focus:border-destructive');
+    expect(input).toHaveClass('focus:ring-destructive/40');
   });
 
   it('handles onChange events', () => {
