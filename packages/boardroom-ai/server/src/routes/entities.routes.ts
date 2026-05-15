@@ -9,6 +9,8 @@ import { validateBody } from '../middleware/validate';
 import { omnimindClient } from '../services/omnimind-client';
 
 const UpdateProfileSchema = z.object({
+  // NOTE(0.25.3): `role` is the professional/industry role string on UserProfile,
+  // not the authZ role. Auth-level privileges live on User and are NOT updatable here.
   role: z.string().max(200).optional(),
   industry: z.string().max(200).optional(),
   decisionFrequency: z.string().max(100).optional(),
@@ -22,6 +24,42 @@ const UpdateProfileSchema = z.object({
   dashboardLayout: z.record(z.unknown()).optional(),
   onboardingComplete: z.boolean().optional(),
 }).strict();
+
+// Phase 0.25.3 — privilege-field denylist (mass-assignment defense).
+// `.strict()` rejects unknown keys generally; this explicit list captures the
+// security intent for grep/audit and returns a dedicated 400 in the route.
+const PROFILE_PRIVILEGE_DENYLIST: readonly string[] = [
+  'id',
+  'userId',
+  'email',
+  'subscription',
+  'subscriptionTier',
+  'isAdmin',
+  'createdAt',
+  'updatedAt',
+  'deletedAt',
+  'passwordHash',
+] as const;
+
+function rejectProfilePrivilegeFields(
+  req: import('express').Request,
+  res: import('express').Response,
+  next: import('express').NextFunction,
+): void {
+  if (!req.body || typeof req.body !== 'object') return next();
+  const offending = PROFILE_PRIVILEGE_DENYLIST.filter((f) =>
+    Object.prototype.hasOwnProperty.call(req.body, f),
+  );
+  if (offending.length > 0) {
+    res.status(400).json({
+      error: 'privilege_escalation_blocked',
+      message: 'Attempt to update privilege fields was rejected',
+      fields: offending,
+    });
+    return;
+  }
+  next();
+}
 
 const router: IRouter = Router();
 
@@ -186,7 +224,7 @@ router.get('/profile', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.patch('/profile', validateBody(UpdateProfileSchema), async (req: AuthRequest, res, next) => {
+router.patch('/profile', rejectProfilePrivilegeFields, validateBody(UpdateProfileSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateUserProfile(req.auth!.userId, req.body);
     res.json(data);
