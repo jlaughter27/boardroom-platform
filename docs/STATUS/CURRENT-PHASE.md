@@ -1,9 +1,13 @@
 # Current Phase
 
-**Phase in flight:** MCP Phase 5 — Observability + Solo Go-Live
-**Active task (within current phase):** Importance decay, duplicate detection, /admin/duplicates tab
-**Last update:** 2026-05-09
-**Updated by:** Claude (solo go-live session)
+**Phase in flight:** Launch-Prep — Wave 3 (partial)
+**Active task (within current phase):** Re-run Wave 3 Tracks D, E, H (0.25.5/6), and J once usage quota resets. See `docs/_audits/2026-05-15-launch-prep/WAVE-3-DEV-PROMPT.md` for specs; partial work preserved on branches `worktree-agent-*` and `wave3-drift-recovery`.
+**Last update:** 2026-05-15
+**Updated by:** Claude (Wave 3 partial-completion merge session)
+
+**Wave 1 (audits) + Wave 2 (full) + Wave 3 (partial: I, G, H × 2, J × 1, F × 3 inherited)** are all merged to `claude/review-project-status-VgaJ0`. See `CHANGELOG.md` entry for full detail.
+
+Previous phase (MCP Phase 5 — Solo Go-Live) is complete: ministry deferred, importance decay, duplicate detection, /admin/duplicates UI all shipped 2026-05-09.
 
 ---
 
