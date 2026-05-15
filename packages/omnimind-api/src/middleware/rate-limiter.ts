@@ -8,22 +8,32 @@ interface RateBucket {
 
 const buckets = new Map<string, RateBucket>();
 
-// Clean up expired buckets every 5 minutes
-setInterval(() => {
+// F-209: track the cleanup interval handle so shutdown() can clear it.
+// Without this, SIGTERM-driven shutdown leaks the interval and Node has to
+// fall back to a hard exit (which also breaks vitest cleanup).
+const cleanupHandle = setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of buckets) {
     if (bucket.resetAt < now) buckets.delete(key);
   }
 }, 5 * 60 * 1000);
 
-export const rateLimiter = (req: Request, res: Response, next: NextFunction): void => {
-  const userId = req.headers['x-user-id'] as string | undefined;
-  if (!userId) {
-    next(); // No user ID = no rate limiting (auth will catch unauthorized)
-    return;
-  }
+// Don't keep the process alive solely because of this timer.
+cleanupHandle.unref?.();
 
-  const key = `${userId}:${req.method}`;
+export function stopRateLimiter(): void {
+  clearInterval(cleanupHandle);
+}
+
+export const rateLimiter = (req: Request, res: Response, next: NextFunction): void => {
+  // F-207: previously the limiter dropped entirely when `x-user-id` was absent,
+  // which let any caller holding OMNIMIND_API_KEY trivially bypass it by
+  // omitting the header. Fall back to the request IP so unauthenticated /
+  // header-omitting traffic still hits a bucket.
+  const userId = req.headers['x-user-id'] as string | undefined;
+  const limitKey = userId ?? req.ip ?? 'unknown';
+
+  const key = `${limitKey}:${req.method}`;
   const now = Date.now();
   const windowMs = 60 * 1000; // 1-minute window
   const maxRequests = RATE_LIMITS.MAX_QUERIES_PER_MINUTE;

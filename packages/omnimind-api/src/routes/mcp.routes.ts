@@ -1,9 +1,26 @@
-import { Router, type IRouter } from 'express';
+import { Router, type IRouter, type Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
 
 const router: IRouter = Router();
+
+/**
+ * F-206: mirror of `resolveTenantFilter` from admin.routes.ts. The /mcp/audit
+ * GET previously read tenantId only from `?tenantId=`, which meant any MCP
+ * agent holding the shared OMNIMIND_API_KEY could enumerate every tenant's
+ * audit log by simply omitting the query param.
+ *
+ * Default: scope to `req.agentContext.tenantId`.
+ * Override: pass `?includeAllTenants=true` for cross-tenant view.
+ */
+function resolveTenantFilter(req: Request): string | null {
+  const includeAllTenants =
+    typeof req.query.includeAllTenants === 'string' &&
+    req.query.includeAllTenants.toLowerCase() === 'true';
+  if (includeAllTenants) return null;
+  return req.agentContext?.tenantId ?? null;
+}
 
 const AuditLogSchema = z.object({
   agentId: z.string().min(1),
@@ -52,13 +69,19 @@ router.post('/audit', async (req, res) => {
 // GET /mcp/audit — list audit log entries (admin use)
 router.get('/audit', async (req, res) => {
   const agentId = req.query.agentId as string | undefined;
-  const tenantId = req.query.tenantId as string | undefined;
+  const queryTenantId = req.query.tenantId as string | undefined;
   const limit = Math.min(parseInt(req.query.limit as string ?? '50', 10), 200);
+
+  // F-206: default tenant scope from agentContext; explicit ?tenantId= wins.
+  // Without this an agent holding the shared API key could enumerate every
+  // tenant's audit entries by omitting the query param.
+  const contextTenant = resolveTenantFilter(req);
+  const effectiveTenantId = queryTenantId ?? contextTenant ?? undefined;
 
   const entries = await prisma.mcpAuditLog.findMany({
     where: {
       ...(agentId && { agentId }),
-      ...(tenantId && { tenantId }),
+      ...(effectiveTenantId && { tenantId: effectiveTenantId }),
     },
     orderBy: { createdAt: 'desc' },
     take: limit,

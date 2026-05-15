@@ -15,12 +15,20 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
-setInterval(() => {
+// F-209 / F-211: track the cleanup interval so shutdown() can clear it and
+// `.unref()` so vitest test runs don't hang on a dangling timer.
+const cleanupHandle = setInterval(() => {
   const now = Date.now();
   for (const [key, b] of buckets) {
     if (b.resetAt < now) buckets.delete(key);
   }
 }, 10 * 60 * 1000);
+
+cleanupHandle.unref?.();
+
+export function stopAgentRateLimiter(): void {
+  clearInterval(cleanupHandle);
+}
 
 function classifyOp(req: Request): OpType {
   if (req.path.includes('decision')) return 'decision';
@@ -35,14 +43,15 @@ function limitFor(op: OpType): number {
 }
 
 export function agentRateLimiter(req: Request, res: Response, next: NextFunction): void {
+  // F-207: previously dropped rate limiting entirely when both `x-agent-id`
+  // and `x-user-id` were absent. Fall back to req.ip so a header-omission
+  // attack still hits a bucket.
   const agentId = req.headers['x-agent-id'] as string | undefined;
-  if (!agentId) {
-    next();
-    return;
-  }
+  const userId = req.headers['x-user-id'] as string | undefined;
+  const limitKey = agentId ?? userId ?? req.ip ?? 'unknown';
 
   const op = classifyOp(req);
-  const key = `${agentId}:${op}`;
+  const key = `${limitKey}:${op}`;
   const now = Date.now();
   const limit = limitFor(op);
 
@@ -58,7 +67,7 @@ export function agentRateLimiter(req: Request, res: Response, next: NextFunction
     const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
     res.status(429).json({
       error: 'agent_rate_limited',
-      message: `Agent ${agentId} exceeded ${limit} ${op} operations per hour.`,
+      message: `Caller ${limitKey} exceeded ${limit} ${op} operations per hour.`,
       retryAfter,
     });
     return;
