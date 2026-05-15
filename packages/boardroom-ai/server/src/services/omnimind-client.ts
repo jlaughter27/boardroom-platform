@@ -96,7 +96,7 @@ export class OmniMindClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      return await fetch(url, { ...init, signal: controller.signal as AbortSignal });
     } catch (err: unknown) {
       if ((err as Error).name === 'AbortError') {
         throw Object.assign(new Error(`OmniMind request timed out after ${timeoutMs}ms`), {
@@ -523,7 +523,7 @@ export class OmniMindClient {
   }
 
   async mergeAdminDuplicates(body: Record<string, unknown>) {
-    return this.request('POST', '/admin/duplicates/merge', body);
+    return this.request('POST', '/admin/duplicates/merge', undefined, body);
   }
 
   async triggerAdminDecay() {

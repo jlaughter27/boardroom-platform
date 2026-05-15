@@ -222,7 +222,7 @@ router.post('/duplicates/merge', async (req, res, next) => {
       data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
     });
 
-    logger.info({ keepId, archiveId }, '[admin] Duplicate merge: archived older memory');
+    logger.info('[admin] Duplicate merge: archived older memory', { keepId, archiveId });
     res.json({ status: 'ok', kept: keepId, archived: archiveId });
   } catch (err) { next(err); }
 });
@@ -230,7 +230,7 @@ router.post('/duplicates/merge', async (req, res, next) => {
 // POST /admin/decay/run — trigger importance decay manually
 router.post('/decay/run', async (_req, res, next) => {
   try {
-    const { runImportanceDecay } = await import('../services/importance-decay.service');
+    const { runImportanceDecay } = await import('../services/importance-decay.service.js');
     const result = await runImportanceDecay();
     res.json({ status: 'ok', ...result });
   } catch (err) { next(err); }

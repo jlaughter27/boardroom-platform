@@ -77,7 +77,7 @@ export async function scoreWithLLM(
       temperature: 0,
       system: QUALITY_EVALUATION_PROMPT,
       messages: [{ role: 'user', content: synthesisText }],
-    }, { signal: controller.signal });
+    }, { signal: controller.signal as AbortSignal });
 
     clearTimeout(timeoutId);
 
