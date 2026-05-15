@@ -6,9 +6,19 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
+/**
+ * Input — single-line text input primitive.
+ *
+ * Design-system rules:
+ *  - Canonical height `h-9` (36px) matches Button + Select trigger.
+ *  - Radius `rounded-md` (8px) — pairs with Button.
+ *  - Focus uses ring only (no doubled-up border tint).
+ *  - Numeric inputs auto-get tabular-nums per audit ID top-10 #7.
+ */
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, id, ...props }, ref) => {
+  ({ className, label, error, id, type, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+    const isNumeric = type === 'number';
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
@@ -19,18 +29,25 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           id={inputId}
+          type={type}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${inputId}-error` : undefined}
           className={cn(
-            'bg-card border border-border rounded-xl px-4 h-10 text-sm text-foreground',
+            'bg-card border border-border rounded-md px-3 h-9 text-sm text-foreground',
             'placeholder:text-muted-foreground',
-            'focus:ring-2 focus:ring-ring focus:border-primary/40',
-            'transition-all duration-fast',
-            'outline-none',
-            error && 'border-destructive focus:border-destructive focus:ring-destructive/30',
+            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
+            'transition-colors duration-fast',
+            isNumeric && 'tabular-nums',
+            error && 'border-destructive focus:ring-destructive/40',
             className
           )}
           {...props}
         />
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && (
+          <p id={`${inputId}-error`} className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

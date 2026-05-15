@@ -2,7 +2,8 @@ import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
-import { Card, Badge, Progress } from '../ui';
+import { Card, Badge, Progress, Tooltip } from '../ui';
+import { PERSONA_META } from '../../lib/persona-metadata';
 
 const PERSONA_COLORS: Record<string, string> = {
   optimist: 'border-t-persona-optimist',
@@ -19,6 +20,27 @@ interface PersonaCardProps {
   response?: PersonaResponse;
   streamingText?: string;
   isStreaming: boolean;
+}
+
+function PersonaTooltipBody({ personaId }: { personaId: PersonaId }) {
+  const meta = PERSONA_META[personaId];
+  if (!meta) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="font-medium text-background">{meta.name}</div>
+      <p className="text-background/85">{meta.role}</p>
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-background/60 mb-0.5">
+          What they look for
+        </div>
+        <ul className="space-y-0.5 list-disc list-inside marker:text-background/50">
+          {meta.looksFor.map((item) => (
+            <li key={item} className="text-background/85">{item}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 function CollapsibleSection({

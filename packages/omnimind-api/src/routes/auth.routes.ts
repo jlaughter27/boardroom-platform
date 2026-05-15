@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
 import * as authService from '../services/auth.service';
+import * as authExtras from '../services/auth-extras.service';
 import { logger } from '../lib/logger';
 
 const router: IRouter = Router();
@@ -104,6 +105,91 @@ router.delete('/user/:id', async (req, res, next) => {
     }
     logger.info('User soft-deleted', { userId });
     res.json({ id: userId, status: 'deleted' });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Wave 3 Track E — auth-extras endpoints (SSO + password-reset + verify-email)
+// All are service-to-service (x-api-key already required by global middleware).
+// ---------------------------------------------------------------------------
+
+// POST /auth/oauth/lookup-or-create — body { provider, providerUserId, email, name }
+router.post('/oauth/lookup-or-create', async (req, res, next) => {
+  try {
+    const { provider, providerUserId, email, name } = req.body ?? {};
+    if (provider !== 'google' && provider !== 'github') {
+      res.status(422).json({ error: 'validation_failed', message: 'provider must be google|github' });
+      return;
+    }
+    if (!providerUserId || !email || !name) {
+      res.status(422).json({ error: 'validation_failed', message: 'providerUserId, email, name required' });
+      return;
+    }
+    const result = await authExtras.findOrCreateOAuthUser({ provider, providerUserId, email, name });
+    // Don't log email — only userId + provider.
+    logger.info('OAuth lookup-or-create', { userId: result.user.id, provider, created: result.created, linked: result.linked });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// GET /auth/user-by-email/:email — used by forgot-password flow.
+// Returns { id, email, name, teamId } or 404. NEVER expose this publicly —
+// BoardRoom should always return 200 from the forgot-password endpoint so
+// email-existence isn't leaked to the world.
+router.get('/user-by-email/:email', async (req, res, next) => {
+  try {
+    const user = await authService.getUserByEmail(decodeURIComponent(req.params.email));
+    if (!user) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    const { passwordHash, ...safe } = user;
+    void passwordHash;
+    res.json(safe);
+  } catch (err) { next(err); }
+});
+
+// POST /auth/set-password — body { userId, passwordHash }
+// Bumps passwordChangedAt; BoardRoom JWT middleware rejects older iat values.
+router.post('/set-password', async (req, res, next) => {
+  try {
+    const { userId, passwordHash } = req.body ?? {};
+    if (!userId || !passwordHash) {
+      res.status(422).json({ error: 'validation_failed', message: 'userId and passwordHash required' });
+      return;
+    }
+    const ok = await authExtras.setPassword(userId, passwordHash);
+    if (!ok) { res.status(404).json({ error: 'not_found' }); return; }
+    logger.info('Password updated', { userId });
+    res.json({ status: 'ok' });
+  } catch (err) { next(err); }
+});
+
+// POST /auth/mark-email-verified — body { userId }
+router.post('/mark-email-verified', async (req, res, next) => {
+  try {
+    const { userId } = req.body ?? {};
+    if (!userId) { res.status(422).json({ error: 'validation_failed', message: 'userId required' }); return; }
+    const ok = await authExtras.markEmailVerified(userId);
+    if (!ok) { res.status(404).json({ error: 'not_found' }); return; }
+    res.json({ status: 'ok' });
+  } catch (err) { next(err); }
+});
+
+// GET /auth/password-changed-at/:userId — returns { passwordChangedAt: ISO | null }
+// Used by BoardRoom auth middleware to invalidate stale JWTs.
+router.get('/password-changed-at/:userId', async (req, res, next) => {
+  try {
+    const dt = await authExtras.getPasswordChangedAt(req.params.userId);
+    res.json({ passwordChangedAt: dt ? dt.toISOString() : null });
+  } catch (err) { next(err); }
+});
+
+// GET /auth/email-verified-at/:userId — returns { emailVerifiedAt: ISO | null }
+router.get('/email-verified-at/:userId', async (req, res, next) => {
+  try {
+    const dt = await authExtras.getEmailVerifiedAt(req.params.userId);
+    res.json({ emailVerifiedAt: dt ? dt.toISOString() : null });
   } catch (err) { next(err); }
 });
 
