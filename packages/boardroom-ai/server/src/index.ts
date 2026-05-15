@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { authMiddleware } from './middleware/auth';
 import { authRouter } from './routes/auth.routes';
+import { oauthLoginRouter } from './routes/oauth-login.routes';
 import { healthRouter } from './routes/health.routes';
 import { sessionsRouter } from './routes/sessions.routes';
 import { entitiesRouter } from './routes/entities.routes';
@@ -98,6 +99,10 @@ if (process.env.NODE_ENV === 'production') {
 
 // Public routes (no auth required)
 app.use('/health', healthRouter);
+// OAuth login (Google/GitHub) — must be mounted at /auth/oauth BEFORE
+// authRouter so the routes resolve correctly. authRouter doesn't claim
+// /oauth/* paths, but order makes the intent explicit.
+app.use('/auth/oauth', oauthLoginRouter);
 app.use('/auth', authRouter);
 // OAuth callbacks must be accessible without auth (Google redirects here)
 app.get('/calendar/callback', calendarRouter);

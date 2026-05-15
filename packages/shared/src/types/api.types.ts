@@ -78,6 +78,11 @@ export interface AuthUser {
    * Optional for backward compatibility — older /auth/me responses omit it.
    */
   isAdmin?: boolean;
+  /**
+   * UX-1.4. True if the user has clicked the email-verification link.
+   * Optional for backward compatibility — older /auth/me responses omit it.
+   */
+  emailVerified?: boolean;
 }
 
 // --- Session summaries ---
