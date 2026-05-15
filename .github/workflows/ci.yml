@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Typecheck (boardroom-ai)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # NOTE(C-FU-01): root `pnpm typecheck` currently fails because
+      # `packages/shared/src/utils/validation-helpers.ts` has 4 pre-
+      # existing TS errors. Track Y owns the fix
+      # (docs/_audits/2026-05-15-launch-prep/track-c-followups.md).
+      # Until then we run the boardroom-ai service typecheck — which
+      # is the gate that catches regressions in the surface most likely
+      # to ship a P0 bug.
+      - name: Typecheck boardroom-ai
+        run: pnpm --filter @boardroom/boardroom-ai run typecheck
+
+  test:
+    name: Test (shared unit + boardroom-ai)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # NOTE(C-FU-01): we deliberately do not run the shared package
+      # tests through turbo (which would require a `build` first and
+      # currently fails). Vitest can collect the tests directly without
+      # the prebuilt dist/.
+      - name: Run shared tests (direct vitest, no prebuild)
+        working-directory: packages/shared
+        run: npx vitest run
+      - name: Run boardroom-ai server tests
+        run: pnpm --filter @boardroom/boardroom-ai run test:server
+      - name: Run boardroom-ai client tests
+        run: pnpm --filter @boardroom/boardroom-ai run test:client
+      # TODO(C-FU-02): omnimind-api integration tests require Postgres
+      # with pgvector + pg_trgm extensions. Wire up a service container
+      # (postgres:16 + extensions) before enabling that suite in CI.
+
+  build:
+    name: Build (boardroom-ai)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # NOTE(C-FU-01): `pnpm build` (turbo) fails on the shared package
+      # build. Run the boardroom-ai service build directly until the
+      # shared TS errors are resolved.
+      - name: Build boardroom-ai
+        run: pnpm --filter @boardroom/boardroom-ai run build

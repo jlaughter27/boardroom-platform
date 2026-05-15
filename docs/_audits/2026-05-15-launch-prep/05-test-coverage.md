@@ -379,3 +379,67 @@ pnpm --filter @boardroom/boardroom-ai run test   # both client + server
 - `/home/user/boardroom-platform/packages/boardroom-ai/server/src/routes/*.ts` (12 files, no tests)
 - `/home/user/boardroom-platform/eval/results/` and `eval/baselines/` (both empty)
 - No `.github/` directory exists.
+
+---
+
+## 12. Track C Status — 2026-05-15
+
+Track C (test infra + CI) shipped on branch
+`worktree-agent-ae853c1e2af969643`.
+
+### Shipped
+
+| Item | Audit ref | Where |
+|---|---|---|
+| `@testing-library/jest-dom`, `@testing-library/react`, `@testing-library/user-event` devDeps | Fix #1 | `packages/boardroom-ai/package.json` |
+| `supertest` + `@types/supertest` devDeps | §9 tooling gap | `packages/boardroom-ai/package.json` |
+| `.github/workflows/ci.yml` (typecheck + test + build jobs) | §8 | new file |
+| `test:ci` script at workspace root | Fix #4 / §10 | `package.json` |
+| `subscription.middleware.fail-closed.test.ts` | SUB-03 | new file (1 live + 1 skip) |
+| `stripe-webhook.test.ts` (supertest-based) | SUB-01/02/09 | new file (2 live + 2 skip) |
+| `admin.routes.test.ts` | ADM-01 | new file (3 skip — depends on Track A) |
+| `error-handler.test.ts` | §5 row 9 | new file (3 skip — middleware doesn't exist yet) |
+| `orchestrator.test.ts` — first tests for `CEOOrchestrator.dispatch` | §5 row 3 | new file (7 live) |
+
+### Before / after
+
+| Package | Before | After |
+|---|---|---|
+| `@boardroom/shared` | 125 / 125 | 125 / 125 (no change) |
+| `@boardroom/boardroom-ai` server | 21 files / 145 passing | 26 files / 155 passing + 9 skipped |
+| `@boardroom/boardroom-ai` client | 5 files / 0 collected (5 suite errors) | 5 files / 51 passing |
+| **Total live tests** | **270** | **331** (+61) |
+
+### Still gap (deferred to follow-up tracks)
+
+Tracked in `track-c-followups.md`:
+
+- **C-FU-01** — Shared package build is broken on `main`
+  (`validation-helpers.ts` 4 TS errors). Blocks turbo-driven
+  `pnpm test` / `pnpm build` at workspace root. CI uses
+  per-package commands as a workaround.
+- **C-FU-02** — `omnimind-api` integration tests need Postgres +
+  pgvector service container in CI. TODO comment in workflow.
+- **C-FU-03** — Coverage thresholds + `--coverage` flag in CI.
+- **C-FU-04** — 9 `.skip`-marked tests gated on Track A deliverables
+  (admin auth, stripe webhook idempotency, fail-closed subscription,
+  error handler).
+- **C-FU-05** — Branch protection rule on `main` requiring CI
+  status checks. Repo-admin action.
+
+### `.skip`-marked tests inventory
+
+| File | Cases | Reason |
+|---|---|---|
+| `server/tests/unit/admin.routes.test.ts` | 3 | requires Track A ADM-01 (admin router + requireAdmin) |
+| `server/tests/unit/stripe-webhook.test.ts` | 2 | requires Track A SUB-01 (missing-sig 400) and SUB-09 (idempotency) |
+| `server/tests/unit/subscription.middleware.fail-closed.test.ts` | 1 | requires Track A SUB-03 (NODE_ENV-aware fail-closed) |
+| `server/tests/unit/error-handler.test.ts` | 3 | requires Track A to create `middleware/error-handler.ts` |
+| **Total skipped** | **9** | flip after Track A merges |
+
+### Not shipped (out of Track C scope)
+
+- E2E journey expansion (Wave 3+)
+- Eval baselines and nightly workflow (§7 — Wave 3+)
+- MSW + page-level client tests (§9 — Wave 3+)
+- Visual regression (post-launch)
