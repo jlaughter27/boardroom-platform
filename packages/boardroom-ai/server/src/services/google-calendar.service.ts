@@ -1,28 +1,64 @@
 import { google } from 'googleapis';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import type { CalendarEvent, CalendarSyncStatus } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
 
-const STATE_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret';
+// SEC-06: Resolve JWT_SECRET lazily and fail-closed if missing. No fallback.
+function getStateSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is not set. OAuth state cannot be signed.');
+  }
+  return secret;
+}
+
+// OAuth state is a short-lived signed JWT carrying { userId, provider, nonce }.
+// Nonces are recorded on sign and consumed on verify — replay = reject.
+//
+// Follow-up (track-a-followups.md): if we scale beyond one Railway instance,
+// move the nonce store to Redis/OmniMind so a callback can land on a
+// different node from the one that signed the state.
+const OAUTH_STATE_TTL_SECONDS = 10 * 60; // 10 minutes
+const issuedNonces = new Map<string, number>(); // nonce -> expires-at (epoch ms)
+
+function gcNonces(): void {
+  const now = Date.now();
+  for (const [nonce, expiresAt] of issuedNonces) {
+    if (expiresAt <= now) issuedNonces.delete(nonce);
+  }
+}
+
+interface OAuthStatePayload {
+  userId: string;
+  provider: string;
+  nonce: string;
+}
 
 export function signState(userId: string, provider: string): string {
-  const payload = `${provider}:${userId}`;
-  const hmac = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
-  return `${payload}:${hmac}`;
+  gcNonces();
+  const nonce = crypto.randomBytes(16).toString('hex');
+  issuedNonces.set(nonce, Date.now() + OAUTH_STATE_TTL_SECONDS * 1000);
+  const payload: OAuthStatePayload = { userId, provider, nonce };
+  return jwt.sign(payload, getStateSecret(), { expiresIn: OAUTH_STATE_TTL_SECONDS });
 }
 
 export function verifyState(state: string | undefined, provider: string): string | null {
   if (!state) return null;
-  const parts = state.split(':');
-  if (parts.length < 3) return null;
-  const hmac = parts.pop()!;
-  const payload = parts.join(':');
-  const expected = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
-  const hmacBuf = Buffer.from(hmac);
-  const expectedBuf = Buffer.from(expected);
-  if (hmacBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(hmacBuf, expectedBuf)) return null;
-  if (!payload.startsWith(`${provider}:`)) return null;
-  return payload.slice(provider.length + 1);
+  let payload: OAuthStatePayload;
+  try {
+    payload = jwt.verify(state, getStateSecret()) as OAuthStatePayload;
+  } catch {
+    return null; // expired, malformed, or signature mismatch
+  }
+  if (payload.provider !== provider) return null;
+
+  // Replay protection: nonce must exist (not yet consumed and not expired).
+  gcNonces();
+  if (!issuedNonces.has(payload.nonce)) return null;
+  issuedNonces.delete(payload.nonce); // consume
+
+  return payload.userId;
 }
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;

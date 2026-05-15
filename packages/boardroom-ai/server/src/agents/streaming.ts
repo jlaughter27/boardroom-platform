@@ -25,6 +25,31 @@ export const initSSE = (res: Response): void => {
 };
 
 /**
+ * Wire a client-disconnect handler that aborts an Anthropic stream when the
+ * user closes the tab / cancels the request.
+ *
+ * Without this, the Anthropic stream keeps producing tokens (and we keep
+ * being billed) until the message completes — even though no one is
+ * listening (AGT-04).
+ *
+ * Returns the AbortController so callers can pass `controller.signal` to
+ * `client.messages.stream(..., { signal })`.
+ */
+export const abortOnClose = (res: Response): AbortController => {
+  const controller = new AbortController();
+  // Some test doubles for Response lack `.on` — guard so unit tests don't
+  // need to mock EventEmitter just to exercise streaming.
+  if (typeof (res as { on?: unknown }).on === 'function') {
+    res.on('close', () => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    });
+  }
+  return controller;
+};
+
+/**
  * Stream a Claude message response to the client via SSE.
  * Sends { type: 'delta', text } for each chunk, { type: 'done' } at end.
  */
@@ -39,16 +64,25 @@ export const streamClaudeResponse = async (
   }
 ): Promise<string> => {
   let fullResponse = '';
+  const controller = abortOnClose(res);
 
   try {
-    const stream = await client.messages.stream({
-      model: params.model,
-      max_tokens: params.maxTokens,
-      system: params.system,
-      messages: [{ role: 'user', content: params.userMessage }],
-    });
+    const stream = await client.messages.stream(
+      {
+        model: params.model,
+        max_tokens: params.maxTokens,
+        system: params.system,
+        messages: [{ role: 'user', content: params.userMessage }],
+      },
+      // Cast: the SDK's RequestOptions accepts a standard AbortSignal but
+      // the type narrowing collides with Node's enhanced AbortSignal.
+      { signal: controller.signal } as Parameters<typeof client.messages.stream>[1],
+    );
 
     for await (const event of stream) {
+      // If the client disconnected mid-stream, stop iterating — the abort
+      // signal will also tear down the upstream Anthropic connection.
+      if (controller.signal.aborted) break;
       if (
         event.type === 'content_block_delta' &&
         event.delta.type === 'text_delta'
@@ -58,9 +92,15 @@ export const streamClaudeResponse = async (
       }
     }
 
-    sendSSE(res, { type: 'done' });
-    res.end();
+    if (!controller.signal.aborted) {
+      sendSSE(res, { type: 'done' });
+      res.end();
+    }
   } catch (error) {
+    if (controller.signal.aborted) {
+      // Client went away — no point writing an error event.
+      return fullResponse;
+    }
     const message = error instanceof Error ? error.message : 'Unknown error occurred';
     sendSSE(res, { type: 'error', error: message });
     res.end();

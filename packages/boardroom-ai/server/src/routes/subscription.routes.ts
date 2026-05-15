@@ -1,7 +1,13 @@
-import { Router, raw } from 'express';
-import type { IRouter, Request, Response } from 'express';
+import { Router } from 'express';
+import type { IRouter } from 'express';
 import type { AuthRequest } from '../middleware/auth';
 import * as stripeService from '../services/stripe.service';
+
+// NOTE: POST /subscription/webhook is intentionally NOT registered here.
+// It is mounted at the top of server/src/index.ts ahead of express.json()
+// and the auth wall so that (a) Stripe's signature can verify against the
+// raw body and (b) Stripe's POSTs (which carry no cookie) don't 401 at the
+// auth middleware. See SUB-01 / MID-01 in the launch audit.
 
 const router: IRouter = Router();
 
@@ -21,17 +27,6 @@ router.post('/checkout', async (req: AuthRequest, res, next) => {
     const result = await stripeService.createCheckout(req.auth!.userId, req.auth!.email);
     res.json(result);
   } catch (err) { next(err); }
-});
-
-// POST /subscription/webhook — Stripe webhook (MUST use raw body parser, NOT JSON)
-router.post('/webhook', raw({ type: 'application/json' }), async (req: Request, res: Response) => {
-  try {
-    const signature = req.headers['stripe-signature'] as string;
-    await stripeService.handleWebhook(req.body as Buffer, signature);
-    res.json({ received: true });
-  } catch {
-    res.status(400).json({ error: 'Webhook verification failed' });
-  }
 });
 
 // POST /subscription/cancel — cancel subscription

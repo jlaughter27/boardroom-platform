@@ -42,11 +42,56 @@ export async function createCheckout(userId: string, email: string): Promise<{ c
   return { checkoutUrl: session.url! };
 }
 
+/**
+ * Distinguishable error class so the route handler can decide between a 4xx
+ * (signature failure — Stripe should NOT retry) and a 5xx (internal failure
+ * — Stripe SHOULD retry).
+ */
+export class StripeSignatureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StripeSignatureError';
+  }
+}
+
+// In-memory idempotency cache: Stripe event.id -> expires-at (epoch ms).
+// Stripe guarantees at-least-once delivery; we want at-most-once processing.
+// 24h TTL covers the worst-case Stripe retry window.
+// SUB-09 follow-up: replace with Redis once we scale beyond 1 instance.
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const processedEvents = new Map<string, number>();
+
+function isDuplicateEvent(eventId: string): boolean {
+  const now = Date.now();
+  // Lazy GC
+  for (const [id, expiresAt] of processedEvents) {
+    if (expiresAt <= now) processedEvents.delete(id);
+  }
+  if (processedEvents.has(eventId)) return true;
+  processedEvents.set(eventId, now + IDEMPOTENCY_TTL_MS);
+  return false;
+}
+
 export async function handleWebhook(payload: Buffer, signature: string): Promise<void> {
   const stripe = getStripe();
-  if (!stripe || !STRIPE_WEBHOOK_SECRET) return;
+  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+    // Misconfiguration — surface to caller as a 5xx so Stripe retries until
+    // the env is correct (SUB-09).
+    throw new Error('Stripe webhook secret not configured');
+  }
 
-  const event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    throw new StripeSignatureError(err instanceof Error ? err.message : 'signature verification failed');
+  }
+
+  // Idempotency: drop replays silently with 200 OK semantics.
+  if (isDuplicateEvent(event.id)) {
+    logger.info('Stripe webhook duplicate event ignored', { eventId: event.id, type: event.type });
+    return;
+  }
 
   switch (event.type) {
     case 'checkout.session.completed': {

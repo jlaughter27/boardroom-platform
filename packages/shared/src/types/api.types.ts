@@ -73,6 +73,11 @@ export interface AuthUser {
   userId: string;
   email: string;
   name: string;
+  /**
+   * True if the user is on the `ADMIN_USER_IDS` server allowlist.
+   * Optional for backward compatibility — older /auth/me responses omit it.
+   */
+  isAdmin?: boolean;
 }
 
 // --- Session summaries ---

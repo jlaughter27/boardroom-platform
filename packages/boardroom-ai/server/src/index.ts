@@ -17,6 +17,7 @@ import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { integrationsRouter } from './routes/integrations.routes';
 import { adminRouter } from './routes/admin.routes';
+import { stripeWebhookHandler } from './routes/stripe-webhook';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { logger } from './lib/logger';
 import { validateBoardRoomEnv } from './lib/env';
@@ -26,6 +27,15 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 const app: ReturnType<typeof express> = express();
+
+// MID-02: Railway terminates TLS at its load balancer and forwards via
+// X-Forwarded-For. Without trust proxy, req.ip is the LB's IP for every
+// request — express-rate-limit then buckets the whole world into one
+// shared bucket. Setting trust proxy=1 tells Express to trust ONE hop of
+// X-Forwarded-* (the Railway LB) and surface the real client IP.
+// Critical for launch — see docs/_audits/2026-05-15-launch-prep/02-backend-routes.md.
+app.set('trust proxy', 1);
+
 const port = process.env.PORT || process.env.BOARDROOM_PORT || 3001;
 
 // Global middleware
@@ -47,6 +57,15 @@ app.use(cors({
   },
   credentials: true,
 }));
+// Stripe webhook MUST be mounted before express.json() and the auth wall.
+// - Signature verification requires the raw body (express.json would consume it).
+// - Stripe POSTs carry no cookie; auth middleware would 401 every webhook.
+// See SUB-01 / MID-01 / SUB-09 in docs/_audits/2026-05-15-launch-prep.
+// Both paths registered: '/subscription/webhook' for direct hits and
+// '/api/subscription/webhook' because the /api-strip middleware runs LATER.
+app.post('/subscription/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+app.post('/api/subscription/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -88,15 +107,19 @@ app.get('/integrations/gmail/callback', integrationsRouter);
 app.use(authMiddleware);
 
 // Protected routes
+// Subscription gating is applied to every router that fans out to Claude/OpenAI
+// or other paid upstreams. Cheap read-only routes (entities, calendar status)
+// remain ungated so dashboards still load for users between trials.
+// See COR-01, ONB-01, INT-01, INT-02 in the launch audit.
 app.use('/subscription', subscriptionRouter);
 app.use('/sessions', requireSubscription, sessionsRouter);
-app.use('/onboarding', onboardingRouter);
-app.use('/onboarding-bootstrap', onboardingBootstrapRouter);
+app.use('/onboarding', requireSubscription, onboardingRouter);
+app.use('/onboarding-bootstrap', requireSubscription, onboardingBootstrapRouter);
 app.use('/', entitiesRouter);
-app.use('/cortex', cortexRouter);
+app.use('/cortex', requireSubscription, cortexRouter);
 app.use('/calendar', calendarRouter);
 app.use('/custom-personas', customPersonasRouter);
-app.use('/integrations', integrationsRouter);
+app.use('/integrations', integrationsRouter); // gmail/extract + gmail/confirm gate themselves
 app.use('/admin', adminRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 

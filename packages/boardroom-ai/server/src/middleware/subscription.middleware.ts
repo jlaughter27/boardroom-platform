@@ -1,6 +1,7 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthRequest } from './auth';
 import { omnimindClient } from '../services/omnimind-client';
+import { logger } from '../lib/logger';
 
 export async function requireSubscription(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   // Dev mode — no Stripe configured, all features unlocked.
@@ -28,8 +29,26 @@ export async function requireSubscription(req: AuthRequest, res: Response, next:
 
     // CANCELED or EXPIRED
     res.status(402).json({ error: 'subscription_expired', message: 'Your subscription has expired' });
-  } catch {
-    // If subscription check fails, let the request through (don't block on billing service errors)
+  } catch (err) {
+    // SUB-03: fail-CLOSED in production. The previous behaviour was
+    // `next()` (fail-open) which means any OmniMind outage instantly
+    // unlocked every paid feature for every user. In dev we still pass
+    // through so local hacking isn't blocked by a flaky OmniMind.
+    logger.error('Subscription check failed', {
+      userId: req.auth?.userId,
+      message: err instanceof Error ? err.message : String(err),
+      path: req.path,
+    });
+
+    if (process.env.NODE_ENV === 'production') {
+      res.status(503).json({
+        error: 'billing_check_failed',
+        message: 'Unable to verify your subscription. Please retry shortly.',
+      });
+      return;
+    }
+
+    // Dev / test: pass through so local work isn't blocked.
     next();
   }
 }

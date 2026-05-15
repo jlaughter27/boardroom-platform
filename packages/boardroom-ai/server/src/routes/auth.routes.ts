@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { hashPassword, createToken, authMiddleware, type AuthRequest } from '../middleware/auth';
+import { isAdminUser } from '../middleware/require-admin';
 import { loginLimiter, registerLimiter } from '../middleware/auth-rate-limiter';
 import { validateBody } from '../middleware/validate';
 import { RegisterBodySchema, LoginBodySchema } from '@boardroom/shared';
@@ -91,7 +92,12 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res, next) => {
       res.status(404).json({ error: 'not_found', message: 'User not found' });
       return;
     }
-    res.json({ userId: user.id, email: user.email, name: user.name });
+    res.json({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      isAdmin: isAdminUser(user.id),
+    });
   } catch (err) { next(err); }
 });
 

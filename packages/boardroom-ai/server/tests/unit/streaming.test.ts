@@ -62,12 +62,17 @@ describe('streaming', () => {
         }
       );
 
-      expect(mockClient.messages.stream).toHaveBeenCalledWith({
-        model: 'claude-haiku',
-        max_tokens: 1000,
-        system: 'Test system',
-        messages: [{ role: 'user', content: 'Test message' }],
-      });
+      expect(mockClient.messages.stream).toHaveBeenCalledWith(
+        {
+          model: 'claude-haiku',
+          max_tokens: 1000,
+          system: 'Test system',
+          messages: [{ role: 'user', content: 'Test message' }],
+        },
+        // AGT-04: second arg now carries an AbortSignal so client disconnects
+        // cancel the upstream Anthropic stream.
+        expect.objectContaining({ signal: expect.any(Object) }),
+      );
 
       expect(mockRes.write).toHaveBeenCalledTimes(3); // 2 deltas + 1 done
       expect(mockRes.write).toHaveBeenCalledWith(
