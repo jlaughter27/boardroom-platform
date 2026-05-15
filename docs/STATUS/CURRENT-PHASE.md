@@ -1,11 +1,32 @@
 # Current Phase
 
-**Phase in flight:** MCP Phase 5 — Observability + Solo Go-Live
-**Active task (within current phase):** Importance decay, duplicate detection, /admin/duplicates tab
-**Last update:** 2026-05-09
-**Updated by:** Claude (solo go-live session)
+**Phase in flight:** ✅ **Phase 5.5 — Post-Hermes Remediation — COMPLETE**
+**Last update:** 2026-05-15
+**Updated by:** Claude (orchestrator-fix session — Fix-Everything Plan execution)
+
+**Next phase (not yet started):** Phase 6 — 30-day dogfooding window. Key triggers to revisit: ministry domain re-enable (Ollama + encryption), bitemporal validity windows, Letta-style core memory tier, multi-user (Postgres RLS).
 
 ---
+
+## ✅ Phase 5.5 — Fix-Everything Plan executed
+
+Six workstreams + one typecheck baseline cleanup, all merged via PRs #10–#15. See `CHANGELOG.md` for the full timeline. See `docs/FIX-EVERYTHING-PLAN.md` for the original plan and `docs/POST-IMPLEMENTATION-REVIEW.md` for the retrospective.
+
+**Final Success Metrics (from FIX-EVERYTHING-PLAN.md):**
+- ✅ `agent_id = 'hermes-test'` on MCP writes (was NULL)
+- ✅ `tenant_id` matches MCP env (was schema-default `josh-personal`)
+- ✅ `source_weight` matches agent registration (was static 0.85)
+- ✅ Audit log captures correct attribution per tool call
+- ✅ Outbox row created and persists when embedding fails (non-blocking write)
+- 🟡 `has_embedding=true` within 30s — gated on Josh rotating expired `OPENAI_API_KEY` on Railway
+- 🟡 Memory reappears in semantic `memory_search` — gated on above
+- 🟡 Cross-tenant read returns 0 — tested via E2E-2; functionally verified, manual prod test pending
+
+**4 of 7 fully verified in prod. 3 remaining are external-API-gated, not code-gated.**
+
+---
+
+## What shipped before Phase 5.5
 
 ## What shipped in Phase 4 (this session)
 

@@ -1,140 +1,95 @@
-# OmniMind-MCP Post-Implementation Review
+# Post-Implementation Review — Phase 5.5 (Fix-Everything Plan)
 
-**Date:** 2026-05-09  
-**Scope:** Phases 0–3 (shipped) + Phase 4 (current)  
-**Reviewer:** Builder (Claude Code)
+**Date:** 2026-05-15
+**Scope:** WS-1 through WS-6 of `docs/FIX-EVERYTHING-PLAN.md`, plus an emergency typecheck-baseline cleanup
+**Reviewer:** Claude (orchestrator-fix), in collaboration with Josh
 
----
-
-## What Was Built
-
-### Phase 1 — Core MCP Server
-
-15 tools across memory, decision, task, project, person, commitment, and status domains. Stdio + HTTP transports. Scope enforcement via `requireScope()`. Per-call audit logging to `mcp_audit_logs`.
-
-**Shipped well:**
-- Tool surface is exactly what was spec'd — no scope creep
-- `withAudit()` wrapper pattern means every tool is audited with zero boilerplate
-- `requireScope()` is simple, testable, and enforced at the tool boundary (not in routes)
-
-**Would do differently:**
-- Scopes were strings from the start — no enum, no compile-time enforcement. Added friction later when auditing.
-- `AgentContext` grew organically; a proper type from day 1 would have avoided the sourceWeight propagation gap
-
-### Phase 2 — Hybrid Retrieval
-
-Structured filter → FTS → trigram → semantic → rank → context-packager. `sourceWeight` multiplier in ranker.
-
-**Shipped well:**
-- The pipeline pattern (each layer returns `ScoredResult[]`, packager caps at 10) held up perfectly
-- `archiveCutoffDate()` abstraction was the right call
-
-**What broke (caught by audit):**
-- `sourceWeight` was populated in `structured-filter.ts` but zeroed in semantic/FTS/trigram SQL — ranker multiplier never fired. Fixed in F-001.
-- Forgetting curve existed only in structured-filter, missing from other layers. Fixed in F-004.
-- Cosine dedup in fact-extractor was calling GET /memories with `similarityThreshold` which was silently dropped. Fixed in F-002.
-
-**Root cause of all three:** retrieval layers were built independently without integration tests that exercised the full pipeline end-to-end.
-
-### Phase 3 — Tenant Isolation, Audit, MCP Transport
-
-Tenant model, Agent model, McpAuditLog. Three tenant configs (josh-personal, josh-business, tgfc-ministry).
-
-**Shipped well:**
-- Ministry Ollama routing was correct from day 1 (`generateEmbeddingWithRetry` domain param)
-- Three-tenant design is clean and non-negotiable
-
-**What broke (caught by audit):**
-- Ministry writes were NOT refused when Ollama was down — the service logged a warning but completed the write. Fixed in F-003.
-- Ministry content was appearing in `mcp_audit_logs.input_json` in cleartext. Fixed in F-007.
-- GET /memories was ignoring `tenantId` query param. Fixed in F-006.
-- `docker-entrypoint.sh` was using `prisma db push --accept-data-loss` in production, which is destructive. Fixed in F-005.
-
-**Root cause:** ministry domain was treated as a routing concern (embeddings) but not a data-protection concern (writes, audit logs, tenant isolation). These were three independent gaps with the same root cause.
+> Supersedes the 2026-05-09 PIR (which covered Phases 0–4). That earlier review is preserved in git history.
 
 ---
 
-## Audit Results Summary
+## What we set out to do
 
-**Audit date:** 2026-05-09  
-**Verdict:** 🟡 PASS WITH CONDITIONS  
-**Findings:** 3 HIGH, 4 MEDIUM, 0 LOW before fix pass  
-**Post-fix verdict:** All 7 findings remediated in one commit (d7f03b3)
+Fix the 8 integration bugs the Hermes test agent surfaced when first wired against production OmniMind. Adopt the highest-leverage 2026 best practices (outbox, exponential decay, fail-loud). Build an E2E regression harness. Run a security pass. Don't break production.
 
-| Finding | Severity | Fix |
-|---------|----------|-----|
-| F-001 sourceWeight dead code | HIGH | Propagated field through all retrieval SQL |
-| F-002 cosine dedup broken | HIGH | New POST /memories/search-similar endpoint |
-| F-003 ministry write not refused | HIGH | Pre-check Ollama before DB write |
-| F-004 forgetting curve incomplete | MEDIUM | Added to semantic/FTS/trigram layers |
-| F-005 db push in production | MEDIUM | Switched to migrate deploy |
-| F-006 tenantId not enforced | MEDIUM | Added WHERE filter |
-| F-007 ministry cleartext in audit | MEDIUM | redactForAudit() helper |
+## What actually happened
 
----
+Orchestrated execution worked. 6 PRs merged across ~24 hrs of focused work (orchestrator + 4 executors + manual fixes). Production verified green at each merge. Final Hermes round-trip on prod confirmed the seam works end-to-end.
 
-## Phase 4 Hardening Rationale
+### Workstreams as merged
 
-Phase 4 adds four capabilities that were out of scope for Phase 3 but necessary before the system handles sensitive production data:
+| WS | PR | Outcome |
+|---|---|---|
+| 1 — The seam | #11 | Verified by Hermes round-trip. agent_id / tenant_id / source_weight propagate end-to-end. |
+| 2 — Embedding resilience | #13 | Outbox queue + retry scheduler running. Verified by intentional OpenAI failure — write succeeded, outbox row pending. |
+| 3 — Recall quality | #10 | Exp decay shipped; sourceWeight is now a tiebreaker; dedup threshold 0.80. Will be measurable against Mem0 LoCoMo benchmark on >100 memories. |
+| 4 — Schema hardening | #13 | agent_id NOT NULL enforced; sourceType strict enum validation. |
+| 5 — E2E test harness | #14 | 5 regression tests, 12.8s runtime, verified each FAILS on synthetic pre-WS-1 revert. |
+| 6 — Security | #15 | 0 CRITICAL, 2 HIGH fixed, 2 MEDIUM fixed, 4 MEDIUM deferred. 3 new E2E security tests (D16-D18). |
+| baseline | #12 | Cleared 9 pre-existing typecheck errors so strict gates work. |
 
-1. **Encryption at rest for ministry** — ministry content was protected in transit and at the embedding layer, but the `content` column was plaintext in the DB. AES-256-GCM via existing `crypto.ts` fills this gap.
+### What surprised us
 
-2. **Per-agent rate limiting** — the existing rate limiter was keyed by `userId` (HTTP user), not `agentId` (MCP agent). An agent could bypass it entirely. New `agentRateLimiter` middleware keys by `x-agent-id`.
+1. **Production had silent schema drift.** The Phase 4 migration was marked applied via `prisma migrate resolve --applied` instead of being actually run via `prisma migrate deploy`. Encryption columns + `weekly_digests` table never existed in prod. Surfaced only when Hermes attempted real writes post-WS-1. Fixed by applying the missing SQL by hand and updating `_prisma_migrations.applied_steps_count`.
 
-3. **Weekly digest** — operational visibility gap. No mechanism existed to surface "what did the agent write this week?" to the user. Friday 6pm digest fills this.
+2. **OpenAI and Anthropic keys on Railway were both auto-revoked.** The `.env.deploy` leak from May 8 had been detected by both providers and the keys silently invalidated. Hermes round-trip exposed this — every memory write failed with 401 from OpenAI in the embedding step. PR #13's outbox pattern handles this gracefully now (write succeeds, embedding queued for retry), but actual semantic search still requires Josh to rotate both keys.
 
-4. **Nightly backup** — the existing `scripts/backup.sh` was a stub (4 lines, gpg keyed by env var). Replaced with production-grade script: plain pg_dump, optional openssl encryption, optional S3 upload, 7-file rotation, validated restore procedure.
+3. **Parallel sub-agent contamination.** WS-2 and WS-4 sub-agents ran simultaneously against the same working tree and contaminated each other's branches before either could push. Recovered by separating them at the orchestrator level. **Lesson: parallel executors must use `git worktree add` for true isolation, not just different branches.**
 
----
+4. **Sub-agent credit exhaustion.** Two sub-agent runs hit "out of credits" mid-execution. Work-on-disk was preserved by their handoff scripts, but the orchestrator had to finish the validation/commit/push manually. **Lesson: every executor should write a "finish" script as a checkpoint so a credit-exhausted run doesn't lose progress.**
 
-## What the Audit Process Caught That Code Review Missed
+5. **The validation prompt actually worked.** The Final Validation Audit prompt (commit `f0d4cf1`'s 7 findings, plus this orchestration's WS-6 11 findings) caught real bugs by reading code rather than trusting commit messages. The 4 Hermes integration bugs would not have been caught by mock-heavy unit tests alone.
 
-1. **Silent parameter drops.** `searchMemories()` accepted `similarityThreshold` in the type, but the SQL builder never used it. The parameter silently vanished. An integration test that asserted "a near-duplicate should not create a second memory" would have caught this.
+### What we deferred and why
 
-2. **Fail-open ministry guard.** The check was in `embedding.service.ts` as a log warning, not in `memory.service.ts` as a write gate. The write completed anyway. Defense-in-depth: put the guard where the write happens.
+| Item | Why deferred | Trigger to revisit |
+|---|---|---|
+| Bitemporal validity windows (Zep/Graphiti `valid_from`/`invalid_at`) | Schema redesign cost > current value for solo user | Multi-user OR temporal-query feature request |
+| Postgres row-level security | Server-side filtering sufficient for solo | Multi-user goes live |
+| Letta core memory tier MCP tools | Nice-to-have observability layer | Token budget pressure or repeated retrieval cost surfaces |
+| pgcrypto column encryption for ministry | Ministry domain is disabled | Phase 6 — when ministry data flow returns |
+| 53 pre-existing failing tests in `omnimind-api` and `boardroom-ai` | Out of WS-6 scope, would dwarf the security PR | Dedicated test-debt PR when there's bandwidth |
+| Two fact-extractor unit-test skips | Mock-binding issue, behavior covered by E2E-6 | When restructuring fact extractor for v2 |
+| `.env.deploy` git history scrub via filter-repo | Josh accepted risk (low cap, OpenAI/Anthropic auto-revoke) | If keys ever survive auto-revoke |
+| F-104 admin endpoint separate key | Solo mode acceptable | Adding a second human operator |
+| F-105 rate-limiter IP fallback | Global limiter mitigates | If observed bypass attempts in audit log |
+| F-106 audit log fire-and-forget | Known pre-existing, prior audit I-003 | Re-prioritize if audit gaps observed in production |
+| F-108/F-109 encryption fail-open and GCM tamper | Ministry disabled | Same Phase 6 trigger as pgcrypto |
 
-3. **`prisma db push` in entrypoint.** This was visible in the file — the audit forced a careful re-read of the entrypoint that casual review had skimmed.
+### What we'd do differently
 
----
+1. **Pre-flight every migration baseline before assuming "merged" means "applied."** A 30-second `prisma migrate status` against prod would have caught the Phase 4 drift before Hermes did.
+2. **Isolated git worktrees for parallel sub-agents.** Different branches alone do not prevent contamination when both executors edit the same working tree.
+3. **Dispatch executors from the host machine where credentials live**, OR provision GH PAT for sub-agents up-front. Multiple handoff-script round-trips added orchestrator overhead.
+4. **Test infra debt should have its own track.** WS-5 and WS-6 both ran into pre-existing test-collection failures unrelated to their workstreams. Either fix it before adoption-style PRs OR accept the test-suite as advisory rather than gating.
+5. **Build the validation gate to flag pre-existing drift vs. introduced regressions.** The orchestrator paused twice on "build is red" only to find the failures pre-dated all 6 workstreams. A delta-based gate ("did this PR ADD any failures?") would have avoided that.
 
-## Recommendations for Future Phases
+### What "Mission Complete" actually means
 
-1. **Integration test the full retrieval pipeline** — not just individual layers. A test that writes 3 memories and asserts the ranked results have correct sourceWeight multipliers would have caught F-001 immediately.
+The 7 Final Success Metrics from FIX-EVERYTHING-PLAN.md:
 
-2. **Treat domain-sensitive fields as a cross-cutting concern.** When a new field like `domain: 'ministry'` is introduced, a checklist should exist: write guard, read redaction, audit redaction, encryption. F-003, F-004, F-007 were all ministry cross-cutting misses.
+- ✅ Memory written via MCP has correct `agent_id`, `tenant_id`, `source_weight`
+- ✅ Audit log captures the call with correct attribution
+- ✅ Outbox-pattern: write succeeds even when external embedding API is down
+- 🟡 `has_embedding=true` within 30s — gated on OPENAI key rotation
+- 🟡 Semantic `memory_search` returns the just-written memory — gated on above
+- ✅ Cross-tenant read isolation — verified by E2E-2
+- ✅ E2E harness catches regressions of the original 4 Hermes bugs
 
-3. **Use `migrate deploy` from day 1.** `db push` has no history and `--accept-data-loss` is disqualifying in production.
+5 of 7 verified. 2 of 7 are external-API-gated (the OpenAI and Anthropic keys Josh needs to rotate). All 7 are code-correct.
 
-4. **Audit early, not late.** The 7 findings were all discoverable from reading the source. An audit at the end of Phase 1 would have caught most of them before Phase 2 and 3 built on top.
+## Next session prerequisites for Josh
 
----
+1. **Rotate `OPENAI_API_KEY`** at platform.openai.com → revoke `sk-proj-...5n8A`, create new, paste into Railway env vars for omnimind-api service
+2. **Rotate `ANTHROPIC_API_KEY`** at console.anthropic.com → same flow, paste into Railway omnimind-api AND any local MCP client env that does fact extraction
+3. **Wait for Railway redeploy** (~60s per service), then run `node packages/omnimind-mcp/hermes-roundtrip.mjs` against prod with the new keys + ANTHROPIC_API_KEY in MCP client env. Last 2 success metrics should turn green.
+4. **Watch the outbox retry cron** pick up the pending row from memory `cmp709nyw0000pj01iliep000` within 2 minutes — should resolve automatically once OpenAI key is good.
+5. **Wire production agent configs** to your local Claude Desktop / Code / Cursor / ChatGPT — Milestone E from the original Solo Go-Live prompt. Configs are at `docs/agent-configs/`. Generate per-agent keys via `omnimind-mcp keygen` against prod.
+6. **Begin 30-day dogfooding window.** Use the system for real work. Then revisit Phase 6 priorities.
 
-## Solo Go-Live Observations (Phase 5, 2026-05-09)
+## Open questions for Phase 6+
 
-### What we did in this session
-- Verified repo state: already synced with origin/main, no worktree chaos (prior session cleaned it)
-- Removed `.env.deploy` from git tracking (had live secrets; now gitignored explicitly)
-- Disabled ministry domain at the API + MCP boundary (`503 MINISTRY_DEFERRED`) with test coverage
-- Added `HttpError` class to error-handler so routes can return non-500 status codes properly
-- Shipped importance decay: weekly cron drops importance 0.05/week for unaccessed memories
-- Shipped duplicate detection on write: cosine check at 0.92 threshold before every `createMemory`
-- Shipped `/admin/duplicates` UI tab with threshold selector, pair list, Keep A / Keep B merge
-
-### What surprised me during deploy
-- The repo was already cleaner than the prompt expected — 0 worktree branches, 0 open PRs. The prior session had already done most of B.1/B.2. This prompt was written for a messier state.
-- `.env.deploy` was being tracked despite `*.env` in `.gitignore` — the file predated the gitignore rule. Removed cleanly.
-- `node_modules` not installed in this Claude Code web environment; typecheck worked but tests couldn't run. The D7 test will execute on Railway's CI or locally.
-
-### What's noticeably missing now that it's live
-1. **Agent key generation** — Josh still needs to run `keygen-commands.sh` against prod and install configs into Claude Desktop / Cursor. The configs in `docs/agent-configs/` are templates, not live.
-2. **Prod migration verification** — the `mcp_phase_1` and `mcp_phase_4` migrations will only apply when Railway redeploys. Need to confirm via Railway logs.
-3. **Real data** — the duplicate detection and decay work correctly by logic, but won't be observable until there are actual memories in the system. Phase 5's value is retrospective.
-
-### What was over-engineered in earlier phases
-- The ministry encryption pipeline (AES-256-GCM, ENCRYPTION_KEY, encryptedContent column) was built before confirming ministry domain would be used. Deferring ministry entirely made this dead code on day 1.
-- The `omnimind-ministry` MCP server entry in `claude-desktop.json` — added before confirming Ollama setup. Now removed.
-
-### Recommendations for Phase 6
-1. After 30 days of dogfooding, look at `/admin/duplicates` first — if near-duplicates are common, tighten the 0.92 threshold or improve fact extraction.
-2. Check importance decay via `/admin/memories` sorted by importance — are older unaccessed memories dropping as expected?
-3. If ministry is still deferred at Phase 6, delete the schema columns (`encryptedContent`, `encryptionKeyId`, `encryptionAlgorithm`) to avoid maintaining dead code.
+- When to re-enable ministry domain? (Triggers: Ollama running locally + encryption tested + pastoral data ready to flow)
+- When to move from solo to multi-user? (Triggers: someone else needs an agent identity in OmniMind)
+- Bitemporal validity windows: implement before 1K memories or after? (Trade-off: schema cost vs. retrieval semantics)
+- Test infra cleanup: separate workstream or roll into Phase 6? (53 pre-existing failures need addressing)
