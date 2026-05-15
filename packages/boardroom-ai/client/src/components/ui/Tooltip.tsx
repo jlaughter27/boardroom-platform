@@ -1,88 +1,87 @@
-import { useId, useState, useRef, type ReactNode } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { type ReactNode } from 'react';
+import * as RadixTooltip from '@radix-ui/react-tooltip';
 import { cn } from '../../lib/cn';
 
 interface TooltipProps {
   /**
-   * Tooltip body. String = single-line nowrap (legacy). ReactNode = rich,
-   * wrapping content (max-w-xs).
+   * Tooltip body. String = single-line (no wrap by default). ReactNode = rich,
+   * wrapping content with max-w-xs.
    */
   content: ReactNode;
   children: ReactNode;
   className?: string;
-  /** Delay before showing in ms. Defaults to 300. */
+  /** Delay before showing in ms. Defaults to 300 (OS convention). */
   delay?: number;
   /**
-   * Override max-width when content is rich. Default 16rem (w-64).
+   * Override max-width when content is rich. Default `16rem` (w-64).
    * Pass `null` to disable wrapping.
    */
   maxWidth?: string | null;
+  /** Side of the trigger to render on. Default `top`. */
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  align?: 'start' | 'center' | 'end';
+  /** Force-disable the tooltip (useful for conditional wrapping). */
+  disabled?: boolean;
 }
 
 /**
- * Lightweight tooltip primitive. Track F will replace with Radix; until then
- * we ship hover + focus + ARIA so keyboard users get parity.
+ * Tooltip — Radix-backed wrapper. Preserves our pre-existing API surface
+ * (`content`, `delay`, `maxWidth`) on top of Radix Tooltip primitives.
+ *
+ * Audit refs: top-10 #4, P0 #14 — clipping/positioning was broken in the
+ * hand-rolled version. Radix gives us portal, viewport-aware positioning,
+ * proper ARIA, keyboard focus, and arrow rendering for free.
+ *
+ * Wrap your app in `<TooltipProvider>` at the root (re-exported below).
  */
-export function Tooltip({ content, children, className, delay = 300, maxWidth }: TooltipProps) {
-  const [show, setShow] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const tooltipId = useId();
-
-  const handleEnter = () => {
-    timeoutRef.current = setTimeout(() => setShow(true), delay);
-  };
-
-  const handleLeave = () => {
-    clearTimeout(timeoutRef.current);
-    setShow(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      clearTimeout(timeoutRef.current);
-      setShow(false);
-    }
-  };
-
+export function Tooltip({
+  content,
+  children,
+  className,
+  delay = 300,
+  maxWidth,
+  side = 'top',
+  align = 'center',
+  disabled,
+}: TooltipProps) {
+  if (disabled || content === undefined || content === null || content === '') {
+    return <>{children}</>;
+  }
   const isRich = typeof content !== 'string';
-  const widthStyle = maxWidth === null
-    ? undefined
-    : { maxWidth: maxWidth ?? (isRich ? '16rem' : undefined) };
+  const widthStyle =
+    maxWidth === null
+      ? undefined
+      : { maxWidth: maxWidth ?? (isRich ? '16rem' : undefined) };
 
   return (
-    <div
-      className={cn('relative inline-flex', className)}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-      onFocus={handleEnter}
-      onBlur={handleLeave}
-      onKeyDown={handleKeyDown}
-      aria-describedby={show ? tooltipId : undefined}
-    >
-      {children}
-      <AnimatePresence>
-        {show && (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.15 }}
-            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[var(--z-dropdown)] pointer-events-none"
-            role="tooltip"
-            id={tooltipId}
-            style={widthStyle}
-          >
-            <div
-              className={cn(
-                'bg-foreground text-background text-xs px-2.5 py-1.5 rounded-lg shadow-md',
-                isRich ? 'text-left leading-snug' : 'whitespace-nowrap',
-              )}
-            >
-              {content}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <RadixTooltip.Root delayDuration={delay}>
+      <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
+      <RadixTooltip.Portal>
+        <RadixTooltip.Content
+          side={side}
+          align={align}
+          sideOffset={6}
+          collisionPadding={8}
+          style={widthStyle}
+          className={cn(
+            'z-[var(--z-dropdown)]',
+            'bg-foreground text-background',
+            'text-xs px-2.5 py-1.5 rounded-md shadow-md',
+            isRich ? 'text-left leading-snug' : 'whitespace-nowrap',
+            className
+          )}
+        >
+          {content}
+          <RadixTooltip.Arrow className="fill-foreground" width={10} height={5} />
+        </RadixTooltip.Content>
+      </RadixTooltip.Portal>
+    </RadixTooltip.Root>
   );
 }
+
+/**
+ * App-level Tooltip provider — wrap once at the root.
+ * Re-exported so consumers don't need to import from `@radix-ui/react-tooltip`
+ * directly.
+ */
+export const TooltipProvider = RadixTooltip.Provider;
