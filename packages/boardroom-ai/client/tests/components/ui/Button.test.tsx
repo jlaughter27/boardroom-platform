@@ -62,6 +62,31 @@ describe('Button', () => {
     expect(button).toHaveAttribute('aria-label', 'Custom label');
   });
 
+  it('danger and success hover variants DARKEN (not lighten) — audit P0 #12/#13', () => {
+    const { rerender } = render(<Button variant="danger">Danger</Button>);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toMatch(/hover:bg-red-700/);
+    expect(btn.className).not.toMatch(/hover:bg-red-400/);
+    rerender(<Button variant="success">Success</Button>);
+    expect(screen.getByRole('button').className).toMatch(/hover:bg-emerald-700/);
+  });
+
+  it('uses rounded-md across all sizes (canonical control radius)', () => {
+    const { rerender } = render(<Button size="sm">sm</Button>);
+    expect(screen.getByRole('button')).toHaveClass('rounded-md');
+    rerender(<Button size="md">md</Button>);
+    expect(screen.getByRole('button')).toHaveClass('rounded-md');
+    rerender(<Button size="lg">lg</Button>);
+    expect(screen.getByRole('button')).toHaveClass('rounded-md');
+  });
+
+  it('loading prop disables the button and sets aria-busy', () => {
+    render(<Button loading>Saving</Button>);
+    const btn = screen.getByRole('button');
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('combines custom className with variant classes', () => {
     render(
       <Button className="custom-class" variant="secondary">

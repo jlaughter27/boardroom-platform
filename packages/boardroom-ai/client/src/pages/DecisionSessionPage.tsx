@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,6 +9,12 @@ import { SynthesisPanel } from '../components/decision/SynthesisPanel';
 import { SufficiencyBanner } from '../components/decision/SufficiencyBanner';
 import { SimulationButton } from '../components/decision/SimulationButton';
 import { SimulationPanel } from '../components/decision/SimulationPanel';
+import {
+  MeetAdvisorsModal,
+  hasSeenAdvisorsTour,
+  markAdvisorsTourSeen,
+} from '../components/decision/MeetAdvisorsModal';
+import { SuggestionChips } from '../components/decision/SuggestionChips';
 import { MODE_CONFIGS, PERSONA_CONFIGS } from '@boardroom/shared';
 import * as api from '../lib/api';
 import type { UserMode, PersonaId, CustomPersona, PersonaResponse, SynthesisReport, SufficiencyScore } from '@boardroom/shared';
@@ -26,6 +32,32 @@ export default function DecisionSessionPage() {
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<UserMode>('decide');
   const [customPersonas, setCustomPersonas] = useState<CustomPersona[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // "Meet your advisors" first-run tour. Persisted in localStorage as a
+  // launch-day stand-in for an OmniMind UserProfile flag — see
+  // docs/_audits/2026-05-15-launch-prep/track-d-followups.md
+  const [showAdvisorsTour, setShowAdvisorsTour] = useState(false);
+  useEffect(() => {
+    if (!isNew) return;
+    if (!hasSeenAdvisorsTour()) {
+      const t = setTimeout(() => setShowAdvisorsTour(true), 60);
+      return () => clearTimeout(t);
+    }
+  }, [isNew]);
+
+  function handleCloseAdvisorsTour(dontShowAgain: boolean) {
+    if (dontShowAgain) markAdvisorsTourSeen();
+    setShowAdvisorsTour(false);
+  }
+
+  function handlePickSuggestion(q: string) {
+    setQuestion(q);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(q.length, q.length);
+    });
+  }
 
   useEffect(() => {
     api.getCustomPersonas()
@@ -131,11 +163,17 @@ export default function DecisionSessionPage() {
 
                 <div>
                   <textarea
+                    ref={textareaRef}
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
                     rows={4}
                     placeholder="What decision are you wrestling with?"
                     className="w-full bg-background border border-border rounded-lg p-4 text-lg text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 outline-none resize-y transition-all duration-fast"
+                  />
+                  <SuggestionChips
+                    value={question}
+                    onPick={handlePickSuggestion}
+                    className="mt-3"
                   />
                 </div>
 
@@ -276,6 +314,7 @@ export default function DecisionSessionPage() {
           </motion.div>
         )}
       </div>
+      <MeetAdvisorsModal open={showAdvisorsTour} onClose={handleCloseAdvisorsTour} />
     </PageWrapper>
   );
 }

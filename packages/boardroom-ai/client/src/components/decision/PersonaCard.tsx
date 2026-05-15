@@ -82,7 +82,9 @@ function CollapsibleSection({
 
 export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
+  const meta = PERSONA_META[personaId];
   const colorClass = PERSONA_COLORS[personaId] ?? 'border-t border-border';
+  const thinkingCopy = meta?.thinkingCopy ?? 'Thinking…';
 
   // Waiting state
   if (!response && !isStreaming) {
@@ -99,8 +101,15 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
               />
             ))}
           </div>
-          <span className="text-muted-foreground text-sm">Thinking...</span>
-          <span className="text-muted-foreground text-xs ml-auto">{config?.name ?? personaId}</span>
+          <span className="text-muted-foreground text-sm">{thinkingCopy}</span>
+          <Tooltip content={<PersonaTooltipBody personaId={personaId} />}>
+            <span
+              className="ml-auto text-muted-foreground text-xs cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+              tabIndex={0}
+            >
+              {config?.name ?? personaId}
+            </span>
+          </Tooltip>
         </div>
       </Card>
     );
@@ -112,7 +121,11 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
       <Card className={`border-t-[3px] ${colorClass} shadow-md`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
+            <Tooltip content={<PersonaTooltipBody personaId={personaId} />}>
+              <span className="font-medium text-foreground text-sm cursor-help" tabIndex={0}>
+                {config?.name ?? personaId}
+              </span>
+            </Tooltip>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
           </div>
         </div>
@@ -130,7 +143,11 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
       <Card className={`border-t-[3px] ${colorClass}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
+            <Tooltip content={<PersonaTooltipBody personaId={personaId} />}>
+              <span className="font-medium text-foreground text-sm cursor-help" tabIndex={0}>
+                {config?.name ?? personaId}
+              </span>
+            </Tooltip>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
             {response.dissentFlag && <Badge variant="warning">DISSENTS</Badge>}
           </div>

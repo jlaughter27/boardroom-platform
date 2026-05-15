@@ -23,6 +23,12 @@ const CustomPersonasPage = lazy(() => import('./pages/CustomPersonasPage'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 
+// Dev-only — visual QA gallery for the design system. Tree-shaken from prod
+// bundles because `import.meta.env.DEV` is statically false in production.
+const DevComponentsPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/DevComponentsPage'))
+  : null;
+
 function ProtectedRoute() {
   const { isAuthenticated, isLoading } = useAuthStore();
 
@@ -136,6 +142,9 @@ export default function App() {
               </Route>
             </Route>
           </Route>
+          {DevComponentsPage && (
+            <Route path="/dev/components" element={<DevComponentsPage />} />
+          )}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

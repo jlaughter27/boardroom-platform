@@ -9,7 +9,8 @@ describe('Input', () => {
     expect(input).toBeInTheDocument();
     expect(input).toHaveClass('bg-card');
     expect(input).toHaveClass('border-border');
-    expect(input).toHaveClass('rounded-xl');
+    // Track F: canonical control radius is `rounded-md` (8px).
+    expect(input).toHaveClass('rounded-md');
   });
 
   it('renders with label', () => {
@@ -32,7 +33,7 @@ describe('Input', () => {
     expect(error).toBeInTheDocument();
     expect(error).toHaveClass('text-destructive');
     expect(input).toHaveClass('border-destructive');
-    expect(input).toHaveClass('focus:border-destructive');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('handles onChange events', () => {
