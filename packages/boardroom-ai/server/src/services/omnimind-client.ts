@@ -96,7 +96,14 @@ export class OmniMindClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      // AbortSignal type identity drift between the global ES2022 lib (has `onabort`)
+      // and `fetch`'s expected RequestInit.signal (from undici/lib.dom). Same nominal
+      // name, different member sets → TS2769. Cast at the boundary; runtime behaviour
+      // is unchanged because both shapes are the same WHATWG AbortSignal.
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal as unknown as RequestInit['signal'],
+      });
     } catch (err: unknown) {
       if ((err as Error).name === 'AbortError') {
         throw Object.assign(new Error(`OmniMind request timed out after ${timeoutMs}ms`), {
