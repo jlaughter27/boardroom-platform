@@ -25,7 +25,11 @@
     "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "esbuild"]
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@prisma/client": "^6.3.0",
     "turbo": "^2.4.0",
-    "typescript": "^5.7.0"
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.4"
   }
 }
