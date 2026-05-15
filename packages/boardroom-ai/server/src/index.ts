@@ -17,6 +17,7 @@ import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { integrationsRouter } from './routes/integrations.routes';
 import { adminRouter } from './routes/admin.routes';
+import { stripeWebhookHandler } from './routes/stripe-webhook';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { logger } from './lib/logger';
 import { validateBoardRoomEnv } from './lib/env';
@@ -47,6 +48,15 @@ app.use(cors({
   },
   credentials: true,
 }));
+// Stripe webhook MUST be mounted before express.json() and the auth wall.
+// - Signature verification requires the raw body (express.json would consume it).
+// - Stripe POSTs carry no cookie; auth middleware would 401 every webhook.
+// See SUB-01 / MID-01 / SUB-09 in docs/_audits/2026-05-15-launch-prep.
+// Both paths registered: '/subscription/webhook' for direct hits and
+// '/api/subscription/webhook' because the /api-strip middleware runs LATER.
+app.post('/subscription/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+app.post('/api/subscription/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
 app.use(express.json());
 app.use(cookieParser());
 
