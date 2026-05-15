@@ -1,13 +1,21 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { runValidationPipeline } from '../memory/validation/pipeline';
-import { SOURCE_WEIGHTS } from '@boardroom/shared';
-import { embedMemory, generateEmbeddingWithRetry } from './embedding.service';
+import { SOURCE_WEIGHTS, SourceType } from '@boardroom/shared';
+import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
 import { decrypt } from '../lib/crypto';
 import { HttpError } from '../middleware/error-handler';
 import type { AgentContext } from '../middleware/agent-context';
+import { prisma as defaultPrisma } from '../lib/db';
 
 export type { AgentContext };
+
+// WS-4.2 — Strict sourceType validation set. Previously the SOURCE_WEIGHTS
+// lookup silently fell back to MANUAL on invalid input, hiding data-quality
+// issues (e.g. an agent sending `sourceType: 'mcp'` lowercase would get
+// silently coerced to MANUAL weight). We now reject unknown values at the
+// boundary so callers learn about typos immediately.
+const VALID_SOURCE_TYPES = new Set(Object.values(SourceType));
 
 const MINISTRY_DEFERRED_MSG =
   'Ministry-domain memories are deferred. Single-user testing mode. ' +
@@ -105,6 +113,17 @@ export async function createMemory(
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
   }
 
+  // WS-4.2 — Strict sourceType validation. Reject unknown values at the boundary
+  // rather than silently coercing to MANUAL (which hid data-quality issues).
+  if (!VALID_SOURCE_TYPES.has(input.sourceType as SourceType)) {
+    throw new HttpError(400, {
+      code: 'INVALID_SOURCE_TYPE',
+      message:
+        `sourceType '${input.sourceType}' is not a valid SourceType. ` +
+        `Expected one of: ${Array.from(VALID_SOURCE_TYPES).join(', ')}.`,
+    });
+  }
+
   // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating
   const embedText = `${input.title} ${input.content}`.slice(0, 8000);
   const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
@@ -159,23 +178,22 @@ export async function createMemory(
       status: 'DRAFT' as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       metadata: (input.metadata ?? {}) as any,
-      // Agent context — present for MCP writes, absent for BoardRoom AI writes
-      // (which will keep the schema default of tenantId='josh-personal' and agentId=NULL).
-      ...(agentContext
-        ? {
-            agentId: agentContext.agentId,
-            tenantId: agentContext.tenantId,
-          }
-        : {}),
+      // Agent context — present for MCP writes, absent for BoardRoom AI writes.
+      // WS-4: agent_id is now NOT NULL. Non-MCP callers default to 'boardroom-ai'
+      // (the service-layer counterpart to the migration's 'legacy' DB default).
+      agentId: agentContext?.agentId ?? 'boardroom-ai',
+      ...(agentContext ? { tenantId: agentContext.tenantId } : {}),
     },
   });
 
-  // Trigger embedding immediately (tests expect call count synchronously)
-  try {
-    await embedMemory(memory.id);
-  } catch (err) {
-    logger.error('Embedding failed', { memoryId: memory.id, error: (err as Error).message });
-  }
+  // WS-2: Embedding outbox pattern. Enqueue an outbox row up-front so a stuck
+  // embedding is always recoverable via the embedding-retry-scheduler cron,
+  // even if this process crashes mid-embed. Then attempt the embed once
+  // synchronously — on success we mark the outbox row resolved; on failure we
+  // leave it for the cron to retry with exponential backoff. The MCP caller
+  // is never blocked waiting on OpenAI past this single attempt.
+  await enqueueEmbeddingOutbox(memory.id, prisma);
+  await processEmbeddingOutboxEntry(memory.id, prisma);
 
   return {
     success: true as const,
@@ -185,6 +203,146 @@ export async function createMemory(
       validation: { syncPassed: true, errors: [] },
     },
   };
+}
+
+/**
+ * Returns the outbox delegate when the connected Prisma client has it, else
+ * undefined. Unit tests pass mock-Prisma instances that only stub the models
+ * they exercise — without this guard those tests would explode on the new
+ * outbox path. When undefined, the caller falls back to direct embedMemory
+ * (the pre-WS-2 behavior) so legacy tests keep passing.
+ */
+type EmbeddingOutboxDelegate = PrismaClient['embeddingOutbox'];
+function getOutboxDelegate(prismaClient: PrismaClient): EmbeddingOutboxDelegate | undefined {
+  const candidate = (prismaClient as unknown as { embeddingOutbox?: EmbeddingOutboxDelegate })
+    .embeddingOutbox;
+  if (!candidate || typeof (candidate as { upsert?: unknown }).upsert !== 'function') {
+    return undefined;
+  }
+  return candidate;
+}
+
+/**
+ * WS-2.2 — Insert a pending outbox row for a freshly-created memory.
+ * Uses upsert so a re-enqueue (e.g. on retry) is idempotent.
+ *
+ * Failures here are non-fatal: the memory row already exists, so dropping the
+ * outbox insert would only mean the cron can't see this one specific row to
+ * retry. We log and swallow rather than failing the parent createMemory call.
+ */
+export async function enqueueEmbeddingOutbox(
+  memoryId: string,
+  prismaArg?: PrismaClient
+): Promise<void> {
+  const prismaClient = prismaArg ?? defaultPrisma;
+  const outbox = getOutboxDelegate(prismaClient);
+  if (!outbox) return; // mock-Prisma in unit tests, or pre-migration client
+
+  try {
+    await outbox.upsert({
+      where: { memoryId },
+      create: { memoryId },
+      update: {}, // no-op: don't clobber attempts / lastError on re-enqueue
+    });
+  } catch (err) {
+    logger.error('Embedding outbox enqueue failed', {
+      memoryId,
+      error: (err as Error).message,
+    });
+  }
+}
+
+/**
+ * WS-2.2 / WS-2.3 — Attempt to embed a single outbox-tracked memory.
+ *
+ * Wraps the embedMemory call with outbox bookkeeping:
+ *   - increments attempts on every try
+ *   - stamps lastAttemptAt (used by the cron's exponential-backoff filter)
+ *   - on success: stamps succeededAt, clears lastError
+ *   - on failure: stores lastError, leaves succeededAt NULL so the cron picks
+ *     it up on its next tick (subject to backoff)
+ *
+ * Exported so the embedding-retry-scheduler can call it for each pending row.
+ */
+export async function processEmbeddingOutboxEntry(
+  memoryId: string,
+  prismaArg?: PrismaClient
+): Promise<{ succeeded: boolean; error?: string }> {
+  const prismaClient = prismaArg ?? defaultPrisma;
+  const outbox = getOutboxDelegate(prismaClient);
+
+  // No outbox delegate available (mock-Prisma in unit tests, or the migration
+  // hasn't run yet). Fall back to the pre-WS-2 behavior: best-effort embed
+  // with a swallowed error. This preserves the existing test contract.
+  if (!outbox) {
+    try {
+      await embedMemory(memoryId);
+      return { succeeded: true };
+    } catch (err) {
+      const message = (err as Error).message;
+      logger.error('Embedding failed (no outbox available)', { memoryId, error: message });
+      return { succeeded: false, error: message };
+    }
+  }
+
+  const now = new Date();
+
+  // Atomically bump attempts + lastAttemptAt before attempting the embed so
+  // a crash mid-attempt still leaves a paper trail.
+  try {
+    await outbox.update({
+      where: { memoryId },
+      data: { attempts: { increment: 1 }, lastAttemptAt: now },
+    });
+  } catch {
+    // Row doesn't exist (shouldn't happen for the createMemory path, but the
+    // cron could race with a manual cleanup). Create it then continue.
+    await enqueueEmbeddingOutbox(memoryId, prismaClient);
+    await outbox.update({
+      where: { memoryId },
+      data: { attempts: { increment: 1 }, lastAttemptAt: now },
+    });
+  }
+
+  let thrown: Error | null = null;
+  try {
+    await embedMemory(memoryId);
+  } catch (err) {
+    thrown = err as Error;
+  }
+
+  // embedMemory currently returns void in both success and "OpenAI down" paths
+  // (it logs and swallows internally). To tell the cases apart we re-query the
+  // row and check whether an embedding actually landed.
+  const status = await getEmbeddingStatus(memoryId);
+
+  if (!thrown && status === 'ready') {
+    await outbox.update({
+      where: { memoryId },
+      data: { succeededAt: new Date(), lastError: null },
+    });
+    return { succeeded: true };
+  }
+
+  const message = thrown
+    ? thrown.message
+    : `Embedding still ${status} after attempt — provider unavailable or missing`;
+
+  logger.error('Embedding attempt failed (outbox-tracked)', {
+    memoryId,
+    status,
+    error: message,
+  });
+
+  try {
+    await outbox.update({
+      where: { memoryId },
+      data: { lastError: message.slice(0, 1000) },
+    });
+  } catch {
+    /* outbox row gone — already logged above */
+  }
+  return { succeeded: false, error: message };
 }
 
 // Decrypt ministry content in-place (mutates a copy)

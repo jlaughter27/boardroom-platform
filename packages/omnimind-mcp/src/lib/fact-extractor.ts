@@ -3,6 +3,20 @@ import { z } from 'zod';
 import type { OmniMindClient } from './client';
 import type { AgentContext, FactWithAction } from '../types';
 
+/**
+ * WS-2.4 — Thrown when the Haiku extraction call fails (no API key, rate limit,
+ * timeout, malformed response). The MCP tool layer catches this and returns
+ * `{ error: 'FACT_EXTRACTOR_UNAVAILABLE', message }` to the agent so it can
+ * retry rather than silently storing un-deduped raw content.
+ */
+export class FactExtractorUnavailableError extends Error {
+  readonly code = 'FACT_EXTRACTOR_UNAVAILABLE' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'FactExtractorUnavailableError';
+  }
+}
+
 // WS-3: lowered from 0.85 → 0.80. Mem0's default for 1536-dim OpenAI
 // text-embedding-3-small is 0.80 — at 0.85 we were missing legitimate
 // paraphrases ("I prefer TypeScript strict mode" vs "Josh likes TS strict")
@@ -76,9 +90,15 @@ export async function extractAndDedup(
   try {
     rawFacts = await extractRawFacts(content);
   } catch (err) {
-    console.warn('[fact-extractor] Extraction failed, falling back to single fact:', (err as Error).message);
-    // Graceful fallback: treat the whole content as a single 'context' fact
-    rawFacts = [{ text: content.slice(0, 500), type: 'context' }];
+    // WS-2.4 — Fail loud, do not pollute the store with raw chunks when Haiku is down.
+    // Production memory systems (Mem0, Letta, Anthropic Memory tool) refuse the write
+    // rather than store unstructured fallback. The MCP tool layer should catch this
+    // and surface FACT_EXTRACTOR_UNAVAILABLE to the agent for an explicit retry.
+    const message = (err as Error).message;
+    throw new FactExtractorUnavailableError(
+      `Fact extraction failed (${message}). Memory not written. ` +
+        `Retry once Anthropic / fact-extractor is available again.`,
+    );
   }
 
   if (rawFacts.length === 0) return [];

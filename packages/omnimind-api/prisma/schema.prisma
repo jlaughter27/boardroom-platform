@@ -207,8 +207,11 @@ model MemoryEntry {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  // MCP fields — which agent wrote this and from which tenant
-  agentId        String?       @map("agent_id")
+  // MCP fields — which agent wrote this and from which tenant.
+  // WS-4: agentId is now NOT NULL. Non-MCP callers (BoardRoom AI, internal jobs)
+  // must supply a descriptive identifier; the service layer defaults to
+  // 'boardroom-ai' when no agent context is attached to the request.
+  agentId        String        @map("agent_id")
   tenantId       String        @default("josh-personal") @map("tenant_id")
   embeddingModel String        @default("openai-text-embedding-3-small") @map("embedding_model")
 
@@ -820,4 +823,30 @@ model WeeklyDigest {
 
   @@index([userId, weekStart])
   @@map("weekly_digests")
+}
+
+// ============================================================
+// WS-2 — Embedding Outbox (durable retry queue)
+//
+// Per-memory pending-embedding queue. After a memory is created, an outbox
+// row is inserted. The createMemory path fires-and-forgets the embed; the
+// embedding-retry-scheduler cron polls this table every 2 min and retries any
+// row where succeededAt IS NULL AND attempts < 5, respecting exponential
+// backoff via lastAttemptAt.
+//
+// This decouples MCP write latency from OpenAI availability and gives us a
+// durable record of stuck embeddings (visible via /admin/embedding-failures).
+// ============================================================
+
+model EmbeddingOutbox {
+  id            String    @id @default(cuid())
+  memoryId      String    @unique @map("memory_id")
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  succeededAt   DateTime? @map("succeeded_at")
+
+  @@index([succeededAt, lastAttemptAt])
+  @@map("embedding_outbox")
 }
