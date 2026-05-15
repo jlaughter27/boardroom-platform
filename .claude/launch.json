@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "BoardRoom AI Server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "server/src/index.ts"],
+      "port": 3001,
+      "cwd": "packages/boardroom-ai"
+    },
+    {
+      "name": "BoardRoom AI Client",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "client/vite.config.ts"],
+      "port": 5173,
+      "cwd": "packages/boardroom-ai"
+    },
+    {
+      "name": "OmniMind API",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "src/index.ts"],
+      "port": 3333,
+      "cwd": "packages/omnimind-api"
+    }
+  ]
+}

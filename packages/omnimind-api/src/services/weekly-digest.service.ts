@@ -18,7 +18,7 @@ export async function buildWeeklyDigest(userId: string, weekStart: Date, weekEnd
     prisma.memoryEntry.count({ where: { userId, createdAt: { gte: weekStart, lt: weekEnd }, deletedAt: null } }),
     prisma.memoryEntry.count({ where: { userId, updatedAt: { gte: weekStart, lt: weekEnd }, createdAt: { lt: weekStart }, deletedAt: null } }),
     prisma.decision.count({ where: { createdAt: { gte: weekStart, lt: weekEnd } } }),
-    prisma.task.count({ where: { completedAt: { gte: weekStart, lt: weekEnd } } }),
+    prisma.task.count({ where: { status: 'completed', updatedAt: { gte: weekStart, lt: weekEnd } } }),
     prisma.memoryEntry.groupBy({
       by: ['domain'],
       where: { userId, createdAt: { gte: weekStart, lt: weekEnd }, deletedAt: null },
@@ -73,9 +73,10 @@ export async function saveAndSendDigest(stats: DigestStats, prisma: PrismaClient
 }
 
 async function sendDigestEmail(stats: DigestStats, smtpHost: string): Promise<void> {
-  // Dynamic import — nodemailer is optional; avoids hard dep if not installed
+  // Dynamic import — nodemailer is optional; avoids hard dep if not installed.
+  // Typed as `any` to keep nodemailer out of the dependency manifest until SMTP is wired in prod.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const nodemailer = require('nodemailer') as typeof import('nodemailer');
+  const nodemailer = require('nodemailer') as any;
 
   const transporter = nodemailer.createTransport({
     host: smtpHost,
