@@ -2,15 +2,28 @@ import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
 import { archiveCutoffDate } from './forgetting-curve';
 
+export interface FulltextSearchOptions {
+  limit?: number;
+  includeArchived?: boolean;
+  /** Tenant scope. Required unless `includeAllTenants` is true. */
+  tenantId?: string;
+  /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
+  includeAllTenants?: boolean;
+}
+
 export async function fulltextSearch(
   userId: string,
   query: string,
-  options: { limit?: number; includeArchived?: boolean },
+  options: FulltextSearchOptions,
   prisma: PrismaClient
 ): Promise<ScoredResult[]> {
   if (!query || query.trim().length === 0) return [];
   const includeArchived = options.includeArchived ?? false;
   const cutoff = archiveCutoffDate().toISOString();
+
+  // Safer default: no tenant + no explicit cross-tenant flag => return 0 results.
+  if (!options.tenantId && !options.includeAllTenants) return [];
+  const tenantId = options.tenantId ?? null;
 
   // Convert query to tsquery format (AND all words). Rules to satisfy tests:
   // - hyphens are removed (join words)
@@ -29,11 +42,13 @@ export async function fulltextSearch(
   const curveClause = includeArchived
     ? 'TRUE'
     : `(importance >= 0.4 OR last_accessed_at >= '${cutoff}')`;
+  const tenantClause = tenantId ? `AND tenant_id = '${tenantId}'` : '';
   const sql = `
       SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
              ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQueryRaw})) as rank
       FROM memory_entries
       WHERE user_id = ${userId}
+        ${tenantClause}
         AND deleted_at IS NULL
         AND status != 'ARCHIVED'
         AND ${curveClause}

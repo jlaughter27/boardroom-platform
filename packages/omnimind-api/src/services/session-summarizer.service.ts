@@ -168,22 +168,33 @@ export async function summarizeRecentSessions(prisma: PrismaClient): Promise<voi
     const syntheticUserId = `mcp:${session.tenantId}`;
 
     try {
-      await createMemory(syntheticUserId, {
-        title: `Session summary — ${session.agentId} — ${session.startedAt.toISOString().slice(0, 16)}`,
-        content: summary,
-        domain: 'business',
-        sourceType: 'SESSION_SUMMARY',
-        tags: ['session-summary', session.agentId, session.tenantId],
-        importance: 0.6,
-        metadata: {
+      // Synthesize agent context from session metadata so the summary row
+      // is attributed to the originating agent + tenant, not left blank.
+      await createMemory(
+        syntheticUserId,
+        {
+          title: `Session summary — ${session.agentId} — ${session.startedAt.toISOString().slice(0, 16)}`,
+          content: summary,
+          domain: 'business',
+          sourceType: 'SESSION_SUMMARY',
+          tags: ['session-summary', session.agentId, session.tenantId],
+          importance: 0.6,
+          metadata: {
+            agentId: session.agentId,
+            tenantId: session.tenantId,
+            toolCallCount: session.entries.length,
+            durationMinutes: Math.round((session.endedAt.getTime() - session.startedAt.getTime()) / 60000),
+            sessionStart: session.startedAt.toISOString(),
+            sessionEnd: session.endedAt.toISOString(),
+          },
+        },
+        {
           agentId: session.agentId,
           tenantId: session.tenantId,
-          toolCallCount: session.entries.length,
-          durationMinutes: Math.round((session.endedAt.getTime() - session.startedAt.getTime()) / 60000),
-          sessionStart: session.startedAt.toISOString(),
-          sessionEnd: session.endedAt.toISOString(),
+          sourceWeight: 1.0,
         },
-      }, prisma);
+        prisma
+      );
 
       logger.info('[session-summarizer] Session summary written', {
         agentId: session.agentId,

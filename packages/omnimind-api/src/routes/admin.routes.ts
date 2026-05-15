@@ -1,4 +1,4 @@
-import { Router, type IRouter } from 'express';
+import { Router, type IRouter, type Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
@@ -6,9 +6,37 @@ import { summarizeRecentSessions } from '../services/session-summarizer.service'
 
 const router: IRouter = Router();
 
-// GET /admin/stats — aggregate counts across tenants
-router.get('/stats', async (_req, res, next) => {
+/**
+ * Resolve the tenant filter for an admin route.
+ *
+ * Default: scope to `req.agentContext.tenantId` so an admin-token call from
+ * tenant A can't see tenant B's data unless explicitly requested.
+ *
+ * Override: pass `?includeAllTenants=true` to view across all tenants.
+ *
+ * Returns null when the caller has opted into cross-tenant view OR no agent
+ * context is attached (e.g., legacy non-MCP admin caller).
+ */
+function resolveTenantFilter(req: Request): string | null {
+  const includeAllTenants =
+    typeof req.query.includeAllTenants === 'string' &&
+    req.query.includeAllTenants.toLowerCase() === 'true';
+  if (includeAllTenants) return null;
+  return req.agentContext?.tenantId ?? null;
+}
+
+// GET /admin/stats — aggregate counts (tenant-scoped by default, ?includeAllTenants=true for global)
+router.get('/stats', async (req, res, next) => {
   try {
+    const tenantId = resolveTenantFilter(req);
+    const memoryWhere = tenantId ? { deletedAt: null, tenantId } : { deletedAt: null };
+    const summaryWhere = tenantId
+      ? { sourceType: 'SESSION_SUMMARY' as any, deletedAt: null, tenantId }
+      : { sourceType: 'SESSION_SUMMARY' as any, deletedAt: null };
+    const agentWhere = tenantId ? { tenantId } : {};
+    const tenantWhere = tenantId ? { id: tenantId } : {};
+    const auditWhere = tenantId ? { tenantId } : {};
+
     const [
       memoryCount,
       agentCount,
@@ -17,12 +45,13 @@ router.get('/stats', async (_req, res, next) => {
       summaryCount,
       recentAudit,
     ] = await Promise.all([
-      prisma.memoryEntry.count({ where: { deletedAt: null } }),
-      prisma.agent.count(),
-      prisma.tenant.count(),
-      prisma.mcpAuditLog.count(),
-      prisma.memoryEntry.count({ where: { sourceType: 'SESSION_SUMMARY' as any, deletedAt: null } }),
+      prisma.memoryEntry.count({ where: memoryWhere }),
+      prisma.agent.count({ where: agentWhere }),
+      prisma.tenant.count({ where: tenantWhere }),
+      prisma.mcpAuditLog.count({ where: auditWhere }),
+      prisma.memoryEntry.count({ where: summaryWhere }),
       prisma.mcpAuditLog.findMany({
+        where: auditWhere,
         orderBy: { createdAt: 'desc' },
         take: 1,
         select: { createdAt: true },
@@ -40,10 +69,12 @@ router.get('/stats', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /admin/agents — list all agents with last-seen
-router.get('/agents', async (_req, res, next) => {
+// GET /admin/agents — list agents (tenant-scoped by default)
+router.get('/agents', async (req, res, next) => {
   try {
+    const tenantId = resolveTenantFilter(req);
     const agents = await prisma.agent.findMany({
+      where: tenantId ? { tenantId } : {},
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -59,7 +90,7 @@ router.get('/agents', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /admin/audit — paginated audit log with agent/tenant filters
+// GET /admin/audit — paginated audit log (tenant-scoped by default)
 router.get('/audit', async (req, res, next) => {
   try {
     const QuerySchema = z.object({
@@ -70,10 +101,14 @@ router.get('/audit', async (req, res, next) => {
       offset: z.coerce.number().int().min(0).default(0),
     });
     const q = QuerySchema.parse(req.query);
+    const contextTenant = resolveTenantFilter(req);
+
+    // Explicit q.tenantId wins; otherwise default to the agent's tenant unless includeAllTenants.
+    const effectiveTenantId = q.tenantId ?? contextTenant ?? undefined;
 
     const where = {
       ...(q.agentId && { agentId: q.agentId }),
-      ...(q.tenantId && { tenantId: q.tenantId }),
+      ...(effectiveTenantId && { tenantId: effectiveTenantId }),
       ...(q.toolName && { toolName: q.toolName }),
     };
 
@@ -91,7 +126,7 @@ router.get('/audit', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /admin/memories — paginated memories with agent/tenant/domain filters
+// GET /admin/memories — paginated memories (tenant-scoped by default)
 router.get('/memories', async (req, res, next) => {
   try {
     const QuerySchema = z.object({
@@ -104,10 +139,12 @@ router.get('/memories', async (req, res, next) => {
       offset: z.coerce.number().int().min(0).default(0),
     });
     const query = QuerySchema.parse(req.query);
+    const contextTenant = resolveTenantFilter(req);
+    const effectiveTenantId = query.tenantId ?? contextTenant ?? undefined;
 
     const where: Record<string, unknown> = { deletedAt: null };
     if (query.agentId) where.agentId = query.agentId;
-    if (query.tenantId) where.tenantId = query.tenantId;
+    if (effectiveTenantId) where.tenantId = effectiveTenantId;
     if (query.domain) where.domain = query.domain;
     if (query.sourceType) where.sourceType = query.sourceType;
     if (query.q) {

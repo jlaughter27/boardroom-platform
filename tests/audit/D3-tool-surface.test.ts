@@ -19,6 +19,7 @@ vi.mock('../../packages/omnimind-mcp/src/lib/client', () => ({
     getMemory: vi.fn().mockResolvedValue(null),
     logAudit: vi.fn().mockResolvedValue(undefined),
     registerAgent: vi.fn().mockResolvedValue(undefined),
+    setAgentHeaders: vi.fn(),
   })),
 }));
 

@@ -17,6 +17,10 @@ export async function assembleContextForPersona(
   options?: {
     maxItems?: number;
     includeEntities?: string[];
+    /** Tenant scope forwarded to retrieval layers. */
+    tenantId?: string;
+    /** Admin escape hatch — skip tenant filter entirely. */
+    includeAllTenants?: boolean;
   }
 ): Promise<ContextPackage> {
   const includeEntities = options?.includeEntities ?? ['memories', 'people', 'goals', 'projects', 'decisions'];
@@ -24,12 +28,19 @@ export async function assembleContextForPersona(
   // Generate query embedding for semantic search
   const queryEmbedding = await generateEmbedding(query);
 
+  // Retrieval layers default to tenant-scoped. If neither tenantId nor
+  // includeAllTenants is provided, they return 0 results (safe default).
+  const retrievalScope = {
+    tenantId: options?.tenantId,
+    includeAllTenants: options?.includeAllTenants,
+  };
+
   // Run all retrieval layers in parallel
   const [structured, fts, trigram, semantic] = await Promise.all([
-    includeEntities.includes('memories') ? structuredFilter(userId, query, { limit: 20 }, prisma) : [],
-    includeEntities.includes('memories') ? fulltextSearch(userId, query, { limit: 20 }, prisma) : [],
-    includeEntities.includes('memories') ? trigramSearch(userId, query, { limit: 20 }, prisma) : [],
-    queryEmbedding ? semanticSearch(userId, queryEmbedding, { limit: 20 }, prisma) : Promise.resolve([]),
+    includeEntities.includes('memories') ? structuredFilter(userId, query, { limit: 20, ...retrievalScope }, prisma) : [],
+    includeEntities.includes('memories') ? fulltextSearch(userId, query, { limit: 20, ...retrievalScope }, prisma) : [],
+    includeEntities.includes('memories') ? trigramSearch(userId, query, { limit: 20, ...retrievalScope }, prisma) : [],
+    queryEmbedding ? semanticSearch(userId, queryEmbedding, { limit: 20, ...retrievalScope }, prisma) : Promise.resolve([]),
   ]);
 
   // Also search entity tables
