@@ -64,6 +64,15 @@ jobs:
       # with pgvector + pg_trgm extensions. Wire up a service container
       # (postgres:16 + extensions) before enabling that suite in CI.
 
+  rls-guard:
+    name: RLS guard (Phase 0.25.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No deps needed — pure bash + grep + sed.
+      - name: Check db-audit deletion + Prisma read guards
+        run: bash scripts/check-rls-guards.sh
+
   build:
     name: Build (boardroom-ai)
     runs-on: ubuntu-latest
