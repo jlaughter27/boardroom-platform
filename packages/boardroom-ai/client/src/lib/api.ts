@@ -539,11 +539,9 @@ export function getLatestMemo() {
   return request<WeeklyMemo | null>('/cortex/memo/latest');
 }
 
-export function getMemoHistory(limit = 20, offset = 0) {
-  return request<{ items: WeeklyMemo[]; total: number; offset: number; limit: number }>(
-    `/cortex/memo/history?limit=${limit}&offset=${offset}`,
-  );
-}
+// getMemoHistory was removed in Wave 3 Track J orphan sweep — no caller, and
+// the corresponding GET /cortex/memo/history server route was deleted. Re-add
+// alongside the history UI when that feature ships.
 
 export function generateMemo() {
   return request<WeeklyMemo | { message: string; minRequired: number }>(

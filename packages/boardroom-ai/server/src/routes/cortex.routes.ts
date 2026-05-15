@@ -39,14 +39,9 @@ router.get('/memo/latest', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get('/memo/history', async (req: AuthRequest, res, next) => {
-  try {
-    const qs = new URL(req.url, 'http://localhost').search.slice(1);
-    const filters = qs ? Object.fromEntries(new URLSearchParams(qs)) : undefined;
-    const data = await omnimindClient.getMemoHistory(req.auth!.userId, filters);
-    res.json(data);
-  } catch (err) { next(err); }
-});
+// NOTE (Wave 3 Track J orphan sweep): GET /memo/history removed — no client
+// caller. The only reference (`api.getMemoHistory`) was defined but never
+// invoked. Re-add when the historical memo list UI ships.
 
 router.post('/memo/generate', async (req: AuthRequest, res, next) => {
   try {

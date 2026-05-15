@@ -246,14 +246,9 @@ router.post('/memories/:id/archive', async (req: AuthRequest, res, next) => {
 // Outcome Reviews
 // ---------------------------------------------------------------------------
 
-router.get('/outcome-reviews', async (req: AuthRequest, res, next) => {
-  try {
-    const qs = new URL(req.url, 'http://localhost').search.slice(1);
-    const filters = qs ? Object.fromEntries(new URLSearchParams(qs)) : undefined;
-    const data = await omnimindClient.getOutcomeReviews(req.auth!.userId, filters);
-    res.json(data);
-  } catch (err) { next(err); }
-});
+// NOTE (Wave 3 Track J orphan sweep): GET /outcome-reviews (unfiltered list)
+// removed — only /outcome-reviews/pending is consumed by the client. Re-add
+// when a "review history" UI ships.
 
 router.get('/outcome-reviews/pending', async (req: AuthRequest, res, next) => {
   try {
