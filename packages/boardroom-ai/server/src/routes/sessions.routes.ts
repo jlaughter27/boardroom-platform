@@ -5,10 +5,9 @@ import { checkSessionLimit } from '../middleware/session-rate-limiter';
 import { CEOOrchestrator, type SessionState } from '../agents/orchestrator';
 import { checkSufficiency } from '../agents/sufficiency';
 import { omnimindClient } from '../services/omnimind-client';
-import { proposeExtractions, confirmExtractions } from '../services/extraction.service';
 import { exportSession } from '../services/export.service';
 import { getPersonasForMode, shouldIncludeCEO } from '../personas/mode-router';
-import type { PersonaId, UserMode, MemoryProposal, PersonaResponse, SynthesisReport } from '@boardroom/shared';
+import type { PersonaId, UserMode, PersonaResponse, SynthesisReport } from '@boardroom/shared';
 import { CreateSessionBodySchema } from '@boardroom/shared';
 import { validateBody } from '../middleware/validate';
 import { logger } from '../lib/logger';
@@ -257,87 +256,12 @@ router.post('/:id/check-ambiguity', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-// POST /sessions/:id/questionnaire
-router.post('/:id/questionnaire', async (req: AuthRequest, res, next) => {
-  try {
-    const session = await loadSession(req.auth!.userId, String(req.params.id));
-    if (!session) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
-    const orchestrator = getOrchestrator();
-    const result = await orchestrator.runQuestionnaire(session);
-    res.json(result);
-  } catch (err) { next(err); }
-});
-
-// POST /sessions/:id/questionnaire/answers
-router.post('/:id/questionnaire/answers', async (req: AuthRequest, res, next) => {
-  try {
-    const session = await loadSession(req.auth!.userId, String(req.params.id));
-    if (!session) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
-    const { answers } = req.body as { answers: { question: string; answer: string }[] };
-    session.questionnaireAnswers = answers;
-    const enrichment = answers.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join('\n');
-    session.question = `${session.question}\n\n## Clarifications\n${enrichment}`;
-    void flushToOmniMind(session);
-    res.json({ enrichedContext: true, additionalContextItems: answers.length });
-  } catch (err) { next(err); }
-});
-
-// POST /sessions/:id/plan — doer mode
-router.post('/:id/plan', async (req: AuthRequest, res, next) => {
-  try {
-    const session = await loadSession(req.auth!.userId, String(req.params.id));
-    if (!session) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
-    const orchestrator = getOrchestrator();
-    const result = await orchestrator.runDoer(session);
-    res.json(result);
-  } catch (err) { next(err); }
-});
-
-// POST /sessions/:id/extract-memories
-router.post('/:id/extract-memories', async (req: AuthRequest, res, next) => {
-  try {
-    const session = await loadSession(req.auth!.userId, String(req.params.id));
-    if (!session) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-    const client = new Anthropic({ apiKey });
-
-    const result = await proposeExtractions(session, client);
-    res.json(result);
-  } catch (err) { next(err); }
-});
-
-// POST /sessions/:id/confirm-memories
-router.post('/:id/confirm-memories', async (req: AuthRequest, res, next) => {
-  try {
-    const session = await loadSession(req.auth!.userId, String(req.params.id));
-    if (!session) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
-    const { accepted, modified, rejected } = req.body as {
-      accepted: number[];
-      modified: { index: number; changes: Partial<MemoryProposal> }[];
-      rejected: number[];
-    };
-    const result = await confirmExtractions(
-      session.id, req.auth!.userId, accepted ?? [], modified ?? [], rejected ?? [], omnimindClient
-    );
-    res.json(result);
-  } catch (err) { next(err); }
-});
+// NOTE (Wave 3 Track J orphan sweep, audit 01-feature-wiring.md):
+//   POST /:id/questionnaire, /:id/questionnaire/answers, /:id/plan,
+//   /:id/extract-memories, /:id/confirm-memories were deleted because no
+//   client caller existed. The underlying CEOOrchestrator methods
+//   (runQuestionnaire/runDoer) remain available for re-wiring when the
+//   corresponding UI ships (filed in track-j-followups.md).
 
 // GET /sessions/:id/export
 router.get('/:id/export', async (req: AuthRequest, res, next) => {
