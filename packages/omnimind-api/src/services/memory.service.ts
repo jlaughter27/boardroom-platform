@@ -1,6 +1,6 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { runValidationPipeline } from '../memory/validation/pipeline';
-import { SOURCE_WEIGHTS } from '@boardroom/shared';
+import { SOURCE_WEIGHTS, SourceType } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
 import { decrypt } from '../lib/crypto';
@@ -9,6 +9,13 @@ import type { AgentContext } from '../middleware/agent-context';
 import { prisma as defaultPrisma } from '../lib/db';
 
 export type { AgentContext };
+
+// WS-4.2 — Strict sourceType validation set. Previously the SOURCE_WEIGHTS
+// lookup silently fell back to MANUAL on invalid input, hiding data-quality
+// issues (e.g. an agent sending `sourceType: 'mcp'` lowercase would get
+// silently coerced to MANUAL weight). We now reject unknown values at the
+// boundary so callers learn about typos immediately.
+const VALID_SOURCE_TYPES = new Set(Object.values(SourceType));
 
 const MINISTRY_DEFERRED_MSG =
   'Ministry-domain memories are deferred. Single-user testing mode. ' +
@@ -104,6 +111,17 @@ export async function createMemory(
   // Ministry domain is explicitly deferred (Phase 6+). Refuse at the boundary.
   if (input.domain === 'ministry') {
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
+  }
+
+  // WS-4.2 — Strict sourceType validation. Reject unknown values at the boundary
+  // rather than silently coercing to MANUAL (which hid data-quality issues).
+  if (!VALID_SOURCE_TYPES.has(input.sourceType as SourceType)) {
+    throw new HttpError(400, {
+      code: 'INVALID_SOURCE_TYPE',
+      message:
+        `sourceType '${input.sourceType}' is not a valid SourceType. ` +
+        `Expected one of: ${Array.from(VALID_SOURCE_TYPES).join(', ')}.`,
+    });
   }
 
   // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating
