@@ -1,14 +1,19 @@
 import { z } from 'zod';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
+import { DomainSchema } from '../lib/schemas';
 import type { OmniMindClient } from '../lib/client';
 import type { AgentContext } from '../types';
 
+// F-205: reuse the shared DomainSchema so 'Ministry' / ' MINISTRY ' / etc. are
+// normalized to 'ministry' BEFORE the audit log captures the input. Without
+// this, server-side refusal would still leak cleartext content into the audit
+// log via the un-normalized inputJson.
 const DecisionLogInput = z.object({
   title: z.string().min(1).max(200).describe('Decision title'),
   content: z.string().min(1).describe('What was decided and why'),
   userId: z.string().describe('User ID'),
-  domain: z.string().default('business').describe('Domain context'),
+  domain: DomainSchema.default('business').describe('Domain context'),
   tags: z.array(z.string()).default([]),
   importance: z.number().min(0).max(1).default(0.8),
 });

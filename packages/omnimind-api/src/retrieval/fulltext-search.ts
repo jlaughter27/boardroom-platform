@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
 import { archiveCutoffDate } from './forgetting-curve';
+import { logger } from '../lib/logger';
 
 export interface FulltextSearchOptions {
   limit?: number;
@@ -137,7 +138,10 @@ export async function fulltextSearch(
       lastAccessedAt: r.last_accessed_at,
       sourceWeight: r.source_weight,
     }));
-  } catch {
+  } catch (err) {
+    // F-204: log before returning [] so a tsvector failure / schema drift
+    // doesn't silently degrade retrieval. Behavior is unchanged.
+    logger.error('[fulltext] retrieval failed', { error: err });
     // FTS may fail if extensions aren't enabled yet — degrade gracefully
     return [];
   }

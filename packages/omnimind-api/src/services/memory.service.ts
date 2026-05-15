@@ -74,20 +74,38 @@ async function findNearDuplicate(
   userId: string,
   embedding: number[],
   threshold: number,
-  prisma: PrismaClient
+  prisma: PrismaClient,
+  tenantId?: string
 ): Promise<{ id: string; importance: number; tags: string[] } | null> {
   try {
-    const rows = await prisma.$queryRaw<Array<{ id: string; importance: number; tags: string[] }>>`
-      SELECT id, importance, tags
-      FROM "memory_entries"
-      WHERE user_id = ${userId}
-        AND embedding IS NOT NULL
-        AND deleted_at IS NULL
-        AND status != 'ARCHIVED'
-        AND 1 - (embedding <=> ${embedding}::vector) >= ${threshold}
-      ORDER BY embedding <=> ${embedding}::vector
-      LIMIT 1
-    `;
+    // F-202: must scope dedup search by tenant when an agentContext provides one,
+    // otherwise a near-duplicate from a different tenant would be returned and
+    // subsequently rewritten with the caller's tenantId via updateMemory's
+    // contextOverrides — a silent cross-tenant data theft.
+    const rows = tenantId
+      ? await prisma.$queryRaw<Array<{ id: string; importance: number; tags: string[] }>>`
+          SELECT id, importance, tags
+          FROM "memory_entries"
+          WHERE user_id = ${userId}
+            AND tenant_id = ${tenantId}
+            AND embedding IS NOT NULL
+            AND deleted_at IS NULL
+            AND status != 'ARCHIVED'
+            AND 1 - (embedding <=> ${embedding}::vector) >= ${threshold}
+          ORDER BY embedding <=> ${embedding}::vector
+          LIMIT 1
+        `
+      : await prisma.$queryRaw<Array<{ id: string; importance: number; tags: string[] }>>`
+          SELECT id, importance, tags
+          FROM "memory_entries"
+          WHERE user_id = ${userId}
+            AND embedding IS NOT NULL
+            AND deleted_at IS NULL
+            AND status != 'ARCHIVED'
+            AND 1 - (embedding <=> ${embedding}::vector) >= ${threshold}
+          ORDER BY embedding <=> ${embedding}::vector
+          LIMIT 1
+        `;
     return rows[0] ?? null;
   } catch {
     return null;
@@ -140,11 +158,19 @@ export async function createMemory(
     });
   }
 
-  // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating
+  // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating.
+  // F-202: when an agentContext is present the dedup search MUST be tenant-scoped.
+  // For BoardRoom AI (no agentContext, single-user) the legacy unscoped behavior is preserved.
   const embedText = `${input.title} ${input.content}`.slice(0, 8000);
   const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
   if (dedupeEmbedding) {
-    const dupe = await findNearDuplicate(userId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
+    const dupe = await findNearDuplicate(
+      userId,
+      dedupeEmbedding,
+      DEDUP_THRESHOLD,
+      prisma,
+      agentContext?.tenantId
+    );
     if (dupe) {
       // CRITICAL: pass the agent context through the dedup update path so we don't strip
       // tenantId / agentId / sourceWeight on the merge (fix for Bug #3).
