@@ -16,6 +16,6 @@ export async function runImportanceDecay(): Promise<{ decayed: number }> {
       AND deleted_at IS NULL
   `;
 
-  logger.info({ decayed: result, cutoff }, 'Importance decay complete');
+  logger.info('Importance decay complete', { decayed: result, cutoff });
   return { decayed: Number(result) };
 }

@@ -303,11 +303,15 @@ export const isValidJson = (jsonString: string): boolean => {
 export const createEmailSchema = (options: {
   required?: boolean;
   message?: string;
-} = {}) => {
+} = {}): z.ZodTypeAny => {
   const { required = true, message = 'Invalid email address' } = options;
+
   const base = z.string().trim().email({ message });
-  if (!required) return base.optional();
-  return base.min(1, 'Email is required');
+
+  if (required) {
+    return base.min(1, 'Email is required');
+  }
+  return base.optional();
 };
 
 /**
@@ -323,11 +327,15 @@ export const createEmailSchema = (options: {
 export const createUrlSchema = (options: {
   required?: boolean;
   message?: string;
-} = {}) => {
+} = {}): z.ZodTypeAny => {
   const { required = true, message = 'Invalid URL' } = options;
+
   const base = z.string().trim().url({ message });
-  if (!required) return base.optional();
-  return base.min(1, 'URL is required');
+
+  if (required) {
+    return base.min(1, 'URL is required');
+  }
+  return base.optional();
 };
 
 /**
@@ -343,9 +351,19 @@ export const createUrlSchema = (options: {
 export const createPhoneSchema = (options: {
   required?: boolean;
   message?: string;
-} = {}) => {
+} = {}): z.ZodTypeAny => {
   const { required = true, message = 'Invalid phone number' } = options;
-  const base = z.string().trim().refine(isValidPhoneNumber, { message });
-  if (!required) return base.optional();
-  return base;
+
+  if (required) {
+    return z
+      .string()
+      .trim()
+      .min(1, 'Phone number is required')
+      .refine(isValidPhoneNumber, { message });
+  }
+  return z
+    .string()
+    .trim()
+    .refine(isValidPhoneNumber, { message })
+    .optional();
 };

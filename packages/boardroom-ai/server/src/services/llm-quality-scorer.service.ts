@@ -71,13 +71,24 @@ export async function scoreWithLLM(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await client.messages.create({
-      model,
-      max_tokens: 500,
-      temperature: 0,
-      system: QUALITY_EVALUATION_PROMPT,
-      messages: [{ role: 'user', content: synthesisText }],
-    }, { signal: controller.signal });
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: 500,
+        temperature: 0,
+        system: QUALITY_EVALUATION_PROMPT,
+        messages: [{ role: 'user', content: synthesisText }],
+      },
+      // AbortSignal type identity drift between the global ES2022 lib (has `onabort`)
+      // and the Anthropic SDK's bundled `abort-controller` shim (omits `onabort`).
+      // Same nominal name, different members → TS2769. Cast at the boundary; runtime
+      // behaviour is unchanged because both shapes are the same WHATWG AbortSignal.
+      {
+        signal: controller.signal as unknown as NonNullable<
+          Parameters<typeof client.messages.create>[1]
+        >['signal'],
+      },
+    );
 
     clearTimeout(timeoutId);
 
