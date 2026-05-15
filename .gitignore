@@ -17,3 +17,4 @@ packages/omnimind-api/prisma/migrations/*_migration.sql
 .env.production
 .env.local
 .env.staging
+.claude/worktrees/
