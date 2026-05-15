@@ -28,31 +28,31 @@ Multiple independent audits converged on the same critical P0s (admin guard abse
 
 Plus RES-09 one-liner during merge cleanup (`mergeAdminDuplicates` body-as-userId).
 
-### Wave 3 — Seven tracks dispatched; only Track I + partial G/H/J landed
-Five of seven Wave 3 agents hit a usage quota mid-run. Salvageable work cherry-picked or merged:
-- **Track I (complete):** Pre-existing TS errors fixed — Zod 3.25 surface drift in `shared/validation-helpers.ts`, AbortSignal casts in `omnimind-client.ts` and `llm-quality-scorer.service.ts`. BoardRoom packages typecheck clean at root.
+### Wave 3 — Seven tracks, all merged (completion session added D, E, H-0.25.5)
+
+First session (quota-interrupted): I, F (3 commits inherited), G, H 0.25.3–0.25.4, J orphan sweep.
+Completion session (this one): D, E, H 0.25.5. All tracks now in branch.
+
+- **Track I (complete):** Pre-existing TS errors — Zod 3.25 surface drift in `shared/validation-helpers.ts`, AbortSignal casts in `omnimind-client.ts` and `llm-quality-scorer.service.ts`.
 - **Track F (3 commits, inherited via Track I's rebase):** Design tokens (radius, motion, persona vars), Button/Input hover-darken + rounded-md + h-9, Radix Dialog/Tooltip + lucide Toast/Sidebar + EmptyState dedup.
-- **Track G (complete, 3 commits):** ESLint + Prettier wiring with custom `boardroom/no-class-concat` rule, lint CI job + phantom-token grep gate, opt-in Husky template at `.husky-optional/`.
-- **Track H (2 of 6, cherry-picked):** Phase 0.25.3 mass-assignment Zod with privilege denylist on PATCH /user-profile; Phase 0.25.4 RLS-facade deletion + CI grep gate. 0.25.5 (ENCRYPTION_KEY fail-closed) is WIP on `claude/wave-3-track-h`; 0.25.6 (If-Match version-race) not started.
-- **Track J (1 commit, cherry-picked):** Orphan endpoint sweep — deleted 7 unused server routes + dead `extraction.service.ts` + dead `memory-extractor.ts` + 5 tests for deleted code.
+- **Track G (complete):** ESLint + Prettier wiring with custom `boardroom/no-class-concat` rule, lint CI job + phantom-token grep gate, opt-in Husky template.
+- **Track H (0.25.3 + 0.25.4 + 0.25.5 — complete):** Mass-assignment Zod + privilege denylist on PATCH /user-profile; RLS-facade deletion + CI grep gate; ENCRYPTION_KEY fail-closed (process.exit(1) in all non-test envs, ALLOW_PLAINTEXT_DEV=true opt-out). 0.25.6 (If-Match version-race) deferred.
+- **Track J (orphan sweep):** Deleted 7 unused server routes + dead extraction.service.ts + dead memory-extractor.ts.
+- **Track D (complete):** MeetAdvisorsModal (first-run 7-step tour, localStorage persistence), SuggestionChips (empty-state question prompts), persona-metadata.ts (colour/icon/copy map for all 7 personas). Test coverage: 20 new test cases.
+- **Track E (complete):** Google/GitHub OAuth login (PKCE + state JWT + account-linking), forgot-password + reset-password flow (HMAC-signed tokens, SMTP mailer with dev no-op), email verification (soft banner + hard-gate middleware), authMiddleware extended with passwordChangedAt JWT-invalidation. 24 new files, 12 new test cases.
 
-### Wave 3 work preserved on origin branches (NOT yet merged)
-- `worktree-agent-ad2de1146a92df7bf` — Track D WIP (MeetAdvisorsModal, SuggestionChips, persona-metadata + tests)
-- `worktree-agent-aab98512842142f3b` — Track E WIP (Google/GitHub OAuth services, auth-tokens, mailer, oauth-state + tests)
-- `claude/wave-3-track-h` — Track H 0.25.5 WIP
-- `worktree-agent-a9f257d0ccc2599b2` — Track J WIP (cortex/entities/health route tests, test helpers)
-- `wave3-drift-recovery` — Track F's deeper polish (DevComponentsPage, tabular-nums on AnimatedCount/Progress, Dialog/Toast/Tooltip unit tests, follow-ups docs) that bled into the main tree during a worktree-isolation bug.
-
-### Final state
-- Server tests: 164 pass / 8 skip (was 145 / 0 before Wave 2)
-- Client tests: 51 pass (was 0 — broken at import)
+### Final state (Wave 3 complete)
+- Server tests: 176 pass / 8 skip (was 164 before completion session)
+- Client tests: 71 pass (was 51 before completion session)
 - BoardRoom typecheck: clean
 - CI: typecheck + test + build + lint + rls-guard jobs
+- Branch: `claude/review-project-status-VgaJ0` at `2e1746b`
 
-### Known follow-ups
+### Remaining deferred items
+- H 0.25.6: If-Match version-race propagation in BoardRoom omnimind-client
+- Track J expansion: Playwright E2E setup + 7 user-journey tests, supertest on remaining ~90 endpoints, coverage reporter
+- Track F deeper polish: tabular-nums on AnimatedCount/Progress, DevComponentsPage, Dialog/Toast/Tooltip unit tests
 - `docs/_audits/2026-05-15-launch-prep/track-{a..i}-followups.md` — per-track follow-up lists
-- I-FU-06: worktree dispatch tool needs base-branch parameter; agents are cut from `main` instead of the target branch
-- Wave 3 needs a re-run once quota resets to finish D, E, F polish, H 0.25.5/6, and J (Playwright + route supertest + eval baselines)
 
 ---
 

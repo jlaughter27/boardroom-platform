@@ -1,11 +1,11 @@
 # Current Phase
 
-**Phase in flight:** Launch-Prep — Wave 3 (partial)
-**Active task (within current phase):** Re-run Wave 3 Tracks D, E, H (0.25.5/6), and J once usage quota resets. See `docs/_audits/2026-05-15-launch-prep/WAVE-3-DEV-PROMPT.md` for specs; partial work preserved on branches `worktree-agent-*` and `wave3-drift-recovery`.
+**Phase in flight:** Launch-Prep — Wave 3 (complete)
+**Active task (within current phase):** Wave 3 fully merged. Branch `claude/review-project-status-VgaJ0` at `2e1746b`. Ready for Phase 6 (dogfooding / real-usage tracking). See deferred items below.
 **Last update:** 2026-05-15
-**Updated by:** Claude (Wave 3 partial-completion merge session)
+**Updated by:** Claude (Wave 3 completion session)
 
-**Wave 1 (audits) + Wave 2 (full) + Wave 3 (partial: I, G, H × 2, J × 1, F × 3 inherited)** are all merged to `claude/review-project-status-VgaJ0`. See `CHANGELOG.md` entry for full detail.
+**Wave 1 (audits) + Wave 2 (full) + Wave 3 (full: I, G, H 0.25.3–0.25.5, J orphan sweep, F design tokens, D persona education, E auth completeness)** are all merged to `claude/review-project-status-VgaJ0`. See `CHANGELOG.md` entry for full detail.
 
 Previous phase (MCP Phase 5 — Solo Go-Live) is complete: ministry deferred, importance decay, duplicate detection, /admin/duplicates UI all shipped 2026-05-09.
 
