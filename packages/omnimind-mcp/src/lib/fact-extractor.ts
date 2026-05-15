@@ -3,7 +3,11 @@ import { z } from 'zod';
 import type { OmniMindClient } from './client';
 import type { AgentContext, FactWithAction } from '../types';
 
-const SIMILARITY_THRESHOLD = 0.85;
+// WS-3: lowered from 0.85 → 0.80. Mem0's default for 1536-dim OpenAI
+// text-embedding-3-small is 0.80 — at 0.85 we were missing legitimate
+// paraphrases ("I prefer TypeScript strict mode" vs "Josh likes TS strict")
+// and creating duplicate rows.
+const SIMILARITY_THRESHOLD = 0.80;
 
 const FACT_EXTRACTION_PROMPT = `You are a fact extractor for an agent memory system. Given input text, return a JSON array of atomic facts. Each fact is one self-contained claim.
 

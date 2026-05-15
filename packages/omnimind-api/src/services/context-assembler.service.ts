@@ -152,9 +152,39 @@ export async function assembleContextForPersona(
     30
   );
 
+  // WS-3: reinforce recall — bump recall_count for every memory we actually
+  // surfaced to the persona. Fire-and-forget; failure here must not block the
+  // assembly response. This is what makes the exponential-decay formula's
+  // (1 + recall_count * 0.2) reinforcement term meaningful.
+  const memoryIdsHit = rankedMemories
+    .filter(r => r.type === 'memory')
+    .map(r => r.id);
+  if (memoryIdsHit.length > 0) {
+    void reinforceRecall(prisma, memoryIdsHit);
+  }
+
   // Merge with entity results
   const allResults = [...rankedMemories, ...entityResults];
 
   // Package for the specific persona
   return packageForPersona(allResults, persona, totalCandidates, layersUsed);
+}
+
+/**
+ * WS-3: Increment `recall_count` and refresh `last_accessed_at` for every
+ * memory ID surfaced by the retrieval pipeline. Errors are swallowed —
+ * reinforcement is a quality signal, not a correctness invariant.
+ */
+async function reinforceRecall(prisma: PrismaClient, memoryIds: string[]): Promise<void> {
+  try {
+    await prisma.memoryEntry.updateMany({
+      where: { id: { in: memoryIds }, deletedAt: null },
+      data: {
+        recallCount: { increment: 1 },
+        lastAccessedAt: new Date(),
+      },
+    });
+  } catch {
+    // Swallow — reinforcement is best-effort.
+  }
 }

@@ -49,7 +49,7 @@ router.post('/search-similar', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const { query, threshold = 0.85, limit = 1, domain } = req.body as {
+    const { query, threshold = 0.80, limit = 1, domain } = req.body as {
       query: string;
       threshold?: number;
       limit?: number;
