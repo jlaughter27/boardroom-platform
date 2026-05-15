@@ -560,7 +560,7 @@ export class OmniMindClient {
   }
 
   async mergeAdminDuplicates(body: Record<string, unknown>) {
-    return this.request('POST', '/admin/duplicates/merge', body);
+    return this.request('POST', '/admin/duplicates/merge', undefined, body);
   }
 
   async triggerAdminDecay() {
