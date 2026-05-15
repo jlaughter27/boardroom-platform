@@ -24,6 +24,16 @@ const MINISTRY_DEFERRED_MSG =
 const DEDUP_THRESHOLD = 0.92;
 
 /**
+ * WS-6 F-101 — Canonicalize a domain value so the ministry refusal gate
+ * cannot be bypassed by case/whitespace variants. Mirrors the Zod transform
+ * on CreateMemoryRequestSchema.domain in @boardroom/shared. Service-layer
+ * normalization is a defense-in-depth pass for callers that bypass Zod.
+ */
+function normalizeDomain(d: string): string {
+  return d.trim().toLowerCase();
+}
+
+/**
  * Backward-compat shim: legacy callers pass (userId, input, prisma).
  * New callers pass (userId, input, agentContext, prisma).
  *
@@ -107,6 +117,12 @@ export async function createMemory(
   // New signature: (userId, input, agentContext?, prisma).
   // Detect which arg is which based on shape.
   const { agentContext, prisma } = resolveContextAndPrisma(agentContextOrPrisma, prismaArg);
+
+  // WS-6 F-101 — Defense-in-depth domain normalization. The Zod schema at the
+  // route boundary normalizes too, but services can be called from other code
+  // paths (jobs, tests) without going through Zod. Mutate the local copy so
+  // the refusal check below + the write below both see the canonical value.
+  input = { ...input, domain: normalizeDomain(input.domain) };
 
   // Ministry domain is explicitly deferred (Phase 6+). Refuse at the boundary.
   if (input.domain === 'ministry') {
@@ -349,7 +365,8 @@ export async function processEmbeddingOutboxEntry(
 function decryptMemory<T extends { domain: string; content: string; encryptedContent: Buffer | Uint8Array | null }>(
   mem: T
 ): T & { content: string } {
-  if (mem.domain === 'ministry' && mem.encryptedContent) {
+  // WS-6 F-101 — normalize the legacy stored domain before comparing.
+  if (normalizeDomain(mem.domain) === 'ministry' && mem.encryptedContent) {
     const encoded = Buffer.from(mem.encryptedContent).toString('utf-8');
     return { ...mem, content: decrypt(encoded) };
   }
@@ -478,8 +495,12 @@ export async function updateMemory(
   const existing = await prisma.memoryEntry.findFirst({ where: ownershipWhere });
   if (!existing) return null;
 
-  // Ministry domain is deferred — refuse updates too
-  if (existing.domain === 'ministry') {
+  // WS-6 F-101 — Normalize the input domain (if present) and compare existing.domain
+  // case-insensitively so legacy rows with non-normalized domains are still gated.
+  if (typeof input.domain === 'string') {
+    input = { ...input, domain: normalizeDomain(input.domain) };
+  }
+  if (normalizeDomain(existing.domain) === 'ministry' || input.domain === 'ministry') {
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
   }
 

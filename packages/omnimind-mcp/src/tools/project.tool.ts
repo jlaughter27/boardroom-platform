@@ -20,7 +20,8 @@ export function projectStatusTool(client: OmniMindClient, ctx: AgentContext) {
     description: 'Get the current status of a project.',
     inputSchema: ProjectStatusInput,
     async execute(raw: unknown) {
-      requireScope(ctx, 'project:write');
+      // WS-6 F-103 — read-only tool requires read scope, not write.
+      requireScope(ctx, 'memory:read');
       const input = ProjectStatusInput.parse(raw);
 
       return withAudit(client, ctx, 'project_status', input, async () => {
@@ -46,7 +47,8 @@ export function projectSummaryTool(client: OmniMindClient, ctx: AgentContext) {
     description: 'Retrieve a summary of all memories and tasks related to a project.',
     inputSchema: ProjectSummaryInput,
     async execute(raw: unknown) {
-      requireScope(ctx, 'project:write');
+      // WS-6 F-103 — read-only tool requires read scope, not write.
+      requireScope(ctx, 'memory:read');
       const input = ProjectSummaryInput.parse(raw);
 
       return withAudit(client, ctx, 'project_summary', input, async () => {

@@ -5,9 +5,19 @@ import { withAudit } from '../lib/audit';
 import type { OmniMindClient } from '../lib/client';
 import type { AgentContext, MemoryWriteResult } from '../types';
 
+/**
+ * Normalize domain so refusal gates (ministry) cannot be bypassed by case or
+ * whitespace. WS-6 F-101. Mirrors the same transform in @boardroom/shared's
+ * CreateMemoryRequestSchema so MCP-side gate and API-side gate agree.
+ */
+const DomainSchema = z
+  .string()
+  .min(1)
+  .transform(s => s.trim().toLowerCase());
+
 const MemoryWriteInput = z.object({
   content: z.string().min(1).max(10000).describe('The memory content to store'),
-  domain: z.string().default('general').describe('Domain context: business, personal, ministry, technical'),
+  domain: DomainSchema.default('general').describe('Domain context: business, personal, ministry, technical'),
   tags: z.array(z.string()).default([]).describe('Tags for retrieval'),
   importance: z.number().min(0).max(1).default(0.5).describe('Importance score 0-1'),
   userId: z.string().describe('The user ID this memory belongs to'),
@@ -17,7 +27,7 @@ const MemoryWriteInput = z.object({
 const MemorySearchInput = z.object({
   query: z.string().min(1).describe('Search query'),
   userId: z.string().describe('User ID to search memories for'),
-  domain: z.string().optional().describe('Narrow to a specific domain'),
+  domain: DomainSchema.optional().describe('Narrow to a specific domain'),
   limit: z.number().int().min(1).max(20).default(5).describe('Max results'),
   includeArchived: z.boolean().default(false).describe('Include archived memories'),
 });
@@ -29,6 +39,8 @@ const MemorySupersededInput = z.object({
 });
 
 function redactForAudit(input: Record<string, unknown>): Record<string, unknown> {
+  // Domain is already normalized by Zod (`.trim().toLowerCase()`), so the
+  // literal compare is now safe.
   if (input.domain === 'ministry') {
     return { ...input, content: '[REDACTED:ministry]' };
   }
