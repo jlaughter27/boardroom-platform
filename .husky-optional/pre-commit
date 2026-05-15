@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# OPTIONAL pre-commit hook for BoardRoom Platform.
+# Not auto-installed — see .husky-optional/README.md.
+#
+# Runs eslint via lint-staged on staged files only, so we don't lint the
+# entire workspace on every commit. lint-staged config lives in package.json
+# (see .husky-optional/README.md for the snippet to copy in if you opt in).
+
+. "$(dirname "$0")/_/husky.sh"
+
+pnpm exec lint-staged
