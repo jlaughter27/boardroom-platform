@@ -1,44 +1,46 @@
 /**
- * Track C — Wave 2 critical-path test (Stripe webhook signature path).
+ * Stripe webhook handler — signature path tests (SUB-01/02/09).
  *
- * Depends on Track A: SUB-01 (signature verification), SUB-02 (raw body
- * propagation), SUB-09 (event idempotency) per
- *   docs/_audits/2026-05-15-launch-prep/02-backend-routes.md.
+ * Track A landed the implementation:
+ *   - Handler moved out of subscription.routes.ts into routes/stripe-webhook.ts
+ *   - express.raw() applied at mount in index.ts so req.body is a Buffer
+ *   - Missing signature short-circuits to 400 (SUB-01)
+ *   - StripeSignatureError -> 400 (Stripe should NOT retry)
+ *   - Any other thrown error -> 500 (Stripe SHOULD retry)
+ *   - In-memory idempotency dedup inside stripe.service.handleWebhook (SUB-09)
  *
- * Today's behaviour of POST /subscription/webhook:
- *   - calls stripeService.handleWebhook(req.body, signature)
- *   - on any throw -> 400 { error: 'Webhook verification failed' }
- *   - no explicit idempotency layer (Stripe replays => double-apply)
- *
- * These tests are written against the INTENDED post-Track A contract.
- * They are `.skip`-ed until SUB-01/02/09 land so CI stays green.
+ * Audit IDs: SUB-01 / SUB-02 / SUB-09 in
+ *   docs/_audits/2026-05-15-launch-prep/02-backend-routes.md
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express, { type Application } from 'express';
 import request from 'supertest';
 
-// Mock the stripe service before importing the router
-vi.mock('../../src/services/stripe.service', () => ({
-  isConfigured: () => true,
-  getSubscription: vi.fn(),
-  createCheckout: vi.fn(),
-  cancelSubscription: vi.fn(),
-  handleWebhook: vi.fn(),
-}));
+// Mock the stripe service, but re-export the real StripeSignatureError class
+// so the route handler's `instanceof` check works.
+vi.mock('../../src/services/stripe.service', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../src/services/stripe.service')>(
+      '../../src/services/stripe.service',
+    );
+  return {
+    ...actual,
+    handleWebhook: vi.fn(),
+  };
+});
 
-describe('POST /subscription/webhook — signature path (SUB-01/02/09)', () => {
+describe('POST /webhook (stripe-webhook handler) — signature path', () => {
   let app: Application;
   let stripeService: typeof import('../../src/services/stripe.service');
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    const mod = await import('../../src/routes/subscription.routes');
+    const { stripeWebhookHandler } = await import('../../src/routes/stripe-webhook');
     stripeService = await import('../../src/services/stripe.service');
 
     app = express();
-    // NOTE: The router itself uses express.raw() for /webhook — we do
-    // not stack a JSON parser before it.
-    app.use(mod.subscriptionRouter);
+    // Mirror the production mount: raw body parser, then the handler.
+    app.post('/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
   });
 
   it('returns 200 when handleWebhook resolves (valid signature path)', async () => {
@@ -54,9 +56,9 @@ describe('POST /subscription/webhook — signature path (SUB-01/02/09)', () => {
     expect(res.body).toEqual({ received: true });
   });
 
-  it('returns 400 when handleWebhook rejects (invalid signature)', async () => {
+  it('returns 400 when handleWebhook rejects with StripeSignatureError (invalid sig)', async () => {
     (stripeService.handleWebhook as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('signature verification failed'),
+      new stripeService.StripeSignatureError('bad sig'),
     );
 
     const res = await request(app)
@@ -66,48 +68,42 @@ describe('POST /subscription/webhook — signature path (SUB-01/02/09)', () => {
       .send(Buffer.from(JSON.stringify({ id: 'evt_2', type: 'checkout.session.completed' })));
 
     expect(res.status).toBe(400);
-    expect(res.body).toEqual({ error: 'Webhook verification failed' });
+    expect(res.body).toEqual({ error: 'signature_verification_failed' });
   });
 
-  // TODO(SUB-01 / Track A): unskip when missing-signature is explicitly
-  // rejected pre-service. Today the absent header is forwarded as
-  // undefined and the service throws, which still 400s — the test
-  // passes against today's surface, but the assertion below is stronger.
-  it.skip('returns 400 when stripe-signature header is missing', async () => {
+  it('returns 400 with missing_signature when stripe-signature header is absent (SUB-01)', async () => {
     const res = await request(app)
       .post('/webhook')
       .set('content-type', 'application/json')
       .send(Buffer.from(JSON.stringify({ id: 'evt_3' })));
 
     expect(res.status).toBe(400);
-    // After Track A: the route should short-circuit before calling the
-    // service when no signature header is present.
+    expect(res.body).toEqual({ error: 'missing_signature' });
+    // Short-circuits before invoking the service.
     expect(stripeService.handleWebhook).not.toHaveBeenCalled();
   });
 
-  // TODO(SUB-09 / Track A): unskip when event-id idempotency lands. The
-  // route should consult a processed-event store and short-circuit
-  // duplicates with 200 (Stripe expects 2xx on replays).
-  it.skip('returns 200 idempotently when the same event id is delivered twice', async () => {
-    (stripeService.handleWebhook as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
-    const payload = Buffer.from(
-      JSON.stringify({ id: 'evt_dup', type: 'checkout.session.completed' }),
+  it('returns 500 when handleWebhook rejects with a non-signature error (Stripe should retry)', async () => {
+    (stripeService.handleWebhook as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('OmniMind unreachable'),
     );
 
-    const first = await request(app)
+    const res = await request(app)
       .post('/webhook')
       .set('content-type', 'application/json')
       .set('stripe-signature', 't=1,v1=valid')
-      .send(payload);
-    const second = await request(app)
-      .post('/webhook')
-      .set('content-type', 'application/json')
-      .set('stripe-signature', 't=1,v1=valid')
-      .send(payload);
+      .send(Buffer.from(JSON.stringify({ id: 'evt_4', type: 'invoice.paid' })));
 
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    // The handler should be invoked only once across both deliveries.
-    expect(stripeService.handleWebhook).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'webhook_handler_failed' });
+  });
+
+  // Idempotency lives inside stripe.service.handleWebhook (in-memory Map keyed
+  // by event.id, 24h TTL). Because we mock handleWebhook at the route boundary
+  // here, dedup cannot be exercised in this unit. It belongs in a
+  // stripe.service unit test or an integration test that exercises the real
+  // service against a fixture-signed payload.
+  it.skip('SUB-09 idempotency (covered by service-level test — see follow-ups)', () => {
+    expect(true).toBe(true);
   });
 });

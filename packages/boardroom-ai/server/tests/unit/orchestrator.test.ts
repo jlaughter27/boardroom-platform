@@ -47,6 +47,7 @@ vi.mock('../../src/agents/streaming', () => ({
   sendSSE: vi.fn((res: any, event: any) => {
     if (res.__events) res.__events.push(event);
   }),
+  abortOnClose: vi.fn(() => new AbortController()),
 }));
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ function makeMockRes(): Response & { __events: any[] } {
     setHeader: vi.fn(),
     status: vi.fn().mockReturnThis(),
     json: vi.fn().mockReturnThis(),
+    locals: {},
   };
   return res as Response & { __events: any[] };
 }
