@@ -5,6 +5,7 @@ import * as gmailService from '../services/gmail.service';
 import * as calendarService from '../services/google-calendar.service';
 import { verifyState } from '../services/google-calendar.service';
 import { omnimindClient } from '../services/omnimind-client';
+import { requireSubscription } from '../middleware/subscription.middleware';
 
 const router: IRouter = Router();
 
@@ -55,8 +56,8 @@ router.get('/gmail/emails', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Gmail extraction
-router.post('/gmail/extract', async (req: AuthRequest, res, next) => {
+// Gmail extraction — paid feature (INT-02: calls Claude Haiku).
+router.post('/gmail/extract', requireSubscription, async (req: AuthRequest, res, next) => {
   try {
     const { emailId } = req.body;
     if (!emailId) { res.status(422).json({ error: 'validation_failed', details: [{ field: 'emailId', message: 'Required' }] }); return; }
@@ -65,8 +66,9 @@ router.post('/gmail/extract', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Gmail confirm extraction (create memories)
-router.post('/gmail/confirm', async (req: AuthRequest, res, next) => {
+// Gmail confirm extraction (create memories) — paid feature (INT-01: each
+// proposal triggers an OmniMind write + OpenAI embedding call).
+router.post('/gmail/confirm', requireSubscription, async (req: AuthRequest, res, next) => {
   try {
     const { proposals } = req.body as { proposals: Array<{ title: string; content: string; domain?: string; tags?: string[]; memoryClass?: string; importance?: number; emailId?: string }> };
     let created = 0;

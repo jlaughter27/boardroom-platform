@@ -107,15 +107,19 @@ app.get('/integrations/gmail/callback', integrationsRouter);
 app.use(authMiddleware);
 
 // Protected routes
+// Subscription gating is applied to every router that fans out to Claude/OpenAI
+// or other paid upstreams. Cheap read-only routes (entities, calendar status)
+// remain ungated so dashboards still load for users between trials.
+// See COR-01, ONB-01, INT-01, INT-02 in the launch audit.
 app.use('/subscription', subscriptionRouter);
 app.use('/sessions', requireSubscription, sessionsRouter);
-app.use('/onboarding', onboardingRouter);
-app.use('/onboarding-bootstrap', onboardingBootstrapRouter);
+app.use('/onboarding', requireSubscription, onboardingRouter);
+app.use('/onboarding-bootstrap', requireSubscription, onboardingBootstrapRouter);
 app.use('/', entitiesRouter);
-app.use('/cortex', cortexRouter);
+app.use('/cortex', requireSubscription, cortexRouter);
 app.use('/calendar', calendarRouter);
 app.use('/custom-personas', customPersonasRouter);
-app.use('/integrations', integrationsRouter);
+app.use('/integrations', integrationsRouter); // gmail/extract + gmail/confirm gate themselves
 app.use('/admin', adminRouter);
 // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
