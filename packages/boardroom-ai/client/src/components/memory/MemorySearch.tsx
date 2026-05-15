@@ -22,7 +22,7 @@ export function MemorySearch() {
   }
 
   const selectClass =
-    'bg-card border border-borderrounded px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40';
+    'bg-card border border-border px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40';
 
   return (
     <div className="space-y-3">
@@ -46,7 +46,7 @@ export function MemorySearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search memories..."
-          className="w-full bg-card border border-borderrounded-lg pl-10 pr-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+          className="w-full bg-card border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
         />
       </div>
 
@@ -106,7 +106,7 @@ export function MemorySearch() {
                 filters.sortOrder === 'asc' ? 'desc' : 'asc',
             })
           }
-          className="bg-card border border-borderrounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors"
+          className="bg-card border border-border px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors"
           title={`Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
         >
           {filters.sortOrder === 'asc' ? '\u2191 Asc' : '\u2193 Desc'}

@@ -75,7 +75,7 @@ export function EntityLinker({ memoryId, onLink, onClose }: EntityLinkerProps) {
   }
 
   return (
-    <div className="bg-card border border-borderrounded-lg p-3 space-y-3">
+    <div className="bg-card border border-border rounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-foreground">Link to Entity</p>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">Close</button>
@@ -104,7 +104,7 @@ export function EntityLinker({ memoryId, onLink, onClose }: EntityLinkerProps) {
         value={search}
         onChange={e => setSearch(e.target.value)}
         placeholder={`Search ${entityType}s...`}
-        className="w-full bg-card border border-borderrounded px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+        className="w-full bg-card border border-border px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
       />
 
       {/* List */}

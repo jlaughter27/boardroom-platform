@@ -109,7 +109,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
             onChange={e => setName(e.target.value)}
             placeholder="e.g. The Strategist"
             maxLength={50}
-            className="w-full bg-card border border-borderrounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+            className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
           />
           <p className="text-xs text-muted-foreground mt-1">2-50 characters</p>
         </div>
@@ -123,7 +123,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
             onChange={e => setIcon(e.target.value)}
             placeholder="e.g. \uD83E\uDDE0"
             maxLength={10}
-            className="w-24 bg-card border border-borderrounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+            className="w-24 bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
           />
         </div>
 
@@ -136,7 +136,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
             onChange={e => setDescription(e.target.value)}
             placeholder="A brief description of this persona's perspective"
             maxLength={200}
-            className="w-full bg-card border border-borderrounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+            className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
           />
         </div>
 
@@ -149,7 +149,7 @@ export function PersonaEditor({ persona, onDone, onCancel }: PersonaEditorProps)
             rows={8}
             maxLength={5000}
             placeholder="You are [persona name], a [role/perspective]. When analyzing decisions, you focus on [specific lens]..."
-            className="w-full bg-card border border-borderrounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40 resize-y font-mono"
+            className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40 resize-y font-mono"
           />
           <div className="flex justify-between mt-1">
             <p className="text-xs text-muted-foreground">

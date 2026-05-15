@@ -60,7 +60,7 @@ function CollapsibleSection({
 
 export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
-  const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
+  const colorClass = PERSONA_COLORS[personaId] ?? 'border-t border-border';
 
   // Waiting state
   if (!response && !isStreaming) {
@@ -71,7 +71,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
             {[0, 1, 2].map((i) => (
               <motion.div
                 key={i}
-                className="w-1.5 h-1.5 rounded-full bg-text-tertiary"
+                className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
                 animate={{ opacity: [0.3, 1, 0.3] }}
                 transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
               />
