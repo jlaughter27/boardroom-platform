@@ -41,6 +41,22 @@ function ProtectedRoute() {
   return <Outlet />;
 }
 
+/** Gates /admin behind the user.isAdmin flag sourced from /auth/me. */
+function AdminOnlyRoute() {
+  const { user, isLoading } = useAuthStore();
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <span className="text-muted-foreground">Loading...</span>
+      </div>
+    );
+  }
+  if (!user?.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return <Outlet />;
+}
+
 /** Redirects to /onboarding if profile.onboardingComplete is false */
 function OnboardingGate() {
   const [checked, setChecked] = useState(false);
@@ -114,7 +130,9 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/personas" element={<CustomPersonasPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
-                <Route path="/admin" element={<AdminPage />} />
+                <Route element={<AdminOnlyRoute />}>
+                  <Route path="/admin" element={<AdminPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>

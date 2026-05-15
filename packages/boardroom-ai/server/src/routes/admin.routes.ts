@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { omnimindClient } from '../services/omnimind-client';
+import { requireAdmin } from '../middleware/require-admin';
 
 const router: IRouter = Router();
+
+// Gate every route in this router (ADM-01 / SEC-01 / F-003).
+router.use(requireAdmin);
 
 router.get('/stats', async (_req, res, next) => {
   try {
