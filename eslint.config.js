@@ -26,12 +26,13 @@ const prettier = require('eslint-config-prettier');
 const globals = require('globals');
 const boardroomRules = require('./eslint-rules');
 
-// eslint-plugin-tailwindcss v3 cannot load `.ts` Tailwind configs directly,
-// so we point it at the file path for class-resolution purposes. The plugin
-// falls back to its built-in defaults when it can't parse the file, which is
-// fine for the two rules we enable (no-contradicting + classnames-order).
-const tailwindClientConfigPath =
-  './packages/boardroom-ai/client/tailwind.config.ts';
+// NOTE: eslint-plugin-tailwindcss v3 uses a require()-based loader and can't
+// evaluate our client tailwind.config.ts (it uses ESM `import.meta.url`). We
+// deliberately omit the `config` setting so the plugin uses its built-in
+// defaults — fine for the two rules we enable (no-contradicting + class
+// ordering, both of which rely on Tailwind's known utility shapes more than
+// on this codebase's specific theme). The custom `boardroom/no-class-concat`
+// rule below is the real Wave-2-regression guardrail.
 
 module.exports = [
   // ---------------------------------------------------------------------
@@ -93,7 +94,6 @@ module.exports = [
     settings: {
       react: { version: 'detect' },
       tailwindcss: {
-        config: tailwindClientConfigPath,
         callees: ['cn', 'clsx', 'twMerge', 'classNames'],
       },
     },
