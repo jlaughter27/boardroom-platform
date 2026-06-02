@@ -33,13 +33,24 @@ app.use(helmet());
 const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
   : process.env.NODE_ENV === 'production'
-    ? [] // Same-origin in production — no cross-origin needed
+    ? [] // Production: same-origin only — allow via !origin check below
     : ['http://localhost:5173', 'http://localhost:3000'];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (same-origin, curl, etc.)
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+    // Allow requests with no origin (curl, server-to-server, etc.)
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    // In production with no CORS_ORIGINS set, allow same-origin requests.
+    // Browsers send the Origin header even on same-origin POSTs, so we must
+    // accept the request instead of rejecting it.
+    if (ALLOWED_ORIGINS.length === 0) {
+      callback(null, true);
+      return;
+    }
+    if (ALLOWED_ORIGINS.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`Origin ${origin} not allowed by CORS`));
