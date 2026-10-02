@@ -1,4 +1,4 @@
-import { validateEnv } from '@boardroom/shared';
+import { validateEnv } from '@boardroom/shared/node';
 
 export function validateBoardRoomEnv(): void {
   validateEnv([
