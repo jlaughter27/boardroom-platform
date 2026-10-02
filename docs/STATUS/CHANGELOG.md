@@ -6,6 +6,17 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-02 — Audit — Full-platform independent code audit (all 4 packages + infra)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Report only, no code changed
+
+- `docs/audits/AUDIT-2026-10-02.md`: 5 CRITICAL / 16 HIGH / 33 MEDIUM / 28 LOW open findings; first-ever pass over `boardroom-ai` server + client
+- CRITICALs: lockfile drift breaks BoardRoom Docker build since PR #17 (R-101); `/admin` reachable cross-tenant by any sign-up (B-101); prod SPA fallback swallows every entity GET (B-102); MCP HTTP transport fails on request 2 (M-101); fresh DB cannot boot under `migrate deploy` (O-104)
+- Prior-audit re-verification: 12/39 May findings fixed, 4 partial, 23 open; F-202 mutated into silent write loss (O-101)
+- Baseline: typecheck green 5/5, 500 unit tests pass — see "Why green tests did not catch this"
+
+---
+
 ## 2026-05-09 — Phase 5 Solo Go-Live — Ministry disable + importance decay + dedup + /admin/duplicates
 
 **Branch:** `claude/fix-memory-layer-production-qdmH8` | **Commits:** `0054de0`, `869f368` | **Status:** Pushed
