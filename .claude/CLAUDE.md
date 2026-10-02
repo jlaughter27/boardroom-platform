@@ -66,7 +66,7 @@ The DeepSeek v3.2 split is RETIRED (ADR-007). Existing type files in shared/ wer
 5. **Persona prompts live in `docs/prompts/*.system.md`.** Code loads them at runtime via prompt-loader.ts. Edit prompts in markdown, not buried in TypeScript.
 6. **Every memory write goes through the validation pipeline** (`src/memory/validation/pipeline.ts`). No raw Prisma inserts for memory.
 7. **Max 7-10 context items per persona call.** Enforced in `context-packager.ts`.
-8. **No other LLM providers in v1.** Anthropic Claude only (Sonnet 4.6 + Haiku 4.5). See ADR-002.
+8. **No other LLM providers in v1.** Anthropic Claude only (Sonnet 5.5 + Haiku 4.5, ids only from `MODEL_IDS`). See ADR-002. Sonnet 5.5 rules: no `temperature`, no `thinking:{type:'disabled'}`, no forced `tool_choice`, no prefill; Haiku never receives `output_config` (guarded centrally).
 9. **No framework deps for agent orchestration.** Custom runtime only. See ADR-001.
 10. **Zod schemas must match companion TypeScript interfaces.** If you change one, change both.
 
@@ -83,7 +83,7 @@ The DeepSeek v3.2 split is RETIRED (ADR-007). Existing type files in shared/ wer
 | State | Zustand 5.0 |
 | Database | PostgreSQL 16 + Prisma 6.3 |
 | DB Extensions | pgvector, pg_trgm, tsvector |
-| LLM | Anthropic SDK (Claude Sonnet 4.6 + Haiku 4.5) |
+| LLM | Anthropic SDK 0.131 (Claude Sonnet 5.5 + Haiku 4.5 via `shared/constants/model-config.ts`; prompt-cached system blocks; effort set explicitly) |
 | Embeddings | OpenAI text-embedding-3-small (1536-dim) |
 | Auth | JWT httpOnly cookies (BoardRoom), API key + timing-safe compare (OmniMind) |
 | Background | node-cron (no Redis, no BullMQ) |
@@ -443,9 +443,18 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 
 ---
 
+## Phase 6 (2026-10-02) — what changed
+
+- Prompt caching + Sonnet 5.5 everywhere; per-call `LlmUsage` rows → cost widget (`/usage/llm/summary`).
+- Decision loop closed: `POST /sessions/:id/decide` (required forecast) → `OutcomeReviewModal` shows it → `GET /decisions/calibration` (Brier, reliability) after 20 reviews.
+- Debate protocol: independent round 1 → anonymized rebuttals for dissenters → disagreement ledger → CEO `ledgerResolutions` + server-computed `droppedConsiderations`. `premortem` mode.
+- Memory: deterministic core-context block, nightly reflection capsules, `asOf` temporal validity, `supersedes` consolidation with provenance, commitment nudges, interactive memo, unlinked mentions + backlinks + link writers, people duplicates, hybrid `POST /memories/search`, `Idempotency-Key`.
+- Ops: OTel behind `OTEL_EXPORTER_OTLP_ENDPOINT`, `::` bind for Railway private networking, backup service (`services/backup/`), labeled retrieval eval gated in CI (`retrieval-eval` job), persona distinctiveness eval.
+- Contracts: `docs/contracts/PHASE-6-CONTRACTS.md`, `docs/contracts/omnimind-api.contract.md`.
+
 ## Known Limitations (as of 2026-10-02)
 
-1. **CI gate exists since 2026-10-02** (`.github/workflows/ci.yml`: frozen install, typecheck incl. client, tests, audit, Docker builds) but Railway still auto-deploys `main` on push regardless of CI status — enable branch protection requiring the `verify` + `docker` checks.
+1. **CI gate exists since 2026-10-02** (`.github/workflows/ci.yml`: frozen install, typecheck incl. client, tests, audit, Docker builds, labeled retrieval eval on pgvector) but Railway still auto-deploys `main` on push regardless of CI status — enable branch protection requiring the `verify` + `docker` checks.
 2. **In-memory rate limiting** — resets on restart, no cross-instance coordination. The Redis-backed alternative was quarantined under `_disabled/` (decision: revisit when scaling beyond 1 instance).
 3. **Public domain for service-to-service calls** — `OMNIMIND_API_URL` is the public Railway domain. Should be Railway private networking (cuts an internet round-trip per request, eliminates public surface). Pending Railway config change.
 4. ~~`prisma db push` instead of proper migration history.~~ Fixed 2026-10-02 (`0_init` + `migrate deploy`).
@@ -454,6 +463,9 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 7. Single Railway instance per service (no horizontal scaling).
 8. Agent identity verification (`x-agent-key`) is opt-in (`OMNIMIND_REQUIRE_AGENT_KEY=false` by default); the legacy unverified header triple still works for solo mode.
 9. Ministry domain remains gated (`MINISTRY_DEFERRED` 503); the encryption-at-rest write path is wired and unit-tested behind the gate.
+10. `includeEntities: commitments|tasks` is accepted by `/context/for-persona` but those tables are not yet searched by the assembler (`ScoredResult.type` has no task/commitment member).
+11. The retrieval-eval CI job has not yet run against a real pgvector stack (no docker in the build sandbox); the first CI run is the first real measurement. Thresholds start low (recall@10 ≥ 0.5, MRR ≥ 0.35) and ratchet per `docs/runbooks/retrieval-eval.md`.
+12. Reflection and commitment-nudge jobs, OTel export, private networking and the backup service all need Railway env/config (see the runbook checklist).
 
 ## Resilience layer (omnimind-client.ts)
 
@@ -491,7 +503,7 @@ OmniMind API (port 3333)
 PostgreSQL
 ```
 
-### 15 Available Tools
+### 18 Available Tools (annotated, structured output, cursor pagination, `idempotencyKey` on writes — see `docs/MEMORY-PROTOCOL.md`)
 
 | Tool | Scope Required | Purpose |
 |------|---------------|---------|
@@ -509,7 +521,10 @@ PostgreSQL
 | `person_get` | `memory:read` | Look up a person by name |
 | `commitment_log` | `commitment:write` | Log a commitment to someone |
 | `commitment_list` | `memory:read` | List open commitments |
-| `status_get` | `memory:read` | Composite: decisions + tasks + blockers + commitments |
+| `status_get` | `memory:read` | Composite: decisions + tasks + blockers + commitments (+ `commitmentsDueSoon`) |
+| `memory_reflect` | `memory:write` | Regenerate an entity's ContextCapsule now |
+| `memory_consolidate` | `memory:write` | Near-duplicate pairs (dry-run default); supersede on apply |
+| `graph_neighborhood` | `memory:read` | BFS over backlinks (≤2 hops, 60 nodes) |
 
 ### Running MCP
 

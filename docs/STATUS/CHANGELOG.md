@@ -6,6 +6,19 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-02 — Phase 6 — Research backlog implemented (8 moves, 6 lanes)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** 1,318 passing (was 896 after the audit)
+
+- foundation: Anthropic SDK 0.131, OTel deps, Prisma migration `20261002100000_phase6_foundation` (Decision forecasts, WeeklyMemo.itemStates, ContextCapsule provenance, MemoryEntry.consolidatedFrom, LlmUsage, IdempotencyKey), `shared/constants/model-config.ts`, `docs/contracts/PHASE-6-CONTRACTS.md`
+- omnimind-api: `GET /context/core`, calibration + changes endpoints, `asOf` temporal validity in all four layers, reflection service/job + capsules, commitment nudges job, interactive memo, `/usage/llm`, shared Anthropic client with usage recording, `EMBEDDING_PROVIDER=mock`, OTel, `::` bind; link writers (person/decision/dependency), backlinks, unlinked mentions, people duplicates, hybrid `POST /memories/search`, `supersedes`, `Idempotency-Key` middleware
+- boardroom-ai server: cached system blocks + Sonnet 5.5 + effort + Haiku guard, usage rows, debate protocol (rebuttals, ledger, dropped considerations), `premortem` mode, `POST /sessions/:id/decide`, persona-specific retrieval, OTel with verified traceparent, proxies for every new endpoint
+- boardroom-ai client: DecisionCommitCard, forecast recap in review, CalibrationPanel, debate view, pre-mortem picker, WhatChangedCard, CommitmentNudgesWidget, interactive WeeklyMemoCard, PeopleDuplicatesBanner, graph backlinks/unlinked mentions/link editors, admin LlmCostWidget
+- omnimind-mcp: 18 tools via registerTool (annotations, outputSchema, structuredContent), idempotencyKey, cursor pagination, hybrid memory_search, memory_reflect / memory_consolidate / graph_neighborhood, 4 resources, 3 prompts
+- eval/ops: 114-query labeled retrieval gold set + IR runner gated in a pgvector CI job, persona distinctiveness + sycophancy probe, `services/backup/` + restore drill, BACKUPS / OBSERVABILITY / PRIVATE-NETWORKING docs
+
+---
+
 ## 2026-10-02 — Phase 6 prep — Knowledge graph view + improvement research
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed

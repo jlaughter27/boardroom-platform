@@ -1,5 +1,7 @@
 # Phase 6 build contracts (2026-10-02)
 
+**Status: implemented 2026-10-02** (see CHANGELOG). Kept as the record of the shapes the six lanes agreed on; `docs/contracts/omnimind-api.contract.md` is the live API reference.
+
 Shared agreements for the parallel Phase 6 build. Every agent reads this first and codes **exactly** against it. If a contract is wrong, report it — do not improvise a different shape.
 
 Source research: `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md`.

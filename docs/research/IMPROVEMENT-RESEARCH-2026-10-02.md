@@ -4,7 +4,7 @@
 
 Grounded in `.claude/CLAUDE.md`, `PROJECT-BRIEF.md`, `CURRENT-STATE.md`, the 2026-10-02 audit's "Strategic observations", `schema.prisma`, `retrieval/`, `jobs/`, `orchestrator.ts`, `agent.ts`, `omnimind-mcp/`, `eval/`, and `docs/roadmap/`. External claims are linked; the egress proxy blocked arxiv.org, letta.com, mem0.ai, docs.railway.com, modelcontextprotocol.io and neo4j.com, so those are snippet-level and flagged at the end. Bugs found by the audit are not repeated here.
 
-**Shipped the same day from this research:** item 7 (knowledge-graph page) — `GET /graph` + `/graph` page, see CHANGELOG 2026-10-02.
+**Status (same day, later session):** all eight moves implemented — see CHANGELOG 2026-10-02 "Phase 6 — Research backlog implemented" and `docs/STATUS/CURRENT-PHASE.md` for the per-move status table and the operator checklist. Deferred items (graph DB, cross-encoder, MemGPT tiers, flag tables) remain deferred as recommended.
 
 ---
 
