@@ -6,6 +6,20 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-02 — Phase 5.7 — Audit remediation: all 82 findings addressed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, 9 commits after the audit report
+
+- deps/infra: lockfile regenerated (BoardRoom Docker build fixed), vulnerable deps patched (26 high → 0), `.github/workflows/ci.yml` (frozen install, typecheck incl. client, tests, audit, Docker builds)
+- boardroom-ai server: admin allowlist, SPA fallback predicate + production-mode integration test, Stripe webhook before JSON/auth, trust proxy, CEO double-call removed, 4xx passthrough, OAuth state TTL/nonce, per-user LLM limiter, AbortController on disconnect, quick-take path, Zod on every write, dead services quarantined, context-strategy caps wired
+- boardroom-ai client: client typecheck added (35 errors fixed), CommandPalette crash, session race, 401 handling, search sequencing, idempotent onboarding, admin gating, billing error surfacing
+- omnimind-api: `0_init` migration + fresh/existing detection, tenant-scoped dedup, domain-aware backfill, non-compounding decay (`base_importance`), tenant-scope enforcement, graceful shutdown + job overlap guards, encryption write path + fail-closed decrypt, admin key, IP-fallback limiters, `x-agent-key` verification + scope enforcement, goal↔project / project↔task link routes
+- omnimind-mcp: stateful HTTP transport (SDK-client e2e test), mandatory HTTP key + timing-safe compare + body cap + health, tag-based queries + exact-title task matching, audit redaction, typed validation errors, keygen fixes
+- shared: Memory type aligned with Prisma, Zod/TS/Prisma drift fixed, `@boardroom/shared/node` subpath for Node-only utils, `document_read` dropped from TOOL_PERMISSIONS
+- docs: contract (headers, link routes), runbook (new env vars + operator checklist), FRAGILE-ZONES, MCP runbook + agent configs, CLAUDE.md limitations
+
+---
+
 ## 2026-10-02 — Audit — Full-platform independent code audit (all 4 packages + infra)
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Report only, no code changed

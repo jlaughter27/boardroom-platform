@@ -221,7 +221,7 @@ boardroom-platform/
 - Multiple models use `deletedAt DateTime?` for soft deletes — all queries must filter `WHERE deletedAt IS NULL`
 - `MemoryEntry.embedding` is `Unsupported("vector(1536)")` — requires pgvector extension, queried via raw SQL
 - IVFFlat index with `vector_cosine_ops` for semantic search
-- `prisma db push` used in production (no baseline migration yet)
+- Migration history: `prisma/migrations/0_init` is the baseline snapshot; entrypoint runs `migrate deploy` and resolves the baseline automatically on legacy `db push` databases (see `prisma/migrations/README.md`)
 
 ---
 
@@ -328,7 +328,7 @@ See `.env.example` for the full 21-variable list with defaults.
 
 ### OmniMind entrypoint sequence:
 1. `CREATE EXTENSION IF NOT EXISTS vector` + `pg_trgm`
-2. `prisma db push --skip-generate --accept-data-loss`
+2. `prisma/scripts/detect-baseline.cjs` → `migrate resolve --applied` baselines (existing DBs only) → `prisma migrate deploy`
 3. `node dist/index.js`
 
 **Read `docs/02-reference/FRAGILE-ZONES.md` before touching any Docker or middleware code.**
@@ -443,15 +443,17 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 
 ---
 
-## Known Limitations (as of 2026-04-15)
+## Known Limitations (as of 2026-10-02)
 
-1. **No CI/CD gate** — manual typecheck/test before push. No `.github/workflows/`.
+1. **CI gate exists since 2026-10-02** (`.github/workflows/ci.yml`: frozen install, typecheck incl. client, tests, audit, Docker builds) but Railway still auto-deploys `main` on push regardless of CI status — enable branch protection requiring the `verify` + `docker` checks.
 2. **In-memory rate limiting** — resets on restart, no cross-instance coordination. The Redis-backed alternative was quarantined under `_disabled/` (decision: revisit when scaling beyond 1 instance).
 3. **Public domain for service-to-service calls** — `OMNIMIND_API_URL` is the public Railway domain. Should be Railway private networking (cuts an internet round-trip per request, eliminates public surface). Pending Railway config change.
-4. `prisma db push` instead of proper migration history.
+4. ~~`prisma db push` instead of proper migration history.~~ Fixed 2026-10-02 (`0_init` + `migrate deploy`).
 5. Subscription middleware fails open when OmniMind is unreachable.
 6. No monitoring/alerting beyond health checks. Correlation IDs (`x-request-id`) ARE propagated across the seam since 2026-04-15 — log aggregation can join on them.
 7. Single Railway instance per service (no horizontal scaling).
+8. Agent identity verification (`x-agent-key`) is opt-in (`OMNIMIND_REQUIRE_AGENT_KEY=false` by default); the legacy unverified header triple still works for solo mode.
+9. Ministry domain remains gated (`MINISTRY_DEFERRED` 503); the encryption-at-rest write path is wired and unit-tested behind the gate.
 
 ## Resilience layer (omnimind-client.ts)
 
