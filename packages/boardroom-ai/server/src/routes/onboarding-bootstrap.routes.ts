@@ -13,8 +13,11 @@ import { Router } from 'express';
 import type { IRouter } from 'express';
 import multer from 'multer';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../lib/anthropic-client';
 import type { AuthRequest } from '../middleware/auth';
-import { MODEL_MAP, BootstrapExtractionSchema } from '@boardroom/shared';
+import { MODEL_IDS, BootstrapExtractionSchema } from '@boardroom/shared';
+import { buildSystemBlocks, EFFORT } from '../lib/llm-request';
+import { recordUsage } from '../lib/llm-usage';
 import { loadSystemPrompt } from '../lib/prompt-loader';
 import { transcribeAudio } from '../services/transcription.service';
 import { logger } from '../lib/logger';
@@ -55,17 +58,21 @@ function extractJsonBlock(raw: string): string | null {
  * Run a text briefing through Claude + the onboarding-bootstrap system
  * prompt. Returns the parsed, validated BootstrapExtraction.
  */
-async function extractFromText(text: string): Promise<unknown> {
+async function extractFromText(text: string, userId?: string): Promise<unknown> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient(apiKey);
 
+  const model = MODEL_IDS.sonnet; // single-shot and downstream trusts the output
+  const startedAt = Date.now();
   const response = await client.messages.create({
-    model: MODEL_MAP.sonnet, // use sonnet here — this is single-shot and downstream trusts the output
+    model,
     max_tokens: 3000,
-    system: loadSystemPrompt('onboarding-bootstrap'),
+    system: buildSystemBlocks({ prompt: loadSystemPrompt('onboarding-bootstrap') }),
+    output_config: { effort: EFFORT.extractor },
     messages: [{ role: 'user', content: text }],
   });
+  recordUsage({ purpose: 'extraction:onboarding-bootstrap', model, usage: response.usage, durationMs: Date.now() - startedAt, userId });
 
   const output = response.content[0];
   if (output?.type !== 'text') {
@@ -137,7 +144,7 @@ router.post('/doc', upload.single('file'), async (req: AuthRequest, res, next) =
       return;
     }
 
-    const extraction = await extractFromText(text);
+    const extraction = await extractFromText(text, req.auth?.userId);
     res.json(extraction);
   } catch (err) {
     next(err);
@@ -175,7 +182,7 @@ router.post('/voice', audioUpload.single('audio'), async (req: AuthRequest, res,
       return;
     }
 
-    const extraction = await extractFromText(transcript);
+    const extraction = await extractFromText(transcript, req.auth?.userId);
     res.json({ extraction, transcript, provider, transcriptionMs: durationMs });
   } catch (err) {
     next(err);

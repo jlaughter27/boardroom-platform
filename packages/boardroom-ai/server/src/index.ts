@@ -1,3 +1,6 @@
+// Phase 6 — OpenTelemetry MUST load before express/http are required so the
+// auto-instrumentations can patch them. No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+import './lib/otel';
 import { createApp } from './app';
 import { logger } from './lib/logger';
 import { validateBoardRoomEnv } from './lib/env';

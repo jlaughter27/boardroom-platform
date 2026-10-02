@@ -162,6 +162,8 @@ export class OmniMindClient {
 
         // Success — reset breaker
         this.breaker.recordSuccess();
+        // Phase 6 link routes may answer 204 No Content — nothing to parse.
+        if (res.status === 204) return undefined as T;
         return res.json() as Promise<T>;
       } catch (err: unknown) {
         const error = err as Error & { status?: number; code?: string };
@@ -205,8 +207,125 @@ export class OmniMindClient {
   }
 
   // Context
-  async getContextForPersona(req: { query: string; persona: string; userId: string; maxItems?: number; includeEntities?: string[] }) {
+  async getContextForPersona(req: {
+    query: string;
+    persona: string;
+    userId: string;
+    maxItems?: number;
+    includeEntities?: string[];
+    /** Phase 6 — Critic reads archived/superseded memories too. */
+    includeArchived?: boolean;
+    /** Phase 6 — Critic focuses on DECISION-class memories. */
+    memoryClass?: string;
+    /** Phase 6 — temporal validity: only what was valid at this instant (ISO). */
+    asOf?: string;
+  }) {
     return this.request('POST', '/context/for-persona', req.userId, req);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 6 — core context, decisions/calibration, reflection, nudges, usage
+  // ---------------------------------------------------------------------------
+
+  /** Deterministic markdown block shared by every persona call (prompt-cache prefix). */
+  async getCoreContext(userId: string) {
+    return this.request<{ block: string; tokensEstimate: number; hash: string; generatedAt: string }>(
+      'GET', '/context/core', userId,
+    );
+  }
+
+  async createDecision(userId: string, input: unknown) {
+    return this.request('POST', '/decisions', userId, input);
+  }
+
+  async getCalibration(userId: string, params?: Record<string, string>) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/decisions/calibration${qs}`, userId);
+  }
+
+  async getDecisionChanges(userId: string, params: Record<string, string>) {
+    const qs = '?' + new URLSearchParams(params).toString();
+    return this.request('GET', `/decisions/changes${qs}`, userId);
+  }
+
+  async reflectEntity(userId: string, body: { entityType: 'goal' | 'project' | 'person'; entityId: string }) {
+    return this.request('POST', '/context/reflect', userId, body);
+  }
+
+  async getCapsules(userId: string, entityIds: string[]) {
+    const qs = entityIds.length ? '?' + new URLSearchParams({ entityIds: entityIds.join(',') }).toString() : '';
+    return this.request('GET', `/context/capsules${qs}`, userId);
+  }
+
+  async getCommitmentNudges(userId: string) {
+    return this.request('GET', '/commitments/nudges', userId);
+  }
+
+  /** Phase 6 — lets the nudges widget mark a commitment FULFILLED / etc. */
+  async updateCommitment(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/commitments/${id}`, userId, input);
+  }
+
+  async updateMemoItem(userId: string, memoId: string, itemKey: string, body: { state: 'accepted' | 'dismissed' | 'snoozed'; until?: string }) {
+    return this.request('PATCH', `/cortex/memo/${encodeURIComponent(memoId)}/items/${encodeURIComponent(itemKey)}`, userId, body);
+  }
+
+  /** Fire-and-forget target of lib/llm-usage.ts. No x-user-id header requirement; userId travels in the body. */
+  async postLlmUsage(body: { service: string; purpose: string; model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number; durationMs?: number; sessionId?: string; userId?: string }) {
+    return this.request<{ id: string; costUsd: number }>('POST', '/usage/llm', body.userId, body);
+  }
+
+  async getLlmUsageSummary(params?: Record<string, string>) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/usage/llm/summary${qs}`);
+  }
+
+  // Phase 6 — entity links (ProjectPersonLink / DecisionProjectLink / TaskDependency)
+  async linkProjectPerson(userId: string, projectId: string, personId: string, body?: { role?: string }) {
+    return this.request('POST', `/projects/${projectId}/people/${personId}`, userId, body ?? {});
+  }
+
+  async unlinkProjectPerson(userId: string, projectId: string, personId: string) {
+    return this.request('DELETE', `/projects/${projectId}/people/${personId}`, userId);
+  }
+
+  async linkProjectDecision(userId: string, projectId: string, decisionId: string) {
+    return this.request('POST', `/projects/${projectId}/decisions/${decisionId}`, userId);
+  }
+
+  async unlinkProjectDecision(userId: string, projectId: string, decisionId: string) {
+    return this.request('DELETE', `/projects/${projectId}/decisions/${decisionId}`, userId);
+  }
+
+  async addTaskDependency(userId: string, taskId: string, otherTaskId: string) {
+    return this.request('POST', `/tasks/${taskId}/depends-on/${otherTaskId}`, userId);
+  }
+
+  async removeTaskDependency(userId: string, taskId: string, otherTaskId: string) {
+    return this.request('DELETE', `/tasks/${taskId}/depends-on/${otherTaskId}`, userId);
+  }
+
+  // Phase 6 — graph extras
+  async getBacklinks(userId: string, nodeId: string) {
+    return this.request('GET', `/graph/backlinks/${encodeURIComponent(nodeId)}`, userId);
+  }
+
+  async getUnlinkedMentions(userId: string, limit?: number) {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request('GET', `/graph/unlinked-mentions${qs}`, userId);
+  }
+
+  async linkUnlinkedMention(userId: string, body: { memoryId: string; entityType: string; entityId: string }) {
+    return this.request('POST', '/graph/unlinked-mentions/link', userId, body);
+  }
+
+  async getPeopleDuplicates(userId: string) {
+    return this.request('GET', '/people/duplicates', userId);
+  }
+
+  /** Hybrid search (same stack as /context/for-persona). */
+  async searchMemoriesHybrid(userId: string, body: { query: string; limit?: number; domain?: string; tags?: string[]; status?: string; includeArchived?: boolean; asOf?: string; cursor?: string }) {
+    return this.request('POST', '/memories/search', userId, body);
   }
 
   // Memory

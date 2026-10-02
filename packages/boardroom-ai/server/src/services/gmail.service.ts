@@ -1,7 +1,10 @@
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../lib/anthropic-client';
 import type { EmailSummary, EmailExtraction, EmailMemoryProposal } from '@boardroom/shared';
-import { MODEL_MAP, EmailMemoryProposalsSchema } from '@boardroom/shared';
+import { MODEL_IDS, EmailMemoryProposalsSchema } from '@boardroom/shared';
+import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { recordUsage } from '../lib/llm-usage';
 import { omnimindClient } from './omnimind-client';
 import { signState } from './google-calendar.service';
 import { loadSystemPrompt } from '../lib/prompt-loader';
@@ -141,20 +144,22 @@ export async function extractMemoriesFromEmail(userId: string, emailId: string):
   // No inline fallback — a missing prompt file must fail loudly.
   const systemPrompt = loadSystemPrompt('email-extractor');
 
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient(apiKey);
+  const startedAt = Date.now();
   const response = await client.messages.create({
-    model: MODEL_MAP.haiku,
+    model: MODEL_IDS.haiku,
     max_tokens: 1000,
-    system: systemPrompt,
+    system: buildSystemBlocks({ prompt: systemPrompt }),
+    output_config: { effort: EFFORT.extractor },
     messages: [{ role: 'user', content: `Subject: ${subject}\nFrom: ${from}\nDate: ${dateStr}\n\n${body}` }],
   });
+  recordUsage({ purpose: 'extraction:email', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId });
 
   const text = response.content[0];
   let proposals: EmailMemoryProposal[] = [];
   if (text?.type === 'text') {
     try {
-      const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(jsonStr));
+      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(stripJsonFences(text.text)));
     } catch { /* parse or validation error */ }
   }
 

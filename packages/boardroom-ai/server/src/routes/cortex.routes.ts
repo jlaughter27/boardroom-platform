@@ -21,6 +21,12 @@ const SimulateBodySchema = z.object({
   simulationType: z.enum(['resource', 'timeline', 'stakeholder', 'full']).optional(),
 });
 
+// Phase 6 — interactive memo items
+const MemoItemStateBodySchema = z.object({
+  state: z.enum(['accepted', 'dismissed', 'snoozed']),
+  until: z.string().datetime().optional(),
+});
+
 const UpdateContradictionBodySchema = z.object({
   status: z.string().min(1).max(50).optional(),
   resolution: z.string().max(5000).optional(),
@@ -71,6 +77,15 @@ router.get('/memo/history', async (req: AuthRequest, res, next) => {
 router.post('/memo/generate', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.triggerMemoGeneration(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// PATCH /cortex/memo/:id/items/:itemKey — accept / dismiss / snooze one memo item.
+// `accepted` writes a memory through OmniMind's validation pipeline. Returns the updated memo.
+router.patch('/memo/:id/items/:itemKey', validateBody(MemoItemStateBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateMemoItem(req.auth!.userId, req.params.id, req.params.itemKey, req.body);
     res.json(data);
   } catch (err) { next(err); }
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { checkSufficiency } from '../../src/agents/sufficiency';
-import { MODEL_MAP } from '@boardroom/shared';
+import { MODEL_IDS } from '@boardroom/shared';
 
 // Mock the prompt-loader module
 vi.mock('../../src/lib/prompt-loader', () => ({
@@ -30,9 +30,10 @@ describe('sufficiency', () => {
       const result = await checkSufficiency('Should we start this project?', mockClient as any);
 
       expect(mockClient.messages.create).toHaveBeenCalledWith({
-        model: MODEL_MAP.haiku,
+        model: MODEL_IDS.haiku,
         max_tokens: 500,
-        system: 'Sufficiency check prompt',
+        system: [{ type: 'text', text: 'Sufficiency check prompt', cache_control: { type: 'ephemeral' } }],
+        output_config: { effort: 'low' },
         messages: [{ role: 'user', content: 'Should we start this project?' }],
       }, { signal: undefined }); // B-111: request options carry the client-disconnect AbortSignal
 

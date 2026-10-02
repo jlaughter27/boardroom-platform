@@ -10,11 +10,13 @@ import { exportSession } from '../services/export.service';
 import { getPersonasForMode, shouldIncludeCEO } from '../personas/mode-router';
 import type { PersonaId, UserMode, MemoryProposal } from '@boardroom/shared';
 import { CreateSessionBodySchema, MemoryProposalSchema } from '@boardroom/shared';
+import { DecideBodySchema, commitDecision, type DecideBody } from '../services/decision-commit.service';
 import { validateBody } from '../middleware/validate';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
 import { toolRegistry } from '../tools';
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../lib/anthropic-client';
 
 const router: IRouter = Router();
 router.use(checkSessionLimit);
@@ -90,7 +92,7 @@ function getOrchestrator(): CEOOrchestrator {
 // POST /sessions -- create
 router.post('/', validateBody(CreateSessionBodySchema), (req: AuthRequest, res, next) => {
   try {
-    const { question, mode } = req.body as { question: string; mode: UserMode; roomId?: string };
+    const { question, mode, asOf } = req.body as { question: string; mode: UserMode; roomId?: string; asOf?: string };
 
     if (sessions.size >= MAX_SESSIONS) {
       res.status(503).json({ error: 'capacity_exceeded', message: 'Too many active sessions. Please try again later.' });
@@ -108,6 +110,7 @@ router.post('/', validateBody(CreateSessionBodySchema), (req: AuthRequest, res, 
       synthesis: null,
       createdAt: now,
       lastActivityAt: now,
+      ...(asOf ? { asOf } : {}),
     };
     sessions.set(id, session);
 
@@ -136,6 +139,11 @@ router.get('/:id', (req: AuthRequest, res) => {
     ceoSynthesis: session.synthesis,
     sufficiencyScore: null,
     createdAt: new Date().toISOString(),
+    // Phase 6
+    rebuttals: Object.fromEntries(session.rebuttals ?? []),
+    ledger: session.ledger ?? [],
+    decisionId: session.decisionId ?? null,
+    asOf: session.asOf ?? null,
   });
 });
 
@@ -196,8 +204,8 @@ router.post('/:id/check-ambiguity', llmRateLimiter, async (req: AuthRequest, res
     }
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-    const client = new Anthropic({ apiKey });
-    const score = await checkSufficiency(session.question, client, abortOnClose(req));
+    const client = createAnthropicClient(apiKey);
+    const score = await checkSufficiency(session.question, client, abortOnClose(req), { sessionId: session.id, userId: session.userId });
     res.json(score);
   } catch (err) { next(err); }
 });
@@ -254,7 +262,7 @@ router.post('/:id/extract-memories', llmRateLimiter, async (req: AuthRequest, re
     }
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-    const client = new Anthropic({ apiKey });
+    const client = createAnthropicClient(apiKey);
 
     const result = await proposeExtractions(session, client, abortOnClose(req));
     res.json(result);
@@ -278,6 +286,26 @@ router.post('/:id/confirm-memories', validateBody(ConfirmMemoriesBodySchema), as
       session.id, req.auth!.userId, accepted ?? [], modified ?? [], rejected ?? [], omnimindClient
     );
     res.json(result);
+  } catch (err) { next(err); }
+});
+
+// POST /sessions/:id/decide — Phase 6 decision commit.
+// Body: { chosenPath, rationale?, expectedOutcome, probabilitySuccess (0..1), reviewAt? }
+// → 201 Decision (OmniMind row) with personaForecasts (revised when a rebuttal
+// happened), assumptions from the CEO report, mode from the session, decidedAt now.
+router.post('/:id/decide', validateBody(DecideBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const session = sessions.get(String(req.params.id));
+    if (!session || session.userId !== req.auth!.userId) {
+      res.status(404).json({ error: 'not_found', message: 'Session not found' });
+      return;
+    }
+    if (session.decisionId) {
+      res.status(409).json({ error: 'already_decided', message: 'This session already committed a decision', decisionId: session.decisionId });
+      return;
+    }
+    const decision = await commitDecision(session, req.body as DecideBody, omnimindClient);
+    res.status(201).json(decision);
   } catch (err) { next(err); }
 });
 

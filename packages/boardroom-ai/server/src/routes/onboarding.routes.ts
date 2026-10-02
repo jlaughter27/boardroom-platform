@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../lib/anthropic-client';
 import type { AuthRequest } from '../middleware/auth';
-import { MODEL_MAP, ExtractedGoalsSchema, ExtractedProjectsSchema } from '@boardroom/shared';
+import { MODEL_IDS, ExtractedGoalsSchema, ExtractedProjectsSchema } from '@boardroom/shared';
+import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { recordUsage } from '../lib/llm-usage';
 import { loadSystemPrompt } from '../lib/prompt-loader';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
 import { omnimindClient } from '../services/omnimind-client';
@@ -20,19 +23,21 @@ router.post('/extract-goals', llmRateLimiter, async (req: AuthRequest, res, next
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-    const client = new Anthropic({ apiKey });
+    const client = createAnthropicClient(apiKey);
 
+    const startedAt = Date.now();
     const response = await client.messages.create({
-      model: MODEL_MAP.haiku,
+      model: MODEL_IDS.haiku,
       max_tokens: 500,
-      system: loadSystemPrompt('onboarding-goals'),
+      system: buildSystemBlocks({ prompt: loadSystemPrompt('onboarding-goals') }),
+      output_config: { effort: EFFORT.extractor },
       messages: [{ role: 'user', content: text }],
     });
+    recordUsage({ purpose: 'extraction:onboarding-goals', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId: req.auth!.userId });
 
     const output = response.content[0];
     if (output?.type === 'text') {
-      const jsonStr = output.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      res.json(ExtractedGoalsSchema.parse(JSON.parse(jsonStr)));
+      res.json(ExtractedGoalsSchema.parse(JSON.parse(stripJsonFences(output.text))));
     } else {
       res.json([]);
     }
@@ -50,19 +55,21 @@ router.post('/extract-projects', llmRateLimiter, async (req: AuthRequest, res, n
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-    const client = new Anthropic({ apiKey });
+    const client = createAnthropicClient(apiKey);
 
+    const startedAt = Date.now();
     const response = await client.messages.create({
-      model: MODEL_MAP.haiku,
+      model: MODEL_IDS.haiku,
       max_tokens: 500,
-      system: loadSystemPrompt('onboarding-projects'),
+      system: buildSystemBlocks({ prompt: loadSystemPrompt('onboarding-projects') }),
+      output_config: { effort: EFFORT.extractor },
       messages: [{ role: 'user', content: text }],
     });
+    recordUsage({ purpose: 'extraction:onboarding-projects', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId: req.auth!.userId });
 
     const output = response.content[0];
     if (output?.type === 'text') {
-      const jsonStr = output.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      res.json(ExtractedProjectsSchema.parse(JSON.parse(jsonStr)));
+      res.json(ExtractedProjectsSchema.parse(JSON.parse(stripJsonFences(output.text))));
     } else {
       res.json([]);
     }

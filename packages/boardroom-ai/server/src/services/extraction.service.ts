@@ -17,7 +17,8 @@ export async function proposeExtractions(
     session.personaResponses,
     session.synthesis,
     client,
-    signal
+    signal,
+    { sessionId: session.id, userId: session.userId },
   );
 
   // Store proposals for later confirmation

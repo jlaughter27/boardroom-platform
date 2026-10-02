@@ -14,6 +14,7 @@ import {
   CreateTaskRequestSchema, UpdateTaskRequestSchema,
   CreatePersonRequestSchema, UpdatePersonRequestSchema,
   CreateMemoryRequestSchema, UpdateMemoryRequestSchema,
+  UpdateCommitmentRequestSchema,
 } from '@boardroom/shared';
 
 // B-113 — local schemas where shared has none
@@ -45,7 +46,61 @@ const UpdateProfileSchema = z.object({
   onboardingComplete: z.boolean().optional(),
 }).strict();
 
+// Phase 6 — proxy body schemas
+const ReflectBodySchema = z.object({
+  entityType: z.enum(['goal', 'project', 'person']),
+  entityId: z.string().min(1).max(200),
+});
+
+const ProjectPersonLinkBodySchema = z.object({
+  role: z.string().max(100).optional(),
+}).optional();
+
+const UnlinkedMentionLinkBodySchema = z.object({
+  memoryId: z.string().min(1).max(200),
+  entityType: z.string().min(1).max(50),
+  entityId: z.string().min(1).max(200),
+});
+
+const MemorySearchBodySchema = z.object({
+  query: z.string().min(1).max(5000),
+  limit: z.number().int().min(1).max(50).optional(),
+  domain: z.string().max(100).optional(),
+  tags: z.array(z.string().max(100)).max(50).optional(),
+  status: z.string().max(50).optional(),
+  includeArchived: z.boolean().optional(),
+  asOf: z.string().datetime().optional(),
+  cursor: z.string().max(500).optional(),
+});
+
 const router: IRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Phase 6 — core context, reflection, capsules (owner A1 on the OmniMind side)
+// ---------------------------------------------------------------------------
+
+router.get('/context/core', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getCoreContext(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/context/reflect', validateBody(ReflectBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.reflectEntity(req.auth!.userId, req.body);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/context/capsules', async (req: AuthRequest, res, next) => {
+  try {
+    const raw = typeof req.query.entityIds === 'string' ? req.query.entityIds : '';
+    const entityIds = raw.split(',').map(s => s.trim()).filter(Boolean).slice(0, 50);
+    const data = await omnimindClient.getCapsules(req.auth!.userId, entityIds);
+    res.json(data);
+  } catch (err) { next(err); }
+});
 
 // ---------------------------------------------------------------------------
 // Goals
@@ -129,6 +184,35 @@ router.post('/projects/:projectId/tasks/:taskId', async (req: AuthRequest, res, 
   } catch (err) { next(err); }
 });
 
+// Phase 6 — ProjectPersonLink (role optional) / DecisionProjectLink
+router.post('/projects/:projectId/people/:personId', validateBody(ProjectPersonLinkBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.linkProjectPerson(req.auth!.userId, req.params.projectId, req.params.personId, req.body ?? {});
+    res.status(201).json(data ?? { status: 'linked' });
+  } catch (err) { next(err); }
+});
+
+router.delete('/projects/:projectId/people/:personId', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.unlinkProjectPerson(req.auth!.userId, req.params.projectId, req.params.personId);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+router.post('/projects/:projectId/decisions/:decisionId', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.linkProjectDecision(req.auth!.userId, req.params.projectId, req.params.decisionId);
+    res.status(201).json(data ?? { status: 'linked' });
+  } catch (err) { next(err); }
+});
+
+router.delete('/projects/:projectId/decisions/:decisionId', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.unlinkProjectDecision(req.auth!.userId, req.params.projectId, req.params.decisionId);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
 // ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
@@ -161,6 +245,21 @@ router.delete('/tasks/:id', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Phase 6 — TaskDependency
+router.post('/tasks/:taskId/depends-on/:otherTaskId', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.addTaskDependency(req.auth!.userId, req.params.taskId, req.params.otherTaskId);
+    res.status(201).json(data ?? { status: 'linked' });
+  } catch (err) { next(err); }
+});
+
+router.delete('/tasks/:taskId/depends-on/:otherTaskId', async (req: AuthRequest, res, next) => {
+  try {
+    await omnimindClient.removeTaskDependency(req.auth!.userId, req.params.taskId, req.params.otherTaskId);
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
 // ---------------------------------------------------------------------------
 // People
 // ---------------------------------------------------------------------------
@@ -168,6 +267,14 @@ router.delete('/tasks/:id', async (req: AuthRequest, res, next) => {
 router.get('/people', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.listPeople(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Phase 6 — pg_trgm duplicate candidates (no auto-merge). Registered before /people/:id.
+router.get('/people/duplicates', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getPeopleDuplicates(req.auth!.userId);
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -204,6 +311,35 @@ router.get('/decisions', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Phase 6 — calibration (Brier / reliability bins) and "what changed since last time"
+router.get('/decisions/calibration', async (req: AuthRequest, res, next) => {
+  try {
+    const params: Record<string, string> = {};
+    if (typeof req.query.successThreshold === 'string') params.successThreshold = req.query.successThreshold;
+    const data = await omnimindClient.getCalibration(req.auth!.userId, params);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/decisions/changes', async (req: AuthRequest, res, next) => {
+  try {
+    const entityId = typeof req.query.entityId === 'string' ? req.query.entityId : '';
+    const since = typeof req.query.since === 'string' ? req.query.since : '';
+    if (!entityId || !since || Number.isNaN(Date.parse(since))) {
+      res.status(422).json({
+        error: 'validation_failed',
+        details: [
+          ...(!entityId ? [{ field: 'entityId', message: 'required (type:refId, e.g. goal:abc)' }] : []),
+          ...(!since || Number.isNaN(Date.parse(since)) ? [{ field: 'since', message: 'required ISO timestamp' }] : []),
+        ],
+      });
+      return;
+    }
+    const data = await omnimindClient.getDecisionChanges(req.auth!.userId, { entityId, since });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // ---------------------------------------------------------------------------
 // Commitments
 // ---------------------------------------------------------------------------
@@ -211,6 +347,22 @@ router.get('/decisions', async (req: AuthRequest, res, next) => {
 router.get('/commitments', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.listCommitments(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Phase 6 — SQL-only nudges: { dueSoon: Commitment[], overdue: Commitment[] }
+router.get('/commitments/nudges', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getCommitmentNudges(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Phase 6 — mark done / update a commitment from the nudges widget
+router.patch('/commitments/:id', validateBody(UpdateCommitmentRequestSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.updateCommitment(req.auth!.userId, req.params.id, req.body);
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -250,6 +402,14 @@ router.get('/memories/search', async (req: AuthRequest, res, next) => {
     const q = req.query.q as string || '';
     const limit = parseInt(req.query.limit as string) || 20;
     const data = await omnimindClient.searchMemories(req.auth!.userId, q, limit);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Phase 6 — hybrid search (same stack as /context/for-persona): { items (+score), nextCursor }
+router.post('/memories/search', validateBody(MemorySearchBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.searchMemoriesHybrid(req.auth!.userId, req.body);
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -345,6 +505,32 @@ router.get('/graph', async (req: AuthRequest, res, next) => {
     if (parsed.data.includeArchived) q.includeArchived = 'true';
     const data = await omnimindClient.getKnowledgeGraph(req.auth!.userId, q);
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Phase 6 — graph extras (owner A2 on the OmniMind side)
+router.get('/graph/backlinks/:nodeId', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getBacklinks(req.auth!.userId, req.params.nodeId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/graph/unlinked-mentions', async (req: AuthRequest, res, next) => {
+  try {
+    const limit = Number(req.query.limit);
+    const data = await omnimindClient.getUnlinkedMentions(
+      req.auth!.userId,
+      Number.isFinite(limit) && limit > 0 ? Math.min(200, Math.floor(limit)) : undefined,
+    );
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.post('/graph/unlinked-mentions/link', validateBody(UnlinkedMentionLinkBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.linkUnlinkedMention(req.auth!.userId, req.body);
+    res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
