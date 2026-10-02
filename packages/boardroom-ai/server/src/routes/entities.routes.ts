@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { z } from 'zod';
+import { KnowledgeGraphQuerySchema } from '@boardroom/shared';
 import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { omnimindClient } from '../services/omnimind-client';
@@ -322,6 +323,27 @@ router.post('/outcome-reviews/:id/skip', async (req: AuthRequest, res, next) => 
 router.get('/relationships/graph', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.getRelationshipGraph(req.auth!.userId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /graph — knowledge graph (goals, projects, tasks, people, decisions, commitments, memories + links)
+router.get('/graph', async (req: AuthRequest, res, next) => {
+  try {
+    const parsed = KnowledgeGraphQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(422).json({
+        error: 'validation_failed',
+        details: parsed.error.issues.map((i) => ({ field: i.path.join('.'), message: i.message })),
+      });
+      return;
+    }
+    const q: Record<string, string> = {};
+    if (parsed.data.types) q.types = parsed.data.types.join(',');
+    if (parsed.data.domain) q.domain = parsed.data.domain;
+    if (parsed.data.memoryLimit !== undefined) q.memoryLimit = String(parsed.data.memoryLimit);
+    if (parsed.data.includeArchived) q.includeArchived = 'true';
+    const data = await omnimindClient.getKnowledgeGraph(req.auth!.userId, q);
     res.json(data);
   } catch (err) { next(err); }
 });

@@ -592,6 +592,33 @@ Response 200: { status: "deleted" }
 
 ---
 
+## Knowledge Graph
+
+### GET /graph
+
+Bulk, read-only projection of the entity graph for the Obsidian-style graph view. One request returns every Goal, Project, Task, Person, Decision and Commitment the user owns (not soft-deleted), the top-N memories by importance, and every link between them. Node ids are namespaced `<type>:<refId>`; edges whose endpoints were filtered out are dropped server-side. No memory `content` is returned, only titles.
+
+**Query params:** `types` (comma-separated subset of `goal,project,task,person,decision,commitment,memory`; default all) · `domain` (keeps nodes in that domain plus their domain-less neighbours) · `memoryLimit` (0–500, default 150) · `includeArchived` (`true` to include ARCHIVED memories)
+
+**Tenant scoping:** when an agent context is present, memories are limited to that tenant; entities are user-scoped.
+
+**Response 200:** `KnowledgeGraph` (`packages/shared/src/types/graph.types.ts`)
+
+```json
+{
+  "nodes": [{ "id": "goal:ckx…", "type": "goal", "refId": "ckx…", "label": "Launch v1", "domain": "business", "status": "active", "importance": null, "createdAt": "2026-…", "meta": { "level": 1, "parentGoalId": null } }],
+  "edges": [{ "id": "goal_project:goal:ckx…->project:cky…", "source": "goal:ckx…", "target": "project:cky…", "type": "goal_project", "label": null }],
+  "stats": { "nodeCounts": { "goal": 4, "project": 9, "task": 31, "person": 12, "decision": 6, "commitment": 3, "memory": 150 }, "edgeCount": 212, "isolatedNodes": 17, "memoryLimitHit": true },
+  "generatedAt": "2026-10-02T12:00:00.000Z"
+}
+```
+
+Edge types: `goal_hierarchy`, `goal_project`, `project_task`, `project_person` (label = role), `decision_project`, `task_dependency` (source depends on target), `commitment_person`, `commitment_project`, `commitment_entity`, `memory_entity` (label = linkType).
+
+BoardRoom proxies this as `GET /api/graph` with the same query params.
+
+---
+
 ## Relationships
 
 ### GET /relationships/graph

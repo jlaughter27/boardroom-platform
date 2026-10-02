@@ -6,6 +6,23 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-02 — Phase 6 prep — Knowledge graph view + improvement research
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed
+
+### Knowledge graph (Obsidian-style)
+- omnimind-api: `GET /graph` (`services/knowledge-graph.service.ts`, `routes/knowledge-graph.routes.ts`) — one bulk read over Goals/Projects/Tasks/People/Decisions/Commitments + top-N memories and every link table; namespaced node ids, dangling edges dropped, domain filter keeps domain-less neighbours, tenant scoping on memories, no memory content on the wire; 5 unit tests
+- shared: `types/graph.types.ts` + `validation/graph.schema.ts` (KnowledgeGraph, query schema with URL coercion)
+- boardroom-ai server: `GET /api/graph` proxy with query validation
+- boardroom-ai client: `/graph` page (`pages/GraphPage.tsx`, `components/graph/*`) on `react-force-graph-2d` (canvas): hover neighbourhood highlight with fade, click → backlinks inspector, drag, zoom, search-to-focus (`/`), type chips as legend+filter, domain filter, local-graph depth slider 1–3, labels/orphans toggles, `?focus=` deep link, reduced-motion path, bottom-sheet inspector on phones; nav item added
+- design tokens: `--color-entity-*` for both themes (validated categorical set, shape per type), `--graph-*` canvas tokens; Tailwind `entity.*`
+- contract doc: Knowledge Graph section
+
+### Research
+- `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md` — 1–6 month improvement research (memory architecture, graph UX, decision loops, persona protocol, ops, MCP) with 8 ranked moves
+
+---
+
 ## 2026-10-02 — Phase 5.7 — Audit remediation: all 82 findings addressed
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, 9 commits after the audit report

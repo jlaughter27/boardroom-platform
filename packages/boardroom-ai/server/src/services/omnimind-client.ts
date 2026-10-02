@@ -1,3 +1,4 @@
+import type { KnowledgeGraph } from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -492,6 +493,12 @@ export class OmniMindClient {
   // Relationships
   async getRelationshipGraph(userId: string) {
     return this.request('GET', '/relationships/graph', userId);
+  }
+
+  /** Knowledge graph (Obsidian-style view). Query keys mirror shared KnowledgeGraphQuery. */
+  async getKnowledgeGraph(userId: string, query: Record<string, string> = {}) {
+    const qs = new URLSearchParams(query).toString();
+    return this.request<KnowledgeGraph>('GET', `/graph${qs ? `?${qs}` : ''}`, userId);
   }
 
   // Memory Entity Links

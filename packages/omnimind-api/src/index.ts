@@ -28,6 +28,7 @@ import { oauthRouter } from './routes/oauth.routes';
 import { subscriptionRouter } from './routes/subscription.routes';
 import { customPersonasRouter } from './routes/custom-personas.routes';
 import { relationshipsRouter } from './routes/relationships.routes';
+import { knowledgeGraphRouter } from './routes/knowledge-graph.routes';
 import mcpRouter from './routes/mcp.routes';
 import adminRouter from './routes/admin.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
@@ -84,6 +85,7 @@ app.use('/oauth', oauthRouter);
 app.use('/subscription', subscriptionRouter);
 app.use('/custom-personas', customPersonasRouter);
 app.use('/relationships', relationshipsRouter);
+app.use('/graph', knowledgeGraphRouter);
 app.use('/mcp', mcpRouter);
 // F-104: admin surface requires its own key (x-admin-key / OMNIMIND_ADMIN_KEY).
 app.use('/admin', requireAdminKey, adminRouter);

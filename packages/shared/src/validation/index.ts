@@ -18,3 +18,4 @@ export * from './boardroom-llm-response.schema';
 export * from './request-body.schema';
 export * from './context-capsule.schema';
 export * from './user-profile.schema';
+export * from './graph.schema';

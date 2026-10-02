@@ -55,6 +55,21 @@ const primaryNav: NavItemDef[] = [
   },
 ];
 
+const graphNavItem: NavItemDef = {
+  to: '/graph',
+  label: 'Graph',
+  icon: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <circle cx="6" cy="6" r="2.2" />
+      <circle cx="18" cy="7" r="2.2" />
+      <circle cx="12" cy="17" r="2.2" />
+      <circle cx="19" cy="17" r="1.6" />
+      <path strokeLinecap="round" d="M7.8 7.2l2.9 7.6M15.9 8l-2.6 7.2M14.2 17h3.2" />
+    </svg>
+  ),
+};
+primaryNav.push(graphNavItem);
+
 const secondaryNav: NavItemDef[] = [
   {
     to: '/settings',

@@ -61,6 +61,17 @@ export default {
         danger: { DEFAULT: 'var(--color-danger)', muted: 'var(--color-danger-muted)' },
         info: { DEFAULT: 'var(--color-info)', muted: 'var(--color-info-muted)' },
 
+        // ── Entity colors (knowledge graph, badges) — CSS vars, both themes ──
+        entity: {
+          goal: 'var(--color-entity-goal)',
+          project: 'var(--color-entity-project)',
+          task: 'var(--color-entity-task)',
+          person: 'var(--color-entity-person)',
+          decision: 'var(--color-entity-decision)',
+          commitment: 'var(--color-entity-commitment)',
+          memory: 'var(--color-entity-memory)',
+        },
+
         // ── Persona colors (hardcoded — Phase 5 will add CSS var indirection) ──
         persona: {
           optimist: '#22c55e',

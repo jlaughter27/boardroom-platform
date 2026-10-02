@@ -21,6 +21,8 @@ import type {
   AuthUser,
   SessionSummary,
   SubscriptionData,
+  KnowledgeGraph,
+  KnowledgeGraphQuery,
 } from '@boardroom/shared';
 
 // ---------------------------------------------------------------------------
@@ -459,6 +461,17 @@ export function getRelationshipGraph() {
   return request<{ nodes: Array<{ id: string; type: 'person' | 'project'; label: string; size: number; domain: string }>; edges: Array<{ source: string; target: string; weight: number; type: string }> }>(
     '/relationships/graph',
   );
+}
+
+/** Knowledge graph for the /graph page. Server caps memories (default 150, max 500). */
+export function getKnowledgeGraph(query: KnowledgeGraphQuery = {}) {
+  const qs = new URLSearchParams();
+  if (query.types?.length) qs.set('types', query.types.join(','));
+  if (query.domain) qs.set('domain', query.domain);
+  if (query.memoryLimit !== undefined) qs.set('memoryLimit', String(query.memoryLimit));
+  if (query.includeArchived) qs.set('includeArchived', 'true');
+  const s = qs.toString();
+  return request<KnowledgeGraph>(`/graph${s ? `?${s}` : ''}`);
 }
 
 // ---------------------------------------------------------------------------

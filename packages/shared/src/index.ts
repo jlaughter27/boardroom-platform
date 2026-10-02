@@ -7,6 +7,7 @@ export * from './types/persona.types';
 export * from './types/entities.types';
 export * from './types/decision.types';
 export * from './types/commitment.types';
+export * from './types/graph.types';
 export * from './types/user-profile.types';
 export * from './types/modes.types';
 export * from './types/api.types';
