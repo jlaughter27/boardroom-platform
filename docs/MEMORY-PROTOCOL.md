@@ -33,6 +33,8 @@ Use when you learn something durable — a preference, a decision rationale, a p
 
 Use at the start of any work session to establish what's already known. Use before writing to avoid duplicates. Use when you need context that wasn't in your prompt.
 
+**Phase 6:** `memory_search` is hybrid retrieval (`POST /memories/search`): semantic + full-text + trigram, re-ranked with the forgetting curve — the same stack the BoardRoom personas use, not a substring scan. Results carry a `score`. Optional `asOf` (ISO) returns only facts valid at that moment; `includeArchived: true` adds ARCHIVED rows. Pages are ≤20; follow `nextCursor` with `cursor` for more.
+
 Good queries:
 - `"josh preferences typescript"` — retrieve preference facts
 - `"tgfc ministry website"` — retrieve ministry project context
@@ -48,6 +50,18 @@ Bad queries:
 Use when you have a memory ID that is no longer true and a replacement fact. The old memory is marked superseded, not deleted — it remains in audit history.
 
 Only supersede if you have the ID. If you're not sure which memory to supersede, use `memory_write` with `type: 'context'` — the fact extractor will detect the duplicate and merge.
+
+### `memory_reflect` (Phase 6)
+
+`{ entityType: 'goal'|'project'|'person', entityId, userId }` → regenerates that entity's **context capsule** now (`POST /context/reflect`: summary, open risks, unresolved questions, recent changes, active stakeholders; Haiku, Zod-validated) and returns it. Use it before a review of a goal/project/person when the nightly reflection job hasn't caught up, or after a burst of writes. Requires `memory:write` (it stores the capsule) and is idempotent — reflecting twice yields the same capsule with `version++`.
+
+### `memory_consolidate` (Phase 6)
+
+`{ userId, dryRun?: true, limit?: 20 (≤50), domain? }` — the "dream" pass. Scans the most recent memories, finds near-duplicates (`POST /memories/search-similar`, cosine ≥ 0.92) and proposes `{ keepId, archiveId, similarity }` pairs (keep = higher importance, tie → newer). **Default `dryRun: true` only proposes.** With `dryRun: false` each pair is applied as `PATCH /memories/:keepId { supersedes: archiveId }` — the archived row gets `invalidAt` / `supersededBy`, nothing is deleted. Always run the dry run first and read the pairs. Ministry rows are never scanned. Requires `memory:write`; the tool is annotated `destructiveHint: true` because of the non-dry-run path.
+
+### `graph_neighborhood` (Phase 6)
+
+`{ nodeId: '<type>:<refId>', hops?: 1|2, userId }` → BFS over `GET /graph/backlinks` returning `{ nodes, edges, truncated }` in the shared `KnowledgeGraphNode` / `KnowledgeGraphEdge` shapes, capped at 60 nodes. Node types: `goal | project | task | person | decision | commitment | memory`. Use it to see what a project touches (people, decisions, tasks, memories) before changing it. Read-only (`memory:read`). The same walk is exposed as the `omnimind://{tenant}/graph/{nodeId}` resource at hops=2.
 
 ### `decision_log`
 
@@ -82,7 +96,7 @@ Use when Josh makes a commitment to someone or something external. Not for inter
 
 ### `status_get`
 
-Run this at the start of a session to get a snapshot of active decisions, in-progress tasks, blockers, and open commitments. It runs four searches in parallel and returns a composite view.
+Run this at the start of a session to get a snapshot of active decisions, in-progress tasks, blockers, and open commitments. It runs four searches in parallel and returns a composite view. **Phase 6:** it also returns `commitmentsDueSoon: { dueSoon, overdue }` from `GET /commitments/nudges` (commitments due within 3 days or past deadline). If that endpoint is unavailable the rest of the snapshot still returns and `commitmentsDueSoon.error` says why.
 
 This is your "what's the state of the world" tool. Use it before diving into any sustained work.
 
@@ -146,18 +160,76 @@ The extractor runs automatically, but help it produce good output:
 
 ---
 
+## Tool Reference (18 tools)
+
+Every tool is registered with MCP spec 2025-11-25 **annotations** (hints — the server still enforces scopes), a Zod **`outputSchema`** (from `@boardroom/shared` `validation/mcp.schema.ts`), and returns the same object as **`structuredContent`** alongside the JSON text block. `openWorldHint` is `false` on every tool: nothing here reaches the open internet.
+
+| Tool | Scope | readOnly | destructive | idempotent | Pagination / idempotency |
+|------|-------|:-:|:-:|:-:|---|
+| `memory_write` | `memory:write` | – | – | – | `idempotencyKey` |
+| `memory_search` | `memory:read` | ✓ | – | ✓ | `cursor` → `nextCursor`, page ≤ 20 |
+| `memory_supersede` | `memory:write` | – | **✓** | – | |
+| `memory_reflect` | `memory:write` | – | – | ✓ | |
+| `memory_consolidate` | `memory:write` | – | **✓** (only when `dryRun=false`) | – | |
+| `decision_log` | `decision:write` | – | – | – | `idempotencyKey` |
+| `task_upsert` | `task:write` | – | – | ✓ | `idempotencyKey` |
+| `task_status` | `memory:read` | ✓ | – | ✓ | |
+| `task_list` | `memory:read` | ✓ | – | ✓ | `cursor` → `nextCursor`, page ≤ 20 |
+| `task_complete` | `task:write` | – | – | ✓ | |
+| `task_block` | `task:write` | – | – | ✓ | |
+| `project_status` | `memory:read` | ✓ | – | ✓ | |
+| `project_summary` | `memory:read` | ✓ | – | ✓ | |
+| `person_get` | `memory:read` | ✓ | – | ✓ | |
+| `commitment_log` | `commitment:write` | – | – | – | `idempotencyKey` |
+| `commitment_list` | `memory:read` | ✓ | – | ✓ | `cursor` → `nextCursor`, page ≤ 20 |
+| `status_get` | `memory:read` | ✓ | – | ✓ | includes `commitmentsDueSoon` |
+| `graph_neighborhood` | `memory:read` | ✓ | – | ✓ | capped at 60 nodes |
+
+### Idempotency keys
+
+`memory_write`, `task_upsert`, `decision_log` and `commitment_log` accept an optional `idempotencyKey` (string, ≤128 chars). It is sent to OmniMind as the `Idempotency-Key` header; the same (agent, key) within 24 h replays the original result (`Idempotent-Replayed: true`) instead of writing again. **Use it whenever you might retry** — the 0.80/0.92 cosine dedup is a safety net, not a guarantee. For `memory_write` the key covers the whole call; each extracted fact is written under `<key>:<n>` so a replay returns the same rows.
+
+### Pagination
+
+`memory_search`, `task_list` and `commitment_list` page at ≤20 items and return `nextCursor` (an opaque string, `null` on the last page). Pass it back as `cursor` to continue; never construct or parse cursors yourself. A cursor from another tool or server is rejected with `VALIDATION_ERROR`.
+
 ## Scope Reference
 
 | Scope | Grants |
 |-------|--------|
-| `memory:read` | `memory_search`, `person_get`, `status_get`, `project_status`, `project_summary`, `task_status`, `task_list`, `commitment_list` |
-| `memory:write` | `memory_write`, `memory_supersede` |
+| `memory:read` | `memory_search`, `person_get`, `status_get`, `project_status`, `project_summary`, `task_status`, `task_list`, `commitment_list`, `graph_neighborhood` |
+| `memory:write` | `memory_write`, `memory_supersede`, `memory_reflect`, `memory_consolidate` |
 | `decision:write` | `decision_log` |
 | `task:write` | `task_upsert`, `task_complete`, `task_block` |
 | `commitment:write` | `commitment_log` |
 | `*` | All of the above |
 
 Scope violations return `SCOPE_DENIED` — not an error to retry, an error to report to the agent operator.
+
+---
+
+## Resources (Phase 6)
+
+Four narrow `omnimind://` resources for clients that prefer resources over tools (`application/json`). `{tenant}` **must equal the server's bound tenant** — any other value is refused (`TENANT_MISMATCH`). Resources have no argument channel, so they read as the user in `OMNIMIND_MCP_USER_ID`; when that env is unset they return `{ error: 'NO_USER_BOUND' }` rather than guessing.
+
+| URI | Returns |
+|-----|---------|
+| `omnimind://{tenant}/status` | The `status_get` payload (also listed under `resources/list` for the bound tenant) |
+| `omnimind://{tenant}/goal/{id}` | `{ goal, capsule }` — `GET /goals/:id` + `GET /context/capsules?entityIds=goal:{id}` |
+| `omnimind://{tenant}/person/{id}` | `{ person, capsule }` |
+| `omnimind://{tenant}/graph/{nodeId}` | 2-hop `graph_neighborhood` around `<type>:<refId>` (≤60 nodes) |
+
+Not exposed on purpose: the whole graph as one resource, a `memory_delete` tool (use supersede/invalidate), or a 1:1 mirror of the tools.
+
+## Prompts (Phase 6)
+
+Three prompts encode the session protocol below so every client gets the same ritual:
+
+| Prompt | Args | What it instructs |
+|--------|------|-------------------|
+| `session_start` | `domain?` | `status_get` first, then a focused `memory_search` for the domain; read blockers / overdue commitments; search before you write |
+| `decision_review` | `decisionTitle` | `memory_search` (incl. archived) for the decision, test each assumption against memory, check `status_get`, state keep / revise / reverse, record via `decision_log` / `memory_supersede` |
+| `session_end` | – | one `memory_write` context summary (what was done + what's next), then `decision_log`, task transitions, `commitment_log` |
 
 ---
 

@@ -22,6 +22,13 @@ const OUTPUT_SAFE_KEYS = new Set([
   'blocked', 'logged', 'created', 'skipped', 'ok', 'error', 'message', 'reason', 'project', 'name',
   'memories', 'tasks', 'commitments', 'decisions', 'blockers', 'snapshot', 'recentDecisions', 'activeTasks',
   'pendingCommitments', 'relatedMemories', 'taskList', 'recentMemories', 'success',
+  // Phase 6 — pagination / consolidation / graph / nudges / capsules. Ids,
+  // counts, flags and structural keys only; capsule summaries, commitment
+  // descriptions and node meta are NOT listed and are therefore dropped.
+  'nextCursor', 'dryRun', 'scanned', 'pairs', 'keepId', 'archiveId', 'similarity', 'applied', 'errors',
+  'root', 'hops', 'nodes', 'edges', 'source', 'target', 'type', 'refId', 'truncated',
+  'entityType', 'entityId', 'capsule', 'version', 'generatedAt', 'staleAfter',
+  'commitmentsDueSoon', 'dueSoon', 'overdue', 'deadline',
 ]);
 
 /**

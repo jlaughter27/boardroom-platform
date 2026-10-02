@@ -1,6 +1,6 @@
 # OmniMind-MCP Operational Runbook
 
-Last updated: 2026-10-02 | Phase 4 (audit 2026-10-02 remediation)
+Last updated: 2026-10-02 | Phase 6 (MCP spec conformance: annotations, structuredContent, pagination, idempotency, resources, prompts)
 
 ---
 
@@ -27,6 +27,8 @@ Expected: OmniMind API → `{ "status": "ok", ... }`; MCP HTTP → `{ "status": 
 | `OMNIMIND_MCP_API_KEY` | **yes** | Inbound bearer token clients present (`Authorization: Bearer …` or `x-mcp-api-key`). Server **exits 1** when unset — it never runs open. Compared in constant time. |
 | `OMNIMIND_MCP_ALLOWED_HOSTS` | no | Comma-separated exact `Host` values accepted (DNS-rebinding protection). Default `127.0.0.1:<port>,localhost:<port>,[::1]:<port>`. Set this when fronting with a proxy/hostname. |
 | `OMNIMIND_MCP_AGENT_KEY` | recommended | This agent's `omk_` key from keygen; sent to OmniMind as `x-agent-key` (outbound). Different thing from `OMNIMIND_MCP_API_KEY`. |
+
+| `OMNIMIND_MCP_USER_ID` | no (both modes) | User the `omnimind://{tenant}/…` **resources** read as. Tools always take `userId` explicitly; resources have no argument channel. Unset → resources return `{ error: "NO_USER_BOUND" }`. |
 
 Behaviour: one MCP session per `initialize` (response carries `mcp-session-id`; clients must echo it), `GET` opens the SSE stream, `DELETE` ends the session, max 100 live sessions, request bodies capped at 1 MiB (413), any handler failure → 500 JSON (process keeps running; `unhandledRejection` / `uncaughtException` are logged, not fatal).
 
@@ -68,7 +70,29 @@ Set the printed `omk_…` key as **`OMNIMIND_MCP_AGENT_KEY`** in the agent's MCP
 node packages/omnimind-mcp/dist/index.js smoke
 ```
 
-Tier 1 verifies all 15 tools are registered. Add `OMNIMIND_MCP_SMOKE_USER_ID=<user id>` to also execute `status_get` and `memory_search` (read-only) against the API.
+Tier 1 verifies all 18 tools (each with `annotations` + `outputSchema`), 3 prompts and 4 resource templates are registered. Add `OMNIMIND_MCP_SMOKE_USER_ID=<user id>` to also execute `status_get`, `memory_search` and `graph_neighborhood` (read-only) against the API; `OMNIMIND_MCP_SMOKE_NODE_ID=<type>:<refId>` picks the graph node (default: the first memory returned by the search).
+
+---
+
+## Tool Surface (Phase 6)
+
+18 tools, registered via `registerTool` with annotations + Zod `outputSchema` (schemas in `packages/shared/src/validation/mcp.schema.ts`), 4 resource templates, 3 prompts. The full matrix (scope, readOnly / destructive / idempotent hints, pagination, idempotency keys) is in `docs/MEMORY-PROTOCOL.md` → "Tool Reference".
+
+| What | Backing OmniMind endpoint(s) |
+|------|------------------------------|
+| `memory_search` (hybrid, `cursor`/`nextCursor`, `asOf`) | `POST /memories/search` |
+| `task_list` / `commitment_list` (`cursor`/`nextCursor`) | `GET /memories?tags=…&limit=<n+1>&offset=<cursor>` |
+| `memory_write` / `task_upsert` / `decision_log` / `commitment_log` `idempotencyKey` | `Idempotency-Key` header on `POST /memories` / `PATCH /memories/:id` (24 h replay) |
+| `memory_reflect` | `POST /context/reflect` |
+| `memory_consolidate` | `GET /memories?sortBy=createdAt` → `POST /memories/search-similar` (≥0.92) → `PATCH /memories/:keepId { supersedes }` (only `dryRun=false`) |
+| `graph_neighborhood`, `omnimind://{tenant}/graph/{nodeId}` | `GET /graph/backlinks/:nodeId` (BFS, ≤60 nodes) |
+| `status_get.commitmentsDueSoon`, `omnimind://{tenant}/status` | `GET /commitments/nudges` (degrades to `{ dueSoon: [], overdue: [], error }` if unavailable) |
+| `omnimind://{tenant}/goal/{id}` / `person/{id}` | `GET /goals/:id`, `GET /people/:id`, `GET /context/capsules?entityIds=` |
+| fact-extractor usage rows | `POST /usage/llm` (`service: omnimind-mcp`, `purpose: mcp:fact-extractor`, model `MODEL_IDS.haiku`; fire-and-forget) |
+
+**Consolidation safety:** `memory_consolidate` defaults to `dryRun: true`. Review the proposed pairs (`mcp_audit_logs.output_json->'pairs'`) before anyone runs `dryRun: false`. Applied pairs are reversible — the archived row keeps its content with `invalid_at` / `superseded_by` set; nothing is deleted. Ministry rows are never scanned.
+
+**Resources tenant pin:** a resource URI whose `{tenant}` differs from `OMNIMIND_MCP_TENANT_ID` is refused with `TENANT_MISMATCH`; this is the only boundary a resource client can probe, so it is checked before any HTTP call.
 
 ---
 
@@ -194,3 +218,8 @@ psql $DATABASE_URL -c "
 | HTTP `403 Invalid Host header` | DNS-rebinding guard | Add the exact `Host` value to `OMNIMIND_MCP_ALLOWED_HOSTS` |
 | HTTP `400 no valid session ID` | Client skipped `initialize` or dropped `mcp-session-id` | Client must echo the session header on every request |
 | `task_list` / `commitment_list` / `status_get` return 0 | Rows written before 2026-10-02 lack tags? | Tools now filter by tags (`task`, `task:<status>`, `commitment:pending`, `decision`); re-upsert legacy rows via `task_upsert` |
+| `VALIDATION_ERROR … cursor: not a cursor issued by this server` | Client built / edited a cursor | Pass `nextCursor` back verbatim as `cursor`; cursors are opaque |
+| `Output validation error: … structured content` from the SDK | OmniMind returned a shape outside the tool's `outputSchema` (e.g. graph node missing a field) | Compare the endpoint response with `packages/shared/src/validation/mcp.schema.ts`; fix the API shape, do not loosen the schema silently |
+| `status_get` has `commitmentsDueSoon.error` | `GET /commitments/nudges` unavailable (older API build) | Snapshot is still valid; deploy the Phase 6 OmniMind build |
+| Resource read returns `NO_USER_BOUND` | `OMNIMIND_MCP_USER_ID` unset | Set it in the agent's env (optional; tools are unaffected) |
+| Resource read fails `TENANT_MISMATCH` | URI tenant ≠ bound tenant | Use `omnimind://<OMNIMIND_MCP_TENANT_ID>/…`; cross-tenant reads are impossible by design |

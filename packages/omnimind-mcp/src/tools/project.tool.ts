@@ -1,10 +1,12 @@
 import { z } from 'zod';
+import { McpProjectStatusOutputSchema, McpProjectSummaryOutputSchema } from '@boardroom/shared';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
 import { TASK_TAG } from './task.tool';
 import type { OmniMindClient } from '../lib/client';
-import type { AgentContext } from '../types';
+import { READ_ONLY_ANNOTATIONS } from '../types';
+import type { AgentContext, McpTool } from '../types';
 
 const ProjectStatusInput = z.object({
   projectName: z.string().min(1),
@@ -23,8 +25,11 @@ export function projectTag(projectRef: string): string {
 export function projectStatusTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'project_status',
+    title: 'Project status',
     description: 'Get the current status of a project.',
     inputSchema: ProjectStatusInput,
+    outputSchema: McpProjectStatusOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       // WS-6 F-103 — read-only tool requires read scope, not write.
       requireScope(ctx, 'memory:read');
@@ -46,14 +51,17 @@ export function projectStatusTool(client: OmniMindClient, ctx: AgentContext) {
         };
       });
     },
-  };
+  } satisfies McpTool;
 }
 
 export function projectSummaryTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'project_summary',
+    title: 'Project summary',
     description: 'Retrieve a summary of all memories and tasks related to a project.',
     inputSchema: ProjectSummaryInput,
+    outputSchema: McpProjectSummaryOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       // WS-6 F-103 — read-only tool requires read scope, not write.
       requireScope(ctx, 'memory:read');
@@ -85,5 +93,5 @@ export function projectSummaryTool(client: OmniMindClient, ctx: AgentContext) {
         };
       });
     },
-  };
+  } satisfies McpTool;
 }

@@ -6,9 +6,10 @@ import type { AgentContext } from '../src/types';
 
 const ctx: AgentContext = { agentId: 'ag', agentName: 'ag', tenantId: 'josh-business', scopes: ['memory:read'], sourceWeight: 1.0 };
 
-function makeClient(impl?: (p: { tags?: string[] }) => unknown[]): OmniMindClient {
+function makeClient(impl?: (p: { tags?: string[] }) => unknown[], nudges: unknown = { dueSoon: [], overdue: [] }): OmniMindClient {
   return {
     searchMemories: vi.fn().mockImplementation(async (p: { tags?: string[] }) => (impl ? impl(p) : [])),
+    getCommitmentNudges: nudges instanceof Error ? vi.fn().mockRejectedValue(nudges) : vi.fn().mockResolvedValue(nudges),
     logAudit: vi.fn().mockResolvedValue(undefined),
   } as unknown as OmniMindClient;
 }
@@ -50,6 +51,23 @@ describe('status_get', () => {
     const result = await statusGetTool(client, ctx).execute({ userId: 'u-1' });
     expect(result.counts.activeTasks).toBe(2);
     expect(result.snapshot.activeTasks.map((t: { id: string }) => t.id)).toEqual(['t1', 't3']);
+  });
+
+  it('Phase 6: includes commitmentsDueSoon from GET /commitments/nudges', async () => {
+    const due = { id: 'c1', description: 'Send deck to Sarah', deadline: '2026-10-03T00:00:00Z', status: 'OPEN' };
+    const late = { id: 'c2', description: 'Invoice Acme', deadline: '2026-09-30T00:00:00Z', status: 'OPEN' };
+    const client = makeClient(undefined, { dueSoon: [due], overdue: [late] });
+    const result = await statusGetTool(client, ctx).execute({ userId: 'u-1' });
+    expect(result.commitmentsDueSoon).toEqual({ dueSoon: [due], overdue: [late] });
+    expect(client.getCommitmentNudges).toHaveBeenCalledWith('u-1');
+  });
+
+  it('Phase 6: a failing nudges endpoint degrades to empty lists + error, not a failed snapshot', async () => {
+    const client = makeClient(undefined, new Error('OmniMind GET /commitments/nudges → 404'));
+    const result = await statusGetTool(client, ctx).execute({ userId: 'u-1' });
+    expect(result.counts.decisions).toBe(0);
+    expect(result.commitmentsDueSoon.dueSoon).toEqual([]);
+    expect(result.commitmentsDueSoon.error).toContain('404');
   });
 
   it('throws ScopeDeniedError without read scope', async () => {

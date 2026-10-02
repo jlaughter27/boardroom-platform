@@ -39,15 +39,22 @@ describe('task_upsert', () => {
     expect(client.searchMemories).toHaveBeenCalledWith(expect.objectContaining({ tags: ['task'], query: 'Build MCP', userId: 'u' }));
     expect(client.createMemory).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Build MCP', tags: expect.arrayContaining(['task', 'task:todo']) }),
-      'u'
+      'u',
+      undefined
     );
+  });
+
+  it('Phase 6: forwards idempotencyKey to the write', async () => {
+    const client = makeClient([]);
+    await taskUpsertTool(client, makeCtx()).execute({ title: 'Build MCP', userId: 'u', idempotencyKey: 'task-1' });
+    expect(vi.mocked(client.createMemory).mock.calls[0][2]).toEqual({ idempotencyKey: 'task-1' });
   });
 
   it('updates task when the exact title exists', async () => {
     const client = makeClient([MEM]);
     const result = await taskUpsertTool(client, makeCtx()).execute({ title: 'Build MCP', status: 'in_progress', userId: 'u' });
     expect(result.action).toBe('updated');
-    expect(client.updateMemory).toHaveBeenCalledWith('task-1', expect.objectContaining({ tags: expect.arrayContaining(['task:in_progress']) }), 'u');
+    expect(client.updateMemory).toHaveBeenCalledWith('task-1', expect.objectContaining({ tags: expect.arrayContaining(['task:in_progress']) }), 'u', undefined);
   });
 
   it('M-102: does NOT overwrite a task whose title is a superstring', async () => {
@@ -137,6 +144,25 @@ describe('task_list', () => {
   it('throws ScopeDeniedError', async () => {
     await expect(taskListTool(makeClient(), makeCtx([])).execute({ userId: 'u' }))
       .rejects.toThrow(ScopeDeniedError);
+  });
+
+  it('Phase 6: paginates with an opaque offset cursor (fetches limit+1, page ≤ 20)', async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => ({ ...MEM, id: `t${i}` }));
+    const client = makeClient(rows);
+    const page1 = await taskListTool(client, makeCtx()).execute({ userId: 'u', limit: 2 });
+    expect(page1.tasks.map(t => t.id)).toEqual(['t0', 't1']);
+    expect(page1.count).toBe(2);
+    expect(page1.nextCursor).toBeTruthy();
+    expect(vi.mocked(client.searchMemories).mock.calls[0][0]).toMatchObject({ limit: 3, offset: 0 });
+
+    vi.mocked(client.searchMemories).mockResolvedValueOnce([rows[2]] as never);
+    const page2 = await taskListTool(client, makeCtx()).execute({ userId: 'u', limit: 2, cursor: page1.nextCursor as string });
+    expect(page2.tasks.map(t => t.id)).toEqual(['t2']);
+    expect(page2.nextCursor).toBeNull();
+    expect(vi.mocked(client.searchMemories).mock.calls[1][0]).toMatchObject({ limit: 3, offset: 2 });
+
+    await expect(taskListTool(client, makeCtx()).execute({ userId: 'u', limit: 21 })).rejects.toBeInstanceOf(McpValidationError);
+    await expect(taskListTool(client, makeCtx()).execute({ userId: 'u', cursor: 'not-a-cursor' })).rejects.toBeInstanceOf(McpValidationError);
   });
 });
 

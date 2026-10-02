@@ -3,7 +3,7 @@
  *
  * Boots the real server on an ephemeral port and drives it with the SDK's
  * own StreamableHTTPClientTransport + Client: initialize →
- * notifications/initialized → tools/list, asserting 15 tools. Also covers
+ * notifications/initialized → tools/list, asserting 18 tools. Also covers
  * fail-closed auth, /health, session routing, DELETE, 413 and host checks.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -24,7 +24,10 @@ const EXPECTED_TOOLS = [
   'task_upsert', 'task_status', 'task_list', 'task_complete', 'task_block',
   'project_status', 'project_summary', 'person_get',
   'commitment_log', 'commitment_list', 'status_get',
+  // Phase 6
+  'memory_reflect', 'memory_consolidate', 'graph_neighborhood',
 ].sort();
+const TOOL_COUNT = 18;
 
 let started: StartedHttpServer;
 let baseUrl: string;
@@ -86,7 +89,7 @@ describe('config / auth helpers', () => {
 });
 
 describe('Streamable HTTP end-to-end (M-101)', () => {
-  it('initialize → initialized → tools/list over HTTP returns all 15 tools', async () => {
+  it('initialize → initialized → tools/list over HTTP returns all 18 tools (with annotations + outputSchema)', async () => {
     const { client, transport, connect } = connectClient();
     await connect();
     expect(transport.sessionId).toBeTruthy();
@@ -94,12 +97,23 @@ describe('Streamable HTTP end-to-end (M-101)', () => {
 
     const { tools } = await client.listTools();
     expect(tools.map(t => t.name).sort()).toEqual(EXPECTED_TOOLS);
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(TOOL_COUNT);
+    for (const t of tools) {
+      expect(t.annotations, t.name).toBeDefined();
+      expect(t.outputSchema, t.name).toBeDefined();
+      expect(t.annotations?.openWorldHint).toBe(false);
+    }
 
     // A second request on the same session must work (the old stateless
     // transport threw "cannot be reused across requests" here).
     const again = await client.listTools();
-    expect(again.tools).toHaveLength(15);
+    expect(again.tools).toHaveLength(TOOL_COUNT);
+
+    // Prompts + resource templates are also served over HTTP.
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map(p => p.name).sort()).toEqual(['decision_review', 'session_end', 'session_start']);
+    const { resourceTemplates } = await client.listResourceTemplates();
+    expect(resourceTemplates).toHaveLength(4);
 
     await client.close();
   });
@@ -112,8 +126,8 @@ describe('Streamable HTTP end-to-end (M-101)', () => {
     expect(started.app.sessions.size).toBeGreaterThanOrEqual(2);
 
     const [ta, tb] = await Promise.all([a.client.listTools(), b.client.listTools()]);
-    expect(ta.tools).toHaveLength(15);
-    expect(tb.tools).toHaveLength(15);
+    expect(ta.tools).toHaveLength(TOOL_COUNT);
+    expect(tb.tools).toHaveLength(TOOL_COUNT);
 
     const sidA = a.transport.sessionId as string;
     await a.transport.terminateSession(); // HTTP DELETE

@@ -19,7 +19,7 @@ node packages/omnimind-mcp/dist/index.js smoke
 OMNIMIND_MCP_SMOKE_USER_ID=<user id> node packages/omnimind-mcp/dist/index.js smoke
 ```
 
-Expected: `smoke OK — 15 tools registered` (or `..., 2 tools executed` with `OMNIMIND_MCP_SMOKE_USER_ID`)
+Expected: `smoke OK — 18 tools, 3 prompts, 4 resource templates registered` (or `..., 3 tools executed` with `OMNIMIND_MCP_SMOKE_USER_ID`: `status_get`, `memory_search`, then `graph_neighborhood` on the first memory the search returned — set `OMNIMIND_MCP_SMOKE_NODE_ID=<type>:<refId>` to pick the node yourself). Tier 1 also fails if any tool is missing `annotations` or `outputSchema`.
 
 ---
 
@@ -52,7 +52,20 @@ export ANTHROPIC_API_KEY=<anthropic-key>
 
 **Test 4 — status_get**
 1. Call `status_get`
-2. Expected: JSON with `decisions`, `tasks`, `blockers`, `commitments` keys — no error
+2. Expected: JSON with `snapshot`, `counts` and `commitmentsDueSoon: { dueSoon, overdue }` keys — no error. Clients that support structured output see the same object as `structuredContent`.
+
+**Test 4b — pagination + idempotency (Phase 6)**
+1. Call `task_list` with `limit: 2`. Expected: ≤2 tasks and a `nextCursor` string when more exist; call again with `cursor: <nextCursor>` → the next page, `nextCursor: null` on the last one.
+2. Call `decision_log` twice with the same `idempotencyKey: "smoke-<date>"`. Expected: identical `id` both times (second call is a replay, not a new row).
+
+**Test 4c — new tools (Phase 6)**
+1. `graph_neighborhood` with `nodeId: "memory:<id from Test 1>"`, `hops: 1`. Expected: `{ nodes: [...], edges: [...], truncated: false }`.
+2. `memory_consolidate` with defaults (`dryRun: true`). Expected: `{ dryRun: true, scanned, pairs: [...], applied: 0 }`. Do **not** run `dryRun: false` against production during the smoke pass.
+3. `memory_reflect` with `entityType: "project"`, `entityId: <a real project id>`. Expected: `{ capsule: { summary, openRisks, ... } }`.
+
+**Test 4d — resources + prompts (Phase 6)**
+1. With `OMNIMIND_MCP_USER_ID` set, read `omnimind://josh-business/status`. Expected: the `status_get` JSON. Read `omnimind://josh-personal/status` from the same server → refused (`TENANT_MISMATCH`).
+2. Get prompt `session_start`. Expected: text telling the agent to run `status_get` then `memory_search`.
 
 **Test 5 — scope denial (simulate)**
 Temporarily change `OMNIMIND_MCP_SCOPES` to `memory:read` (read-only).
@@ -180,7 +193,7 @@ curl -s -i -X POST http://localhost:3334/ \
 3. Verify `memory_write` returns `SCOPE_DENIED`
 
 The automated equivalent lives in `packages/omnimind-mcp/tests/http.transport.test.ts`
-(initialize → initialized → tools/list over HTTP with the SDK client, 15 tools).
+(initialize → initialized → tools/list over HTTP with the SDK client, 18 tools, plus prompts/list and resources/templates/list).
 
 ---
 
@@ -201,7 +214,7 @@ Expected: Every tool call from the tests above appears with agentId, toolName, a
 
 ## Phase 2 Gate Criteria
 
-- [ ] Tier 1: smoke test passes (15 tools)
+- [ ] Tier 1: smoke test passes (18 tools, 3 prompts, 4 resource templates)
 - [ ] Tier 2: claude-code-josh round trip, dedup, scope denial all pass
 - [ ] Tier 3: claude-desktop-josh personal tenant isolated
 - [ ] Tier 4: ministry writes route to Ollama; refused when Ollama down

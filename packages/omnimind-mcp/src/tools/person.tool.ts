@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { McpPersonGetOutputSchema } from '@boardroom/shared';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
 import type { OmniMindClient } from '../lib/client';
-import type { AgentContext } from '../types';
+import { READ_ONLY_ANNOTATIONS } from '../types';
+import type { AgentContext, McpTool } from '../types';
 
 const PersonGetInput = z.object({
   name: z.string().min(1).describe('Person name to look up'),
@@ -13,8 +15,11 @@ const PersonGetInput = z.object({
 export function personGetTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'person_get',
+    title: 'Person lookup',
     description: 'Look up memories and context about a specific person.',
     inputSchema: PersonGetInput,
+    outputSchema: McpPersonGetOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       requireScope(ctx, 'memory:read');
       const input = parseInput(PersonGetInput, raw);
@@ -33,5 +38,5 @@ export function personGetTool(client: OmniMindClient, ctx: AgentContext) {
         };
       });
     },
-  };
+  } satisfies McpTool;
 }

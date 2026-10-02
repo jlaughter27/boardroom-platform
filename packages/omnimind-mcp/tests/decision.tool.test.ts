@@ -43,14 +43,21 @@ describe('decision_log', () => {
     await tool.execute({ title: 'Use Redis', content: 'For session storage', userId: 'u' });
     expect(client.createMemory).toHaveBeenCalledWith(
       expect.objectContaining({ tags: expect.arrayContaining(['decision']) }),
-      'u'
+      'u',
+      undefined
     );
+  });
+
+  it('Phase 6: forwards idempotencyKey as a write option', async () => {
+    const tool = decisionLogTool(client, makeCtx());
+    await tool.execute({ title: 'Use Redis', content: 'For session storage', userId: 'u', idempotencyKey: 'dec-abc' });
+    expect(vi.mocked(client.createMemory).mock.calls[0][2]).toEqual({ idempotencyKey: 'dec-abc' });
   });
 
   it('F-205: normalizes domain (trim + lowercase) before sending', async () => {
     const tool = decisionLogTool(client, makeCtx());
     await tool.execute({ title: 't', content: 'c', userId: 'u', domain: '  Business ' });
-    expect(client.createMemory).toHaveBeenCalledWith(expect.objectContaining({ domain: 'business' }), 'u');
+    expect(client.createMemory).toHaveBeenCalledWith(expect.objectContaining({ domain: 'business' }), 'u', undefined);
   });
 
   it('F-205/F-212: ministry decision is refused, audited, and its content redacted', async () => {

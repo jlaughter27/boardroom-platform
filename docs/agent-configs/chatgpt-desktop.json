@@ -1,5 +1,5 @@
 {
-  "_comment": "ChatGPT Desktop MCP configuration for josh-personal tenant. chatgpt-desktop-josh is read-only (memory:read, sourceWeight=0.6). ChatGPT Desktop uses the stateful Streamable HTTP transport rather than stdio. Start the HTTP server first: node dist/index.js http. OMNIMIND_MCP_API_KEY is the INBOUND bearer token (required; the server refuses to start without it) and must equal the Authorization header below. OMNIMIND_MCP_AGENT_KEY is the omk_ key from keygen for chatgpt-desktop-josh (outbound x-agent-key to OmniMind). OMNIMIND_MCP_ALLOWED_HOSTS lists the exact Host header values accepted (DNS-rebinding protection).",
+  "_comment": "ChatGPT Desktop MCP configuration for josh-personal tenant. chatgpt-desktop-josh is read-only (memory:read, sourceWeight=0.6). ChatGPT Desktop uses the stateful Streamable HTTP transport rather than stdio. Start the HTTP server first: node dist/index.js http. OMNIMIND_MCP_API_KEY is the INBOUND bearer token (required; the server refuses to start without it) and must equal the Authorization header below. OMNIMIND_MCP_AGENT_KEY is the omk_ key from keygen for chatgpt-desktop-josh (outbound x-agent-key to OmniMind). OMNIMIND_MCP_ALLOWED_HOSTS lists the exact Host header values accepted (DNS-rebinding protection). OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
   "mcpServers": {
     "omnimind": {
       "type": "http",
@@ -24,7 +24,8 @@
       "OMNIMIND_MCP_API_KEY": "REPLACE_WITH_MCP_API_KEY",
       "OMNIMIND_MCP_ALLOWED_HOSTS": "127.0.0.1:3334,localhost:3334",
       "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
-      "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY"
+      "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
+      "OMNIMIND_MCP_USER_ID": "REPLACE_WITH_USER_ID_OPTIONAL"
     }
   },
   "_health_check": "curl -s http://localhost:3334/health  (no auth; returns {status, uptime, sessions, agent, tenant})"

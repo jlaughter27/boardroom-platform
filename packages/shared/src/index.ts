@@ -24,6 +24,7 @@ export * from './types/integration.types';
 export * from './types/internal.types';
 export * from './types/sse-events.types';
 export * from './types/context-capsule.types';
+export * from './types/context.types';
 export * from './types/utility.types';
 
 // Validation schemas

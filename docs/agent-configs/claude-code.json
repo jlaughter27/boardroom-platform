@@ -1,5 +1,5 @@
 {
-  "_comment": "Claude Code MCP configuration for josh-business tenant. Add to project .claude/mcp.json or global ~/.claude/mcp.json. claude-code-josh has full write scopes and sourceWeight=1.0. OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key.",
+  "_comment": "Claude Code MCP configuration for josh-business tenant. Add to project .claude/mcp.json or global ~/.claude/mcp.json. claude-code-josh has full write scopes and sourceWeight=1.0. OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
   "mcpServers": {
     "omnimind": {
       "command": "node",
@@ -15,7 +15,8 @@
         "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
         "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
         "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY",
-        "OLLAMA_URL": "http://localhost:11434"
+        "OLLAMA_URL": "http://localhost:11434",
+        "OMNIMIND_MCP_USER_ID": "REPLACE_WITH_USER_ID_OPTIONAL"
       }
     }
   }

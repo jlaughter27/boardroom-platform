@@ -1,5 +1,5 @@
 import { fetch } from 'undici';
-import type { MemoryApiRecord } from '@boardroom/shared';
+import type { KnowledgeGraphEdge, KnowledgeGraphNode, MemoryApiRecord } from '@boardroom/shared';
 import { assertSourceWeight } from './auth';
 
 export interface OmniMindClientConfig {
@@ -90,6 +90,108 @@ export interface CreateMemoryResult {
   id: string;
   status: 'created' | 'updated';
   validation?: unknown;
+}
+
+/**
+ * Phase 6 — per-call write options. `idempotencyKey` is sent as the
+ * `Idempotency-Key` header (≤128 chars); OmniMind replays the stored result
+ * for 24 h on the same (agent, key) and marks it `Idempotent-Replayed: true`.
+ */
+export interface WriteOptions {
+  idempotencyKey?: string;
+}
+
+/**
+ * `PATCH /memories/:id`. `supersedes` (Phase 6, A1) marks THAT memory
+ * `invalidAt = now(), supersededBy = <this id>` and appends it to this row's
+ * `consolidatedFrom` — content of the old row is never mutated.
+ */
+export interface UpdateMemoryParams extends Partial<CreateMemoryParams> {
+  supersedes?: string;
+}
+
+/** `POST /memories/search` (A2) — hybrid semantic + FTS + trigram with the forgetting curve. */
+export interface HybridSearchParams {
+  query: string;
+  /** ≤ 20 from the MCP side (API allows ≤ 50). */
+  limit?: number;
+  domain?: string;
+  tags?: string[];
+  status?: string;
+  includeArchived?: boolean;
+  /** ISO timestamp — temporal validity filter (`validAt <= asOf < invalidAt`). */
+  asOf?: string;
+  /** Opaque cursor (base64 of `{offset}`) from a previous page. */
+  cursor?: string;
+}
+
+export type HybridMemoryRecord = MemoryApiRecord & { score?: number };
+
+export interface HybridSearchResult {
+  items: HybridMemoryRecord[];
+  nextCursor: string | null;
+}
+
+export type ReflectEntityType = 'goal' | 'project' | 'person';
+
+/** ContextCapsule on the wire (ISO strings). Phase 6 adds sourceMemoryIds / importanceSeen / version. */
+export interface CapsuleRecord {
+  id: string;
+  userId?: string;
+  entityType: string;
+  entityId: string;
+  summary: string;
+  openRisks?: string[];
+  unresolvedQuestions?: string[];
+  activeStakeholders?: string[];
+  recentChanges?: string[];
+  sourceMemoryIds?: string[];
+  importanceSeen?: number;
+  version?: number;
+  generatedAt?: string;
+  staleAfter?: string;
+  [extra: string]: unknown;
+}
+
+/** `GET /graph/backlinks/:nodeId` (A2). */
+export interface BacklinksResult {
+  node: KnowledgeGraphNode;
+  backlinks: Array<{ node: KnowledgeGraphNode; edge: KnowledgeGraphEdge }>;
+}
+
+/** Commitment on the wire (ISO strings) as returned by `GET /commitments/nudges` (A1). */
+export interface CommitmentRecord {
+  id: string;
+  description?: string;
+  deadline?: string | null;
+  status?: string;
+  stakeholderId?: string | null;
+  linkedProjectId?: string | null;
+  [extra: string]: unknown;
+}
+
+export interface CommitmentNudges {
+  dueSoon: CommitmentRecord[];
+  overdue: CommitmentRecord[];
+}
+
+/** `POST /usage/llm` body (A1). Cost is computed server-side with `estimateCostUsd`. */
+export interface LlmUsageRecord {
+  service: string;
+  purpose: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  durationMs?: number;
+  sessionId?: string;
+  userId?: string;
+}
+
+function idempotencyHeaders(opts?: WriteOptions): Record<string, string> | undefined {
+  const key = opts?.idempotencyKey?.trim();
+  return key ? { 'Idempotency-Key': key } : undefined;
 }
 
 export class OmniMindClient {
@@ -190,12 +292,82 @@ export class OmniMindClient {
     return result.items ?? result.memories ?? [];
   }
 
-  async createMemory(params: CreateMemoryParams, userId: string): Promise<CreateMemoryResult> {
-    return this.request<CreateMemoryResult>('POST', `/memories`, params, userId);
+  async createMemory(params: CreateMemoryParams, userId: string, opts?: WriteOptions): Promise<CreateMemoryResult> {
+    return this.request<CreateMemoryResult>('POST', `/memories`, params, userId, idempotencyHeaders(opts));
   }
 
-  async updateMemory(id: string, params: Partial<CreateMemoryParams>, userId: string): Promise<MemoryRecord> {
-    return this.request<MemoryRecord>('PATCH', `/memories/${id}`, params, userId);
+  async updateMemory(id: string, params: UpdateMemoryParams, userId: string, opts?: WriteOptions): Promise<MemoryRecord> {
+    return this.request<MemoryRecord>('PATCH', `/memories/${encodeURIComponent(id)}`, params, userId, idempotencyHeaders(opts));
+  }
+
+  /**
+   * Phase 6 — hybrid search (`POST /memories/search`). Same stack as
+   * `/context/for-persona`: semantic + FTS + trigram → rank → forgetting
+   * curve → decrypt. Tenant comes from the agent headers.
+   */
+  async searchHybrid(params: HybridSearchParams, userId: string): Promise<HybridSearchResult> {
+    const body: Record<string, unknown> = { query: params.query, limit: Math.min(params.limit ?? 5, 20) };
+    if (params.domain) body.domain = params.domain;
+    if (params.tags && params.tags.length > 0) body.tags = params.tags;
+    if (params.status) body.status = params.status;
+    if (params.includeArchived) body.includeArchived = true;
+    if (params.asOf) body.asOf = params.asOf;
+    if (params.cursor) body.cursor = params.cursor;
+    const result = await this.request<{ items?: HybridMemoryRecord[]; nextCursor?: string | null }>(
+      'POST',
+      '/memories/search',
+      body,
+      userId
+    );
+    return { items: result.items ?? [], nextCursor: result.nextCursor ?? null };
+  }
+
+  /** Phase 6 — `POST /context/reflect` regenerates one entity's capsule now and returns it. */
+  async reflect(params: { entityType: ReflectEntityType; entityId: string }, userId: string): Promise<CapsuleRecord> {
+    const result = await this.request<CapsuleRecord | { capsule: CapsuleRecord }>('POST', '/context/reflect', params, userId);
+    return 'capsule' in result && result.capsule && typeof result.capsule === 'object'
+      ? (result.capsule as CapsuleRecord)
+      : (result as CapsuleRecord);
+  }
+
+  /** Phase 6 — `GET /context/capsules?entityIds=goal:x,person:y` → capsules (missing ones are simply absent). */
+  async getCapsules(entityIds: string[], userId: string): Promise<CapsuleRecord[]> {
+    if (entityIds.length === 0) return [];
+    const qs = new URLSearchParams({ entityIds: entityIds.join(',') });
+    const result = await this.request<{ items?: CapsuleRecord[] }>('GET', `/context/capsules?${qs}`, undefined, userId);
+    return result.items ?? [];
+  }
+
+  /** Phase 6 — `GET /graph/backlinks/:nodeId` (`nodeId` = `type:refId`). */
+  async getBacklinks(nodeId: string, userId: string): Promise<BacklinksResult> {
+    const result = await this.request<BacklinksResult>('GET', `/graph/backlinks/${encodeURIComponent(nodeId)}`, undefined, userId);
+    return { node: result.node, backlinks: result.backlinks ?? [] };
+  }
+
+  /** Phase 6 — `GET /commitments/nudges` → `{ dueSoon, overdue }` (SQL only, no LLM). */
+  async getCommitmentNudges(userId: string): Promise<CommitmentNudges> {
+    const result = await this.request<Partial<CommitmentNudges>>('GET', '/commitments/nudges', undefined, userId);
+    return { dueSoon: result.dueSoon ?? [], overdue: result.overdue ?? [] };
+  }
+
+  async getGoal(id: string, userId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>('GET', `/goals/${encodeURIComponent(id)}`, undefined, userId);
+  }
+
+  async getPerson(id: string, userId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>('GET', `/people/${encodeURIComponent(id)}`, undefined, userId);
+  }
+
+  /**
+   * Phase 6 — `POST /usage/llm`. Fire-and-forget: the returned promise never
+   * rejects (failures are logged), so callers can `void` it safely.
+   */
+  async recordLlmUsage(usage: LlmUsageRecord): Promise<void> {
+    try {
+      await this.request<unknown>('POST', '/usage/llm', usage, usage.userId);
+    } catch (err) {
+      console.error('[usage] Failed to record LLM usage:', (err as Error).message);
+    }
   }
 
   async getMemory(id: string, userId: string): Promise<MemoryRecord> {

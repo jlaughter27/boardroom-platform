@@ -57,6 +57,7 @@ export function resolveAgentFromEnv(env: NodeJS.ProcessEnv = process.env): Agent
   }
 
   const scopes = scopesRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const defaultUserId = env.OMNIMIND_MCP_USER_ID?.trim() || undefined;
 
   return {
     agentId: agentName,
@@ -64,5 +65,6 @@ export function resolveAgentFromEnv(env: NodeJS.ProcessEnv = process.env): Agent
     tenantId,
     scopes,
     sourceWeight,
+    ...(defaultUserId ? { defaultUserId } : {}),
   };
 }

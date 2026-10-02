@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
+import { MODEL_IDS } from '@boardroom/shared';
 import type { OmniMindClient } from './client';
 import type { AgentContext, FactWithAction } from '../types';
 
@@ -50,11 +51,47 @@ function getAnthropicClient(): Anthropic {
   return new Anthropic({ apiKey });
 }
 
-async function extractRawFacts(content: string): Promise<z.infer<typeof RawFactSchema>> {
-  const client = getAnthropicClient();
+/** Purpose tag for `POST /usage/llm` rows written by this process. */
+export const FACT_EXTRACTOR_USAGE_PURPOSE = 'mcp:fact-extractor';
 
+/**
+ * Phase 6 — record the Haiku call's token usage via `POST /usage/llm`.
+ * Fire-and-forget: never awaited by the write path, never throws (a mock
+ * client without `recordLlmUsage` is tolerated too).
+ */
+function recordUsage(
+  omnimind: OmniMindClient,
+  response: { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } },
+  durationMs: number,
+  userId: string
+): void {
+  const usage = response.usage;
+  if (!usage) return;
+  void Promise.resolve()
+    .then(() =>
+      omnimind.recordLlmUsage({
+        service: 'omnimind-mcp',
+        purpose: FACT_EXTRACTOR_USAGE_PURPOSE,
+        model: MODEL_IDS.haiku,
+        inputTokens: usage.input_tokens ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+        cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+        durationMs,
+        userId,
+      })
+    )
+    .catch(err => console.error('[usage] fact-extractor usage not recorded:', (err as Error).message));
+}
+
+async function extractRawFacts(content: string, omnimind: OmniMindClient, userId: string): Promise<z.infer<typeof RawFactSchema>> {
+  const client = getAnthropicClient();
+  const startedAt = Date.now();
+
+  // Model id comes from MODEL_IDS (never a literal). Haiku 4.5: no `thinking`,
+  // no `temperature` — see docs/contracts/PHASE-6-CONTRACTS.md.
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODEL_IDS.haiku,
     max_tokens: 1024,
     messages: [
       {
@@ -63,6 +100,7 @@ async function extractRawFacts(content: string): Promise<z.infer<typeof RawFactS
       },
     ],
   });
+  recordUsage(omnimind, response, Date.now() - startedAt, userId);
 
   const text = response.content
     .filter(b => b.type === 'text')
@@ -88,7 +126,7 @@ export async function extractAndDedup(
   let rawFacts: z.infer<typeof RawFactSchema>;
 
   try {
-    rawFacts = await extractRawFacts(content);
+    rawFacts = await extractRawFacts(content, client, userId);
   } catch (err) {
     // WS-2.4 — Fail loud, do not pollute the store with raw chunks when Haiku is down.
     // Production memory systems (Mem0, Letta, Anthropic Memory tool) refuse the write

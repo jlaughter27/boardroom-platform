@@ -1,9 +1,20 @@
 import { z } from 'zod';
+import {
+  McpCursorSchema,
+  McpTaskUpsertOutputSchema,
+  McpTaskStatusOutputSchema,
+  McpTaskListOutputSchema,
+  McpTaskCompleteOutputSchema,
+  McpTaskBlockOutputSchema,
+} from '@boardroom/shared';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
+import { MAX_PAGE_SIZE, decodeCursor, pageOf } from '../lib/cursor';
+import { IdempotencyKeyInput } from './memory.tool';
 import type { OmniMindClient, MemoryRecord } from '../lib/client';
-import type { AgentContext } from '../types';
+import { IDEMPOTENT_WRITE_ANNOTATIONS, READ_ONLY_ANNOTATIONS } from '../types';
+import type { AgentContext, McpTool } from '../types';
 
 /**
  * Task memories are plain memories tagged `task` + `task:<status>`
@@ -54,6 +65,7 @@ const TaskUpsertInput = z.object({
   projectRef: z.string().optional().describe('Project name or ID this task belongs to'),
   tags: z.array(z.string()).default([]),
   dueDate: z.string().optional().describe('ISO date string'),
+  idempotencyKey: IdempotencyKeyInput,
 });
 
 const TaskStatusInput = z.object({
@@ -64,7 +76,8 @@ const TaskStatusInput = z.object({
 const TaskListInput = z.object({
   userId: z.string(),
   status: z.enum([...TASK_STATUSES, 'all']).default('all'),
-  limit: z.number().int().min(1).max(50).default(10),
+  limit: z.number().int().min(1).max(MAX_PAGE_SIZE).default(10).describe('Page size (max 20)'),
+  cursor: McpCursorSchema.optional().describe('Opaque cursor from a previous page (`nextCursor`)'),
 });
 
 const TaskCompleteInput = z.object({
@@ -82,13 +95,17 @@ const TaskBlockInput = z.object({
 export function taskUpsertTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'task_upsert',
-    description: 'Create or update a task in the shared store (matched by exact title). Writes to memory with task metadata.',
+    title: 'Upsert task',
+    description: 'Create or update a task in the shared store (matched by exact title). Writes to memory with task metadata. Pass idempotencyKey to make retries safe.',
     inputSchema: TaskUpsertInput,
+    outputSchema: McpTaskUpsertOutputSchema,
+    annotations: IDEMPOTENT_WRITE_ANNOTATIONS,
     async execute(raw: unknown) {
       requireScope(ctx, 'task:write');
       const input = parseInput(TaskUpsertInput, raw);
 
       return withAudit(client, ctx, 'task_upsert', input, async () => {
+        const writeOpts = input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined;
         const title = input.title.trim();
         const content = [
           `${TASK_TITLE_PREFIX}${title}`,
@@ -110,7 +127,7 @@ export function taskUpsertTool(client: OmniMindClient, ctx: AgentContext) {
             tags,
             sourceType: 'MCP_AGENT',
             agentId: ctx.agentId,
-          }, input.userId);
+          }, input.userId, writeOpts);
           return { id: mem.id, action: 'updated' as const };
         }
 
@@ -124,19 +141,22 @@ export function taskUpsertTool(client: OmniMindClient, ctx: AgentContext) {
           agentId: ctx.agentId,
           tenantId: ctx.tenantId,
           sourceWeight: ctx.sourceWeight,
-        }, input.userId);
+        }, input.userId, writeOpts);
         // M-107: the API may have auto-superseded a near-duplicate → 'updated'.
         return { id: created.id, action: created.status };
       });
     },
-  };
+  } satisfies McpTool;
 }
 
 export function taskStatusTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'task_status',
+    title: 'Task status',
     description: 'Look up the current status of a task (exact title match).',
     inputSchema: TaskStatusInput,
+    outputSchema: McpTaskStatusOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       // WS-6 F-103 — read-only tool requires read scope, not write.
       requireScope(ctx, 'memory:read');
@@ -155,14 +175,17 @@ export function taskStatusTool(client: OmniMindClient, ctx: AgentContext) {
         };
       });
     },
-  };
+  } satisfies McpTool;
 }
 
 export function taskListTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'task_list',
-    description: 'List tasks, optionally filtered by status.',
+    title: 'List tasks',
+    description: 'List tasks, optionally filtered by status. Paginated: pass `cursor` from `nextCursor` for the next page (max 20 per page).',
     inputSchema: TaskListInput,
+    outputSchema: McpTaskListOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       // WS-6 F-103 — read-only tool requires read scope, not write.
       requireScope(ctx, 'memory:read');
@@ -170,23 +193,31 @@ export function taskListTool(client: OmniMindClient, ctx: AgentContext) {
 
       return withAudit(client, ctx, 'task_list', input, async () => {
         const tags = input.status === 'all' ? [TASK_TAG] : [TASK_TAG, taskStatusTag(input.status)];
+        const offset = decodeCursor(input.cursor);
+        // Offset cursor over GET /memories: ask for one extra row to learn
+        // whether a further page exists without a second round-trip.
         const results = await client.searchMemories({
           tags,
           tenantId: ctx.tenantId,
           userId: input.userId,
-          limit: input.limit,
+          limit: input.limit + 1,
+          offset,
         });
-        return { tasks: results, count: results.length };
+        const { items, nextCursor } = pageOf(results, offset, input.limit);
+        return { tasks: items, count: items.length, nextCursor };
       });
     },
-  };
+  } satisfies McpTool;
 }
 
 export function taskCompleteTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'task_complete',
+    title: 'Complete task',
     description: 'Mark a task as done (exact title match).',
     inputSchema: TaskCompleteInput,
+    outputSchema: McpTaskCompleteOutputSchema,
+    annotations: IDEMPOTENT_WRITE_ANNOTATIONS,
     async execute(raw: unknown) {
       requireScope(ctx, 'task:write');
       const input = parseInput(TaskCompleteInput, raw);
@@ -207,14 +238,17 @@ export function taskCompleteTool(client: OmniMindClient, ctx: AgentContext) {
         return { found: true as const, id: existing.id, completed: true };
       });
     },
-  };
+  } satisfies McpTool;
 }
 
 export function taskBlockTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'task_block',
+    title: 'Block task',
     description: 'Mark a task as blocked and record the blocker (exact title match).',
     inputSchema: TaskBlockInput,
+    outputSchema: McpTaskBlockOutputSchema,
+    annotations: IDEMPOTENT_WRITE_ANNOTATIONS,
     async execute(raw: unknown) {
       requireScope(ctx, 'task:write');
       const input = parseInput(TaskBlockInput, raw);
@@ -235,5 +269,5 @@ export function taskBlockTool(client: OmniMindClient, ctx: AgentContext) {
         return { found: true as const, id: existing.id, blocked: true };
       });
     },
-  };
+  } satisfies McpTool;
 }
