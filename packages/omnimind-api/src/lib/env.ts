@@ -1,4 +1,4 @@
-import { validateEnv } from '@boardroom/shared';
+import { validateEnv } from '@boardroom/shared/node';
 import { validateEncryptionKey } from './crypto';
 import { logger } from './logger';
 

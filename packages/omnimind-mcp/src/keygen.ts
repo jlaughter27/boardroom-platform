@@ -61,6 +61,9 @@ export async function runKeygen(): Promise<void> {
   const scopeList = scopes.split(',').map(s => s.trim()).filter(Boolean);
 
   try {
+    if (!process.env.OMNIMIND_ADMIN_KEY) {
+      console.warn('[keygen] OMNIMIND_ADMIN_KEY not set — POST /mcp/agents is admin-gated (F-104); registration will fail in production');
+    }
     await client.registerAgent({
       name: agent,
       apiKeyHash: keyHash,

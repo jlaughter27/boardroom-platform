@@ -37,16 +37,8 @@ export * from './constants/cortex-config';
 
 // Utilities
 // NOTE (S-103): `hashing` (Node `crypto`) and `env-validator` (`process.env`)
-// are Node-only. They are ALSO exported from the `@boardroom/shared/node`
-// subpath (src/node.ts) — server code should import from there. They remain
-// on the root barrel only because three server files still import them from
-// here (boardroom-ai/server/src/services/prompt-cache.ts,
-// boardroom-ai/server/src/lib/env.ts, omnimind-api/src/lib/env.ts). Once those
-// move to '@boardroom/shared/node', drop the two lines below and the
-// `sha256Hash` / `env-validator` re-exports in ./utils/index.ts so the
-// browser bundle never sees them.
-export * from './utils/hashing';
+// are Node-only and live on the `@boardroom/shared/node` subpath (src/node.ts).
+// They are intentionally NOT on this barrel: the browser client bundles it.
 export * from './utils/temporal';
 export * from './utils/token-counter';
-export * from './utils/env-validator';
 export * from './utils';

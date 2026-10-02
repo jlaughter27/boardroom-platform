@@ -116,7 +116,7 @@ export class OmniMindClient {
     this.agentHeaders = { ...headers, sourceWeight: assertSourceWeight(headers.sourceWeight) };
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, userId?: string): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, userId?: string, extraHeaders?: Record<string, string>): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -127,6 +127,7 @@ export class OmniMindClient {
       };
       if (this.agentKey) headers['x-agent-key'] = this.agentKey;
       if (userId) headers['x-user-id'] = userId;
+      if (extraHeaders) Object.assign(headers, extraHeaders);
       // Propagate agent identity — server middleware (`agent-context.ts`)
       // reads these to populate req.agentContext, which flows into every
       // memory write. Without these, agent_id ends up NULL and tenant_id
@@ -230,7 +231,17 @@ export class OmniMindClient {
     scopes: string[];
     sourceWeight: number;
   }): Promise<void> {
-    await this.request<unknown>('POST', '/mcp/agents', params);
+    // F-104: agent registration is admin-gated server-side (creates tenant/scope
+    // identity). Send OMNIMIND_ADMIN_KEY as x-admin-key when available; in
+    // production the API returns 503 admin_disabled until that key is set.
+    const adminKey = process.env.OMNIMIND_ADMIN_KEY;
+    await this.request<unknown>(
+      'POST',
+      '/mcp/agents',
+      params,
+      undefined,
+      adminKey ? { 'x-admin-key': adminKey } : undefined
+    );
   }
 }
 

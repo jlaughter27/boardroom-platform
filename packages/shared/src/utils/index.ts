@@ -8,7 +8,7 @@
 // the codebase (the real auth middleware in boardroom-ai/server uses
 // bcryptjs and jsonwebtoken directly). Re-add to barrel only if you
 // move the implementations to a server-only package.
-export { sha256Hash } from './hashing';
+// sha256Hash -> '@boardroom/shared/node' (S-103)
 
 // Date utilities
 export * from './date';
@@ -17,8 +17,7 @@ export * from './temporal';
 // Token utilities (counting only — JWT generation lives in _disabled/)
 export * from './token-counter';
 
-// Environment validation
-export * from './env-validator';
+// Environment validation -> '@boardroom/shared/node' (S-103)
 
 // String utilities
 export * from './string';
