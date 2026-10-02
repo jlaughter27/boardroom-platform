@@ -24,4 +24,9 @@ export interface ToolResult {
   cached: boolean;
 }
 
+/**
+ * Known tool identifiers. `document_read` is a stub BoardRoom does not
+ * register (B-114) and has no TOOL_PERMISSIONS entry; it is kept in the union
+ * only so the stub module compiles.
+ */
 export type ToolName = 'web_search' | 'calculator' | 'document_read';

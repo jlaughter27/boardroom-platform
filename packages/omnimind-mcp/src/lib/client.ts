@@ -1,8 +1,17 @@
 import { fetch } from 'undici';
+import type { MemoryApiRecord } from '@boardroom/shared';
+import { assertSourceWeight } from './auth';
 
 export interface OmniMindClientConfig {
   baseUrl: string;
+  /** Shared service key — sent as `x-api-key` (authenticates the MCP process to OmniMind). */
   apiKey: string;
+  /**
+   * M-103 — The per-agent `omk_...` key from keygen (env `OMNIMIND_MCP_AGENT_KEY`).
+   * Sent as `x-agent-key` so the API can verify agent identity / tenant / scopes
+   * against the `agents` table instead of trusting the x-agent-* headers.
+   */
+  agentKey?: string;
   timeoutMs?: number;
 }
 
@@ -10,8 +19,6 @@ export interface OmniMindClientConfig {
  * Per-request agent identity headers. These propagate through the API
  * middleware (`agent-context.ts`) and onto every memory write so the DB
  * row carries `agent_id`, `tenant_id`, `source_weight` correctly.
- *
- * If unset, the server falls back to the `Agent` table lookup by API-key hash.
  */
 export interface AgentHeaders {
   agentId: string;
@@ -19,14 +26,25 @@ export interface AgentHeaders {
   sourceWeight: number;
 }
 
+/**
+ * Parameters for `GET /memories`. Semantics (memory.service.ts searchMemories):
+ *   - `query`  → `q`: case-insensitive SUBSTRING match on title OR content.
+ *   - `tags`   → `tags`: comma-joined; Prisma `hasEvery` (every tag must be present).
+ *   - `status` → exact MemoryStatus; when omitted the API excludes ARCHIVED.
+ *   - `domain` → exact match.
+ * There is NO similarity threshold on this route; use `searchSimilar` for that.
+ */
 export interface SearchMemoriesParams {
-  query: string;
+  query?: string;
+  tags?: string[];
   tenantId: string;
   limit?: number;
-  similarityThreshold?: number;
+  offset?: number;
   userId?: string;
   domain?: string;
-  includeArchived?: boolean;
+  status?: string;
+  sortBy?: 'createdAt' | 'updatedAt' | 'importance';
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface SearchSimilarParams {
@@ -37,19 +55,17 @@ export interface SearchSimilarParams {
   domain?: string;
 }
 
-export interface MemoryRecord {
-  id: string;
-  title: string;
-  content: string;
-  domain: string;
-  tags: string[];
-  importance: number;
-  sourceType: string;
-  agentId?: string;
-  tenantId: string;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * S-101 — The memory record is the shared wire type. `MemoryRecord` is kept as
+ * an alias for existing importers.
+ */
+export type MemoryRecord = MemoryApiRecord;
+
+/** Reduced row returned by `POST /memories/search-similar`. */
+export type SimilarMemoryRecord = Pick<
+  MemoryApiRecord,
+  'id' | 'title' | 'content' | 'domain' | 'tags' | 'importance' | 'sourceType' | 'tenantId' | 'sourceWeight' | 'createdAt' | 'updatedAt'
+> & { similarity: number };
 
 export interface CreateMemoryParams {
   title: string;
@@ -61,18 +77,32 @@ export interface CreateMemoryParams {
   agentId?: string;
   tenantId?: string;
   sourceWeight?: number;
-  supersedes?: string;
+  // NOTE: `supersedes` was removed (M-107) — CreateMemoryRequestSchema strips
+  // it server-side. Supersede via `updateMemory(id, ...)` explicitly.
+}
+
+/**
+ * M-107 — What `POST /memories` actually returns (memory.service.ts
+ * createMemory): the id plus whether the server created a new row or
+ * auto-superseded a near-duplicate ("updated").
+ */
+export interface CreateMemoryResult {
+  id: string;
+  status: 'created' | 'updated';
+  validation?: unknown;
 }
 
 export class OmniMindClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly agentKey: string | undefined;
   private readonly timeoutMs: number;
   private agentHeaders: AgentHeaders | null = null;
 
   constructor(config: OmniMindClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.apiKey = config.apiKey;
+    this.agentKey = config.agentKey;
     this.timeoutMs = config.timeoutMs ?? 10000;
   }
 
@@ -80,9 +110,10 @@ export class OmniMindClient {
    * Attach agent identity to every subsequent request. Called once at startup
    * by the MCP server when the AgentContext is loaded from env. Tools should
    * NOT call this — they receive the same context via the AgentContext arg.
+   * F-217: the source weight is validated (finite, 0..2) before it is ever sent.
    */
   setAgentHeaders(headers: AgentHeaders): void {
-    this.agentHeaders = headers;
+    this.agentHeaders = { ...headers, sourceWeight: assertSourceWeight(headers.sourceWeight) };
   }
 
   private async request<T>(method: string, path: string, body?: unknown, userId?: string): Promise<T> {
@@ -94,6 +125,7 @@ export class OmniMindClient {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey,
       };
+      if (this.agentKey) headers['x-agent-key'] = this.agentKey;
       if (userId) headers['x-user-id'] = userId;
       // Propagate agent identity — server middleware (`agent-context.ts`)
       // reads these to populate req.agentContext, which flows into every
@@ -123,15 +155,23 @@ export class OmniMindClient {
     }
   }
 
+  /** Build the query string for GET /memories. Exported for tests (M-102). */
+  static buildSearchQuery(params: SearchMemoriesParams): URLSearchParams {
+    const qs = new URLSearchParams();
+    if (params.query && params.query.trim().length > 0) qs.set('q', params.query);
+    if (params.tags && params.tags.length > 0) qs.set('tags', params.tags.join(','));
+    qs.set('tenantId', params.tenantId);
+    qs.set('limit', String(params.limit ?? 5));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    if (params.domain) qs.set('domain', params.domain);
+    if (params.status) qs.set('status', params.status);
+    if (params.sortBy) qs.set('sortBy', params.sortBy);
+    if (params.sortOrder) qs.set('sortOrder', params.sortOrder);
+    return qs;
+  }
+
   async searchMemories(params: SearchMemoriesParams): Promise<MemoryRecord[]> {
-    const qs = new URLSearchParams({
-      q: params.query,
-      tenantId: params.tenantId,
-      limit: String(params.limit ?? 5),
-      ...(params.similarityThreshold !== undefined && { threshold: String(params.similarityThreshold) }),
-      ...(params.domain && { domain: params.domain }),
-      ...(params.includeArchived && { includeArchived: 'true' }),
-    });
+    const qs = OmniMindClient.buildSearchQuery(params);
 
     // WS-7.3 shape bug fix: the GET /memories route returns
     //   { items: MemoryRecord[], total: number, offset: number, limit: number }
@@ -149,8 +189,8 @@ export class OmniMindClient {
     return result.items ?? result.memories ?? [];
   }
 
-  async createMemory(params: CreateMemoryParams, userId: string): Promise<MemoryRecord> {
-    return this.request<MemoryRecord>('POST', `/memories`, params, userId);
+  async createMemory(params: CreateMemoryParams, userId: string): Promise<CreateMemoryResult> {
+    return this.request<CreateMemoryResult>('POST', `/memories`, params, userId);
   }
 
   async updateMemory(id: string, params: Partial<CreateMemoryParams>, userId: string): Promise<MemoryRecord> {
@@ -161,8 +201,8 @@ export class OmniMindClient {
     return this.request<MemoryRecord>('GET', `/memories/${id}`, undefined, userId);
   }
 
-  async searchSimilar(params: SearchSimilarParams): Promise<MemoryRecord[]> {
-    const result = await this.request<{ memories: MemoryRecord[] }>(
+  async searchSimilar(params: SearchSimilarParams): Promise<SimilarMemoryRecord[]> {
+    const result = await this.request<{ memories: SimilarMemoryRecord[] }>(
       'POST',
       '/memories/search-similar',
       { query: params.query, threshold: params.threshold, limit: params.limit, domain: params.domain },
@@ -194,12 +234,13 @@ export class OmniMindClient {
   }
 }
 
-export function createOmniMindClient(): OmniMindClient {
-  const baseUrl = process.env.OMNIMIND_API_URL;
-  const apiKey = process.env.OMNIMIND_API_KEY;
+export function createOmniMindClient(env: NodeJS.ProcessEnv = process.env): OmniMindClient {
+  const baseUrl = env.OMNIMIND_API_URL;
+  const apiKey = env.OMNIMIND_API_KEY;
+  const agentKey = env.OMNIMIND_MCP_AGENT_KEY?.trim() || undefined;
 
   if (!baseUrl) throw new Error('OMNIMIND_API_URL is required');
   if (!apiKey) throw new Error('OMNIMIND_API_KEY is required');
 
-  return new OmniMindClient({ baseUrl, apiKey });
+  return new OmniMindClient({ baseUrl, apiKey, agentKey });
 }

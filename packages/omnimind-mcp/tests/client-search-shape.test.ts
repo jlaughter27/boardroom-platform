@@ -1,17 +1,6 @@
 /**
- * WS-7.3 regression — memory_search response shape
- *
- * The OmniMind API GET /memories route returns the standard listing
- * envelope `{ items, total, offset, limit }`. The MCP client previously
- * read `result.memories` from that response, which is always undefined,
- * so `OmniMindClient.searchMemories` silently returned `[]` for every
- * tenant-isolated query.
- *
- * This regression test stubs `undici.fetch` to return the real envelope
- * shape and asserts the client extracts the `items` array correctly.
- *
- * Related: WS-5 E2E-2-tenant-isolation.test.ts had to route around this
- * bug; with the fix in place it no longer needs to.
+ * WS-7.3 regression — memory_search response shape, plus M-102 / M-103 / F-217
+ * request-shape assertions for OmniMindClient.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -23,100 +12,98 @@ vi.mock('undici', () => ({
 
 // Import AFTER the vi.mock so the client picks up the mocked fetch.
 // eslint-disable-next-line import/first
-import { OmniMindClient } from '../src/lib/client';
+import { OmniMindClient, createOmniMindClient } from '../src/lib/client';
+
+const okJson = (body: unknown) => ({ ok: true, json: async () => body, text: async () => '' });
 
 describe('OmniMindClient.searchMemories — response shape', () => {
   let client: OmniMindClient;
 
   beforeEach(() => {
     fetchMock.mockReset();
-    client = new OmniMindClient({
-      baseUrl: 'http://test.local',
-      apiKey: 'test-key',
-    });
-    client.setAgentHeaders({
-      agentId: 'test-agent',
-      tenantId: 'josh-business',
-      sourceWeight: 1.0,
-    });
+    client = new OmniMindClient({ baseUrl: 'http://test.local', apiKey: 'test-key' });
+    client.setAgentHeaders({ agentId: 'test-agent', tenantId: 'josh-business', sourceWeight: 1.0 });
   });
 
   it('extracts memories from the `items` field returned by GET /memories', async () => {
-    const memory = {
-      id: 'mem-1',
-      title: 'Test memory',
-      content: 'body',
-      domain: 'business',
-      tags: ['x'],
-      importance: 0.5,
-      sourceType: 'MCP_AGENT',
-      agentId: 'test-agent',
-      tenantId: 'josh-business',
-      createdAt: '2026-05-15T00:00:00Z',
-      updatedAt: '2026-05-15T00:00:00Z',
-    };
-
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({ items: [memory], total: 1, offset: 0, limit: 5 }),
-      text: async () => '',
-    });
-
-    const result = await client.searchMemories({
-      query: 'anything',
-      tenantId: 'josh-business',
-      userId: 'user-1',
-    });
-
+    fetchMock.mockResolvedValue(okJson({ items: [{ id: 'mem-1' }], total: 1, offset: 0, limit: 5 }));
+    const result = await client.searchMemories({ query: 'anything', tenantId: 'josh-business', userId: 'user-1' });
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('mem-1');
   });
 
   it('falls back to `memories` key for any legacy responses', async () => {
-    // Defensive: if a route variant returns the older envelope, the
-    // client should still pick it up rather than returning [].
-    const memory = {
-      id: 'mem-legacy',
-      title: 'legacy shape',
-      content: 'body',
-      domain: 'business',
-      tags: [],
-      importance: 0.5,
-      sourceType: 'MCP_AGENT',
-      tenantId: 'josh-business',
-      createdAt: '2026-05-15T00:00:00Z',
-      updatedAt: '2026-05-15T00:00:00Z',
-    };
-
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({ memories: [memory] }),
-      text: async () => '',
-    });
-
-    const result = await client.searchMemories({
-      query: 'anything',
-      tenantId: 'josh-business',
-      userId: 'user-1',
-    });
-
-    expect(result).toHaveLength(1);
+    fetchMock.mockResolvedValue(okJson({ memories: [{ id: 'mem-legacy' }] }));
+    const result = await client.searchMemories({ query: 'anything', tenantId: 'josh-business', userId: 'user-1' });
     expect(result[0]?.id).toBe('mem-legacy');
   });
 
   it('returns an empty array when neither key is present', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({ unrelated: 'shape' }),
-      text: async () => '',
-    });
-
-    const result = await client.searchMemories({
-      query: 'anything',
-      tenantId: 'josh-business',
-      userId: 'user-1',
-    });
-
+    fetchMock.mockResolvedValue(okJson({ unrelated: 'shape' }));
+    const result = await client.searchMemories({ query: 'anything', tenantId: 'josh-business', userId: 'user-1' });
     expect(result).toEqual([]);
+  });
+});
+
+describe('OmniMindClient.searchMemories — request shape (M-102)', () => {
+  it('sends tags= comma-joined and omits q when no query is given', () => {
+    const qs = OmniMindClient.buildSearchQuery({ tags: ['task', 'task:todo'], tenantId: 'josh-business', limit: 10 });
+    expect(qs.get('tags')).toBe('task,task:todo');
+    expect(qs.get('q')).toBeNull();
+    expect(qs.get('tenantId')).toBe('josh-business');
+    expect(qs.get('limit')).toBe('10');
+    // The route ignores these — they must never be sent.
+    expect(qs.has('threshold')).toBe(false);
+    expect(qs.has('includeArchived')).toBe(false);
+  });
+
+  it('sends q + tags + status together', () => {
+    const qs = OmniMindClient.buildSearchQuery({ query: 'Build MCP', tags: ['task'], status: 'ARCHIVED', tenantId: 't' });
+    expect(qs.get('q')).toBe('Build MCP');
+    expect(qs.get('tags')).toBe('task');
+    expect(qs.get('status')).toBe('ARCHIVED');
+  });
+
+  it('puts the query string on the wire', async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(okJson({ items: [] }));
+    const client = new OmniMindClient({ baseUrl: 'http://test.local', apiKey: 'k' });
+    await client.searchMemories({ tags: ['commitment', 'commitment:pending'], tenantId: 't', userId: 'u' });
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain('tags=commitment%2Ccommitment%3Apending');
+    expect(url).not.toContain('q=');
+  });
+});
+
+describe('OmniMindClient headers (M-103 / F-217)', () => {
+  beforeEach(() => { fetchMock.mockReset(); fetchMock.mockResolvedValue(okJson({ items: [] })); });
+
+  it('sends x-agent-key when OMNIMIND_MCP_AGENT_KEY is configured', async () => {
+    const client = createOmniMindClient({
+      OMNIMIND_API_URL: 'http://test.local',
+      OMNIMIND_API_KEY: 'service-key',
+      OMNIMIND_MCP_AGENT_KEY: 'omk_abc',
+    } as NodeJS.ProcessEnv);
+    await client.searchMemories({ tenantId: 't', userId: 'u' });
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers['x-agent-key']).toBe('omk_abc');
+    expect(init.headers['x-api-key']).toBe('service-key');
+    expect(init.headers['x-user-id']).toBe('u');
+  });
+
+  it('omits x-agent-key when not configured', async () => {
+    const client = createOmniMindClient({ OMNIMIND_API_URL: 'http://test.local', OMNIMIND_API_KEY: 'k' } as NodeJS.ProcessEnv);
+    await client.searchMemories({ tenantId: 't' });
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers).not.toHaveProperty('x-agent-key');
+  });
+
+  it('F-217: rejects a non-finite or out-of-range source weight before anything is sent', () => {
+    const client = new OmniMindClient({ baseUrl: 'http://test.local', apiKey: 'k' });
+    expect(() => client.setAgentHeaders({ agentId: 'a', tenantId: 't', sourceWeight: 3 })).toThrow(/between 0 and 2/);
+    expect(() => client.setAgentHeaders({ agentId: 'a', tenantId: 't', sourceWeight: Number.NaN })).toThrow();
+    expect(() => client.setAgentHeaders({ agentId: 'a', tenantId: 't', sourceWeight: Number.POSITIVE_INFINITY })).toThrow();
+    expect(() => client.setAgentHeaders({ agentId: 'a', tenantId: 't', sourceWeight: -0.1 })).toThrow();
+    expect(() => client.setAgentHeaders({ agentId: 'a', tenantId: 't', sourceWeight: 2 })).not.toThrow();
   });
 });

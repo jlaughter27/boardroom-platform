@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
+import { parseInput } from '../lib/validate';
 import type { OmniMindClient } from '../lib/client';
 import type { AgentContext } from '../types';
 
@@ -16,7 +17,7 @@ export function personGetTool(client: OmniMindClient, ctx: AgentContext) {
     inputSchema: PersonGetInput,
     async execute(raw: unknown) {
       requireScope(ctx, 'memory:read');
-      const input = PersonGetInput.parse(raw);
+      const input = parseInput(PersonGetInput, raw);
 
       return withAudit(client, ctx, 'person_get', input, async () => {
         const results = await client.searchMemories({

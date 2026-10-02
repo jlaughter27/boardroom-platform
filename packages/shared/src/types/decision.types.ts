@@ -7,14 +7,23 @@ export interface DecisionOption {
   cons: string[];
 }
 
+/** Mirrors Prisma `Confidence` (shared with MemoryEntry) — SPECULATIVE is a real DB value. */
+export type AssumptionConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'SPECULATIVE';
+
 export interface Assumption {
   text: string;
-  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  confidence: AssumptionConfidence;
   reviewAt: Date | null;
   status: 'ACTIVE' | 'VALIDATED' | 'INVALIDATED';
 }
 
-export type DecisionStatus = 'OPEN' | 'DECIDED' | 'REVIEWED' | 'REVISED';
+/** Mirrors Prisma `enum DecisionStatus`. String-valued so `'OPEN'` comparisons keep working. */
+export enum DecisionStatus {
+  OPEN = 'OPEN',
+  DECIDED = 'DECIDED',
+  REVIEWED = 'REVIEWED',
+  REVISED = 'REVISED',
+}
 
 export interface Decision {
   id: string;
@@ -29,6 +38,7 @@ export interface Decision {
   status: DecisionStatus;
   reviewAt: Date | null;
   outcome: string | null;
+  /** Integer rating (Prisma `Int?`). */
   outcomeRating: number | null;
   sessionId: string | null;
   version: number;

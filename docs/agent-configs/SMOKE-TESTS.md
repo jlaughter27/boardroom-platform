@@ -14,9 +14,12 @@ pnpm --filter @boardroom/omnimind-mcp build
 
 # Run built-in smoke test (spawns stdio server, lists tools, verifies count)
 node packages/omnimind-mcp/dist/index.js smoke
+
+# Also execute status_get + memory_search for real (read-only) against the configured API:
+OMNIMIND_MCP_SMOKE_USER_ID=<user id> node packages/omnimind-mcp/dist/index.js smoke
 ```
 
-Expected: `smoke OK — 15 tools registered`
+Expected: `smoke OK — 15 tools registered` (or `..., 2 tools executed` with `OMNIMIND_MCP_SMOKE_USER_ID`)
 
 ---
 
@@ -127,32 +130,57 @@ export OLLAMA_URL=http://localhost:11434
 
 ## Tier 6 — HTTP transport (chatgpt-desktop-josh)
 
+The HTTP transport is **stateful Streamable HTTP**: `initialize` returns an
+`mcp-session-id` header, every later request must carry it, and `DELETE` ends
+the session. The server refuses to start without `OMNIMIND_MCP_API_KEY`.
+
 Start HTTP server in one terminal:
 ```bash
 OMNIMIND_MCP_AGENT_NAME=chatgpt-desktop-josh \
 OMNIMIND_MCP_TENANT_ID=josh-personal \
 OMNIMIND_MCP_SCOPES=memory:read \
 OMNIMIND_MCP_SOURCE_WEIGHT=0.6 \
-OMNIMIND_MCP_API_KEY=<mcp-api-key> \
+OMNIMIND_MCP_AGENT_KEY=<omk_ key from keygen> \
+OMNIMIND_MCP_API_KEY=<inbound mcp bearer token> \
+OMNIMIND_MCP_ALLOWED_HOSTS=127.0.0.1:3334,localhost:3334 \
 OMNIMIND_API_URL=https://omnimind-api-production.up.railway.app \
 OMNIMIND_API_KEY=<service-key> \
 node packages/omnimind-mcp/dist/index.js http
 ```
 
-**Test 11 — HTTP auth check**
+**Test 11 — Health + fail-closed auth**
 ```bash
-# Should fail (no key)
-curl -s http://localhost:3334 | jq .
-# Expected: {"error":"Unauthorized"}
+# Health needs no key
+curl -s http://localhost:3334/health | jq .
+# Expected: {"status":"ok","uptime":<s>,"sessions":0,"agent":"chatgpt-desktop-josh","tenant":"josh-personal"}
 
-# Should succeed (correct key)
-curl -s -H "x-mcp-api-key: <mcp-api-key>" http://localhost:3334 | jq .
+# Should fail (no key)
+curl -s -i -X POST http://localhost:3334/ -H 'content-type: application/json' -d '{}' | head -1
+# Expected: HTTP/1.1 401 Unauthorized
+
+# Should fail (missing OMNIMIND_MCP_API_KEY at startup)
+OMNIMIND_MCP_API_KEY= node packages/omnimind-mcp/dist/index.js http
+# Expected: exits 1 with "OMNIMIND_MCP_API_KEY is required in HTTP mode"
+```
+
+**Test 11b — Session handshake (correct key, Bearer or x-mcp-api-key)**
+```bash
+curl -s -i -X POST http://localhost:3334/ \
+  -H "Authorization: Bearer <mcp-api-key>" \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+# Expected: 200 with an `mcp-session-id: <uuid>` response header.
+# Reuse that header on tools/list; a POST without it → 400, unknown id → 404,
+# body > 1 MiB → 413, foreign Host header → 403.
 ```
 
 **Test 12 — HTTP read-only**
-1. Connect ChatGPT Desktop to `http://localhost:3334`
+1. Connect ChatGPT Desktop to `http://localhost:3334` with `Authorization: Bearer <mcp-api-key>`
 2. Verify `memory_search` works
 3. Verify `memory_write` returns `SCOPE_DENIED`
+
+The automated equivalent lives in `packages/omnimind-mcp/tests/http.transport.test.ts`
+(initialize → initialized → tools/list over HTTP with the SDK client, 15 tools).
 
 ---
 

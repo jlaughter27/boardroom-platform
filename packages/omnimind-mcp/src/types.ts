@@ -23,11 +23,30 @@ export interface FactWithAction {
   supersedes?: string;
 }
 
-export interface MemoryWriteResult {
+/** Successful memory_write: ids actually created / updated (as reported by the API). */
+export interface MemoryWriteSuccess {
+  ok: true;
   created: string[];
   updated: string[];
   skipped: number;
 }
+
+/**
+ * Refused memory_write. `created`/`updated`/`skipped` are kept (always empty)
+ * so callers that only look at those fields keep working; `ok: false` plus
+ * `error` is the discriminator. M-109: replaces the old
+ * `as unknown as MemoryWriteResult` smuggling.
+ */
+export interface MemoryWriteRefused {
+  ok: false;
+  error: 'MINISTRY_DEFERRED' | 'FACT_EXTRACTOR_UNAVAILABLE';
+  message: string;
+  created: string[];
+  updated: string[];
+  skipped: number;
+}
+
+export type MemoryWriteResult = MemoryWriteSuccess | MemoryWriteRefused;
 
 export interface AuditEntry {
   agentId: string;
@@ -49,8 +68,10 @@ export class ScopeDeniedError extends Error {
 
 export class McpValidationError extends Error {
   readonly code = 'VALIDATION_ERROR';
-  constructor(message: string) {
+  readonly issues: ReadonlyArray<{ path: string; message: string }>;
+  constructor(message: string, issues: ReadonlyArray<{ path: string; message: string }> = []) {
     super(message);
     this.name = 'McpValidationError';
+    this.issues = issues;
   }
 }

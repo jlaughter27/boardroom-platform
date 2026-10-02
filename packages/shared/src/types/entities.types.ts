@@ -21,7 +21,12 @@ export interface Goal {
   id: string;
   userId: string;
   title: string;
-  level: 0 | 1 | 2 | 3;
+  /**
+   * Goal hierarchy level. Prisma stores an unconstrained `Int` (default 0);
+   * the Zod schema enforces the valid range `0..3`
+   * (0 = vision, 1 = strategic, 2 = tactical, 3 = operational).
+   */
+  level: number;
   parentGoalId: string | null;
   successMetrics: string[];
   deadline: Date | null;

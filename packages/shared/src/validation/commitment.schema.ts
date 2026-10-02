@@ -1,10 +1,11 @@
 // commitment Zod schemas — matches packages/shared/src/types/commitment.types.ts
 
 import { z } from 'zod';
+import { CommitmentStatus } from '../types/commitment.types';
 
 // ── Status Schema ──
 
-export const CommitmentStatusSchema = z.enum(['OPEN', 'COMPLETED', 'MISSED', 'DEFERRED'])
+export const CommitmentStatusSchema = z.nativeEnum(CommitmentStatus)
   .describe('Lifecycle status of the commitment');
 
 // ── Full Commitment Schema ──

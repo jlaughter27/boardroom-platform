@@ -1,8 +1,13 @@
 import { z } from 'zod';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
+import { parseInput } from '../lib/validate';
+import { TASK_TAG, taskStatusTag } from './task.tool';
+import { COMMITMENT_TAG, COMMITMENT_PENDING_TAG } from './commitment.tool';
 import type { OmniMindClient } from '../lib/client';
 import type { AgentContext } from '../types';
+
+export const DECISION_TAG = 'decision';
 
 const StatusGetInput = z.object({
   userId: z.string(),
@@ -16,15 +21,20 @@ export function statusGetTool(client: OmniMindClient, ctx: AgentContext) {
     inputSchema: StatusGetInput,
     async execute(raw: unknown) {
       requireScope(ctx, 'memory:read');
-      const input = StatusGetInput.parse(raw);
+      const input = parseInput(StatusGetInput, raw);
 
       return withAudit(client, ctx, 'status_get', input, async () => {
-        const [decisions, activeTasks, blockers, commitments] = await Promise.all([
-          client.searchMemories({ query: 'decision', tenantId: ctx.tenantId, userId: input.userId, limit: 5 }),
-          client.searchMemories({ query: 'task:in_progress task:todo', tenantId: ctx.tenantId, userId: input.userId, limit: 10 }),
-          client.searchMemories({ query: 'blocker task:blocked', tenantId: ctx.tenantId, userId: input.userId, limit: 5 }),
-          client.searchMemories({ query: 'commitment:pending', tenantId: ctx.tenantId, userId: input.userId, limit: 5 }),
+        const base = { tenantId: ctx.tenantId, userId: input.userId };
+        // M-102: every category is a TAG query. `hasEvery` is AND, so "todo OR
+        // in_progress" is one `task` query filtered client-side.
+        const [decisions, allTasks, blockers, commitments] = await Promise.all([
+          client.searchMemories({ ...base, tags: [DECISION_TAG], limit: 5 }),
+          client.searchMemories({ ...base, tags: [TASK_TAG], limit: 25 }),
+          client.searchMemories({ ...base, tags: [TASK_TAG, taskStatusTag('blocked')], limit: 5 }),
+          client.searchMemories({ ...base, tags: [COMMITMENT_TAG, COMMITMENT_PENDING_TAG], limit: 5 }),
         ]);
+        const activeTags = new Set([taskStatusTag('todo'), taskStatusTag('in_progress')]);
+        const activeTasks = allTasks.filter(m => (m.tags ?? []).some(t => activeTags.has(t))).slice(0, 10);
 
         return {
           snapshot: {

@@ -1,7 +1,13 @@
 // Commitment types — TASK-004 (DeepSeek)
 // Implement from: docs/02-reference/MASTER-FRAMEWORK.md §4 Data Model
 
-export type CommitmentStatus = 'OPEN' | 'COMPLETED' | 'MISSED' | 'DEFERRED';
+/** Mirrors Prisma `enum CommitmentStatus`. String-valued so `'OPEN'` comparisons keep working. */
+export enum CommitmentStatus {
+  OPEN = 'OPEN',
+  COMPLETED = 'COMPLETED',
+  MISSED = 'MISSED',
+  DEFERRED = 'DEFERRED',
+}
 
 export interface Commitment {
   id: string;

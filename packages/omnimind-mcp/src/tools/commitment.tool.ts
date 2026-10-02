@@ -1,8 +1,12 @@
 import { z } from 'zod';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
+import { parseInput } from '../lib/validate';
 import type { OmniMindClient } from '../lib/client';
 import type { AgentContext } from '../types';
+
+export const COMMITMENT_TAG = 'commitment';
+export const COMMITMENT_PENDING_TAG = 'commitment:pending';
 
 const CommitmentLogInput = z.object({
   title: z.string().min(1).max(200).describe('What you committed to do'),
@@ -24,7 +28,7 @@ export function commitmentLogTool(client: OmniMindClient, ctx: AgentContext) {
     inputSchema: CommitmentLogInput,
     async execute(raw: unknown) {
       requireScope(ctx, 'commitment:write');
-      const input = CommitmentLogInput.parse(raw);
+      const input = parseInput(CommitmentLogInput, raw);
 
       return withAudit(client, ctx, 'commitment_log', input, async () => {
         const content = [
@@ -34,18 +38,18 @@ export function commitmentLogTool(client: OmniMindClient, ctx: AgentContext) {
           'Status: pending',
         ].filter(Boolean).join('\n');
 
-        const mem = await client.createMemory({
+        const created = await client.createMemory({
           title: input.title,
           content,
           domain: 'business',
-          tags: [...input.tags, 'commitment', 'commitment:pending'],
+          tags: [...input.tags, COMMITMENT_TAG, COMMITMENT_PENDING_TAG],
           importance: 0.7,
           sourceType: 'MCP_AGENT',
           agentId: ctx.agentId,
           tenantId: ctx.tenantId,
           sourceWeight: ctx.sourceWeight,
         }, input.userId);
-        return { id: mem.id, logged: true };
+        return { id: created.id, logged: true, action: created.status };
       });
     },
   };
@@ -58,11 +62,12 @@ export function commitmentListTool(client: OmniMindClient, ctx: AgentContext) {
     inputSchema: CommitmentListInput,
     async execute(raw: unknown) {
       requireScope(ctx, 'memory:read');
-      const input = CommitmentListInput.parse(raw);
+      const input = parseInput(CommitmentListInput, raw);
 
       return withAudit(client, ctx, 'commitment_list', input, async () => {
+        // M-102: `commitment:pending` is a TAG, not text — query by tags.
         const results = await client.searchMemories({
-          query: 'commitment:pending',
+          tags: [COMMITMENT_TAG, COMMITMENT_PENDING_TAG],
           tenantId: ctx.tenantId,
           userId: input.userId,
           limit: input.limit,
