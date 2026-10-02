@@ -10,6 +10,35 @@ const MIN_CALLS_FOR_SUMMARY = 3;
 // How far back to look for unsummarized audit entries
 const LOOKBACK_MS = 15 * 60 * 1000;
 
+// O-107: tenants without an owner user are logged once, then skipped quietly.
+const ownerWarned = new Set<string>();
+
+export function __resetOwnerWarningsForTest(): void {
+  ownerWarned.clear();
+}
+
+/**
+ * O-107: resolve the real User that owns a tenant. Summaries used to be
+ * written under the synthetic id "mcp:<tenant>", which user-validator rejects
+ * on every read path — the rows were orphaned and still consumed budget.
+ */
+export async function resolveTenantOwner(tenantId: string, prisma: PrismaClient): Promise<string | null> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { ownerUserId: true },
+  });
+  const ownerUserId = tenant?.ownerUserId ?? null;
+  if (!ownerUserId && !ownerWarned.has(tenantId)) {
+    ownerWarned.add(tenantId);
+    logger.warn('[session-summarizer] tenant has no owner_user_id — skipping session summaries for it', {
+      tenantId,
+      fix: `UPDATE tenants SET owner_user_id = '<user cuid>' WHERE id = '${tenantId}'`,
+    });
+  }
+  return ownerUserId;
+}
+
+
 interface AuditEntry {
   id: string;
   agentId: string;
@@ -161,17 +190,19 @@ export async function summarizeRecentSessions(prisma: PrismaClient): Promise<voi
       continue;
     }
 
+    // O-107: resolve the tenant's owner BEFORE spending a Haiku call.
+    const ownerUserId = await resolveTenantOwner(session.tenantId, prisma);
+    if (!ownerUserId) continue;
+
     const summary = await buildSummary(session);
     if (!summary) continue;
-
-    // Use a synthetic userId based on tenantId (no real user in MCP sessions)
-    const syntheticUserId = `mcp:${session.tenantId}`;
 
     try {
       // Synthesize agent context from session metadata so the summary row
       // is attributed to the originating agent + tenant, not left blank.
       await createMemory(
-        syntheticUserId,
+        ownerUserId,
+
         {
           title: `Session summary — ${session.agentId} — ${session.startedAt.toISOString().slice(0, 16)}`,
           content: summary,

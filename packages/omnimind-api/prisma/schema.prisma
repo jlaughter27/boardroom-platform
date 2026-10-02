@@ -189,8 +189,14 @@ model MemoryEntry {
   tags           String[]      @default([])
   memoryClass    MemoryClass   @default(SEMANTIC) @map("memory_class")
   importance     Float         @default(0.5)
+  // O-103: undecayed importance. The decay job recomputes `importance` from
+  // this value every run (importance = base * EXP(-λ·days)) instead of
+  // compounding on the previous run's output. NULL on legacy rows until the
+  // first decay run / migration backfill.
+  baseImportance Float?        @map("base_importance")
   confidence     Confidence    @default(MEDIUM)
   status         MemoryStatus  @default(DRAFT)
+
   sourceType     SourceType    @default(MANUAL) @map("source_type")
   sourceRef      String?       @map("source_ref")
   sourceWeight   Float         @default(1.0) @map("source_weight")
@@ -766,12 +772,17 @@ model OAuthToken {
 // ============================================================
 
 model Tenant {
-  id        String   @id
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id
+  name        String
+  createdAt   DateTime @default(now()) @map("created_at")
+  // O-107: the User that owns this tenant. Background jobs (session
+  // summarizer) write tenant-scoped memories under this user. NULL = no
+  // owner configured yet; jobs that need an owner skip and log once.
+  ownerUserId String?  @map("owner_user_id")
 
   @@map("tenants")
 }
+
 
 model Agent {
   id           String    @id @default(cuid())
@@ -784,8 +795,11 @@ model Agent {
   lastSeenAt   DateTime? @map("last_seen_at")
 
   @@index([tenantId])
+  // M-103: x-agent-key verification looks up agents by sha256(raw key).
+  @@index([apiKeyHash])
   @@map("agents")
 }
+
 
 model McpAuditLog {
   id           String   @id @default(cuid())

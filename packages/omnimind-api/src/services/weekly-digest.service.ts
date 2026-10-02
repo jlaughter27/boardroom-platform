@@ -17,8 +17,10 @@ export async function buildWeeklyDigest(userId: string, weekStart: Date, weekEnd
   const [memoriesCreated, memoriesUpdated, decisionsLogged, tasksCompleted, domainCounts] = await Promise.all([
     prisma.memoryEntry.count({ where: { userId, createdAt: { gte: weekStart, lt: weekEnd }, deletedAt: null } }),
     prisma.memoryEntry.count({ where: { userId, updatedAt: { gte: weekStart, lt: weekEnd }, createdAt: { lt: weekStart }, deletedAt: null } }),
-    prisma.decision.count({ where: { createdAt: { gte: weekStart, lt: weekEnd } } }),
-    prisma.task.count({ where: { status: 'completed', updatedAt: { gte: weekStart, lt: weekEnd } } }),
+    // O-106: per-user digest must count THIS user's live rows only.
+    prisma.decision.count({ where: { userId, deletedAt: null, createdAt: { gte: weekStart, lt: weekEnd } } }),
+    prisma.task.count({ where: { userId, deletedAt: null, status: 'completed', updatedAt: { gte: weekStart, lt: weekEnd } } }),
+
     prisma.memoryEntry.groupBy({
       by: ['domain'],
       where: { userId, createdAt: { gte: weekStart, lt: weekEnd }, deletedAt: null },

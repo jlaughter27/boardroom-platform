@@ -3,12 +3,15 @@ import { runValidationPipeline } from '../memory/validation/pipeline';
 import { SOURCE_WEIGHTS, SourceType } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
-import { decrypt } from '../lib/crypto';
+import { decryptMemory, encryptMemoryContent, normalizeDomain } from '../lib/memory-crypto';
 import { HttpError } from '../middleware/error-handler';
 import type { AgentContext } from '../middleware/agent-context';
 import { prisma as defaultPrisma } from '../lib/db';
 
 export type { AgentContext };
+// O-111: single decrypt entry point shared with the retrieval layers.
+export { decryptMemory };
+
 
 // WS-4.2 — Strict sourceType validation set. Previously the SOURCE_WEIGHTS
 // lookup silently fell back to MANUAL on invalid input, hiding data-quality
@@ -23,15 +26,9 @@ const MINISTRY_DEFERRED_MSG =
 
 const DEDUP_THRESHOLD = 0.92;
 
-/**
- * WS-6 F-101 — Canonicalize a domain value so the ministry refusal gate
- * cannot be bypassed by case/whitespace variants. Mirrors the Zod transform
- * on CreateMemoryRequestSchema.domain in @boardroom/shared. Service-layer
- * normalization is a defense-in-depth pass for callers that bypass Zod.
- */
-function normalizeDomain(d: string): string {
-  return d.trim().toLowerCase();
-}
+// WS-6 F-101 — domain normalization (defense-in-depth for callers that bypass
+// Zod) now lives in lib/memory-crypto.ts so the retrieval layers share it.
+
 
 /**
  * Backward-compat shim: legacy callers pass (userId, input, prisma).
@@ -70,8 +67,14 @@ function resolveContextAndPrisma(
   );
 }
 
+/**
+ * O-101 / F-202 — cosine near-duplicate lookup, scoped to BOTH the user and
+ * the caller's tenant. Without the tenant filter an agent in tenant A could
+ * "merge into" (and re-stamp) a memory that lives in tenant B.
+ */
 async function findNearDuplicate(
   userId: string,
+  tenantId: string,
   embedding: number[],
   threshold: number,
   prisma: PrismaClient
@@ -81,6 +84,7 @@ async function findNearDuplicate(
       SELECT id, importance, tags
       FROM "memory_entries"
       WHERE user_id = ${userId}
+        AND tenant_id = ${tenantId}
         AND embedding IS NOT NULL
         AND deleted_at IS NULL
         AND status != 'ARCHIVED'
@@ -89,10 +93,16 @@ async function findNearDuplicate(
       LIMIT 1
     `;
     return rows[0] ?? null;
-  } catch {
+  } catch (err) {
+    // Dedup is a best-effort heuristic; a failure here must not block the
+    // write, but it must not be silent either (F-204 spirit).
+    logger.warn('findNearDuplicate failed — skipping dedup for this write', {
+      error: (err as Error).message,
+    });
     return null;
   }
 }
+
 
 // Create memory — validate first, then write
 export async function createMemory(
@@ -140,33 +150,60 @@ export async function createMemory(
     });
   }
 
-  // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating
-  const embedText = `${input.title} ${input.content}`.slice(0, 8000);
-  const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
-  if (dedupeEmbedding) {
-    const dupe = await findNearDuplicate(userId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
-    if (dupe) {
-      // CRITICAL: pass the agent context through the dedup update path so we don't strip
-      // tenantId / agentId / sourceWeight on the merge (fix for Bug #3).
-      logger.info('Near-duplicate detected — auto-superseding existing memory', { dupeId: dupe.id });
-      await updateMemory(userId, dupe.id, {
-        title: input.title,
-        content: input.content,
-        importance: Math.max(dupe.importance, input.importance ?? 0.5),
-        tags: Array.from(new Set([...dupe.tags, ...(input.tags ?? [])])),
-      }, agentContext, prisma);
-      return {
-        success: true as const,
-        data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
-      };
-    }
-  }
-
-  // Run validation pipeline
+  // Run validation pipeline FIRST (O-115 / rule 6): every write path —
+  // including the dedup-update branch below — goes through schema + temporal
+  // + budget validation. Previously the dedup branch ran before and bypassed it.
   const validation = await runValidationPipeline(input, userId, input.domain, prisma);
   if (!validation.valid) {
     return { success: false as const, errors: validation.errors };
   }
+
+  // Cosine dedup: if a near-identical memory exists (>0.92 similarity) IN THE
+  // CALLER'S TENANT, update it instead of creating.
+  //
+  // O-101 / F-202: only runs when an agent context (and therefore a tenant) is
+  // present. BoardRoom AI writes carry no tenant and are single-user, so dedup
+  // is skipped rather than searched cross-tenant.
+  if (agentContext) {
+    const embedText = `${input.title} ${input.content}`.slice(0, 8000);
+    const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
+    if (dedupeEmbedding) {
+      const dupe = await findNearDuplicate(userId, agentContext.tenantId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
+      if (dupe) {
+        // Pass the agent context through the dedup update path so we don't strip
+        // tenantId / agentId / sourceWeight on the merge (fix for Bug #3).
+        logger.info('Near-duplicate detected — auto-superseding existing memory', { dupeId: dupe.id });
+        const updated = await updateMemory(userId, dupe.id, {
+          title: input.title,
+          content: input.content,
+          importance: Math.max(dupe.importance, input.importance ?? 0.5),
+          tags: Array.from(new Set([...dupe.tags, ...(input.tags ?? [])])),
+        }, agentContext, prisma);
+
+        if (updated) {
+          return {
+            success: true as const,
+            data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
+          };
+        }
+
+        // O-101: updateMemory is user+tenant scoped and returns null when the
+        // candidate is not visible to this caller. Previously we still answered
+        // {status:'updated', id:<foreign id>} and silently dropped the write.
+        // Now we fall through and create the memory normally.
+        logger.warn('Near-duplicate update returned null (candidate not visible in caller scope) — creating instead', {
+          dupeId: dupe.id,
+          tenantId: agentContext.tenantId,
+        });
+      }
+    }
+  }
+
+  // O-111: ministry content is encrypted at rest (placeholder in `content`,
+  // ciphertext in `encrypted_content`). Returns null for non-ministry rows and
+  // in dev/test without ENCRYPTION_KEY; throws in production without a key.
+  const encrypted = encryptMemoryContent(input.domain, input.content);
+
 
   // Source weight resolution: agent context (from header / Agent table) wins,
   // else fall back to the static sourceType lookup table.
@@ -187,6 +224,9 @@ export async function createMemory(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       memoryClass: (input.memoryClass ?? 'SEMANTIC') as any,
       importance: input.importance ?? 0.5,
+      // O-103: undecayed importance — the decay job recomputes `importance`
+      // from this every run instead of compounding on its own output.
+      baseImportance: input.importance ?? 0.5,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       confidence: (input.confidence ?? 'MEDIUM') as any,
       sourceRef: input.sourceRef ?? null,
@@ -199,8 +239,11 @@ export async function createMemory(
       // (the service-layer counterpart to the migration's 'legacy' DB default).
       agentId: agentContext?.agentId ?? 'boardroom-ai',
       ...(agentContext ? { tenantId: agentContext.tenantId } : {}),
+      // O-111: overrides `content` with the placeholder when encrypted.
+      ...(encrypted ?? {}),
     },
   });
+
 
   // WS-2: Embedding outbox pattern. Enqueue an outbox row up-front so a stuck
   // embedding is always recoverable via the embedding-retry-scheduler cron,
@@ -361,17 +404,6 @@ export async function processEmbeddingOutboxEntry(
   return { succeeded: false, error: message };
 }
 
-// Decrypt ministry content in-place (mutates a copy)
-function decryptMemory<T extends { domain: string; content: string; encryptedContent: Buffer | Uint8Array | null }>(
-  mem: T
-): T & { content: string } {
-  // WS-6 F-101 — normalize the legacy stored domain before comparing.
-  if (normalizeDomain(mem.domain) === 'ministry' && mem.encryptedContent) {
-    const encoded = Buffer.from(mem.encryptedContent).toString('utf-8');
-    return { ...mem, content: decrypt(encoded) };
-  }
-  return mem;
-}
 
 // Get single memory by ID, scoped to userId AND tenantId (when context is present)
 export async function getMemory(
@@ -389,8 +421,9 @@ export async function getMemory(
 
   const memory = await prisma.memoryEntry.findFirst({ where });
   if (!memory) return null;
-  return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
+  return decryptMemory(memory);
 }
+
 
 // Search/filter memories
 export async function searchMemories(
@@ -468,9 +501,8 @@ export async function searchMemories(
     prisma.memoryEntry.count({ where }),
   ]);
 
-  const items = rawItems.map(m =>
-    decryptMemory(m as typeof m & { encryptedContent: Buffer | null })
-  );
+  const items = rawItems.map(m => decryptMemory(m));
+
 
   return { items, total, offset, limit };
 }
@@ -517,11 +549,29 @@ export async function updateMemory(
       }
     : {};
 
+  // O-103: an explicit importance change resets the undecayed base as well.
+  const baseImportancePatch =
+    typeof input.importance === 'number' ? { baseImportance: input.importance } : {};
+
+  // O-111: ministry rows keep ciphertext in encrypted_content — re-encrypt on
+  // content change. (Unreachable today because of the MINISTRY_DEFERRED gate
+  // above; wired so the write path is complete when Phase 6 lifts the gate.)
+  const encryptedPatch =
+    typeof input.content === 'string'
+      ? encryptMemoryContent(
+          typeof input.domain === 'string' ? input.domain : existing.domain,
+          input.content
+        ) ?? {}
+      : {};
+
   const updateData: Record<string, unknown> = {
     ...input,
     ...contextOverrides,
+    ...baseImportancePatch,
+    ...encryptedPatch,
     version: { increment: 1 },
   };
+
 
   const memory = await prisma.memoryEntry.update({
     where: { id },
@@ -537,10 +587,11 @@ export async function updateMemory(
     }
   }
 
-  return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
+  return decryptMemory(memory);
 }
 
 // Archive (soft delete)
+
 export async function archiveMemory(
   userId: string,
   id: string,

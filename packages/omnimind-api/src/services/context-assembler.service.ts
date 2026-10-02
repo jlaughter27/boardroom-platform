@@ -5,9 +5,11 @@ import { fulltextSearch } from '../retrieval/fulltext-search';
 import { trigramSearch } from '../retrieval/trigram-search';
 import { semanticSearch } from '../retrieval/semantic-search';
 import { rankAndDeduplicate } from '../retrieval/ranker';
-import { packageForPersona, type ContextPackage } from '../retrieval/context-packager';
+import { packageForPersona, type RetrievalContextPackage } from '../retrieval/context-packager';
 import { generateEmbeddingWithRetry as generateEmbedding } from './embedding.service';
 import type { ScoredResult } from '../retrieval/structured-filter';
+import type { RetrievalLayer } from '../retrieval/forgetting-curve';
+
 
 export async function assembleContextForPersona(
   userId: string,
@@ -22,18 +24,26 @@ export async function assembleContextForPersona(
     /** Admin escape hatch — skip tenant filter entirely. */
     includeAllTenants?: boolean;
   }
-): Promise<ContextPackage> {
+): Promise<RetrievalContextPackage> {
   const includeEntities = options?.includeEntities ?? ['memories', 'people', 'goals', 'projects', 'decisions'];
+
 
   // Generate query embedding for semantic search
   const queryEmbedding = await generateEmbedding(query);
 
   // Retrieval layers default to tenant-scoped. If neither tenantId nor
   // includeAllTenants is provided, they return 0 results (safe default).
+  // F-204: layers that throw degrade to [] but report here so the package
+  // can be flagged `degraded` instead of silently looking like "no matches".
+  const degradedLayers: RetrievalLayer[] = [];
   const retrievalScope = {
     tenantId: options?.tenantId,
     includeAllTenants: options?.includeAllTenants,
+    onLayerError: (layer: RetrievalLayer) => {
+      if (!degradedLayers.includes(layer)) degradedLayers.push(layer);
+    },
   };
+
 
   // Run all retrieval layers in parallel
   const [structured, fts, trigram, semantic] = await Promise.all([
@@ -178,8 +188,9 @@ export async function assembleContextForPersona(
   const allResults = [...rankedMemories, ...entityResults];
 
   // Package for the specific persona
-  return packageForPersona(allResults, persona, totalCandidates, layersUsed);
+  return packageForPersona(allResults, persona, totalCandidates, layersUsed, { degradedLayers });
 }
+
 
 /**
  * WS-3: Increment `recall_count` and refresh `last_accessed_at` for every

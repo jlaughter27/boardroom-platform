@@ -100,6 +100,8 @@ describe('Memory Service', () => {
           tags: ['test'],
           memoryClass: 'SEMANTIC',
           importance: 0.7,
+          // O-103: undecayed base persisted alongside importance.
+          baseImportance: 0.7,
           confidence: 'HIGH',
           sourceRef: null,
           sourceWeight: SOURCE_WEIGHTS.MANUAL,
@@ -109,6 +111,7 @@ describe('Memory Service', () => {
         },
       });
       expect(embedMemory).toHaveBeenCalledWith('mem-123');
+
       expect(result).toEqual({
         success: true,
         data: {
@@ -167,6 +170,7 @@ describe('Memory Service', () => {
           tags: [],
           memoryClass: 'SEMANTIC',
           importance: 0.5,
+          baseImportance: 0.5,
           confidence: 'MEDIUM',
           sourceRef: null,
           sourceWeight: SOURCE_WEIGHTS.MANUAL,
@@ -177,7 +181,100 @@ describe('Memory Service', () => {
       });
     });
 
+
+    // ── AUDIT-2026-10-02: O-101 / F-202 / O-115 ─────────────────────────
+    describe('near-duplicate dedup (O-101 / F-202 / O-115)', () => {
+      const agentContext = { agentId: 'claude-code-josh', tenantId: 'josh-business', sourceWeight: 1.0 };
+      const dedupPrisma = () => ({
+        memoryEntry: {
+          create: vi.fn().mockResolvedValue({ id: 'mem-new' }),
+          findFirst: vi.fn(),
+          findMany: vi.fn(),
+          count: vi.fn(),
+          update: vi.fn(),
+          findUnique: vi.fn(),
+        },
+        $queryRaw: vi.fn(),
+      }) as any;
+
+      it('F-202: skips dedup entirely when there is no agent context (no $queryRaw)', async () => {
+        const p = dedupPrisma();
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        await createMemory('user-1', validInput, p);
+        expect(p.$queryRaw).not.toHaveBeenCalled();
+        expect(p.memoryEntry.create).toHaveBeenCalled();
+      });
+
+      it('O-101: dedup query is scoped to the agent tenant (tenant_id bound param)', async () => {
+        const p = dedupPrisma();
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        p.$queryRaw.mockResolvedValue([]);
+        await createMemory('user-1', validInput, agentContext, p);
+        expect(p.$queryRaw).toHaveBeenCalledTimes(1);
+        const [strings, ...values] = p.$queryRaw.mock.calls[0];
+        expect(strings.join('?')).toContain('tenant_id = ?');
+        expect(values).toContain('josh-business');
+        expect(values).toContain('user-1');
+      });
+
+      it('O-115: validation pipeline runs BEFORE the dedup-update branch', async () => {
+        const p = dedupPrisma();
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        p.$queryRaw.mockResolvedValue([{ id: 'dupe-1', importance: 0.4, tags: ['old'] }]);
+        p.memoryEntry.findFirst.mockResolvedValue({ id: 'dupe-1', userId: 'user-1', domain: 'business', content: 'x', encryptedContent: null });
+        p.memoryEntry.update.mockResolvedValue({ id: 'dupe-1', domain: 'business', content: 'Test content', encryptedContent: null });
+
+        const result = await createMemory('user-1', validInput, agentContext, p);
+
+        expect(runValidationPipeline).toHaveBeenCalled();
+        const validationOrder = vi.mocked(runValidationPipeline).mock.invocationCallOrder[0];
+        const updateOrder = p.memoryEntry.update.mock.invocationCallOrder[0];
+        expect(validationOrder).toBeLessThan(updateOrder);
+        expect(result).toEqual({
+          success: true,
+          data: { id: 'dupe-1', status: 'updated', validation: { syncPassed: true, errors: [] } },
+        });
+        expect(p.memoryEntry.create).not.toHaveBeenCalled();
+        // merged importance also resets the undecayed base (O-103)
+        expect(p.memoryEntry.update).toHaveBeenCalledWith(expect.objectContaining({
+          data: expect.objectContaining({ importance: 0.7, baseImportance: 0.7, tenantId: 'josh-business' }),
+        }));
+      });
+
+      it('O-115: a failing validation pipeline blocks the dedup-update path too', async () => {
+        const p = dedupPrisma();
+        vi.mocked(runValidationPipeline).mockResolvedValue({ valid: false, errors: [{ field: 'content', message: 'budget' }], durationMs: 1 });
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        p.$queryRaw.mockResolvedValue([{ id: 'dupe-1', importance: 0.4, tags: [] }]);
+
+        const result = await createMemory('user-1', validInput, agentContext, p);
+
+        expect(result.success).toBe(false);
+        expect(p.$queryRaw).not.toHaveBeenCalled();
+        expect(p.memoryEntry.update).not.toHaveBeenCalled();
+      });
+
+      it('O-101: when updateMemory returns null (candidate not visible), falls through to CREATE', async () => {
+        const p = dedupPrisma();
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        p.$queryRaw.mockResolvedValue([{ id: 'foreign-1', importance: 0.4, tags: [] }]);
+        p.memoryEntry.findFirst.mockResolvedValue(null); // tenant-scoped ownership check fails
+
+        const result = await createMemory('user-1', validInput, agentContext, p);
+
+        expect(p.memoryEntry.update).not.toHaveBeenCalled();
+        expect(p.memoryEntry.create).toHaveBeenCalledWith(expect.objectContaining({
+          data: expect.objectContaining({ tenantId: 'josh-business', agentId: 'claude-code-josh' }),
+        }));
+        expect(result).toEqual({
+          success: true,
+          data: { id: 'mem-new', status: 'created', validation: { syncPassed: true, errors: [] } },
+        });
+      });
+    });
+
     it('should use source weight based on sourceType', async () => {
+
       // WS-7: 'EMAIL' is no longer a valid SourceType — WS-4.2 introduced
       // strict validation. Use MCP_AGENT, which is in the canonical set and
       // has its own distinct sourceWeight.

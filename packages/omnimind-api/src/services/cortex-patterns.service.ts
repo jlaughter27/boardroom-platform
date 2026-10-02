@@ -10,8 +10,8 @@ export async function detectPatterns(userId: string, prisma: PrismaClient): Prom
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
-  // Check threshold
-  const decisionCount = await prisma.decision.count({ where: { userId } });
+  // Check threshold (O-113: soft-deleted decisions excluded)
+  const decisionCount = await prisma.decision.count({ where: { userId, deletedAt: null } });
   if (decisionCount < CORTEX_CONFIG.minSessionsForPatterns) {
     return [];
   }
@@ -19,7 +19,8 @@ export async function detectPatterns(userId: string, prisma: PrismaClient): Prom
   // Fetch decision history (last 90 days)
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
   const decisions = await prisma.decision.findMany({
-    where: { userId, createdAt: { gte: ninetyDaysAgo } },
+    where: { userId, deletedAt: null, createdAt: { gte: ninetyDaysAgo } },
+
     orderBy: { createdAt: 'desc' },
     take: 50,
   });

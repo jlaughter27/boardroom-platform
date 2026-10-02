@@ -44,19 +44,56 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /goals/:id — supports ?include=children
+// GET /goals/:id — supports ?include=children. Always returns `projectIds`
+// (C-111: linked projects via GoalProjectLink — one cheap join).
 router.get('/:id', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const include = req.query.include === 'children' ? { childGoals: true } : undefined;
+    const include: Record<string, unknown> = { projectLinks: { select: { projectId: true } } };
+    if (req.query.include === 'children') include.childGoals = true;
     const goal = await entityService.getEntity('goal', userId, req.params.id, prisma, include);
     if (!goal) { res.status(404).json({ error: 'not_found', message: 'Goal not found' }); return; }
 
-    res.json(goal);
+    const projectLinks = (goal.projectLinks ?? []) as Array<{ projectId: string }>;
+    res.json({ ...goal, projectIds: projectLinks.map(l => l.projectId) });
   } catch (err) { next(err); }
 });
+
+// ---------------------------------------------------------------------------
+// C-111 — Goal ↔ Project links (GoalProjectLink). No body; ids in the path.
+// 201 when the link is created, 200 when it already existed, 404 when either
+// entity is missing / soft-deleted / not owned by x-user-id.
+// ---------------------------------------------------------------------------
+
+// POST /goals/:goalId/projects/:projectId — link
+router.post('/:goalId/projects/:projectId', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const result = await entityService.linkGoalProject(userId, req.params.goalId, req.params.projectId, prisma);
+    if (!result) { res.status(404).json({ error: 'not_found', message: 'Goal or project not found' }); return; }
+
+    const { id, goalId, projectId } = result.link;
+    res.status(result.created ? 201 : 200).json({ id, goalId, projectId });
+  } catch (err) { next(err); }
+});
+
+// DELETE /goals/:goalId/projects/:projectId — unlink
+router.delete('/:goalId/projects/:projectId', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const result = await entityService.unlinkGoalProject(userId, req.params.goalId, req.params.projectId, prisma);
+    if (!result) { res.status(404).json({ error: 'not_found', message: 'Link not found' }); return; }
+
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
 
 // PATCH /goals/:id
 router.patch('/:id', async (req, res, next) => {

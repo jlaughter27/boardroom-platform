@@ -2,14 +2,18 @@ import { schedule, type ScheduledTask } from 'node-cron';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
 import { buildWeeklyDigest, saveAndSendDigest } from '../services/weekly-digest.service';
+import { createJobGuard } from './job-guard';
 
 let digestJob: ScheduledTask | null = null;
 
 // Friday 6 PM
 const DIGEST_SCHEDULE = process.env.DIGEST_SCHEDULE ?? '0 18 * * 5';
 
+// O-109: overlap guard (digest emails must not be sent twice).
+const digestGuard = createJobGuard('weekly-digest');
+
 export function startWeeklyDigestScheduler(): void {
-  digestJob = schedule(DIGEST_SCHEDULE, async () => {
+  digestJob = schedule(DIGEST_SCHEDULE, () => digestGuard.run(async () => {
     logger.info('Running weekly digest generation...');
     try {
       const users = await prisma.user.findMany({ select: { id: true } });
@@ -30,7 +34,7 @@ export function startWeeklyDigestScheduler(): void {
     } catch (err) {
       logger.error('Digest scheduler error', { error: (err as Error).message });
     }
-  });
+  }));
 
   logger.info('Weekly digest scheduler started', { schedule: DIGEST_SCHEDULE });
 }

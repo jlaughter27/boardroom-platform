@@ -4,6 +4,8 @@ import { CreateMemoryRequestSchema, UpdateMemoryRequestSchema } from '@boardroom
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
 import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
+import { isAdminRequest } from '../middleware/admin-auth';
+
 
 const router: IRouter = Router();
 
@@ -151,7 +153,25 @@ router.get('/', async (req, res, next) => {
 
     const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
     const tenantId = req.query.tenantId as string | undefined;
+
+    // O-105: an agent may not read outside its own tenant by passing
+    // ?tenantId=<other>. Only an admin (x-admin-key) who explicitly opts in
+    // with ?includeAllTenants=true may cross tenants.
+    const includeAllTenants =
+      typeof req.query.includeAllTenants === 'string' &&
+      req.query.includeAllTenants.toLowerCase() === 'true' &&
+      isAdminRequest(req);
+    const ctxTenant = req.agentContext?.tenantId;
+    if (ctxTenant && tenantId && tenantId !== ctxTenant && !includeAllTenants) {
+      res.status(403).json({
+        error: 'tenant_mismatch',
+        message: `tenantId '${tenantId}' does not match the caller's tenant`,
+      });
+      return;
+    }
+
     const result = await memoryService.searchMemories(userId, {
+
       q: req.query.q as string | undefined,
       domain: req.query.domain as string | undefined,
       tags,
@@ -163,6 +183,7 @@ router.get('/', async (req, res, next) => {
       sortOrder: req.query.sortOrder as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
+      includeAllTenants,
     }, req.agentContext, prisma);
 
     res.json(result);
@@ -170,6 +191,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // GET /memories/:id
+
 router.get('/:id', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;

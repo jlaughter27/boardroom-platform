@@ -15,22 +15,27 @@ CREATE INDEX IF NOT EXISTS "memory_entries_agent_id_created_at_idx"
   ON "memory_entries" ("agent_id", "created_at");
 
 -- 2. Add new SourceType enum values (PostgreSQL ALTER TYPE is additive-only)
+-- AUDIT-2026-10-02 / O-104: the enum was created as the quoted identifier
+-- "SourceType"; the unquoted literal 'SourceType'::regtype is lower-cased by
+-- Postgres and fails with `type "sourcetype" does not exist`. This migration
+-- had never actually executed (always `--applied`). Fixed to the quoted form.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_enum
-    WHERE enumtypid = 'SourceType'::regtype AND enumlabel = 'MCP_AGENT'
+    WHERE enumtypid = '"SourceType"'::regtype AND enumlabel = 'MCP_AGENT'
   ) THEN
     ALTER TYPE "SourceType" ADD VALUE 'MCP_AGENT';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_enum
-    WHERE enumtypid = 'SourceType'::regtype AND enumlabel = 'SESSION_SUMMARY'
+    WHERE enumtypid = '"SourceType"'::regtype AND enumlabel = 'SESSION_SUMMARY'
   ) THEN
     ALTER TYPE "SourceType" ADD VALUE 'SESSION_SUMMARY';
   END IF;
 END;
 $$;
+
 
 -- 3. Tenant table
 CREATE TABLE IF NOT EXISTS "tenants" (

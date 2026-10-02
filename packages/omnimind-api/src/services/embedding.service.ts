@@ -17,11 +17,27 @@ async function sleep(ms: number) {
 // tests (and hot-reloaded envs) can't override it, and the service is
 // impossible to run without the key set even though the missing-key path is
 // handled gracefully.
+//
+// F-213: one module-level client, re-created only when the key changes
+// (previously a new OpenAI instance per call — 50 per outbox tick).
+let cachedClient: OpenAI | null = null;
+let cachedClientKey: string | null = null;
+
 function getOpenAIClient(): OpenAI | null {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
-  return new OpenAI({ apiKey });
+  if (!cachedClient || cachedClientKey !== apiKey) {
+    cachedClient = new OpenAI({ apiKey });
+    cachedClientKey = apiKey;
+  }
+  return cachedClient;
 }
+
+export function __resetOpenAIClientForTest(): void {
+  cachedClient = null;
+  cachedClientKey = null;
+}
+
 
 // Pad a vector to 1536 dims with zeros (ministry embeddings are 768-dim)
 function padTo1536(vector: number[]): number[] {
@@ -143,9 +159,14 @@ export async function backfillEmbeddings(
     where: { userId, deletedAt: null, status: { not: 'ARCHIVED' } },
   });
 
-  // Find memories without embeddings
-  const memories = await prisma.$queryRaw<{ id: string; title: string; content: string }[]>`
-    SELECT id, title, content FROM "memory_entries"
+  // Find memories without embeddings.
+  // O-102: `domain` MUST be selected and forwarded — without it every row,
+  // including ministry rows, was embedded via OpenAI, violating the
+  // non-negotiable ministry rule. generateEmbeddingWithRetry routes
+  // domain='ministry' to the local Ollama embedder and returns null (skip)
+  // when it is unavailable; it never falls back to OpenAI.
+  const memories = await prisma.$queryRaw<{ id: string; title: string; content: string; domain: string | null }[]>`
+    SELECT id, title, content, domain FROM "memory_entries"
     WHERE "user_id" = ${userId}
       AND "deleted_at" IS NULL
       AND status != 'ARCHIVED'
@@ -156,11 +177,16 @@ export async function backfillEmbeddings(
   let processed = 0;
   for (const mem of memories) {
     const text = `${mem.title}\n\n${mem.content}`;
-    const embedding = await generateEmbeddingWithRetry(text);
+    const domain = mem.domain?.trim().toLowerCase();
+    if (domain === 'ministry') {
+      logger.info('Backfill: ministry row routed to local embedder (never OpenAI)', { memoryId: mem.id });
+    }
+    const embedding = await generateEmbeddingWithRetry(text, domain);
     if (!embedding) {
       logger.warn('Backfill embedding failed after retries', { memoryId: mem.id });
       continue;
     }
+
 
     await prisma.$executeRaw`
       UPDATE "memory_entries" SET "embedding" = ${embedding}::vector WHERE "id" = ${mem.id}

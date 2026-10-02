@@ -1,6 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
-import { archiveCutoffDate } from './forgetting-curve';
+import { archiveCutoffDate, type LayerErrorHook } from './forgetting-curve';
+import { decryptRows } from './row-decrypt';
+import { logger } from '../lib/logger';
 
 export interface SemanticSearchOptions {
   limit?: number;
@@ -9,6 +11,15 @@ export interface SemanticSearchOptions {
   tenantId?: string;
   /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
   includeAllTenants?: boolean;
+  /** F-204: invoked when the layer fails and degrades to []. */
+  onLayerError?: LayerErrorHook;
+}
+
+interface SemanticRow {
+  id: string; title: string; content: string; tags: string[];
+  importance: number; last_accessed_at: Date | null;
+  source_weight: number; similarity: number;
+  domain: string | null; encrypted_content: Uint8Array | null;
 }
 
 export async function semanticSearch(
@@ -30,13 +41,12 @@ export async function semanticSearch(
   const tenantId = options.tenantId ?? null;
 
   try {
+    // O-103: forgetting curve falls back to created_at when the memory has
+    // never been recalled (last_accessed_at IS NULL).
     const results = tenantId
-      ? await prisma.$queryRaw<Array<{
-          id: string; title: string; content: string; tags: string[];
-          importance: number; last_accessed_at: Date | null;
-          source_weight: number; similarity: number;
-        }>>`
+      ? await prisma.$queryRaw<SemanticRow[]>`
           SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
+                 domain, encrypted_content,
                  1 - (embedding <=> ${queryEmbedding}::vector) as similarity
           FROM "memory_entries"
           WHERE "user_id" = ${userId}
@@ -44,28 +54,25 @@ export async function semanticSearch(
             AND embedding IS NOT NULL
             AND "deleted_at" IS NULL
             AND status != 'ARCHIVED'
-            AND (${includeArchived} OR importance >= 0.4 OR last_accessed_at >= ${cutoff})
+            AND (${includeArchived} OR importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           ORDER BY embedding <=> ${queryEmbedding}::vector
           LIMIT ${limit}
         `
-      : await prisma.$queryRaw<Array<{
-          id: string; title: string; content: string; tags: string[];
-          importance: number; last_accessed_at: Date | null;
-          source_weight: number; similarity: number;
-        }>>`
+      : await prisma.$queryRaw<SemanticRow[]>`
           SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
+                 domain, encrypted_content,
                  1 - (embedding <=> ${queryEmbedding}::vector) as similarity
           FROM "memory_entries"
           WHERE "user_id" = ${userId}
             AND embedding IS NOT NULL
             AND "deleted_at" IS NULL
             AND status != 'ARCHIVED'
-            AND (${includeArchived} OR importance >= 0.4 OR last_accessed_at >= ${cutoff})
+            AND (${includeArchived} OR importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           ORDER BY embedding <=> ${queryEmbedding}::vector
           LIMIT ${limit}
         `;
 
-    return results.map(r => ({
+    return decryptRows(results).map(r => ({
       id: r.id,
       type: 'memory' as const,
       title: r.title,
@@ -79,7 +86,12 @@ export async function semanticSearch(
       sourceWeight: r.source_weight,
     }));
   } catch (err) {
-    // pgvector may not be enabled or no embeddings exist
+    // F-204: tolerate the layer failing (pgvector missing, bad embedding dims,
+    // schema drift) but never silently. Log + report so the package is marked
+    // degraded instead of looking like "no semantic matches".
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('[semantic] retrieval layer failed — degrading to []', { error: error.message });
+    options.onLayerError?.('semantic', error);
     return [];
   }
 }
