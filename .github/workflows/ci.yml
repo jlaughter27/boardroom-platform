@@ -70,3 +70,114 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  retrieval-eval:
+    name: Retrieval IR eval (pgvector, mock embeddings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: verify
+    # Gating happens INSIDE the runner (eval/retrieval/thresholds.json): the
+    # job fails when recall@10 / MRR drop below the gates, so a ranker/decay PR
+    # cannot merge on a regression. continue-on-error stays false on purpose.
+    continue-on-error: false
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: eval
+          POSTGRES_PASSWORD: eval
+          POSTGRES_DB: omnimind_eval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U eval -d omnimind_eval"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://eval:eval@localhost:5432/omnimind_eval
+      OMNIMIND_API_KEY: ci-key
+      OMNIMIND_API_URL: http://localhost:3333
+      # A1's deterministic embedder (sha256-seeded 1536-dim vectors) — no OpenAI
+      # traffic. Until that switch lands, the dummy key makes embeds fail fast and
+      # the FTS/trigram/structured layers still carry the eval.
+      EMBEDDING_PROVIDER: mock
+      ANTHROPIC_API_KEY: ci-dummy
+      OPENAI_API_KEY: ci-dummy
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      # NOTE: index.ts skips app.listen() when NODE_ENV=test (supertest owns the
+      # port there). `ci` keeps the env validator on and the server listening.
+      NODE_ENV: ci
+      PORT: "3333"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @boardroom/omnimind-api exec prisma generate
+
+      - name: Build shared + omnimind-api
+        run: |
+          pnpm --filter @boardroom/shared build
+          pnpm --filter @boardroom/omnimind-api build
+
+      # Same sequence as packages/omnimind-api/docker-entrypoint.sh for a FRESH
+      # database: extensions first (schema uses the vector type), then
+      # `migrate deploy` applies 0_init + every later migration. No baseline
+      # resolve — that path is only for databases created with `db push`.
+      - name: Enable extensions + migrate deploy
+        working-directory: packages/omnimind-api
+        run: |
+          printf 'CREATE EXTENSION IF NOT EXISTS vector;\nCREATE EXTENSION IF NOT EXISTS pg_trgm;\nCREATE EXTENSION IF NOT EXISTS btree_gin;\n' \
+            | pnpm exec prisma db execute --schema prisma/schema.prisma --stdin
+          pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Start omnimind-api (background)
+        working-directory: packages/omnimind-api
+        run: |
+          nohup node dist/index.js > "$RUNNER_TEMP/omnimind.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/omnimind.pid"
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3333/health | grep -q '"dbConnected":true'; then
+              echo "healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "omnimind-api did not become healthy"; cat "$RUNNER_TEMP/omnimind.log"; exit 1
+
+      # Seeds the three gold corpora (idempotent, one synthetic user per
+      # archetype) and runs the IR eval. The per-user limiter is 20 req/min per
+      # method, which the eval client honours — expect ~6-8 minutes.
+      - name: Seed + IR eval
+        run: pnpm eval:retrieval:ir
+
+      - name: Server log (on failure)
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP/omnimind.log" || true
+
+      - name: Stop omnimind-api
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/omnimind.pid")" 2>/dev/null || true
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-ir-results
+          path: eval/results/*
+          if-no-files-found: warn
+          retention-days: 30

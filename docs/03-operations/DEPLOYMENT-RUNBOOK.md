@@ -25,6 +25,10 @@
 | `OMNIMIND_REQUIRE_AGENT_KEY` | `true` → MCP callers must present a verified `x-agent-key` (default `false`, legacy header triple accepted) | optional |
 | `AGENT_RATE_AUDIT` / `AGENT_RATE_NON_AGENT_MULTIPLIER` / `IP_RATE_LIMIT_MULTIPLIER` | Rate-limit tuning (defaults 5000 / 5 / 5) | optional |
 | `SHUTDOWN_DEADLINE_MS` | Hard exit deadline for graceful shutdown (default 25000) | optional |
+| `EMBEDDING_PROVIDER` | `openai` (default) or `mock` (deterministic sha256 vectors — CI only, never prod) | Phase 6 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Tracing on when the endpoint is set; service name `omnimind-api`. See `OBSERVABILITY.md` | Phase 6, optional |
+| `REFLECTION_SCHEDULE` / `REFLECTION_THRESHOLD` | Nightly capsule reflection job (default `30 2 * * *`, threshold `0.8`) | Phase 6, optional |
+| `COMMITMENT_NUDGE_SCHEDULE` | Daily commitment nudges, SQL only (default `0 7 * * *`) | Phase 6, optional |
 | `PORT` | Injected by Railway automatically | Do not set manually |
 
 ### boardroom-ai
@@ -37,7 +41,21 @@
 | `LLM_RATE_LIMIT_PER_HOUR` / `LLM_RATE_LIMIT_WINDOW_MS` | Per-user token bucket on every LLM endpoint (defaults 60 / 1h) | optional |
 | `OMNIMIND_API_URL` | URL to reach OmniMind | `https://omnimind-api-production.up.railway.app` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | console.anthropic.com |
+| `OMNIMIND_API_URL` (private) | Preferred: `http://omnimind-api.railway.internal:3333` once OmniMind binds `::` — see `PRIVATE-NETWORKING.md` | Phase 6 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Tracing on when the endpoint is set; service name `boardroom-ai`; `traceparent` propagates to OmniMind | Phase 6, optional |
+| `DEBATE_ROUND2` / `MAX_REBUTTALS` | Round-2 defend/concede protocol (default `true` / `3`) | Phase 6, optional |
 | `PORT` | Injected by Railway automatically | Do not set manually |
+
+### backup (services/backup — Railway cron service)
+
+| Variable | Description | Source |
+|----------|-------------|--------|
+| `DATABASE_URL` | Source database | `${{Postgres.DATABASE_URL}}` |
+| `R2_BUCKET` / `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Cloudflare R2 destination + token | Cloudflare dashboard |
+| `BACKUP_RETAIN_DAYS` | Remote retention (default 30) | optional |
+| `BACKUP_ENCRYPT_KEY` | AES-256 passphrase for the dump file; keep next to `ENCRYPTION_KEY` | `openssl rand -base64 32` |
+| `BACKUP_HEALTHCHECK_URL` | Dead-man ping on success | optional |
+| `DRILL_DATABASE_URL` / `DRILL_API_HEALTH_URL` | Restore drill only (scratch DB) | see `BACKUPS.md` |
 
 ### Critical: OMNIMIND_API_URL
 

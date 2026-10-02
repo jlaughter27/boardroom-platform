@@ -1,0 +1,19 @@
+{
+  "_doc": "Gates for eval/runners/eval-retrieval-ir.ts. The runner exits 1 when any `gates` value is below threshold on the `gateOn` leg. Thresholds start deliberately LOW because CI runs with EMBEDDING_PROVIDER=mock (hash-seeded vectors: the semantic layer is noise and only FTS/trigram/structured carry signal). Ratchet: after three consecutive green runs on main, raise each gate to (observed - 0.05) rounded down to 0.05, never lower a gate without a note in docs/runbooks/retrieval-eval.md.",
+  "version": 1,
+  "gateOn": "forPersona",
+  "gates": {
+    "recallAt10": 0.5,
+    "mrr": 0.35
+  },
+  "informational": {
+    "recallAt5": 0.4,
+    "ndcgAt10": 0.4,
+    "abstentionAccuracy": 0.6
+  },
+  "abstentionScoreThreshold": 0.3,
+  "k": { "recall": [5, 10], "ndcg": 10 },
+  "history": [
+    { "date": "2026-10-02", "recallAt10": 0.5, "mrr": 0.35, "note": "initial Phase 6 gates (mock embeddings)" }
+  ]
+}
