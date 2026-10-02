@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { WidgetConfig } from '@boardroom/shared';
 import { DEFAULT_WIDGETS } from '@boardroom/shared';
 import * as api from '../lib/api';
+import { useToastStore } from '../components/ui/Toast';
 
 export function useWidgetLayout() {
   const [widgets, setWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS);
@@ -23,15 +24,26 @@ export function useWidgetLayout() {
       .catch(() => setIsLoading(false));
   }, []);
 
-  const updateLayout = useCallback(async (newWidgets: WidgetConfig[]) => {
-    setWidgets(newWidgets);
-    await api.updateUserProfile({ dashboardLayout: newWidgets });
-  }, []);
+  // Optimistic save with rollback + toast on failure (C-117). Rethrows so the
+  // caller (DashboardConfigurator) can keep its modal open.
+  const persist = useCallback(async (next: WidgetConfig[]) => {
+    const previous = widgets;
+    setWidgets(next);
+    try {
+      await api.updateUserProfile({ dashboardLayout: next });
+    } catch (err) {
+      setWidgets(previous);
+      useToastStore.getState().addToast(
+        err instanceof Error ? err.message : 'Could not save dashboard layout',
+        'error',
+      );
+      throw err;
+    }
+  }, [widgets]);
 
-  const resetToDefault = useCallback(async () => {
-    setWidgets(DEFAULT_WIDGETS);
-    await api.updateUserProfile({ dashboardLayout: DEFAULT_WIDGETS });
-  }, []);
+  const updateLayout = useCallback((newWidgets: WidgetConfig[]) => persist(newWidgets), [persist]);
+
+  const resetToDefault = useCallback(() => persist(DEFAULT_WIDGETS), [persist]);
 
   const visibleWidgets = widgets
     .filter((w) => w.visible)

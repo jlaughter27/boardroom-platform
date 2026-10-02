@@ -34,8 +34,12 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
   }
 
   function handleAddTask(data: Record<string, unknown>) {
-    // Store project mapping client-side via domain matching for v1
-    createTask({ ...data, _projectId: project.id });
+    // TODO(C-111): the task is NOT linked to `project.id` yet. There is no
+    // project→task link endpoint on the BoardRoom server (no ProjectTaskLink
+    // route in entities.routes.ts), and the previous `_projectId` field was
+    // silently stripped by Zod server-side. Once the server exposes a link
+    // endpoint, call it here after createTask resolves.
+    createTask(data);
     setShowAddTask(false);
   }
 

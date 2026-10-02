@@ -8,7 +8,7 @@
 // in public/logo/ and will fall back to CSS-only rendering if the assets
 // fail to load.
 
-import type { CSSProperties } from 'react';
+import type { CSSProperties, JSX } from 'react';
 import { cn } from '../../lib/cn';
 
 export interface LogoProps {

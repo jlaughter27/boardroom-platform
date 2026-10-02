@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { BILLING_SETTINGS_PATH } from '../components/shared/TrialBanner';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSessionStore } from '../stores/session.store';
 import { ModeSelector } from '../components/decision/ModeSelector';
@@ -36,22 +37,43 @@ export default function DecisionSessionPage() {
   const {
     currentSession, personaResponses, personaStreaming, streamingPersonas,
     synthesis, synthesisStreaming, isDispatching, isSynthesizing,
-    sufficiency, simulation, isSimulating, error,
-    createSession, dispatch, synthesize, checkAmbiguity, runSimulation, reset,
+    sufficiency, simulation, isSimulating, error, errorStatus,
+    createSession, dispatch, synthesize, checkAmbiguity, runSimulation, reset, clearError,
   } = useSessionStore();
 
+  // Loader keyed on the route id (C-107): navigating A → B must not render A's
+  // data under B's URL, and leaving the page must abort any in-flight stream.
   useEffect(() => {
-    if (!isNew && id && !currentSession) {
+    if (isNew) {
+      // Arriving at /decisions/new always starts from a clean slate.
+      reset();
+      return () => { reset(); };
+    }
+    if (!id) return;
+
+    let cancelled = false;
+    const { currentSession: existing } = useSessionStore.getState();
+    if (existing?.id !== id) {
+      reset();
       api.getSession(id).then(session => {
+        if (cancelled) return;
         useSessionStore.setState({
           currentSession: { id: session.id, question: session.question, mode: session.mode },
-          personaResponses: session.personaResponses as Record<string, PersonaResponse>,
+          personaResponses: (session.personaResponses ?? {}) as Record<string, PersonaResponse>,
           synthesis: session.ceoSynthesis as SynthesisReport | null,
           sufficiency: session.sufficiencyScore as SufficiencyScore | null,
         });
-      }).catch(() => navigate('/decisions/new', { replace: true }));
+      }).catch(() => {
+        if (!cancelled) navigate('/decisions/new', { replace: true });
+      });
     }
-  }, [id, isNew, currentSession, navigate]);
+
+    return () => {
+      cancelled = true;
+      reset();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isNew]);
 
   const hasPersonas = Object.keys(personaResponses).length > 0 || streamingPersonas.size > 0;
   const allPersonasDone = currentSession
@@ -112,9 +134,19 @@ export default function DecisionSessionPage() {
   return (
     <PageWrapper>
       <div className="p-6 max-w-4xl mx-auto space-y-6">
-        {/* Error */}
+        {/* Error (C-104: 402 → upgrade CTA, 503 → at capacity) */}
         {error && (
-          <ErrorBanner message={error} onDismiss={() => useSessionStore.setState({ error: null })} />
+          <div className="space-y-2">
+            <ErrorBanner message={error} onDismiss={clearError} />
+            {errorStatus === 402 && (
+              <div className="text-sm text-muted-foreground px-1">
+                <Link to={BILLING_SETTINGS_PATH} className="text-primary underline font-medium">
+                  Upgrade your plan
+                </Link>
+                {' '}to keep analyzing decisions.
+              </div>
+            )}
+          </div>
         )}
 
         {/* Phase 1: Input */}

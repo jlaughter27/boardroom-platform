@@ -67,7 +67,7 @@ export default function DashboardPage() {
   // Nudge: weekly memo available today
   const memoIsToday = latestMemo
     ? (() => {
-        const d = new Date(latestMemo.createdAt);
+        const d = new Date(latestMemo.generatedAt);
         const now = new Date();
         return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
       })()

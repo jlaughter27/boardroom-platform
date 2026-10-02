@@ -41,6 +41,15 @@ function ProtectedRoute() {
   return <Outlet />;
 }
 
+/** Admin-only routes: redirect non-admins to the dashboard (C-103). */
+function AdminRoute() {
+  const user = useAuthStore((s) => s.user);
+  if (!user?.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return <Outlet />;
+}
+
 /** Redirects to /onboarding if profile.onboardingComplete is false */
 function OnboardingGate() {
   const [checked, setChecked] = useState(false);
@@ -96,7 +105,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster />
-      <CommandPalette />
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
       <Suspense fallback={PageFallback}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -114,7 +125,9 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/personas" element={<CustomPersonasPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
-                <Route path="/admin" element={<AdminPage />} />
+                <Route element={<AdminRoute />}>
+                  <Route path="/admin" element={<AdminPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>

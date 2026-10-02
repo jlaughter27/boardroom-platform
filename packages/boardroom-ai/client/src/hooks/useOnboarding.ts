@@ -1,6 +1,23 @@
 import { useState, useCallback } from 'react';
+import { MemoryClass, SourceType } from '@boardroom/shared';
 import * as api from '../lib/api';
 import type { BootstrapExtractionResponse } from '../lib/api';
+
+/**
+ * Ledger of entities already created by a previous `complete()` attempt,
+ * keyed by normalized title/name → server id. Persisted in the sessionStorage
+ * draft after every successful step so a retry after a mid-sequence failure
+ * skips what already exists instead of duplicating it (C-114).
+ */
+export interface OnboardingCreatedLedger {
+  profileSaved?: boolean;
+  goals: Record<string, string>;
+  projects: Record<string, string>;
+  people: Record<string, string>;
+  memories: Record<string, string>;
+}
+
+const emptyLedger = (): OnboardingCreatedLedger => ({ goals: {}, projects: {}, people: {}, memories: {} });
 
 export interface OnboardingData {
   // Step 1: About You
@@ -18,6 +35,8 @@ export interface OnboardingData {
   // Step 5: Context
   biggestDecision: string;
   worries: string;
+  // Idempotency ledger for complete() retries (see OnboardingCreatedLedger)
+  created?: OnboardingCreatedLedger;
 }
 
 const defaults: OnboardingData = {
@@ -62,9 +81,9 @@ function norm(s: string): string {
 // Clamp + round a goal level to a 0..3 integer. Without this a fractional
 // `level` from the LLM (e.g. 1.5) passes ExtractedGoalsSchema but fails
 // CreateGoalRequestSchema (.int()) — the 422 bug from report Chapter 5.
-function normalizeLevel(level: number | undefined | null): number {
+function normalizeLevel(level: number | undefined | null): 0 | 1 | 2 | 3 {
   if (level == null || Number.isNaN(Number(level))) return 1;
-  return Math.max(0, Math.min(3, Math.round(Number(level))));
+  return Math.max(0, Math.min(3, Math.round(Number(level)))) as 0 | 1 | 2 | 3;
 }
 
 export function useOnboarding() {
@@ -254,69 +273,114 @@ export function useOnboarding() {
   // Guards against the 422 from POST /goals (report Chapter 5):
   //   - Skip any goal/project/person with empty title/name after trimming.
   //   - Coerce `level` to an integer 0..3 before createGoal.
+  //
+  // Idempotent on retry (C-114): every created entity id is recorded in the
+  // sessionStorage draft (`data.created`) as soon as its request succeeds, and
+  // already-recorded items are skipped on the next attempt.
   const complete = async () => {
     setIsSubmitting(true);
     setError(null);
+
+    // Work on a mutable copy of the ledger and persist after each success.
+    const ledger: OnboardingCreatedLedger = {
+      ...emptyLedger(),
+      ...(data.created ?? {}),
+      goals: { ...(data.created?.goals ?? {}) },
+      projects: { ...(data.created?.projects ?? {}) },
+      people: { ...(data.created?.people ?? {}) },
+      memories: { ...(data.created?.memories ?? {}) },
+    };
+    const commit = () => {
+      const snapshot: OnboardingCreatedLedger = {
+        ...ledger,
+        goals: { ...ledger.goals },
+        projects: { ...ledger.projects },
+        people: { ...ledger.people },
+        memories: { ...ledger.memories },
+      };
+      setData((prev) => {
+        const nextData = { ...prev, created: snapshot };
+        persist(nextData);
+        return nextData;
+      });
+    };
+
     try {
       // Save profile
-      await api.updateUserProfile({
-        role: data.role,
-        industry: data.industry,
-        decisionFrequency: data.decisionFrequency,
-      });
+      if (!ledger.profileSaved) {
+        await api.updateUserProfile({
+          role: data.role,
+          industry: data.industry,
+          decisionFrequency: data.decisionFrequency,
+        });
+        ledger.profileSaved = true;
+        commit();
+      }
 
       // Create goals
       for (const goal of data.extractedGoals) {
-        if (!goal.title.trim()) continue;
-        await api.createGoal({
-          title: goal.title.trim(),
+        const title = goal.title.trim();
+        if (!title || ledger.goals[norm(title)]) continue;
+        const created = await api.createGoal({
+          title,
           level: normalizeLevel(goal.level),
           domain: goal.domain,
         });
+        ledger.goals[norm(title)] = created.id;
+        commit();
       }
 
       // Create projects
       for (const project of data.extractedProjects) {
-        if (!project.title.trim()) continue;
-        await api.createProject({
-          title: project.title.trim(),
+        const title = project.title.trim();
+        if (!title || ledger.projects[norm(title)]) continue;
+        const created = await api.createProject({
+          title,
           domain: project.domain,
           status: project.status,
         });
+        ledger.projects[norm(title)] = created.id;
+        commit();
       }
 
       // Create people (skip empty rows)
       for (const person of data.people) {
-        if (person.name.trim()) {
-          await api.createPerson({
-            name: person.name.trim(),
-            role: person.role,
-            relationshipToUser: person.relationship,
-          });
-        }
+        const name = person.name.trim();
+        if (!name || ledger.people[norm(name)]) continue;
+        const created = await api.createPerson({
+          name,
+          role: person.role,
+          relationshipToUser: person.relationship,
+        });
+        ledger.people[norm(name)] = created.id;
+        commit();
       }
 
       // Create context memories
-      if (data.biggestDecision.trim()) {
-        await api.createMemory({
+      if (data.biggestDecision.trim() && !ledger.memories['biggest-decision']) {
+        const created = await api.createMemory({
           title: 'Current biggest decision',
           content: data.biggestDecision,
           domain: 'personal',
-          sourceType: 'MANUAL',
-          memoryClass: 'SEMANTIC',
+          sourceType: SourceType.MANUAL,
+          memoryClass: MemoryClass.SEMANTIC,
           importance: 0.9,
         });
+        ledger.memories['biggest-decision'] = created.id;
+        commit();
       }
 
-      if (data.worries.trim()) {
-        await api.createMemory({
+      if (data.worries.trim() && !ledger.memories['worries']) {
+        const created = await api.createMemory({
           title: 'Current concerns',
           content: data.worries,
           domain: 'personal',
-          sourceType: 'MANUAL',
-          memoryClass: 'SEMANTIC',
+          sourceType: SourceType.MANUAL,
+          memoryClass: MemoryClass.SEMANTIC,
           importance: 0.8,
         });
+        ledger.memories['worries'] = created.id;
+        commit();
       }
 
       // Mark onboarding complete

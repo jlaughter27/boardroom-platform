@@ -62,6 +62,7 @@ async function request<T>(
       body && typeof body === 'object' && 'message' in body
         ? (body as { message: string }).message
         : `Request failed: ${res.status}`;
+    if (res.status === 401) handleUnauthorized(path);
     throw new ApiError(msg, res.status, body);
   }
 
@@ -69,6 +70,22 @@ async function request<T>(
   if (res.status === 204) return undefined as T;
 
   return res.json() as Promise<T>;
+}
+
+/**
+ * A 401 on any non-auth endpoint means the JWT cookie expired or was revoked.
+ * Drop the client-side session so ProtectedRoute redirects to /login instead of
+ * leaving the user "authenticated" with every call failing (audit C-112).
+ * The auth store is imported lazily to avoid a static import cycle
+ * (auth.store → api → auth.store).
+ */
+function handleUnauthorized(path: string): void {
+  if (path.startsWith('/auth/')) return;
+  void import('../stores/auth.store').then(({ useAuthStore }) => {
+    if (useAuthStore.getState().isAuthenticated) {
+      useAuthStore.setState({ user: null, isAuthenticated: false, isLoading: false });
+    }
+  }).catch(() => { /* store unavailable (tests) */ });
 }
 
 // ---------------------------------------------------------------------------
@@ -90,10 +107,18 @@ export async function* streamSSE(
   });
 
   if (!response.ok) {
-    throw new ApiError(
-      `SSE request failed: ${response.status}`,
-      response.status,
-    );
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      /* empty */
+    }
+    const msg =
+      body && typeof body === 'object' && 'message' in body
+        ? (body as { message: string }).message
+        : `SSE request failed: ${response.status}`;
+    if (response.status === 401) handleUnauthorized(url.replace(/^\/api/, ''));
+    throw new ApiError(msg, response.status, body);
   }
 
   const reader = response.body!.getReader();
@@ -147,8 +172,11 @@ export function logout() {
   return request<{ status: string }>('/auth/logout', { method: 'POST' });
 }
 
+/** Client-side auth user: server's `GET /auth/me` adds an `isAdmin` flag (C-103). */
+export type ClientAuthUser = AuthUser & { isAdmin?: boolean };
+
 export function getMe() {
-  return request<AuthUser>('/auth/me');
+  return request<ClientAuthUser>('/auth/me');
 }
 
 // ---------------------------------------------------------------------------
@@ -200,12 +228,12 @@ export function listSessions(limit = 20, offset = 0) {
 // SSE stream endpoints (POST — use streamSSE helper)
 // ---------------------------------------------------------------------------
 
-export function createDispatchStream(sessionId: string) {
-  return streamSSE(`/api/sessions/${sessionId}/dispatch`);
+export function createDispatchStream(sessionId: string, signal?: AbortSignal) {
+  return streamSSE(`/api/sessions/${sessionId}/dispatch`, 'POST', undefined, signal);
 }
 
-export function createSynthesisStream(sessionId: string) {
-  return streamSSE(`/api/sessions/${sessionId}/synthesize`);
+export function createSynthesisStream(sessionId: string, signal?: AbortSignal) {
+  return streamSSE(`/api/sessions/${sessionId}/synthesize`, 'POST', undefined, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,34 +248,8 @@ export function checkAmbiguity(sessionId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Export
-// ---------------------------------------------------------------------------
-
-interface SessionExport {
-  id: string;
-  question: string;
-  mode: UserMode;
-  personaResponses: Record<string, import('@boardroom/shared').PersonaResponse>;
-  synthesis: import('@boardroom/shared').SynthesisReport | null;
-  createdAt: string;
-}
-
-export function exportSession(sessionId: string, format: 'json' | 'pdf' = 'json') {
-  return request<SessionExport>(
-    `/sessions/${sessionId}/export?format=${format}`,
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Entity reads
 // ---------------------------------------------------------------------------
-
-interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  offset: number;
-  limit: number;
-}
 
 export async function getGoals(): Promise<Goal[]> {
   const res = await request<PaginatedResponse<Goal>>('/goals');
@@ -647,8 +649,22 @@ export function confirmGmailExtraction(proposals: EmailMemoryProposal[]) {
 // Subscription
 // ---------------------------------------------------------------------------
 
-export function getSubscription() {
-  return request<SubscriptionData | null>('/subscription');
+/**
+ * `GET /subscription` → `{ configured, subscription }` (C-104).
+ * `configured=false` means Stripe is not set up (dev mode);
+ * `configured=true && subscription=null` means the user has no subscription row.
+ */
+export interface SubscriptionStatusResponse {
+  configured: boolean;
+  subscription: SubscriptionData | null;
+}
+
+export async function getSubscription(): Promise<SubscriptionStatusResponse> {
+  const data = await request<SubscriptionStatusResponse | SubscriptionData | null>('/subscription');
+  // Legacy shape (pre-C-104 server): bare `null` meant "billing not configured".
+  if (data === null) return { configured: false, subscription: null };
+  if ('configured' in data) return data;
+  return { configured: true, subscription: data };
 }
 
 export function createCheckout() {

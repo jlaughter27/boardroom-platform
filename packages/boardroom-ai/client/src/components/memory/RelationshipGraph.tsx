@@ -27,15 +27,25 @@ export function RelationshipGraph({ data, compact }: { data: GraphData; compact?
   useEffect(() => {
     if (!svgRef.current || !data.nodes.length) return;
 
+    // Hoisted so the synchronous cleanup below can stop the simulation and
+    // detach the zoom behaviour (C-115). The D3 modules load asynchronously,
+    // so the effect may be cleaned up before they resolve — `cancelled` guards that.
+    let cancelled = false;
+    let sim: { stop: () => void } | null = null;
+    let detachZoom: (() => void) | null = null;
+    const svgEl = svgRef.current;
+
     // Dynamic import D3 modules
     Promise.all([
       import('d3-force'),
       import('d3-selection'),
       import('d3-zoom'),
     ]).then(([d3Force, d3Selection, d3Zoom]) => {
-      const width = svgRef.current!.clientWidth;
-      const svg = d3Selection.select(svgRef.current);
+      if (cancelled) return;
+      const width = svgEl.clientWidth;
+      const svg = d3Selection.select(svgEl);
       svg.selectAll('*').remove(); // clear previous
+      svg.on('.zoom', null); // drop any previously attached zoom listeners
 
       // Deep-copy nodes and edges so D3 can mutate them
       const simNodes: SimNode[] = data.nodes.map(n => ({ ...n }));
@@ -47,6 +57,7 @@ export function RelationshipGraph({ data, compact }: { data: GraphData; compact?
         .force('charge', d3Force.forceManyBody().strength(-200))
         .force('center', d3Force.forceCenter(width / 2, height / 2))
         .force('collision', d3Force.forceCollide<SimNode>().radius(d => d.size + 5));
+      sim = simulation;
 
       // Add zoom
       const g = svg.append('g');
@@ -54,6 +65,7 @@ export function RelationshipGraph({ data, compact }: { data: GraphData; compact?
       svg.call(d3Zoom.zoom().scaleExtent([0.3, 3]).on('zoom', (event: d3Zoom.D3ZoomEvent<SVGSVGElement, unknown>) => {
         g.attr('transform', event.transform.toString());
       }));
+      detachZoom = () => { svg.on('.zoom', null); };
 
       // Draw edges
       const links = g.selectAll('line').data(simEdges).join('line')
@@ -89,12 +101,14 @@ export function RelationshipGraph({ data, compact }: { data: GraphData; compact?
           .attr('y2', d => (d.target as SimNode).y ?? 0);
         nodes.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`);
       });
-
-      // Cleanup
-      return () => {
-        simulation.stop();
-      };
     });
+
+    // Cleanup — returned synchronously so React actually runs it
+    return () => {
+      cancelled = true;
+      sim?.stop();
+      detachZoom?.();
+    };
   }, [data, height]);
 
   return (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { pageTransition } from '../../lib/motion';
@@ -8,12 +8,22 @@ import { TrialBanner } from './TrialBanner';
 import { ShortcutsModal } from './ShortcutsModal';
 import { useNotificationAggregator } from '../../hooks/useNotificationAggregator';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useEntitiesStore } from '../../stores/entities.store';
 
 export function Layout() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   useNotificationAggregator();
   const shortcuts = useKeyboardShortcuts();
+
+  // Decisions + commitments feed the dashboard nudges, cognitive-load warnings,
+  // proactive questions and the command palette, but nothing fetched them (C-108).
+  const fetchDecisions = useEntitiesStore((s) => s.fetchDecisions);
+  const fetchCommitments = useEntitiesStore((s) => s.fetchCommitments);
+  useEffect(() => {
+    fetchDecisions();
+    fetchCommitments();
+  }, [fetchDecisions, fetchCommitments]);
 
   return (
     <div className="flex h-screen bg-background font-sans text-foreground">
