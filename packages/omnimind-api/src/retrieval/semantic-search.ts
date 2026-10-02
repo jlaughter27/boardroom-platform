@@ -3,6 +3,7 @@ import type { ScoredResult } from './structured-filter';
 import { archiveCutoffDate, type LayerErrorHook } from './forgetting-curve';
 import { decryptRows } from './row-decrypt';
 import { logger } from '../lib/logger';
+import { temporalValiditySql, memoryClassSql } from './temporal-validity';
 
 export interface SemanticSearchOptions {
   limit?: number;
@@ -11,6 +12,10 @@ export interface SemanticSearchOptions {
   tenantId?: string;
   /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
   includeAllTenants?: boolean;
+  /** Phase 6: temporal validity — "what was believed at this instant". */
+  asOf?: Date;
+  /** Phase 6: restrict to one MemoryClass (WORKING|EPISODIC|SEMANTIC|DECISION). */
+  memoryClass?: string;
   /** F-204: invoked when the layer fails and degrades to []. */
   onLayerError?: LayerErrorHook;
 }
@@ -39,6 +44,8 @@ export async function semanticSearch(
   // been updated to pass tenant context yet.
   if (!options.tenantId && !options.includeAllTenants) return [];
   const tenantId = options.tenantId ?? null;
+  const validity = temporalValiditySql(options.asOf);
+  const classFilter = memoryClassSql(options.memoryClass);
 
   try {
     // O-103: forgetting curve falls back to created_at when the memory has
@@ -54,6 +61,8 @@ export async function semanticSearch(
             AND embedding IS NOT NULL
             AND "deleted_at" IS NULL
             AND status != 'ARCHIVED'
+            AND ${validity}
+            AND ${classFilter}
             AND (${includeArchived} OR importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           ORDER BY embedding <=> ${queryEmbedding}::vector
           LIMIT ${limit}
@@ -67,6 +76,8 @@ export async function semanticSearch(
             AND embedding IS NOT NULL
             AND "deleted_at" IS NULL
             AND status != 'ARCHIVED'
+            AND ${validity}
+            AND ${classFilter}
             AND (${includeArchived} OR importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           ORDER BY embedding <=> ${queryEmbedding}::vector
           LIMIT ${limit}

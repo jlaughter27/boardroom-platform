@@ -3,11 +3,12 @@ import type { Router as IRouter } from 'express';
 import { CreateGoalRequestSchema, UpdateGoalRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as entityService from '../services/entity.service';
+import { idempotent } from '../middleware/idempotency';
 
 const router: IRouter = Router();
 
-// POST /goals — create
-router.post('/', async (req, res, next) => {
+// POST /goals — create (Idempotency-Key aware, Phase 6)
+router.post('/', idempotent('goals.create'), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }

@@ -283,3 +283,131 @@ export async function getKnowledgeGraph(
     generatedAt: new Date().toISOString(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6 (A2) — backlinks for one node (`GET /graph/backlinks/:nodeId`).
+//
+// Returns every edge incident to the node (both directions — `edge.source` /
+// `edge.target` carry the direction) with the node at the other end. The
+// entity side reuses the projection above with the memory layer switched off
+// (memoryLimit 0), so no importance cap can hide an entity backlink; memory
+// backlinks are then read straight from MemoryEntityLink for the node, so they
+// are complete too (tenant-scoped when an agent context is present).
+// ---------------------------------------------------------------------------
+
+export interface Backlink {
+  node: KnowledgeGraphNode;
+  edge: KnowledgeGraphEdge;
+}
+
+export interface BacklinksResult {
+  node: KnowledgeGraphNode;
+  backlinks: Backlink[];
+}
+
+export interface BacklinksOptions {
+  tenantId?: string;
+  /** Include ARCHIVED memories among memory backlinks (default false). */
+  includeArchived?: boolean;
+}
+
+const NODE_ID_RE = /^(goal|project|task|person|decision|commitment|memory):(.+)$/;
+
+/** Parses `type:refId`; null when malformed or the type is unknown. */
+export function parseNodeId(raw: string): { type: KnowledgeGraphNodeType; refId: string } | null {
+  const m = NODE_ID_RE.exec(raw ?? '');
+  if (!m) return null;
+  return { type: m[1] as KnowledgeGraphNodeType, refId: m[2] };
+}
+
+type MemoryNodeRow = {
+  id: string; title: string; domain: string; importance: number; status: string; memoryClass: string; createdAt: Date;
+};
+
+const memoryNode = (m: MemoryNodeRow): KnowledgeGraphNode => ({
+  id: nodeId('memory', m.id), type: 'memory', refId: m.id, label: m.title,
+  domain: domainOrNull(m.domain), status: m.status, importance: m.importance, createdAt: iso(m.createdAt),
+  meta: { memoryClass: m.memoryClass },
+});
+
+/** null → the node does not exist / is soft-deleted / belongs to someone else. */
+export async function getBacklinks(
+  userId: string,
+  rawNodeId: string,
+  opts: BacklinksOptions,
+  prisma: PrismaClient,
+): Promise<BacklinksResult | null> {
+  const parsed = parseNodeId(rawNodeId);
+  if (!parsed) return null;
+  const { type, refId } = parsed;
+  const id = nodeId(type, refId);
+
+  // Entity-side graph (no memories) — complete for the user's entity tables.
+  const graph = await getKnowledgeGraph(userId, { memoryLimit: 0 }, prisma);
+  const nodes = new Map(graph.nodes.map(n => [n.id, n]));
+  const edges = new Map(graph.edges.map(e => [e.id, e]));
+
+  const memoryWhere = {
+    userId,
+    deletedAt: null,
+    ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
+    ...(opts.includeArchived ? {} : { status: { not: 'ARCHIVED' as const } }),
+  };
+  const memorySelect = { id: true, title: true, domain: true, importance: true, status: true, memoryClass: true, createdAt: true } as const;
+
+  let node: KnowledgeGraphNode | undefined;
+  if (type === 'memory') {
+    const m = await prisma.memoryEntry.findFirst({ where: { ...memoryWhere, id: refId }, select: memorySelect });
+    if (!m) return null;
+    node = memoryNode(m);
+    nodes.set(node.id, node);
+
+    const links = await prisma.memoryEntityLink.findMany({
+      where: { memoryId: refId },
+      select: { entityType: true, entityId: true, linkType: true },
+    });
+    for (const l of links) {
+      const t = POLYMORPHIC_TYPES[l.entityType.toLowerCase()];
+      if (!t) continue;
+      const target = nodeId(t, l.entityId);
+      if (!nodes.has(target)) continue; // dangling / foreign / deleted
+      const eid = edgeId('memory_entity', node.id, target);
+      if (!edges.has(eid)) edges.set(eid, { id: eid, source: node.id, target, type: 'memory_entity', label: l.linkType || null });
+    }
+  } else {
+    node = nodes.get(id);
+    if (!node) return null;
+
+    const links = await prisma.memoryEntityLink.findMany({
+      where: { entityType: type, entityId: refId },
+      select: { memoryId: true, linkType: true },
+    });
+    if (links.length > 0) {
+      const memories = await prisma.memoryEntry.findMany({
+        where: { ...memoryWhere, id: { in: Array.from(new Set(links.map(l => l.memoryId))) } },
+        select: memorySelect,
+      });
+      const byId = new Map(memories.map(m => [m.id, m]));
+      for (const l of links) {
+        const m = byId.get(l.memoryId);
+        if (!m) continue; // archived / other tenant / deleted
+        const source = nodeId('memory', m.id);
+        if (!nodes.has(source)) nodes.set(source, memoryNode(m));
+        const eid = edgeId('memory_entity', source, id);
+        if (!edges.has(eid)) edges.set(eid, { id: eid, source, target: id, type: 'memory_entity', label: l.linkType || null });
+      }
+    }
+  }
+
+  const backlinks: Backlink[] = [];
+  for (const e of edges.values()) {
+    const otherId = e.source === id ? e.target : e.target === id ? e.source : null;
+    if (!otherId) continue;
+    const other = nodes.get(otherId);
+    if (!other) continue;
+    backlinks.push({ node: other, edge: e });
+  }
+  backlinks.sort((a, b) => a.edge.type.localeCompare(b.edge.type) || a.node.label.localeCompare(b.node.label));
+
+  return { node, backlinks };
+}

@@ -7,6 +7,12 @@ import { decryptMemory, encryptMemoryContent, normalizeDomain } from '../lib/mem
 import { HttpError } from '../middleware/error-handler';
 import type { AgentContext } from '../middleware/agent-context';
 import { prisma as defaultPrisma } from '../lib/db';
+import { tryDecryptMemory } from '../lib/memory-crypto';
+import { structuredFilter } from '../retrieval/structured-filter';
+import { fulltextSearch } from '../retrieval/fulltext-search';
+import { trigramSearch } from '../retrieval/trigram-search';
+import { semanticSearch } from '../retrieval/semantic-search';
+import { rankAndDeduplicate } from '../retrieval/ranker';
 
 export type { AgentContext };
 // O-111: single decrypt entry point shared with the retrieval layers.
@@ -527,6 +533,29 @@ export async function updateMemory(
   const existing = await prisma.memoryEntry.findFirst({ where: ownershipWhere });
   if (!existing) return null;
 
+  // Phase 6 (A2) — `supersedes: <oldId>`: this row (`id`) replaces `oldId`.
+  // The old row is stamped `invalidAt = now, supersededBy = id` (content
+  // untouched) and `oldId` is appended to this row's `consolidatedFrom`.
+  // Resolved here so the old row is verified in the same user/tenant scope.
+  const { supersedes, ...inputWithoutSupersedes } = input as Record<string, unknown> & { supersedes?: unknown };
+  input = inputWithoutSupersedes;
+  let supersededRow: { id: string } | null = null;
+  if (supersedes !== undefined && supersedes !== null) {
+    if (typeof supersedes !== 'string' || supersedes.length === 0) {
+      throw new HttpError(422, { code: 'validation_failed', message: 'supersedes must be a memory id' });
+    }
+    if (supersedes === id) {
+      throw new HttpError(422, { code: 'validation_failed', message: 'A memory cannot supersede itself' });
+    }
+    supersededRow = await prisma.memoryEntry.findFirst({
+      where: { ...ownershipWhere, id: supersedes },
+      select: { id: true },
+    });
+    if (!supersededRow) {
+      throw new HttpError(404, { code: 'not_found', message: 'Memory to supersede not found' });
+    }
+  }
+
   // WS-6 F-101 — Normalize the input domain (if present) and compare existing.domain
   // case-insensitively so legacy rows with non-normalized domains are still gated.
   if (typeof input.domain === 'string') {
@@ -564,11 +593,18 @@ export async function updateMemory(
         ) ?? {}
       : {};
 
+  const alreadyConsolidated = Array.isArray((existing as { consolidatedFrom?: unknown }).consolidatedFrom)
+    ? ((existing as { consolidatedFrom: string[] }).consolidatedFrom).includes(supersededRow?.id ?? '')
+    : false;
+  const consolidatedPatch =
+    supersededRow && !alreadyConsolidated ? { consolidatedFrom: { push: supersededRow.id } } : {};
+
   const updateData: Record<string, unknown> = {
     ...input,
     ...contextOverrides,
     ...baseImportancePatch,
     ...encryptedPatch,
+    ...consolidatedPatch,
     version: { increment: 1 },
   };
 
@@ -577,6 +613,13 @@ export async function updateMemory(
     where: { id },
     data: updateData as Parameters<typeof prisma.memoryEntry.update>[0]['data'],
   });
+
+  if (supersededRow) {
+    await prisma.memoryEntry.update({
+      where: { id: supersededRow.id },
+      data: { invalidAt: new Date(), supersededBy: id, version: { increment: 1 } },
+    });
+  }
 
   // Re-embed if content or title changed (sync for test determinism)
   if ('content' in input || 'title' in input) {
@@ -627,4 +670,130 @@ export async function validateMemoryInput(
   prisma: PrismaClient
 ) {
   return runValidationPipeline(input, userId, domain, prisma);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 (A2) — hybrid search for MCP / BoardRoom (`POST /memories/search`).
+//
+// Same stack as `assembleContextForPersona`: structured + FTS + trigram +
+// semantic → rankAndDeduplicate → forgetting curve (inside the layers) →
+// decrypt. Differences from the persona path: no persona tag boosts / token
+// budget, no recall reinforcement (an agent paging through results is not a
+// persona recall), and the ranked pool is paginated with an opaque cursor.
+// ---------------------------------------------------------------------------
+
+export const HYBRID_SEARCH_MAX_LIMIT = 50;
+export const HYBRID_SEARCH_DEFAULT_LIMIT = 20;
+/** Candidates requested from each layer; the ranked pool is at most 4× this. */
+const HYBRID_LAYER_LIMIT = 50;
+const HYBRID_POOL_MAX = 200;
+
+export interface HybridSearchParams {
+  query: string;
+  limit?: number;
+  domain?: string;
+  tags?: string[];
+  status?: string;
+  includeArchived?: boolean;
+  asOf?: Date;
+  cursor?: string | null;
+}
+
+export interface HybridSearchResult<T = unknown> {
+  items: Array<T & { score: number }>;
+  nextCursor: string | null;
+}
+
+/** In-memory mirror of the layers' temporal filter (defense in depth after ranking). */
+function isTemporallyValid(row: { validAt: Date; invalidAt: Date | null }, asOf?: Date): boolean {
+  const at = asOf ?? new Date();
+  if (asOf && row.validAt.getTime() > asOf.getTime()) return false;
+  return row.invalidAt === null || row.invalidAt.getTime() > at.getTime();
+}
+
+export function encodeSearchCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset }), 'utf-8').toString('base64');
+}
+
+/** Throws HttpError 400 on a malformed cursor. */
+export function decodeSearchCursor(cursor: string | null | undefined): number {
+  if (!cursor) return 0;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8')) as { offset?: unknown };
+    if (parsed && typeof parsed.offset === 'number' && Number.isInteger(parsed.offset) && parsed.offset >= 0) {
+      return parsed.offset;
+    }
+  } catch {
+    /* fall through */
+  }
+  throw new HttpError(400, { code: 'invalid_cursor', message: 'cursor is not a valid search cursor' });
+}
+
+export async function hybridSearchMemories(
+  userId: string,
+  params: HybridSearchParams,
+  agentContext: AgentContext | undefined,
+  prisma: PrismaClient
+): Promise<HybridSearchResult> {
+  const query = params.query.trim();
+  const limit = Math.min(Math.max(Math.floor(params.limit ?? HYBRID_SEARCH_DEFAULT_LIMIT), 1), HYBRID_SEARCH_MAX_LIMIT);
+  const offset = decodeSearchCursor(params.cursor);
+  const domain = params.domain ? normalizeDomain(params.domain) : undefined;
+  const includeArchived = params.includeArchived ?? false;
+  const asOf = params.asOf;
+
+  // Tenant: agent requests are scoped to their tenant; BoardRoom (no agent
+  // context) is single-user and opts into all tenants — same as /context/for-persona.
+  const tenantId = agentContext?.tenantId;
+  const scope = { tenantId, includeAllTenants: !tenantId, includeArchived, asOf };
+
+  const queryEmbedding = await generateEmbeddingWithRetry(query, domain).catch(() => null);
+
+  const [structured, fts, trigram, semantic] = await Promise.all([
+    structuredFilter(userId, query, { limit: HYBRID_LAYER_LIMIT, domain, tags: params.tags, ...scope }, prisma)
+      .catch(err => { logger.error('[structured] hybrid search layer failed', { error: (err as Error).message }); return []; }),
+    fulltextSearch(userId, query, { limit: HYBRID_LAYER_LIMIT, ...scope }, prisma),
+    trigramSearch(userId, query, { limit: HYBRID_LAYER_LIMIT, ...scope }, prisma),
+    queryEmbedding ? semanticSearch(userId, queryEmbedding, { limit: HYBRID_LAYER_LIMIT, ...scope }, prisma) : Promise.resolve([]),
+  ]);
+
+  const ranked = rankAndDeduplicate(
+    [
+      { layer: 'structured', results: structured },
+      { layer: 'fts', results: fts },
+      { layer: 'trigram', results: trigram },
+      { layer: 'semantic', results: semantic },
+    ],
+    HYBRID_POOL_MAX
+  ).filter(r => r.type === 'memory');
+  if (ranked.length === 0) return { items: [], nextCursor: null };
+
+  // Full rows for the ranked ids, with the explicit filters applied in SQL so
+  // pagination runs over the filtered, ranked list.
+  const where: Prisma.MemoryEntryWhereInput = {
+    id: { in: ranked.map(r => r.id) },
+    userId,
+    deletedAt: null,
+    ...(tenantId ? { tenantId } : {}),
+    ...(domain ? { domain } : {}),
+    ...(params.tags && params.tags.length > 0 ? { tags: { hasEvery: params.tags } } : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    status: params.status ? (params.status as any) : { not: 'ARCHIVED' },
+  };
+  const rows = await prisma.memoryEntry.findMany({ where });
+  const byId = new Map(rows.map(r => [r.id, r]));
+
+  const ordered: Array<Record<string, unknown> & { score: number }> = [];
+  for (const r of ranked) {
+    const row = byId.get(r.id);
+    if (!row) continue;
+    if (!isTemporallyValid(row, asOf)) continue; // defense in depth — the layers filter too
+    const dec = tryDecryptMemory(row);
+    if (!dec) continue; // logged by memory-crypto; never surface ciphertext
+    ordered.push({ ...dec, score: Number(r.relevanceScore.toFixed(4)) });
+  }
+
+  const page = ordered.slice(offset, offset + limit);
+  const nextCursor = ordered.length > offset + limit ? encodeSearchCursor(offset + limit) : null;
+  return { items: page, nextCursor };
 }

@@ -1,3 +1,6 @@
+// Phase 6: OTel must be the first import so auto-instrumentations hook
+// `require()` before express / pg load. No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+import { shutdownOtel } from './lib/otel';
 import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -31,11 +34,14 @@ import { relationshipsRouter } from './routes/relationships.routes';
 import { knowledgeGraphRouter } from './routes/knowledge-graph.routes';
 import mcpRouter from './routes/mcp.routes';
 import adminRouter from './routes/admin.routes';
+import { usageRouter } from './routes/usage.routes';
 import { startCortexScheduler, stopCortexScheduler } from './jobs/cortex-scheduler';
 import { startSessionSummarizer, stopSessionSummarizer } from './jobs/session-summarizer';
 import { startWeeklyDigestScheduler, stopWeeklyDigestScheduler } from './jobs/weekly-digest-scheduler';
 import { startImportanceDecayScheduler, stopImportanceDecayScheduler } from './jobs/importance-decay-scheduler';
 import { startEmbeddingRetryScheduler, stopEmbeddingRetryScheduler } from './jobs/embedding-retry-scheduler';
+import { startReflectionScheduler, stopReflectionScheduler } from './jobs/reflection-scheduler';
+import { startCommitmentNudgeScheduler, stopCommitmentNudgeScheduler } from './jobs/commitment-nudge-scheduler';
 import { waitForAllJobsIdle, runningJobs } from './jobs/job-guard';
 import { validateOmniMindEnv } from './lib/env';
 
@@ -87,6 +93,8 @@ app.use('/custom-personas', customPersonasRouter);
 app.use('/relationships', relationshipsRouter);
 app.use('/graph', knowledgeGraphRouter);
 app.use('/mcp', mcpRouter);
+// Phase 6: LlmUsage sink + summary (BoardRoom, MCP and OmniMind jobs post here).
+app.use('/usage', usageRouter);
 // F-104: admin surface requires its own key (x-admin-key / OMNIMIND_ADMIN_KEY).
 app.use('/admin', requireAdminKey, adminRouter);
 
@@ -142,6 +150,8 @@ const shutdown = async (signal: string) => {
     stopWeeklyDigestScheduler();
     stopImportanceDecayScheduler();
     stopEmbeddingRetryScheduler();
+    stopReflectionScheduler();
+    stopCommitmentNudgeScheduler();
 
     const idle = await waitForAllJobsIdle(Math.max(1000, SHUTDOWN_DEADLINE_MS - 5000));
     if (!idle) {
@@ -152,6 +162,7 @@ const shutdown = async (signal: string) => {
     stopAgentRateLimiterCleanup();
 
     await prisma.$disconnect();
+    await shutdownOtel();
     logger.info('Shutdown complete');
     clearTimeout(deadline);
     process.exit(0);
@@ -166,13 +177,17 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 
 // Start (skip in test — supertest binds its own port)
 if (process.env.NODE_ENV !== 'test') {
-  server = app.listen(port, () => {
-    logger.info(`OmniMind API running on port ${port}`, { port });
+  // Phase 6: bind dual-stack `::` so Railway private networking
+  // (omnimind-api.railway.internal, IPv6) can reach us.
+  server = app.listen(port, '::', () => {
+    logger.info(`OmniMind API running on port ${port}`, { port, host: '::' });
     startCortexScheduler();
     startSessionSummarizer();
     startWeeklyDigestScheduler();
     startImportanceDecayScheduler();
     startEmbeddingRetryScheduler();
+    startReflectionScheduler();
+    startCommitmentNudgeScheduler();
   });
 }
 

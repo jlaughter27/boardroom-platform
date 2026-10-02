@@ -73,6 +73,17 @@ No auth required.
 
 ---
 
+## Idempotency (Phase 6)
+
+`POST /memories`, `POST /people`, `POST /goals`, `POST /projects`, `POST /tasks` (and, from lane A1, `POST /decisions` / `POST /commitments`) honour an `Idempotency-Key` header (≤128 chars, else 400).
+
+- **Scope:** `agentContext.agentId` when the request carries a verified/legacy agent identity, else `x-user-id`.
+- **Hit** (same scope + key, within 24 h): the stored body is replayed with the original status and the header `Idempotent-Replayed: true`; the handler does not run.
+- **Miss:** the handler runs; a 2xx JSON response is stored (`IdempotencyKey.resultJson = { status, body }`, `resultId = body.id`). Non-2xx responses are not stored, so a retry re-runs the handler.
+- Reusing a key on a different route → 422 `idempotency_key_reused`.
+- Concurrent duplicates: the unique `(scope, key)` constraint makes the loser re-read and replay the winner's stored result.
+- Expired rows are deleted lazily (at most once per 10 minutes).
+
 ## Memories
 
 ### POST /memories
@@ -109,6 +120,35 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
 ```
 
 **Response 422:** Validation failure (schema, temporal, or budget)
+
+### POST /memories/search (Phase 6)
+
+Hybrid search for MCP and BoardRoom — the **same retrieval stack as `POST /context/for-persona`** (structured + FTS + trigram + semantic → `rankAndDeduplicate`, forgetting curve inside the layers, decrypt). No persona tag boosts, no token budget, no recall reinforcement.
+
+**Request:**
+```typescript
+{
+  query: string,              // required, ≤2000 chars
+  limit?: number,             // 1–50, default 20
+  domain?: string,            // normalized (trim + lowercase)
+  tags?: string[],            // ALL tags must be present (hasEvery)
+  status?: MemoryStatus,      // exact match; default excludes ARCHIVED (layers never return ARCHIVED)
+  includeArchived?: boolean,  // lifts the forgetting-curve filter (not the ARCHIVED status filter)
+  asOf?: string,              // ISO 8601 — rows valid at that instant (valid_at ≤ asOf < invalid_at)
+  cursor?: string | null      // opaque, from a previous nextCursor
+}
+```
+
+**Response 200:**
+```typescript
+{
+  items: Array<Memory & { score: number }>,   // ranked, score ∈ [0,1]
+  nextCursor: string | null                   // opaque base64 of { offset }
+}
+```
+
+**Tenant:** from `req.agentContext` (MCP). A BoardRoom call (no agent context) searches all of the user's tenants, like `/context/for-persona`.
+**Errors:** 400 `invalid_cursor` · 422 validation.
 
 ### GET /memories/:id
 
@@ -151,6 +191,8 @@ Partial update. Runs sync validation pipeline.
 **Response 200:** Updated `Memory` object
 
 **Response 404/422:** As above
+
+**Phase 6 — `supersedes`:** the body may carry `supersedes: <oldMemoryId>`. `:id` is the **new** row; the old row (same user, same tenant when an agent context is present) gets `invalidAt = now(), supersededBy = :id` — its content is never mutated — and `oldId` is appended to `:id`'s `consolidatedFrom`. 404 when the old row is not in scope, 422 on self-supersede. Retrieval layers hide invalidated rows by default (see `asOf`).
 
 ### DELETE /memories/:id
 
@@ -195,6 +237,14 @@ Dry-run validation. No database write.
 ```
 
 **Response 201:** Created `Person` object
+
+### GET /people/duplicates (Phase 6)
+
+Probable duplicate people via `pg_trgm similarity(a.name, b.name) >= threshold` (each unordered pair once, `a.id < b.id`). Name-only (Person has no email column). No auto-merge. **Mounted before `/people/:id`.**
+
+**Query params:** `threshold` (0.3–1, default 0.6) · `limit` (1–200, default 100)
+
+**Response 200:** `{ pairs: Array<{ a: Person, b: Person, similarity: number }> }` — sorted by similarity desc.
 
 ### GET /people/:id
 
@@ -296,6 +346,24 @@ Link a task to a project (`ProjectTaskLink`, idempotent). **201** `{ id, project
 
 Remove the link. **204**.
 
+### POST /projects/:projectId/people/:personId (Phase 6)
+
+Assign a person to a project (`ProjectPersonLink`, idempotent on the unique pair). Body `{ role?: string }` (≤120 chars; unknown fields → 422). Both entities must belong to `x-user-id` and not be soft-deleted. When the link exists and a different `role` is sent, the role is updated.
+
+**Response 201** `{ id, projectId, personId, role }` · **200** if it already existed · **404** if either entity is missing.
+
+### DELETE /projects/:projectId/people/:personId (Phase 6)
+
+Remove the link. **204** · **404** when there is no such link.
+
+### POST /projects/:projectId/decisions/:decisionId (Phase 6)
+
+Link a decision to a project (`DecisionProjectLink`, idempotent). **201** `{ id, decisionId, projectId }` · **200** existed · **404**.
+
+### DELETE /projects/:projectId/decisions/:decisionId (Phase 6)
+
+Remove the link. **204** · **404**.
+
 Optionally `?include=tasks` to include linked tasks.
 
 ### GET /projects
@@ -342,6 +410,17 @@ Soft delete.
 
 ---
 
+### POST /tasks/:taskId/depends-on/:otherTaskId (Phase 6)
+
+`:taskId` depends on `:otherTaskId` (`TaskDependency`, idempotent on the unique pair). Both tasks must belong to `x-user-id` and not be soft-deleted.
+
+**Response 201** `{ id, taskId, dependsOnTaskId }` · **200** existed · **404** missing/foreign · **422** `validation_failed` self-dependency · **409** `dependency_cycle` when the reverse edge already exists (deeper cycles are not walked).
+
+### DELETE /tasks/:taskId/depends-on/:otherTaskId (Phase 6)
+
+Remove the dependency. **204** · **404**.
+
+
 ## Decisions
 
 ### POST /decisions
@@ -374,6 +453,28 @@ Used for: updating status, recording outcome, linking chosen path.
 - `outcome` + `outcomeRating` — records what happened
 - `status` — lifecycle transitions: OPEN → DECIDED → REVIEWED → REVISED
 
+**Phase 6 fields (create + update):** `expectedOutcome?: string`, `probabilitySuccess?: number (0..1)`,
+`personaForecasts?: {personaId, recommendation, confidence}[]`, `decidedAt?: ISO`, `mode?: string`.
+`decidedAt` defaults to now the first time `chosenPath` is set.
+
+### GET /decisions/calibration?successThreshold=4  (Phase 6)
+
+Brier + reliability bins for the user's own `probabilitySuccess` and for each persona's
+`personaForecasts[].confidence` (persona counted only where its recommendation matched `chosenPath`,
+exact or case-insensitive prefix). Over decisions with `outcomeRating != null && probabilitySuccess != null`.
+Bins `[0,.2) [.2,.4) [.4,.6) [.6,.8) [.8,1]`.
+
+**Response 200:** `CalibrationReport` — `{ reviewedDecisions, minimumForSignal: 20, successThreshold,
+user: { brier: number|null, bins: CalibrationBin[] }, personas: { [personaId]: { brier, count, bins } } }`
+
+### GET /decisions/changes?entityId=<goal|project|person>:<id>&since=<ISO>  (Phase 6)
+
+"What changed since last time" for an entity. Scoped via `MemoryEntityLink` (memories created or
+invalidated since), `DecisionProjectLink` / `GoalProjectLink` / `ProjectPersonLink` (decisions,
+commitments), plus the entity's capsule.
+
+**Response 200:** `{ since, memories: MemoryApiRecord[], decisions: Decision[], commitments: Commitment[], capsule: ContextCapsule|null }`
+
 ---
 
 ## Commitments
@@ -400,6 +501,13 @@ Used for: updating status, recording outcome, linking chosen path.
 **Query params:** `status`, `limit`, `offset`
 
 **Special:** `GET /commitments?status=OPEN&overdue=true` — returns commitments past deadline
+
+### GET /commitments/nudges  (Phase 6)
+
+SQL only. OPEN commitments due within 3 days or overdue. Precomputed daily by
+`jobs/commitment-nudge-scheduler.ts` (07:00, `COMMITMENT_NUDGE_SCHEDULE`), recomputed live on request.
+
+**Response 200:** `{ dueSoon: Commitment[], overdue: Commitment[] }`
 
 ### PATCH /commitments/:id
 
@@ -434,9 +542,16 @@ The primary retrieval endpoint. BoardRoom calls this before each persona invocat
   persona: PersonaId,      // which persona needs context
   userId: string,          // redundant with header but explicit
   maxItems?: number,       // default: RETRIEVAL_CONFIG.maxItemsPerPersona (10)
-  includeEntities?: ("memories" | "people" | "goals" | "projects" | "decisions")[]
+  includeEntities?: ("memories" | "people" | "goals" | "projects" | "decisions")[],
+  asOf?: string            // Phase 6: ISO — every retrieval layer filters
+                           //   valid_at <= asOf AND (invalid_at IS NULL OR invalid_at > asOf).
+                           //   Absent → (invalid_at IS NULL OR invalid_at > now()).
 }
 ```
+
+**Phase 6 injection:** up to 3 reflection capsules for the goal/project/person entities the question
+touches are prepended to `items` (source `structured`, `whyIncluded` starts with `Reflection capsule`).
+For `persona: "doer"` an `Open commitments:` item (due ≤3 days / overdue) is prepended first.
 
 **Response 200:**
 ```typescript
@@ -464,8 +579,29 @@ Where `ContextItem`:
 
 ### POST /context/session-summary
 
-STUB — returns 501 Not Implemented in Phase 0.
-Will extract and store session learnings in Phase 1.
+Removed (was a Phase 1 stub). See `jobs/session-summarizer.ts` for the MCP session summarizer.
+
+### GET /context/core  (Phase 6)
+
+Deterministic core-memory block for prompt caching: UserProfile summary, top-8 active goals
+(level ≤ 1) with linked project titles, open commitments due ≤ 14 days (with person names), standing
+constraints (memories tagged `constraint`). Sorted keys, **no timestamps inside `block`**. Cached
+in-process 60 s per user (`CORE_CONTEXT_TTL_MS`); invalidated on goal / project / commitment / profile
+writes via `invalidateCoreContext(userId)` (`services/core-context.service.ts`).
+
+**Response 200:** `{ block: string, tokensEstimate: number, hash: string (sha256), generatedAt: ISO }`
+
+### POST /context/reflect  (Phase 6)
+
+Run reflection for one entity now (Haiku, `effort: medium`, Zod-validated; prompt
+`docs/prompts/cortex-reflection.system.md`). Ministry-domain memories are excluded from the LLM input.
+
+**Request:** `{ entityType: "goal"|"project"|"person", entityId }`
+**Response 200:** `ContextCapsule` (+ `sourceMemoryIds`, `importanceSeen`, `version`) · 404 when the entity is not visible.
+
+### GET /context/capsules?entityIds=goal:x,project:y  (Phase 6)
+
+**Response 200:** `{ items: ContextCapsule[] }` (1–20 refs)
 
 ---
 
@@ -535,6 +671,19 @@ Response 200: WeeklyMemo | null
 ### GET /cortex/memo/history
 Query params: limit, offset
 Response 200: PaginatedResponse<WeeklyMemo>
+
+### PATCH /cortex/memo/:id/items/:itemKey  (Phase 6)
+
+Interactive memo. `itemKey` = `<patternsNoticed|activeContradictions|upcomingPressurePoints|recommendedFocus>:<index>`.
+
+**Request:** `{ state: "accepted"|"dismissed"|"snoozed", until?: ISO (required for snoozed) }`
+`accepted` writes the item as a memory through the validation pipeline (`sourceType: AGENT_EXTRACTED` —
+the enum has no CORTEX/SYSTEM member; tags `["memo", itemKey]`) and stores its id in `itemStates`.
+**Response 200:** updated `WeeklyMemo` · 404 `item_not_found` · 422 `memory_validation_failed`.
+
+Memo generation now also returns `decisionsAwaitingReview: string[]` (decision ids with
+`reviewAt <= now+7d` and no `outcomeRating`), adds a `## Decisions awaiting review` section to
+`fullMemoText`, and appends `review:<id>` entries to `upcomingPressurePoints`.
 
 ### POST /cortex/memo/generate
 Trigger on-demand memo generation. Requires 5+ decisions.
@@ -617,6 +766,29 @@ Edge types: `goal_hierarchy`, `goal_project`, `project_task`, `project_person` (
 
 BoardRoom proxies this as `GET /api/graph` with the same query params.
 
+### GET /graph/backlinks/:nodeId (Phase 6)
+
+`nodeId` = `<type>:<refId>` (types as above). Returns the node and **every edge incident to it, in both directions** — `edge.source` / `edge.target` carry the direction. Entity edges come from the full entity projection (no cap); memory edges are read directly from `MemoryEntityLink` for that node, so they are complete too. Memory nodes/backlinks are tenant-scoped under an agent context and exclude ARCHIVED memories unless `?includeArchived=true`.
+
+**Response 200:** `{ node: KnowledgeGraphNode, backlinks: Array<{ node: KnowledgeGraphNode, edge: KnowledgeGraphEdge }> }`
+**Errors:** 422 malformed `nodeId` · 404 node not found / not the user's / memory outside the agent tenant.
+
+### GET /graph/unlinked-mentions (Phase 6)
+
+Memories whose `title` or `content` mentions a Person (name ≥3 chars), Project or Goal (title ≥3 chars) by word-boundary, case-insensitive match (`~*` with `\m…\M`, metacharacters escaped) and that have **no** `MemoryEntityLink` to that entity. Scans the newest 500 live, non-ARCHIVED memories of the user (tenant-scoped under an agent context). **Ministry memories match on `title` only** — their content is encrypted — and get a title-only snippet.
+
+**Query params:** `limit` (1–200, default 50)
+
+**Response 200:** `{ items: Array<{ memoryId, memoryTitle, entityType: 'person'|'project'|'goal', entityId, entityLabel, snippet }> }` — `snippet` ≤160 chars around the match, newest memories first.
+
+### POST /graph/unlinked-mentions/link (Phase 6)
+
+**Request:** `{ memoryId: string, entityType: 'person'|'project'|'goal'|'task'|'decision'|'commitment', entityId: string }`
+
+Creates the `relates_to` `MemoryEntityLink` after verifying the memory (user + agent tenant) and the entity (user, not soft-deleted). Idempotent on the link's unique tuple.
+
+**Response 201:** `MemoryEntityLink` · **200** when it already existed · **404** memory or entity not found · **422** validation.
+
 ---
 
 ## Relationships
@@ -641,6 +813,25 @@ Response 200: MemoryEntityLink[]
 ### DELETE /memories/:id/links/:linkId
 Remove a link.
 Response 200: { status: "deleted" }
+
+---
+
+## LLM Usage (Phase 6)
+
+### POST /usage/llm
+
+Fire-and-forget usage sink for BoardRoom, MCP and OmniMind's own Anthropic calls. Server computes
+`costUsd` via shared `estimateCostUsd`. `userId` defaults to `x-user-id`, `tenantId` to the agent context.
+
+**Request:** `{ service, purpose, model, inputTokens, outputTokens, cacheReadTokens?, cacheWriteTokens?, durationMs?, sessionId?, userId?, tenantId? }`
+**Response 201:** `{ id, costUsd }` · 502 `usage_write_failed` when the row could not be written.
+
+### GET /usage/llm/summary?days=7[&all=1]
+
+Default scope: the calling user. `all=1` aggregates every row (admin cost widget; job rows without a user
+only appear here). `byDay` is zero-filled per UTC day, ascending.
+
+**Response 200:** `{ days, totalUsd, byDay: [{date, usd, calls}], byPurpose: [{purpose, usd, calls, cacheHitRate}], byModel: [{model, usd, calls, inputTokens, outputTokens}] }`
 
 ---
 

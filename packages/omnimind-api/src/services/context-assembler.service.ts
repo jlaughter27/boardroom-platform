@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { PersonaId } from '@boardroom/shared';
+import { estimateTokens, MemoryClass } from '@boardroom/shared';
 import { structuredFilter } from '../retrieval/structured-filter';
 import { fulltextSearch } from '../retrieval/fulltext-search';
 import { trigramSearch } from '../retrieval/trigram-search';
@@ -9,6 +10,20 @@ import { packageForPersona, type RetrievalContextPackage } from '../retrieval/co
 import { generateEmbeddingWithRetry as generateEmbedding } from './embedding.service';
 import type { ScoredResult } from '../retrieval/structured-filter';
 import type { RetrievalLayer } from '../retrieval/forgetting-curve';
+import { getCommitmentNudges, renderCommitmentLines } from './commitment.service';
+import { logger } from '../lib/logger';
+
+/** Phase 6: at most this many entity capsules are injected per persona call. */
+export const MAX_CAPSULES_PER_CALL = 3;
+
+/** Normalise a caller-supplied memoryClass; unknown values are ignored (logged), never 422. */
+export function normalizeMemoryClass(raw?: string | null): MemoryClass | undefined {
+  if (!raw) return undefined;
+  const upper = raw.trim().toUpperCase();
+  if ((Object.values(MemoryClass) as string[]).includes(upper)) return upper as MemoryClass;
+  logger.warn('[context] ignoring unknown memoryClass', { memoryClass: raw });
+  return undefined;
+}
 
 
 export async function assembleContextForPersona(
@@ -23,9 +38,18 @@ export async function assembleContextForPersona(
     tenantId?: string;
     /** Admin escape hatch — skip tenant filter entirely. */
     includeAllTenants?: boolean;
+    /** Phase 6: temporal validity — retrieve what was believed at this instant. */
+    asOf?: Date;
+    /** Phase 6 (Critic): lift the forgetting-curve cutoff in all four layers. */
+    includeArchived?: boolean;
+    /** Phase 6 (Critic): restrict memory layers to one MemoryClass, e.g. 'DECISION'. */
+    memoryClass?: string;
   }
 ): Promise<RetrievalContextPackage> {
   const includeEntities = options?.includeEntities ?? ['memories', 'people', 'goals', 'projects', 'decisions'];
+  const asOf = options?.asOf;
+  const includeArchived = options?.includeArchived ?? false;
+  const memoryClass = normalizeMemoryClass(options?.memoryClass);
 
 
   // Generate query embedding for semantic search
@@ -39,6 +63,9 @@ export async function assembleContextForPersona(
   const retrievalScope = {
     tenantId: options?.tenantId,
     includeAllTenants: options?.includeAllTenants,
+    asOf,
+    includeArchived,
+    memoryClass,
     onLayerError: (layer: RetrievalLayer) => {
       if (!degradedLayers.includes(layer)) degradedLayers.push(layer);
     },
@@ -187,8 +214,85 @@ export async function assembleContextForPersona(
   // Merge with entity results
   const allResults = [...rankedMemories, ...entityResults];
 
+  // Phase 6: entity capsules (≤3) for the goals/projects/people this question
+  // touches, injected right after the core block (which BoardRoom prepends as
+  // a cached system block) — i.e. at the top of the retrieved items.
+  const capsuleItems = await loadCapsuleItems(userId, entityResults, prisma);
+
+  // Phase 6: the Doer gets "Open commitments" lines (SQL only) prepended.
+  const commitmentItems = persona === 'doer' ? await loadDoerCommitmentItems(userId, prisma) : [];
+
   // Package for the specific persona
-  return packageForPersona(allResults, persona, totalCandidates, layersUsed, { degradedLayers });
+  const pkg = packageForPersona(allResults, persona, totalCandidates, layersUsed, { degradedLayers });
+  const prepended = [...commitmentItems, ...capsuleItems];
+  if (prepended.length === 0) return pkg;
+  const prependedTokens = prepended.reduce((sum, i) => sum + estimateTokens(i.content), 0);
+  return {
+    ...pkg,
+    items: [...prepended, ...pkg.items],
+    tokenEstimate: pkg.tokenEstimate + prependedTokens,
+  };
+}
+
+type PackagedItem = RetrievalContextPackage['items'][number];
+
+/**
+ * Capsules for entities linked to the question: the goal/project/person
+ * entity rows the title match surfaced. Capped at MAX_CAPSULES_PER_CALL,
+ * freshest first. Stale capsules (past `staleAfter`) are still used but
+ * flagged in `whyIncluded` so the persona can discount them.
+ */
+async function loadCapsuleItems(userId: string, entityResults: ScoredResult[], prisma: PrismaClient): Promise<PackagedItem[]> {
+  const refs = entityResults
+    .filter(r => r.type === 'goal' || r.type === 'project' || r.type === 'person')
+    .map(r => ({ entityType: r.type, entityId: r.id }));
+  if (refs.length === 0) return [];
+  try {
+    const capsules = await prisma.contextCapsule.findMany({
+      where: { userId, OR: refs },
+      orderBy: { generatedAt: 'desc' },
+      take: MAX_CAPSULES_PER_CALL,
+    });
+    const now = Date.now();
+    return capsules.map(c => {
+      const stale = c.staleAfter.getTime() < now;
+      const parts = [`Capsule (${c.entityType}) — ${c.summary}`];
+      if (c.openRisks.length) parts.push(`Open risks: ${c.openRisks.join('; ')}`);
+      if (c.unresolvedQuestions.length) parts.push(`Unresolved: ${c.unresolvedQuestions.join('; ')}`);
+      if (c.recentChanges.length) parts.push(`Recent changes: ${c.recentChanges.join('; ')}`);
+      if (c.activeStakeholders.length) parts.push(`Stakeholders: ${c.activeStakeholders.join(', ')}`);
+      return {
+        type: c.entityType as PackagedItem['type'],
+        id: c.entityId,
+        content: parts.join('\n'),
+        relevanceScore: 0.95,
+        source: 'structured' as const,
+        whyIncluded: `Reflection capsule v${c.version} for linked ${c.entityType}${stale ? ' (stale — regenerate)' : ''}`,
+      };
+    });
+  } catch (err) {
+    logger.warn('[context] capsule lookup failed — continuing without capsules', { error: (err as Error).message });
+    return [];
+  }
+}
+
+async function loadDoerCommitmentItems(userId: string, prisma: PrismaClient): Promise<PackagedItem[]> {
+  try {
+    const nudges = await getCommitmentNudges(userId, prisma);
+    const lines = renderCommitmentLines(nudges);
+    if (lines.length === 0) return [];
+    return [{
+      type: 'decision',
+      id: `commitments:${userId}`,
+      content: `Open commitments:\n${lines.join('\n')}`,
+      relevanceScore: 1.0,
+      source: 'structured',
+      whyIncluded: 'Open commitments due within 3 days or overdue (Doer context)',
+    }];
+  } catch (err) {
+    logger.warn('[context] commitment nudges lookup failed — continuing', { error: (err as Error).message });
+    return [];
+  }
 }
 
 

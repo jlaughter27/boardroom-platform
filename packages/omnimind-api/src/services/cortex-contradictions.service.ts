@@ -1,14 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient, Prisma } from '@prisma/client';
-import { CORTEX_CONFIG, ContradictionDetectionsLLMSchema } from '@boardroom/shared';
+import { CORTEX_CONFIG, ContradictionDetectionsLLMSchema, MODEL_IDS } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 import { loadSystemPrompt } from '../lib/prompt-loader';
-
-const MODEL = 'claude-haiku-4-5-20251001'; // Haiku for cheap batch checks
+import { createMessage, extractText, parseJsonFromText, hasAnthropicKey } from '../lib/anthropic';
 
 export async function scanContradictions(userId: string, prisma: PrismaClient): Promise<unknown[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  if (!hasAnthropicKey()) throw new Error('ANTHROPIC_API_KEY not set');
 
   // Get active projects + their linked decisions/assumptions
   const projects = await prisma.project.findMany({
@@ -38,7 +35,6 @@ export async function scanContradictions(userId: string, prisma: PrismaClient): 
   }
 
   // Compare pairs (batch 3-5 pairs per Haiku call)
-  const client = new Anthropic({ apiKey });
   const pairs: string[] = [];
   for (let i = 0; i < projectContexts.length; i++) {
     for (let j = i + 1; j < projectContexts.length; j++) {
@@ -52,18 +48,19 @@ export async function scanContradictions(userId: string, prisma: PrismaClient): 
   const results: unknown[] = [];
   for (let i = 0; i < pairs.length; i += 5) {
     const batch = pairs.slice(i, i + 5);
-    const response = await client.messages.create({
-      model: MODEL,
+    // Phase 6: shared client, MODEL_IDS.haiku (no thinking), explicit effort, usage recorded.
+    const response = await createMessage({
+      model: MODEL_IDS.haiku,
       max_tokens: 1000,
-      system: loadSystemPrompt('cortex-contradictions'),
+      system: [{ type: 'text', text: loadSystemPrompt('cortex-contradictions'), cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: batch.map((p, idx) => `[${idx}] ${p}`).join('\n\n') }],
-    });
+      output_config: { effort: 'low' },
+    }, { purpose: 'cortex-contradictions', userId });
 
-    const text = response.content[0];
-    if (text?.type === 'text') {
+    const text = extractText(response);
+    if (text) {
       try {
-        const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const detected = ContradictionDetectionsLLMSchema.parse(JSON.parse(jsonStr));
+        const detected = ContradictionDetectionsLLMSchema.parse(parseJsonFromText(text));
 
         for (const d of detected) {
           // Dedup: check if similar contradiction exists

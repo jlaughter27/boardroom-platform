@@ -1,14 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
-import { CORTEX_CONFIG, DetectedPatternsLLMSchema } from '@boardroom/shared';
+import { CORTEX_CONFIG, DetectedPatternsLLMSchema, MODEL_IDS } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 import { loadSystemPrompt } from '../lib/prompt-loader';
-
-const MODEL = 'claude-sonnet-4-6-20250514';
+import { createMessage, extractText, parseJsonFromText, hasAnthropicKey } from '../lib/anthropic';
 
 export async function detectPatterns(userId: string, prisma: PrismaClient): Promise<unknown[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  if (!hasAnthropicKey()) throw new Error('ANTHROPIC_API_KEY not set');
 
   // Check threshold (O-113: soft-deleted decisions excluded)
   const decisionCount = await prisma.decision.count({ where: { userId, deletedAt: null } });
@@ -29,18 +26,18 @@ export async function detectPatterns(userId: string, prisma: PrismaClient): Prom
     `- ${d.title} (${d.status}): ${d.rationale ?? 'no rationale recorded'}${d.outcome ? ` → Outcome: ${d.outcome} (${d.outcomeRating}/5)` : ''}`
   ).join('\n');
 
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: MODEL,
+  // Phase 6: shared client, MODEL_IDS, explicit effort, usage recorded.
+  const response = await createMessage({
+    model: MODEL_IDS.sonnet,
     max_tokens: 1500,
-    system: loadSystemPrompt('cortex-patterns'),
+    system: [{ type: 'text', text: loadSystemPrompt('cortex-patterns'), cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: `## Decision History (last 90 days)\n${context}` }],
-  });
+    output_config: { effort: 'low' },
+  }, { purpose: 'cortex-patterns', userId });
 
-  const text = response.content[0];
-  if (!text || text.type !== 'text') return [];
-  const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const detected = DetectedPatternsLLMSchema.parse(JSON.parse(jsonStr));
+  const text = extractText(response);
+  if (!text) return [];
+  const detected = DetectedPatternsLLMSchema.parse(parseJsonFromText(text));
 
   // Upsert patterns
   const results = [];

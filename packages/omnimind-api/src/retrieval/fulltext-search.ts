@@ -3,6 +3,7 @@ import type { ScoredResult } from './structured-filter';
 import { archiveCutoffDate, type LayerErrorHook } from './forgetting-curve';
 import { decryptRows } from './row-decrypt';
 import { logger } from '../lib/logger';
+import { temporalValiditySql, memoryClassSql } from './temporal-validity';
 
 export interface FulltextSearchOptions {
   limit?: number;
@@ -11,6 +12,10 @@ export interface FulltextSearchOptions {
   tenantId?: string;
   /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
   includeAllTenants?: boolean;
+  /** Phase 6: temporal validity — "what was believed at this instant". */
+  asOf?: Date;
+  /** Phase 6: restrict to one MemoryClass (WORKING|EPISODIC|SEMANTIC|DECISION). */
+  memoryClass?: string;
   /** F-204: invoked when the layer fails and degrades to []. */
   onLayerError?: LayerErrorHook;
 }
@@ -60,6 +65,8 @@ export async function fulltextSearch(
   if (!tsQuery) return [];
 
   const limit = options.limit ?? 20;
+  const validity = temporalValiditySql(options.asOf);
+  const classFilter = memoryClassSql(options.memoryClass);
 
   try {
     // Four-way branch on (tenant, includeArchived). Each branch is a real
@@ -88,6 +95,8 @@ export async function fulltextSearch(
           AND tenant_id = ${tenantId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
+          AND ${validity}
+          AND ${classFilter}
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
         LIMIT ${limit}
@@ -101,6 +110,8 @@ export async function fulltextSearch(
           AND tenant_id = ${tenantId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
+          AND ${validity}
+          AND ${classFilter}
           AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
@@ -114,6 +125,8 @@ export async function fulltextSearch(
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
+          AND ${validity}
+          AND ${classFilter}
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
         LIMIT ${limit}
@@ -126,6 +139,8 @@ export async function fulltextSearch(
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
+          AND ${validity}
+          AND ${classFilter}
           AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC

@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { invalidateCoreContext } from './core-context.service';
 
 // Generic CRUD for Person, Goal, Project, Task entities
 type EntityModel = 'person' | 'goal' | 'project' | 'task';
@@ -13,6 +14,12 @@ function getDelegate(prisma: PrismaClient, model: EntityModel) {
   return delegates[model];
 }
 
+// Phase 6: the cached core-context block (GET /context/core) lists active goals
+// with their linked project titles — drop it on every goal / project write.
+function touchesCoreContext(model: EntityModel): boolean {
+  return model === 'goal' || model === 'project';
+}
+
 export async function createEntity(
   model: EntityModel,
   userId: string,
@@ -20,7 +27,9 @@ export async function createEntity(
   prisma: PrismaClient
 ) {
   const delegate = getDelegate(prisma, model) as any;
-  return delegate.create({ data: { ...data, userId } });
+  const created = await delegate.create({ data: { ...data, userId } });
+  if (touchesCoreContext(model)) invalidateCoreContext(userId);
+  return created;
 }
 
 export async function getEntity(
@@ -89,7 +98,9 @@ export async function updateEntity(
   const delegate = getDelegate(prisma, model) as any;
   const existing = await delegate.findFirst({ where: { id, userId, deletedAt: null } });
   if (!existing) return null;
-  return delegate.update({ where: { id }, data: { ...data, version: { increment: 1 } } });
+  const updated = await delegate.update({ where: { id }, data: { ...data, version: { increment: 1 } } });
+  if (touchesCoreContext(model)) invalidateCoreContext(userId);
+  return updated;
 }
 
 export async function deleteEntity(
@@ -102,6 +113,7 @@ export async function deleteEntity(
   const existing = await delegate.findFirst({ where: { id, userId, deletedAt: null } });
   if (!existing) return null;
   await delegate.update({ where: { id }, data: { deletedAt: new Date() } });
+  if (touchesCoreContext(model)) invalidateCoreContext(userId);
   return { id, status: 'deleted' as const };
 }
 
@@ -147,6 +159,7 @@ export async function linkGoalProject(
     create: { goalId, projectId },
     update: {},
   });
+  invalidateCoreContext(userId);
   return { link, created: true };
 }
 
@@ -160,6 +173,7 @@ export async function unlinkGoalProject(
   if (!goalOk || !projectOk) return null;
   const { count } = await prisma.goalProjectLink.deleteMany({ where: { goalId, projectId } });
   if (count === 0) return null;
+  invalidateCoreContext(userId);
   return { goalId, projectId, status: 'unlinked' };
 }
 
@@ -195,4 +209,156 @@ export async function unlinkProjectTask(
   const { count } = await prisma.projectTaskLink.deleteMany({ where: { projectId, taskId } });
   if (count === 0) return null;
   return { projectId, taskId, status: 'unlinked' };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 (A2) — remaining link tables: ProjectPersonLink, DecisionProjectLink,
+// TaskDependency. Same contract as the C-111 writers above: both endpoints
+// must belong to `userId` and not be soft-deleted (null → 404), idempotent on
+// the unique pair (created:false → 200), unlink returns null when no row was
+// removed (→ 404).
+//
+// Goal / project writes and goal↔project links call `invalidateCoreContext`
+// (core-context.service.ts) so GET /context/core never serves a stale block.
+// ---------------------------------------------------------------------------
+
+export interface ProjectPersonLinkRow { id: string; projectId: string; personId: string; role: string }
+export interface DecisionProjectLinkRow { id: string; decisionId: string; projectId: string }
+export interface TaskDependencyRow { id: string; taskId: string; dependsOnTaskId: string }
+
+/** Why a task-dependency write was refused (besides ownership → null). */
+export type TaskDependencyRejection = 'self_dependency' | 'cycle';
+export type TaskDependencyResult =
+  | LinkResult<TaskDependencyRow>
+  | { rejected: TaskDependencyRejection };
+
+async function ownsPerson(prisma: PrismaClient, userId: string, id: string): Promise<boolean> {
+  return !!(await prisma.person.findFirst({ where: { id, userId, deletedAt: null }, select: { id: true } }));
+}
+async function ownsDecision(prisma: PrismaClient, userId: string, id: string): Promise<boolean> {
+  return !!(await prisma.decision.findFirst({ where: { id, userId, deletedAt: null }, select: { id: true } }));
+}
+
+/**
+ * Idempotent on the (projectId, personId) unique pair. When the link exists and
+ * a different non-empty `role` is supplied the role is updated (still 200).
+ */
+export async function linkProjectPerson(
+  userId: string,
+  projectId: string,
+  personId: string,
+  role: string | undefined,
+  prisma: PrismaClient
+): Promise<LinkResult<ProjectPersonLinkRow> | null> {
+  const [projectOk, personOk] = await Promise.all([ownsProject(prisma, userId, projectId), ownsPerson(prisma, userId, personId)]);
+  if (!projectOk || !personOk) return null;
+
+  const existing = await prisma.projectPersonLink.findUnique({ where: { projectId_personId: { projectId, personId } } });
+  if (existing) {
+    if (role !== undefined && role !== existing.role) {
+      const updated = await prisma.projectPersonLink.update({ where: { id: existing.id }, data: { role } });
+      return { link: updated, created: false };
+    }
+    return { link: existing, created: false };
+  }
+
+  const link = await prisma.projectPersonLink.upsert({
+    where: { projectId_personId: { projectId, personId } },
+    create: { projectId, personId, role: role ?? '' },
+    update: {},
+  });
+  return { link, created: true };
+}
+
+export async function unlinkProjectPerson(
+  userId: string,
+  projectId: string,
+  personId: string,
+  prisma: PrismaClient
+): Promise<{ projectId: string; personId: string; status: 'unlinked' } | null> {
+  const [projectOk, personOk] = await Promise.all([ownsProject(prisma, userId, projectId), ownsPerson(prisma, userId, personId)]);
+  if (!projectOk || !personOk) return null;
+  const { count } = await prisma.projectPersonLink.deleteMany({ where: { projectId, personId } });
+  if (count === 0) return null;
+  return { projectId, personId, status: 'unlinked' };
+}
+
+/** Idempotent on the (decisionId, projectId) unique pair. */
+export async function linkDecisionProject(
+  userId: string,
+  projectId: string,
+  decisionId: string,
+  prisma: PrismaClient
+): Promise<LinkResult<DecisionProjectLinkRow> | null> {
+  const [projectOk, decisionOk] = await Promise.all([ownsProject(prisma, userId, projectId), ownsDecision(prisma, userId, decisionId)]);
+  if (!projectOk || !decisionOk) return null;
+
+  const existing = await prisma.decisionProjectLink.findUnique({ where: { decisionId_projectId: { decisionId, projectId } } });
+  if (existing) return { link: existing, created: false };
+
+  const link = await prisma.decisionProjectLink.upsert({
+    where: { decisionId_projectId: { decisionId, projectId } },
+    create: { decisionId, projectId },
+    update: {},
+  });
+  return { link, created: true };
+}
+
+export async function unlinkDecisionProject(
+  userId: string,
+  projectId: string,
+  decisionId: string,
+  prisma: PrismaClient
+): Promise<{ projectId: string; decisionId: string; status: 'unlinked' } | null> {
+  const [projectOk, decisionOk] = await Promise.all([ownsProject(prisma, userId, projectId), ownsDecision(prisma, userId, decisionId)]);
+  if (!projectOk || !decisionOk) return null;
+  const { count } = await prisma.decisionProjectLink.deleteMany({ where: { decisionId, projectId } });
+  if (count === 0) return null;
+  return { projectId, decisionId, status: 'unlinked' };
+}
+
+/**
+ * `taskId` depends on `dependsOnTaskId`. Rejects a self-dependency and a
+ * direct cycle (the reverse edge already exists). Deeper cycles are not
+ * walked here — the DAG invariant for longer chains is a Phase 2.5
+ * RoadmapService concern.
+ */
+export async function linkTaskDependency(
+  userId: string,
+  taskId: string,
+  dependsOnTaskId: string,
+  prisma: PrismaClient
+): Promise<TaskDependencyResult | null> {
+  if (taskId === dependsOnTaskId) return { rejected: 'self_dependency' };
+
+  const [taskOk, otherOk] = await Promise.all([ownsTask(prisma, userId, taskId), ownsTask(prisma, userId, dependsOnTaskId)]);
+  if (!taskOk || !otherOk) return null;
+
+  const existing = await prisma.taskDependency.findUnique({ where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } } });
+  if (existing) return { link: existing, created: false };
+
+  const reverse = await prisma.taskDependency.findUnique({
+    where: { taskId_dependsOnTaskId: { taskId: dependsOnTaskId, dependsOnTaskId: taskId } },
+  });
+  if (reverse) return { rejected: 'cycle' };
+
+  const link = await prisma.taskDependency.upsert({
+    where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } },
+    create: { taskId, dependsOnTaskId },
+    update: {},
+  });
+  return { link, created: true };
+}
+
+export async function unlinkTaskDependency(
+  userId: string,
+  taskId: string,
+  dependsOnTaskId: string,
+  prisma: PrismaClient
+): Promise<{ taskId: string; dependsOnTaskId: string; status: 'unlinked' } | null> {
+  const [taskOk, otherOk] = await Promise.all([ownsTask(prisma, userId, taskId), ownsTask(prisma, userId, dependsOnTaskId)]);
+  if (!taskOk || !otherOk) return null;
+  const { count } = await prisma.taskDependency.deleteMany({ where: { taskId, dependsOnTaskId } });
+  if (count === 0) return null;
+  return { taskId, dependsOnTaskId, status: 'unlinked' };
 }

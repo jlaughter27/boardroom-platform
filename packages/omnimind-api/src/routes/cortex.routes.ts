@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
-import { CORTEX_CONFIG } from '@boardroom/shared';
+import { CORTEX_CONFIG, MemoItemStateRequestSchema, MemoItemKeySchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoService from '../services/cortex-memo.service';
 import * as patternService from '../services/cortex-patterns.service';
@@ -57,6 +57,23 @@ router.post('/memo/generate', async (req, res, next) => {
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
     const memo = await memoService.generateWeeklyMemo(userId, prisma);
     if (!memo) { res.json({ message: 'Not enough data for memo generation', minRequired: CORTEX_CONFIG.minSessionsForMemo }); return; }
+    res.json(memo);
+  } catch (err) { next(err); }
+});
+
+// Phase 6 — interactive memo: accept / dismiss / snooze one item.
+router.patch('/memo/:id/items/:itemKey', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing' }] }); return; }
+    const key = MemoItemKeySchema.safeParse(req.params.itemKey);
+    if (!key.success) { res.status(422).json({ error: 'validation_failed', details: [{ field: 'itemKey', message: key.error.issues[0]?.message ?? 'invalid' }] }); return; }
+    const body = MemoItemStateRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      res.status(422).json({ error: 'validation_failed', details: body.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })) });
+      return;
+    }
+    const memo = await memoService.updateMemoItem(userId, req.params.id, key.data, body.data, prisma);
     res.json(memo);
   } catch (err) { next(err); }
 });

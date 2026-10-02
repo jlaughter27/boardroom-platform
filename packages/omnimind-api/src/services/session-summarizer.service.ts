@@ -1,7 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
+import { MODEL_IDS } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 import { createMemory } from './memory.service';
+import { createMessage, extractText, hasAnthropicKey } from '../lib/anthropic';
 
 // Sessions with a gap > 30 min between tool calls are considered separate sessions
 const SESSION_GAP_MS = 30 * 60 * 1000;
@@ -105,14 +106,11 @@ function groupIntoSessions(entries: AuditEntry[]): Session[] {
   return sessions;
 }
 
-async function buildSummary(session: Session): Promise<string | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+async function buildSummary(session: Session, ownerUserId: string | null): Promise<string | null> {
+  if (!hasAnthropicKey()) {
     logger.warn('[session-summarizer] ANTHROPIC_API_KEY not set — skipping LLM summary');
     return null;
   }
-
-  const client = new Anthropic({ apiKey });
 
   const toolLog = session.entries
     .map(e => {
@@ -138,17 +136,15 @@ Write a single concise paragraph (2-4 sentences) summarizing:
 Be specific about content, not just tool names. No preamble.`;
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    // Phase 6: shared client, MODEL_IDS.haiku (no thinking), explicit effort, usage recorded.
+    const response = await createMessage({
+      model: MODEL_IDS.haiku,
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
-    });
+      output_config: { effort: 'low' },
+    }, { purpose: 'session-summarizer', userId: ownerUserId, tenantId: session.tenantId });
 
-    return response.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as { type: 'text'; text: string }).text)
-      .join('')
-      .trim();
+    return extractText(response);
   } catch (err) {
     logger.error('[session-summarizer] Haiku summarization failed', { error: (err as Error).message });
     return null;
@@ -194,7 +190,7 @@ export async function summarizeRecentSessions(prisma: PrismaClient): Promise<voi
     const ownerUserId = await resolveTenantOwner(session.tenantId, prisma);
     if (!ownerUserId) continue;
 
-    const summary = await buildSummary(session);
+    const summary = await buildSummary(session, ownerUserId);
     if (!summary) continue;
 
     try {

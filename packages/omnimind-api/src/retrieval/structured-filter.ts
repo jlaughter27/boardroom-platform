@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from '@boardroom/shared';
 import { archiveCutoffDate } from './forgetting-curve';
 import { tryDecryptMemory } from '../lib/memory-crypto';
+import { temporalValidityWhere } from './temporal-validity';
 
 export type { ScoredResult };
 
@@ -14,6 +15,10 @@ export interface StructuredFilterOptions {
   tenantId?: string;
   /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
   includeAllTenants?: boolean;
+  /** Phase 6: temporal validity — "what was believed at this instant". */
+  asOf?: Date;
+  /** Phase 6: restrict to one MemoryClass (WORKING|EPISODIC|SEMANTIC|DECISION). */
+  memoryClass?: string;
 }
 
 export async function structuredFilter(
@@ -50,6 +55,7 @@ export async function structuredFilter(
   }
 
   if (options.domain) where.domain = options.domain;
+  if (options.memoryClass) where.memoryClass = options.memoryClass;
   if (options.tags && options.tags.length > 0) {
     where.tags = { hasSome: options.tags };
   }
@@ -67,6 +73,12 @@ export async function structuredFilter(
       where.OR = contentFilter;
     }
   }
+
+
+  // Phase 6: temporal validity. Pushed into AND so it never collides with the
+  // forgetting-curve / content OR clauses built above.
+  const validity = temporalValidityWhere(options.asOf);
+  where.AND = [...((where.AND as unknown[] | undefined) ?? []), validity];
 
   const results = await prisma.memoryEntry.findMany({
     where: where as any,

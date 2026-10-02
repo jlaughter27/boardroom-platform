@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createHash } from 'crypto';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
 
@@ -36,6 +37,64 @@ function getOpenAIClient(): OpenAI | null {
 export function __resetOpenAIClientForTest(): void {
   cachedClient = null;
   cachedClientKey = null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — provider switch. `EMBEDDING_PROVIDER=openai|mock` (default openai).
+// `mock` yields a deterministic 1536-dim unit vector from sha256(text) through
+// a seeded PRNG, so CI's retrieval eval (lane E) runs without an API key and
+// produces identical vectors for identical text across machines.
+// Ministry routing is unchanged: ministry text still goes to Ollama only.
+// ---------------------------------------------------------------------------
+
+export type EmbeddingProvider = 'openai' | 'mock';
+
+export function getEmbeddingProvider(): EmbeddingProvider {
+  const raw = (process.env.EMBEDDING_PROVIDER ?? 'openai').trim().toLowerCase();
+  if (raw === 'mock') return 'mock';
+  if (raw !== 'openai' && raw !== '') {
+    logger.warn('Unknown EMBEDDING_PROVIDER — falling back to openai', { value: raw });
+  }
+  return 'openai';
+}
+
+/** mulberry32 — tiny deterministic PRNG seeded from a 32-bit integer. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Deterministic unit vector for `text`. Same text → same vector; different
+ * text → (with overwhelming probability) a different, near-orthogonal vector.
+ * Values are approximately Gaussian (Box–Muller) so cosine behaves like a real
+ * embedding space rather than a uniform cube.
+ */
+export function mockEmbedding(text: string, dimensions: number = DIMENSIONS): number[] {
+  const digest = createHash('sha256').update(text.slice(0, 8000)).digest();
+  // Four independent 32-bit seeds from the digest, cycled across the vector.
+  const seeds = [0, 4, 8, 12].map(o => digest.readUInt32BE(o));
+  const rngs = seeds.map(mulberry32);
+  const out = new Array<number>(dimensions);
+  for (let i = 0; i < dimensions; i += 2) {
+    const rng = rngs[(i / 2) % rngs.length];
+    const u1 = Math.max(rng(), 1e-12);
+    const u2 = rng();
+    const r = Math.sqrt(-2 * Math.log(u1));
+    out[i] = r * Math.cos(2 * Math.PI * u2);
+    if (i + 1 < dimensions) out[i + 1] = r * Math.sin(2 * Math.PI * u2);
+  }
+  let norm = 0;
+  for (const v of out) norm += v * v;
+  norm = Math.sqrt(norm) || 1;
+  for (let i = 0; i < dimensions; i++) out[i] = out[i] / norm;
+  return out;
 }
 
 
@@ -91,6 +150,10 @@ export async function generateEmbeddingWithRetry(
       // Rule 9: never fall back to OpenAI for ministry content
       return null;
     }
+  }
+
+  if (getEmbeddingProvider() === 'mock') {
+    return mockEmbedding(text);
   }
 
   const client = getOpenAIClient();

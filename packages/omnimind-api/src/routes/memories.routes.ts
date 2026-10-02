@@ -1,16 +1,37 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
-import { CreateMemoryRequestSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
+import { z } from 'zod';
+import { CreateMemoryRequestSchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
 import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
 import { isAdminRequest } from '../middleware/admin-auth';
+import { idempotent } from '../middleware/idempotency';
+
+// Phase 6 (A2) — PATCH /memories/:id gains `supersedes: <oldMemoryId>`
+// (old row → invalidAt=now, supersededBy=:id; :id.consolidatedFrom += old).
+// Extended locally: lane A2 may not edit the shared schema.
+const PatchMemoryBodySchema = UpdateMemoryRequestSchema.extend({
+  supersedes: z.string().min(1).optional(),
+});
+
+// Phase 6 (A2) — POST /memories/search body
+const HybridSearchBodySchema = z.object({
+  query: z.string().trim().min(1).max(2000),
+  limit: z.number().int().min(1).max(memoryService.HYBRID_SEARCH_MAX_LIMIT).optional(),
+  domain: z.string().trim().min(1).optional(),
+  tags: z.array(z.string().min(1)).max(20).optional(),
+  status: MemoryStatusSchema.optional(),
+  includeArchived: z.boolean().optional(),
+  asOf: z.string().datetime({ offset: true }).optional(),
+  cursor: z.string().max(256).nullable().optional(),
+});
 
 
 const router: IRouter = Router();
 
-// POST /memories — create
-router.post('/', async (req, res, next) => {
+// POST /memories — create (Idempotency-Key aware, Phase 6)
+router.post('/', idempotent('memories.create'), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
@@ -132,6 +153,37 @@ router.post('/search-similar', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /memories/search — Phase 6 (A2) hybrid search for MCP / BoardRoom.
+// Same stack as /context/for-persona (structured + FTS + trigram + semantic →
+// rank, forgetting curve, decrypt). Tenant from req.agentContext. Must be
+// before /:id.
+// Body: { query, limit?≤50, domain?, tags?, status?, includeArchived?, asOf?, cursor? }
+// Response: { items: (Memory & { score })[], nextCursor: string|null }
+router.post('/search', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const parsed = HybridSearchBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(422).json({
+        error: 'validation_failed',
+        details: parsed.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
+      });
+      return;
+    }
+
+    const { asOf, ...rest } = parsed.data;
+    const result = await memoryService.hybridSearchMemories(
+      userId,
+      { ...rest, asOf: asOf ? new Date(asOf) : undefined },
+      req.agentContext,
+      prisma,
+    );
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
 // POST /memories/validate — dry-run (must be before /:id to avoid matching "validate" as id)
 router.post('/validate', async (req, res, next) => {
   try {
@@ -210,7 +262,7 @@ router.patch('/:id', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const parseResult = UpdateMemoryRequestSchema.safeParse(req.body);
+    const parseResult = PatchMemoryBodySchema.safeParse(req.body);
     if (!parseResult.success) {
       res.status(422).json({
         error: 'validation_failed',
