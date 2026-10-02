@@ -35,6 +35,7 @@ export * from './constants/memory-config';
 export * from './constants/rate-limits';
 export * from './constants/tool-config';
 export * from './constants/cortex-config';
+export * from './constants/model-config';
 
 // Utilities
 // NOTE (S-103): `hashing` (Node `crypto`) and `env-validator` (`process.env`)

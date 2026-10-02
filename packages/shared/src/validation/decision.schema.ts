@@ -1,3 +1,4 @@
+import type { PersonaForecast } from '../types/decision.types';
 // decision Zod schemas — matches packages/shared/src/types/decision.types.ts
 
 import { z } from 'zod';
@@ -33,6 +34,12 @@ export const DecisionStatusSchema = z.nativeEnum(DecisionStatus)
 
 // ── Full Decision Schema ──
 
+export const PersonaForecastSchema = z.object({
+  personaId: z.string().min(1),
+  recommendation: z.string(),
+  confidence: z.number().min(0).max(1),
+}) satisfies z.ZodType<PersonaForecast>;
+
 export const DecisionSchema = z.object({
   id: z.string().describe('Unique decision identifier (cuid)'),
   userId: z.string().describe('Owner user identifier'),
@@ -48,6 +55,11 @@ export const DecisionSchema = z.object({
   outcome: z.string().nullable().describe('Observed outcome after decision'),
   outcomeRating: z.number().int().nullable().describe('Rating of the outcome'),
   sessionId: z.string().nullable().describe('Associated boardroom session ID'),
+  probabilitySuccess: z.number().min(0).max(1).nullable().default(null),
+  expectedOutcome: z.string().nullable().default(null),
+  personaForecasts: z.array(PersonaForecastSchema).default([]),
+  decidedAt: z.coerce.date().nullable().default(null),
+  mode: z.string().nullable().default(null),
   version: z.number().int().describe('Optimistic concurrency version'),
   createdAt: z.coerce.date().describe('Creation timestamp'),
   updatedAt: z.coerce.date().describe('Last update timestamp'),
@@ -84,6 +96,11 @@ export const CreateDecisionRequestSchema = z.object({
   outcome: z.string().nullable().optional().describe('Observed outcome'),
   outcomeRating: z.number().int().nullable().optional().describe('Rating of the outcome'),
   sessionId: z.string().nullable().optional().describe('Associated boardroom session ID'),
+  probabilitySuccess: z.number().min(0).max(1).nullable().optional(),
+  expectedOutcome: z.string().max(2000).nullable().optional(),
+  personaForecasts: z.array(PersonaForecastSchema).optional(),
+  decidedAt: z.coerce.date().nullable().optional(),
+  mode: z.string().max(40).nullable().optional(),
 });
 
 export type CreateDecisionRequestInput = z.infer<typeof CreateDecisionRequestSchema>;
@@ -103,6 +120,11 @@ export const UpdateDecisionRequestSchema = z.object({
   outcome: z.string().nullable().optional().describe('Observed outcome'),
   outcomeRating: z.number().int().nullable().optional().describe('Rating of the outcome'),
   sessionId: z.string().nullable().optional().describe('Associated boardroom session ID'),
+  probabilitySuccess: z.number().min(0).max(1).nullable().optional(),
+  expectedOutcome: z.string().max(2000).nullable().optional(),
+  personaForecasts: z.array(PersonaForecastSchema).optional(),
+  decidedAt: z.coerce.date().nullable().optional(),
+  mode: z.string().max(40).nullable().optional(),
 });
 
 export type UpdateDecisionRequestInput = z.infer<typeof UpdateDecisionRequestSchema>;
