@@ -69,3 +69,18 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   req.auth = payload;
   next();
 };
+
+/**
+ * B-107 — Optional auth: decode the cookie if present and valid, but never
+ * reject. Used on OAuth callbacks so the handler can cross-check the signed
+ * `state.userId` against the logged-in user without requiring a session
+ * (Google's redirect may arrive after the JWT expired).
+ */
+export const optionalAuthMiddleware = (req: AuthRequest, _res: Response, next: NextFunction): void => {
+  const token = req.cookies?.boardroom_token as string | undefined;
+  if (token) {
+    const payload = verifyToken(token);
+    if (payload) req.auth = payload;
+  }
+  next();
+};

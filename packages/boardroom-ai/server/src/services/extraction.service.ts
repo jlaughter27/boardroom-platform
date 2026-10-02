@@ -9,13 +9,15 @@ const pendingProposals = new Map<string, MemoryProposal[]>();
 
 export async function proposeExtractions(
   session: SessionState,
-  client: Anthropic
+  client: Anthropic,
+  signal?: AbortSignal
 ): Promise<ExtractionResult> {
   const result = await extractMemories(
     session.question,
     session.personaResponses,
     session.synthesis,
-    client
+    client,
+    signal
   );
 
   // Store proposals for later confirmation

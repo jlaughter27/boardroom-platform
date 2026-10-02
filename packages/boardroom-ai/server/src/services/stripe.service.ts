@@ -158,8 +158,13 @@ export async function cancelSubscription(userId: string): Promise<{ canceledAt: 
   const canceledAt = new Date();
   const activeUntil = new Date((canceled.current_period_end as number) * 1000);
 
+  // B-108: the user keeps access until the paid period ends. Stripe was told
+  // cancel_at_period_end; the `customer.subscription.deleted` webhook flips the
+  // row to CANCELED when the period actually lapses. Until then the status
+  // stays as-is (ACTIVE/TRIALING) and `canceledAt` records the request time.
+  // (OmniMind's PATCH schema is strict and has no cancelAtPeriodEnd column —
+  // GET /subscription derives `cancelAtPeriodEnd` from canceledAt + status.)
   await omnimindClient.updateSubscription(userId, {
-    status: 'CANCELED',
     canceledAt: canceledAt.toISOString(),
   });
 

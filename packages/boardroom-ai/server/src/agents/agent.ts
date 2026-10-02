@@ -5,6 +5,19 @@ import { PersonaResponseSchema } from '@boardroom/shared';
 import { MODEL_MAP } from '@boardroom/shared';
 import type { Response } from 'express';
 import type { AnthropicToolDef } from '../tools/tool-registry';
+import { sendSSE } from './streaming';
+
+/**
+ * B-120 — Memory content is untrusted (Gmail imports, API writes). Neutralise
+ * any closing/opening tag sequences so content cannot break out of the
+ * <user_memory> envelope or forge sibling tags. Only `</` and `<user_memory`
+ * are rewritten; everything else is preserved verbatim.
+ */
+export function escapeMemoryContent(content: string): string {
+  return String(content)
+    .replace(/<\//g, '&lt;/')
+    .replace(/<user_memory/gi, '&lt;user_memory');
+}
 
 export class Agent {
   constructor(
@@ -16,7 +29,7 @@ export class Agent {
   /**
    * Non-streaming reasoning. Returns validated PersonaResponse.
    */
-  async reason(question: string, context: ContextItem[]): Promise<PersonaResponse> {
+  async reason(question: string, context: ContextItem[], signal?: AbortSignal): Promise<PersonaResponse> {
     const userMessage = this.buildUserMessage(question, context);
     const model = MODEL_MAP[this.config.model];
 
@@ -25,7 +38,7 @@ export class Agent {
       max_tokens: this.config.maxOutputTokens,
       system: this.systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
-    });
+    }, { signal });
 
     const text = response.content[0];
     if (!text || text.type !== 'text') throw new Error('Empty response from LLM');
@@ -42,26 +55,27 @@ export class Agent {
     question: string,
     context: ContextItem[],
     res: Response,
-    personaId: PersonaId
+    personaId: PersonaId,
+    signal?: AbortSignal
   ): Promise<PersonaResponse | null> {
     const userMessage = this.buildUserMessage(question, context);
     const model = MODEL_MAP[this.config.model];
     let fullText = '';
 
     try {
-      res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId, model: this.config.model })}\n\n`);
+      sendSSE(res, { type: 'persona_start', personaId, model: this.config.model });
 
       const stream = await this.client.messages.stream({
         model,
         max_tokens: this.config.maxOutputTokens,
         system: this.systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
-      });
+      }, { signal });
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           fullText += event.delta.text;
-          res.write(`data: ${JSON.stringify({ type: 'delta', personaId, text: event.delta.text })}\n\n`);
+          sendSSE(res, { type: 'delta', personaId, text: event.delta.text });
         }
       }
 
@@ -69,11 +83,11 @@ export class Agent {
       const parsed = JSON.parse(jsonStr);
       const validated = PersonaResponseSchema.parse(parsed) as PersonaResponse;
 
-      res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId, response: validated })}\n\n`);
+      sendSSE(res, { type: 'persona_complete', personaId, response: validated });
       return validated;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId, error: message })}\n\n`);
+      sendSSE(res, { type: 'persona_error', personaId, error: message });
       return null;
     }
   }
@@ -86,7 +100,8 @@ export class Agent {
     context: ContextItem[],
     tools: AnthropicToolDef[],
     toolExecutor: (name: string, input: Record<string, unknown>) => Promise<ToolResult>,
-    maxToolRounds: number = 3
+    maxToolRounds: number = 3,
+    signal?: AbortSignal
   ): Promise<{ response: PersonaResponse; toolInvocations: ToolResult[] }> {
     const userMessage = this.buildUserMessage(question, context);
     const model = MODEL_MAP[this.config.model];
@@ -101,7 +116,7 @@ export class Agent {
         system: this.systemPrompt,
         messages,
         ...(tools.length > 0 ? { tools: tools as Anthropic.Tool[] } : {}),
-      });
+      }, { signal });
 
       // Check for tool_use blocks
       const toolUseBlocks = response.content.filter(
@@ -148,7 +163,7 @@ export class Agent {
 
   private buildUserMessage(question: string, context: ContextItem[]): string {
     const contextBlock = context.map(item =>
-      `<user_memory source="${item.source}" relevance="${item.relevanceScore}">\n[${item.type.toUpperCase()}] ${item.content}\n</user_memory>`
+      `<user_memory source="${item.source}" relevance="${item.relevanceScore}">\n[${item.type.toUpperCase()}] ${escapeMemoryContent(item.content)}\n</user_memory>`
     ).join('\n\n');
 
     return `## Context\n${contextBlock || '(No context available)'}\n\n## Question\n${question}\n\nRespond with valid JSON matching the required output format. No markdown wrapping.`;

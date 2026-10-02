@@ -4,9 +4,16 @@ import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
 
-router.get('/stats', async (_req, res, next) => {
+// B-101 — forward `includeAllTenants=true` to OmniMind ONLY when the client
+// explicitly asked for it; otherwise OmniMind applies its default scoping.
+function tenantScope(req: { query: Record<string, unknown> }): Record<string, string> {
+  const v = req.query.includeAllTenants;
+  return typeof v === 'string' && v.toLowerCase() === 'true' ? { includeAllTenants: 'true' } : {};
+}
+
+router.get('/stats', async (req, res, next) => {
   try {
-    const data = await omnimindClient.getAdminStats();
+    const data = await omnimindClient.getAdminStats(tenantScope(req as { query: Record<string, unknown> }));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -20,7 +27,7 @@ router.get('/agents', async (_req, res, next) => {
 
 router.get('/audit', async (req, res, next) => {
   try {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = tenantScope(req as { query: Record<string, unknown> });
     const { agentId, tenantId, toolName, limit, offset } = req.query as Record<string, string>;
     if (agentId) params.agentId = agentId;
     if (tenantId) params.tenantId = tenantId;
@@ -34,7 +41,7 @@ router.get('/audit', async (req, res, next) => {
 
 router.get('/memories', async (req, res, next) => {
   try {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = tenantScope(req as { query: Record<string, unknown> });
     const { agentId, tenantId, domain, sourceType, q, limit, offset } = req.query as Record<string, string>;
     if (agentId) params.agentId = agentId;
     if (tenantId) params.tenantId = tenantId;
@@ -50,7 +57,7 @@ router.get('/memories', async (req, res, next) => {
 
 router.get('/contradictions', async (req, res, next) => {
   try {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = tenantScope(req as { query: Record<string, unknown> });
     const { limit, offset } = req.query as Record<string, string>;
     if (limit) params.limit = limit;
     if (offset) params.offset = offset;
@@ -69,7 +76,7 @@ router.post('/summarize', async (_req, res, next) => {
 router.get('/duplicates', async (req, res, next) => {
   try {
     const { threshold } = req.query as Record<string, string>;
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = tenantScope(req as { query: Record<string, unknown> });
     if (threshold) params.threshold = threshold;
     const data = await omnimindClient.getAdminDuplicates(params);
     res.json(data);

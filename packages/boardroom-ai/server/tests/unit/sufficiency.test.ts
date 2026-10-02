@@ -34,7 +34,7 @@ describe('sufficiency', () => {
         max_tokens: 500,
         system: 'Sufficiency check prompt',
         messages: [{ role: 'user', content: 'Should we start this project?' }],
-      });
+      }, { signal: undefined }); // B-111: request options carry the client-disconnect AbortSignal
 
       expect(result.score).toBe(0.85);
       expect(result.missingDimensions).toEqual(['financial', 'timeline']);

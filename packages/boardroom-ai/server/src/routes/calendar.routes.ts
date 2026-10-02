@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { IRouter } from 'express';
+import type { IRouter, Response, NextFunction } from 'express';
 import type { AuthRequest } from '../middleware/auth';
 import * as calendarService from '../services/google-calendar.service';
 import { verifyState } from '../services/google-calendar.service';
@@ -19,16 +19,22 @@ router.get('/auth-url', (req: AuthRequest, res) => {
   res.json({ url });
 });
 
-router.get('/callback', async (req, res, next) => {
+// B-107 — exported so index.ts can register it directly before the auth wall
+// (`app.get(path, router)` handed the router the unstripped URL → no match).
+// Runs behind optionalAuthMiddleware: if a cookie IS present, the signed
+// state's userId must match it.
+export async function calendarCallback(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const code = req.query.code as string;
     const state = req.query.state as string;
     const userId = verifyState(state, 'calendar');
-    if (!code || !userId) { res.status(400).send('Invalid OAuth state'); return; }
+    if (!code || !userId) { res.status(400).send('Invalid or expired OAuth state'); return; }
+    if (req.auth && req.auth.userId !== userId) { res.status(403).send('OAuth state does not match the signed-in user'); return; }
     await calendarService.handleCallback(userId, code);
     res.redirect('/settings?calendar=connected');
   } catch (err) { next(err); }
-});
+}
+router.get('/callback', calendarCallback);
 
 router.get('/events', async (req: AuthRequest, res, next) => {
   try {

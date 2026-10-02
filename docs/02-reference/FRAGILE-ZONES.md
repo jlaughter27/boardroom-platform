@@ -45,14 +45,17 @@ The middleware stack in `packages/boardroom-ai/server/src/index.ts` has a strict
 ### The sequence (do not reorder):
 
 ```
-1. Global middleware (helmet, CORS, JSON parser, cookie parser)
+0. app.set('trust proxy', 1)  — before anything reads req.ip
+1. Global middleware (helmet, CORS, **Stripe webhook with express.raw()**, JSON parser, cookie parser)
 2. API prefix rewriting (/api/* → /*)
 3. Static file serving + SPA fallback (production only)
-4. Public routes (health, auth, OAuth callbacks)
+4. Public routes (health, auth, OAuth callbacks as direct handlers)
 5. Auth wall (JWT middleware)
 6. Protected routes (sessions, settings, etc.)
 7. Error handler (must be last)
 ```
+
+The stack lives in `server/src/app.ts` (`createApp()`); `index.ts` only calls it and listens. `server/tests/integration/app-middleware-order.test.ts` boots the real factory with `NODE_ENV=production` — run it after touching any of this.
 
 ### Why each position matters:
 
@@ -60,7 +63,11 @@ The middleware stack in `packages/boardroom-ai/server/src/index.ts` has a strict
 
 **Static serving BEFORE auth wall:** Browser requests for `/`, `/login`, CSS, JS, images all need to be served without JWT. If static serving moves below the auth wall, every page load returns `{"error":"unauthorized"}`.
 
-**SPA fallback route exclusion:** The wildcard SPA route (`*`) checks if the request path starts with known API prefixes (`/auth`, `/sessions`, `/health`, etc.) and calls `next()` instead of serving `index.html`. **If you add a new API route at the top level, add it to this exclusion list** or it will be masked by the SPA fallback.
+**SPA fallback predicate (no more prefix list):** The wildcard SPA route (`*`) serves `index.html` only when ALL of these hold: the method is `GET`; `req.originalUrl` does **not** start with `/api/` (the prefix strip in step 2 rewrites `req.url`, so `req.path` can no longer tell you — this was audit finding B-102, where every entity GET returned HTML in production); and `req.accepts(['json','html']) === 'html'`, i.e. the client prefers HTML (browser navigation) over JSON (`fetch()` sends `application/json` or bare `*/*`). That last check is what lets `/integrations` and `/admin` be a client route on refresh **and** an API prefix for fetch calls. There is **no exclusion list to maintain** — a new top-level API route just works, provided the client calls it under `/api/`. Do not reintroduce a `startsWith()` prefix list.
+
+**Stripe webhook BEFORE `express.json()` and BEFORE the auth wall:** `stripe.webhooks.constructEvent` needs the raw bytes and Stripe sends no cookie. `app.post('/subscription/webhook', express.raw(...))` (and the `/api/...` spelling) is registered in step 1, before the JSON parser consumes the body and before step 5 would 401 it (B-103).
+
+**OAuth callbacks as direct handlers:** `app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback)` — not `app.get(path, router)`, which hands the router the unstripped URL and never matches (B-107).
 
 **Cookie parser BEFORE auth middleware:** Auth reads JWT from `req.cookies.boardroom_token`. Without cookie parser running first, `req.cookies` is undefined.
 
@@ -165,8 +172,8 @@ Every Zod schema in `packages/shared/src/schemas/` has a corresponding TypeScrip
 | Dockerfile `pnpm deploy --legacy --prod` | Don't change flags |
 | Dockerfile `npm install -g prisma@6.19.3` | Don't upgrade without testing schema compat |
 | `docker-entrypoint.sh` extension order | Extensions before db push, always |
-| `index.ts` middleware stack (boardroom-ai) | Don't reorder blocks 1-7 |
-| SPA fallback route exclusion list | Update when adding new top-level API routes |
+| `app.ts` middleware stack (boardroom-ai) | Don't reorder blocks 0-7; run `app-middleware-order.test.ts` |
+| SPA fallback predicate | GET + `originalUrl` not `/api/*` + prefers HTML. No prefix list — never add one back |
 | Cookie name `boardroom_token` | Grep all usages before changing |
 | `OMNIMIND_API_KEY` | Must match in both services |
 | Shared package `composite: true` | Required for project references |

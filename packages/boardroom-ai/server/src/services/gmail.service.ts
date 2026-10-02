@@ -4,6 +4,7 @@ import type { EmailSummary, EmailExtraction, EmailMemoryProposal } from '@boardr
 import { MODEL_MAP, EmailMemoryProposalsSchema } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
 import { signState } from './google-calendar.service';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -136,14 +137,9 @@ export async function extractMemoriesFromEmail(userId: string, emailId: string):
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
-  const { readFileSync } = await import('fs');
-  const { resolve } = await import('path');
-  let systemPrompt: string;
-  try {
-    systemPrompt = readFileSync(resolve(__dirname, '../../../../../docs/prompts/email-extractor.system.md'), 'utf-8');
-  } catch {
-    systemPrompt = 'Extract important information from this email. Return JSON array of memory proposals.';
-  }
+  // B-109: prompts live in docs/prompts and load via prompt-loader (rule 5).
+  // No inline fallback — a missing prompt file must fail loudly.
+  const systemPrompt = loadSystemPrompt('email-extractor');
 
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({

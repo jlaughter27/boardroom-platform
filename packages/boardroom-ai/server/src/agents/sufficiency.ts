@@ -5,14 +5,15 @@ import { loadSystemPrompt } from '../lib/prompt-loader';
 
 export async function checkSufficiency(
   question: string,
-  client: Anthropic
+  client: Anthropic,
+  signal?: AbortSignal
 ): Promise<SufficiencyScore> {
   const response = await client.messages.create({
     model: MODEL_MAP.haiku,
     max_tokens: 500,
     system: loadSystemPrompt('sufficiency-check'),
     messages: [{ role: 'user', content: question }],
-  });
+  }, { signal });
 
   const text = response.content[0];
   if (!text || text.type !== 'text') {

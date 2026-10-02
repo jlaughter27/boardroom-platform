@@ -250,10 +250,21 @@ export class OmniMindClient {
     );
   }
 
-  async getUserByEmail(email: string) {
-    return this.request<{ id: string; email: string; name: string; passwordHash: string; teamId: string } | null>(
-      'POST', '/auth/login', undefined, { email }
-    );
+  /**
+   * B-115 — Credential verification goes through the resilient client
+   * (timeout/retry/breaker/x-request-id). OmniMind performs the bcrypt
+   * compare server-side; passwordHash never crosses the seam.
+   * Returns null on 401 (invalid credentials); rethrows anything else.
+   */
+  async verifyCredentials(email: string, password: string) {
+    try {
+      return await this.request<{ id: string; email: string; name: string; teamId: string }>(
+        'POST', '/auth/verify', undefined, { email, password }
+      );
+    } catch (err: unknown) {
+      if ((err as { status?: number }).status === 401) return null;
+      throw err;
+    }
   }
 
   async getUserById(id: string) {
@@ -333,6 +344,18 @@ export class OmniMindClient {
 
   async deleteTask(userId: string, id: string) {
     return this.request('DELETE', `/tasks/${id}`, userId);
+  }
+
+  // Entity hierarchy links (C-111). PROPOSED OmniMind contract — OmniMind does
+  // not expose these yet (only the GoalProjectLink / ProjectTaskLink Prisma
+  // models exist). Until the omnimind-api side lands, these return the
+  // upstream 404 unchanged (B-106 pass-through).
+  async linkGoalProject(userId: string, goalId: string, projectId: string) {
+    return this.request('POST', `/goals/${goalId}/projects/${projectId}`, userId);
+  }
+
+  async linkProjectTask(userId: string, projectId: string, taskId: string) {
+    return this.request('POST', `/projects/${projectId}/tasks/${taskId}`, userId);
   }
 
   // User profile
@@ -490,8 +513,9 @@ export class OmniMindClient {
   }
 
   // Admin (no userId — cross-agent views)
-  async getAdminStats() {
-    return this.request('GET', '/admin/stats');
+  async getAdminStats(params?: Record<string, string>) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/stats${qs}`);
   }
 
   async getAdminAgents() {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateCacheKey, getCached, setCached } from '../../src/services/prompt-cache';
+import { generateCacheKey, getCached, setCached } from '../services/prompt-cache';
 import type { PersonaResponse } from '@boardroom/shared';
 
 const mockResponse: PersonaResponse = {

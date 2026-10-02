@@ -20,7 +20,8 @@ export async function extractMemories(
   question: string,
   personaResponses: Map<string, PersonaResponse>,
   synthesis: SynthesisReport | null,
-  client: Anthropic
+  client: Anthropic,
+  signal?: AbortSignal
 ): Promise<ExtractionResult> {
   const prompt = loadPrompt('memory-extractor' as any);
   const model = MODEL_MAP[PERSONA_CONFIGS.doer.model]; // Haiku for extraction
@@ -42,7 +43,7 @@ export async function extractMemories(
       role: 'user',
       content: `## Session Question\n${question}\n\n## Persona Perspectives\n${perspectivesSummary}\n\n${synthesisSummary}\n\nExtract memory proposals. Return JSON array of MemoryProposal objects.`,
     }],
-  });
+  }, { signal });
 
   const text = response.content[0];
   if (!text || text.type !== 'text') {

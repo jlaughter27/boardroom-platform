@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 // We need to re-import fresh module state for each test
 // Use dynamic imports or accept shared state across tests in a single run
 
-import { trackCall, getSessionCost } from '../../src/services/cost-tracker';
+import { trackCall, getSessionCost } from '../services/cost-tracker';
 
 describe('cost-tracker', () => {
   // Use unique session IDs per test to avoid shared state issues

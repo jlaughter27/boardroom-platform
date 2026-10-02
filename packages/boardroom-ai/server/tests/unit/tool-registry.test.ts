@@ -8,13 +8,15 @@ import { TOOL_LIMITS } from '@boardroom/shared';
 import { toolRegistry } from '../../src/tools';
 
 describe('tool-registry', () => {
-  it('getToolsForPersona returns calculator + document_read for technician', () => {
+  it('getToolsForPersona returns calculator + web_search for technician', () => {
     const tools = toolRegistry.getToolsForPersona('technician');
     const names = tools.map(t => t.name).sort();
     expect(names).toContain('calculator');
-    expect(names).toContain('document_read');
     expect(names).toContain('web_search');
-    expect(names).toHaveLength(3);
+    // B-114: document_read is a stub and is deliberately NOT registered, so it
+    // is never advertised even though TOOL_PERMISSIONS still lists it.
+    expect(names).not.toContain('document_read');
+    expect(names).toHaveLength(2);
   });
 
   it('getToolsForPersona returns empty for optimist (no tools)', () => {
@@ -22,10 +24,10 @@ describe('tool-registry', () => {
     expect(tools).toHaveLength(0);
   });
 
-  it('getToolsForPersona returns all 3 tools for ceo', () => {
+  it('getToolsForPersona returns both registered tools for ceo', () => {
     const tools = toolRegistry.getToolsForPersona('ceo');
     const names = tools.map(t => t.name).sort();
-    expect(names).toEqual(['calculator', 'document_read', 'web_search']);
+    expect(names).toEqual(['calculator', 'web_search']);
   });
 
   it('execute respects session invocation limit', async () => {

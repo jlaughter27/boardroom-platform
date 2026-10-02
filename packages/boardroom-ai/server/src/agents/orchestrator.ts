@@ -9,6 +9,7 @@ import { initSSE, sendSSE } from './streaming';
 import { loadPrompt } from '../lib/prompt-loader';
 import type { OmniMindClient } from '../services/omnimind-client';
 import { toolRegistry } from '../tools';
+import { getContextRequest } from '../personas/context-strategy';
 import { logger } from '../lib/logger';
 
 function formatPersonaForCEO(name: string, response: PersonaResponse, isCustom: boolean = false): string {
@@ -54,11 +55,21 @@ export class CEOOrchestrator {
     this.client = new Anthropic({ apiKey });
   }
 
-  async dispatch(session: SessionState, res: Response): Promise<void> {
+  async dispatch(session: SessionState, res: Response, signal?: AbortSignal): Promise<void> {
     initSSE(res);
     const start = Date.now();
     const modeConfig = MODE_CONFIGS[session.mode];
     const personaIds = modeConfig.personas as PersonaId[];
+
+    // B-112 — quick-take: no persona fan-out; the CEO synthesises directly over
+    // the question. Emits the SAME `synthesis_complete` event the synthesize
+    // route emits, then `dispatch_complete` (CONTRACT with QuickTakeWidget).
+    if (personaIds.length === 0 && modeConfig.includesCEO) {
+      await this.runSynthesis(session, res, signal);
+      sendSSE(res, { type: 'dispatch_complete', personaCount: 0, durationMs: Date.now() - start });
+      res.end();
+      return;
+    }
 
     // Fetch custom personas for this user
     let activeCustom: CustomPersona[] = [];
@@ -71,11 +82,11 @@ export class CEOOrchestrator {
 
     // Built-in persona promises
     const builtInPromises = personaIds.map(async (personaId) => {
-      const contextRes = await this.omnimind.getContextForPersona({
-        query: session.question,
-        persona: personaId,
-        userId: session.userId,
-      }) as { items: import('@boardroom/shared').ContextItem[] };
+      // B-114 — per-persona context strategy (maxItems cap + entity focus) is
+      // now actually sent to OmniMind instead of being computed and dropped.
+      const contextRes = await this.omnimind.getContextForPersona(
+        getContextRequest(personaId, session.question, session.userId),
+      ) as { items: import('@boardroom/shared').ContextItem[] };
 
       const config = PERSONA_CONFIGS[personaId];
       const prompt = loadPrompt(personaId);
@@ -91,7 +102,7 @@ export class CEOOrchestrator {
         sendSSE(res, { type: 'persona_start', personaId, model: config.model });
         try {
           const { response, toolInvocations } = await agent.reasonWithTools(
-            session.question, contextRes.items, tools, toolExecutor
+            session.question, contextRes.items, tools, toolExecutor, 3, signal
           );
           sendSSE(res, { type: 'persona_complete', personaId, response, toolInvocations });
           return response;
@@ -103,16 +114,14 @@ export class CEOOrchestrator {
       }
 
       // No tools — use existing streaming path (unchanged)
-      return agent.reasonStreaming(session.question, contextRes.items, res, personaId);
+      return agent.reasonStreaming(session.question, contextRes.items, res, personaId, signal);
     });
 
     // Custom persona promises
     const customPromises = activeCustom.map(async (cp: CustomPersona) => {
-      const contextRes = await this.omnimind.getContextForPersona({
-        query: session.question,
-        persona: cp.personaId,
-        userId: session.userId,
-      }) as { items: import('@boardroom/shared').ContextItem[] };
+      const contextRes = await this.omnimind.getContextForPersona(
+        getContextRequest(cp.personaId as PersonaId, session.question, session.userId),
+      ) as { items: import('@boardroom/shared').ContextItem[] };
 
       const config = {
         id: cp.personaId as PersonaId,
@@ -135,21 +144,21 @@ export class CEOOrchestrator {
         const toolExecutor = (name: string, input: Record<string, unknown>) =>
           toolRegistry.execute(name, input, session.id);
 
-        res.write(`data: ${JSON.stringify({ type: 'persona_start', personaId: cp.personaId, model: cp.modelTier, isCustom: true })}\n\n`);
+        sendSSE(res, { type: 'persona_start', personaId: cp.personaId, model: cp.modelTier, isCustom: true });
         try {
           const { response, toolInvocations } = await agent.reasonWithTools(
-            session.question, contextRes.items, allowedTools, toolExecutor
+            session.question, contextRes.items, allowedTools, toolExecutor, 3, signal
           );
-          res.write(`data: ${JSON.stringify({ type: 'persona_complete', personaId: cp.personaId, response, toolInvocations, isCustom: true })}\n\n`);
+          sendSSE(res, { type: 'persona_complete', personaId: cp.personaId, response, toolInvocations, isCustom: true });
           return response;
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
-          res.write(`data: ${JSON.stringify({ type: 'persona_error', personaId: cp.personaId, error: message, isCustom: true })}\n\n`);
+          sendSSE(res, { type: 'persona_error', personaId: cp.personaId, error: message, isCustom: true });
           return null;
         }
       }
 
-      return agent.reasonStreaming(session.question, contextRes.items, res, cp.personaId as PersonaId);
+      return agent.reasonStreaming(session.question, contextRes.items, res, cp.personaId as PersonaId, signal);
     });
 
     // Combine all promises
@@ -178,9 +187,23 @@ export class CEOOrchestrator {
     res.end();
   }
 
-  async synthesize(session: SessionState, res: Response): Promise<void> {
+  async synthesize(session: SessionState, res: Response, signal?: AbortSignal): Promise<void> {
     initSSE(res);
+    await this.runSynthesis(session, res, signal);
+    res.end();
+  }
 
+  /**
+   * CEO synthesis over whatever persona responses the session holds (zero for
+   * quick-take). Streams `synthesis_start` → `delta`* → `synthesis_complete`
+   * (or `error`). Does NOT init or end the SSE response — callers do that so
+   * dispatch (quick-take) and synthesize can share it.
+   *
+   * B-105: the former `reasonWithTools` CEO pre-pass (which always threw
+   * FALLBACK_TO_STREAMING and doubled CEO cost/latency) is gone — synthesis
+   * streams exactly once. Tool infrastructure is untouched.
+   */
+  private async runSynthesis(session: SessionState, res: Response, signal?: AbortSignal): Promise<void> {
     const formattedOutputs = Array.from(session.personaResponses.entries())
       .map(([id, resp]) => {
         const config = PERSONA_CONFIGS[id as BuiltInPersonaId];
@@ -218,43 +241,10 @@ export class CEOOrchestrator {
 
     sendSSE(res, { type: 'synthesis_start', model: 'sonnet' });
 
-    // CEO has tool access — use tool-enabled path if tools available
-    const ceoTools = toolRegistry.getToolsForPersona('ceo');
-    const userContent = `## Original Question\n${session.question}\n\n## Persona Perspectives\n${formattedOutputs}${outcomeContext}${patternContext}\n\nSynthesize into a SynthesisReport JSON. No markdown wrapping.`;
+    const perspectives = formattedOutputs
+      || '(No persona perspectives — this is a quick take. Analyze the question directly and still complete every SynthesisReport field.)';
+    const userContent = `## Original Question\n${session.question}\n\n## Persona Perspectives\n${perspectives}${outcomeContext}${patternContext}\n\nSynthesize into a SynthesisReport JSON. No markdown wrapping.`;
 
-    try {
-      if (ceoTools.length > 0) {
-        // Tool-enabled non-streaming synthesis
-        const ceoConfig = PERSONA_CONFIGS.ceo;
-        const agent = new Agent(ceoConfig, this.client, prompt);
-        const toolExecutor = (name: string, input: Record<string, unknown>) =>
-          toolRegistry.execute(name, input, session.id);
-
-        // Build context items from persona outputs for the agent interface
-        const contextItems: import('@boardroom/shared').ContextItem[] = [{
-          source: 'structured',
-          type: 'decision',
-          id: session.id,
-          content: formattedOutputs,
-          relevanceScore: 1.0,
-          whyIncluded: 'Synthesized persona outputs for CEO agent',
-        }];
-
-        const { response } = await agent.reasonWithTools(
-          session.question, contextItems, ceoTools, toolExecutor
-        );
-
-        // The CEO reasonWithTools returns PersonaResponse — we need SynthesisReport
-        // Fall back to direct API call for proper schema validation
-        // For v1, use streaming path with tools disabled for synthesis
-        // (CEO tool_use is primarily valuable in dispatch, not synthesis)
-        throw new Error('FALLBACK_TO_STREAMING');
-      }
-    } catch (toolErr) {
-      // Fall through to streaming path (either intentional fallback or tool error)
-    }
-
-    // Streaming synthesis path (existing behavior)
     try {
       const stream = await this.client.messages.stream({
         model,
@@ -264,7 +254,7 @@ export class CEOOrchestrator {
           role: 'user',
           content: userContent,
         }],
-      });
+      }, { signal });
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -286,11 +276,9 @@ export class CEOOrchestrator {
       const message = error instanceof Error ? error.message : 'Synthesis failed';
       sendSSE(res, { type: 'error', error: message });
     }
-
-    res.end();
   }
 
-  async runQuestionnaire(session: SessionState): Promise<QuestionnaireResponse> {
+  async runQuestionnaire(session: SessionState, signal?: AbortSignal): Promise<QuestionnaireResponse> {
     const config = PERSONA_CONFIGS.questionnaire;
     const prompt = loadPrompt('questionnaire');
 
@@ -299,7 +287,7 @@ export class CEOOrchestrator {
       max_tokens: config.maxOutputTokens,
       system: prompt,
       messages: [{ role: 'user', content: `## Question\n${session.question}\n\nReturn QuestionnaireResponse JSON.` }],
-    });
+    }, { signal });
 
     const text = response.content[0];
     if (!text || text.type !== 'text') throw new Error('Empty questionnaire response');
@@ -307,7 +295,7 @@ export class CEOOrchestrator {
     return QuestionnaireResponseSchema.parse(JSON.parse(jsonStr)) as QuestionnaireResponse;
   }
 
-  async runDoer(session: SessionState): Promise<unknown> {
+  async runDoer(session: SessionState, signal?: AbortSignal): Promise<unknown> {
     const config = PERSONA_CONFIGS.doer;
     const prompt = loadPrompt('doer');
 
@@ -321,7 +309,7 @@ export class CEOOrchestrator {
         role: 'user',
         content: `## Original Question\n${session.question}\n\n## CEO Synthesis\n${synthesisContext}\n\nGenerate task breakdown JSON.`,
       }],
-    });
+    }, { signal });
 
     const text = response.content[0];
     if (!text || text.type !== 'text') throw new Error('Empty doer response');

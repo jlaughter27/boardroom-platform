@@ -4,12 +4,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { AuthRequest } from '../middleware/auth';
 import { MODEL_MAP, ExtractedGoalsSchema, ExtractedProjectsSchema } from '@boardroom/shared';
 import { loadSystemPrompt } from '../lib/prompt-loader';
+import { llmRateLimiter } from '../middleware/llm-rate-limiter';
 import { omnimindClient } from '../services/omnimind-client';
 
 const router: IRouter = Router();
 
 // POST /onboarding/extract-goals — parse goals from freeform text
-router.post('/extract-goals', async (req: AuthRequest, res, next) => {
+router.post('/extract-goals', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
     const { text } = req.body;
     if (!text || typeof text !== 'string') {
@@ -39,7 +40,7 @@ router.post('/extract-goals', async (req: AuthRequest, res, next) => {
 });
 
 // POST /onboarding/extract-projects — parse projects from freeform text
-router.post('/extract-projects', async (req: AuthRequest, res, next) => {
+router.post('/extract-projects', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
     const { text } = req.body;
     if (!text || typeof text !== 'string') {

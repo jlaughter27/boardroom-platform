@@ -97,10 +97,26 @@ async function extractFromText(text: string): Promise<unknown> {
 // (Content-Type application/json with { text: "..." }). Either path leads
 // to the same extraction.
 // ---------------------------------------------------------------------------
+function looksLikePdf(file: { mimetype?: string; originalname?: string; buffer: Buffer }): boolean {
+  if (file.mimetype === 'application/pdf') return true;
+  if (/\.pdf$/i.test(file.originalname ?? '')) return true;
+  return file.buffer.subarray(0, 5).toString('latin1') === '%PDF-';
+}
+
 router.post('/doc', upload.single('file'), async (req: AuthRequest, res, next) => {
   try {
     let text = '';
     if (req.file) {
+      // B-117 — no PDF parser on the server; PDF bytes must not be sent to
+      // Claude as UTF-8 "text". Reject clearly so the client can ask for a
+      // .txt/.md export (or pasted text) instead.
+      if (looksLikePdf(req.file)) {
+        res.status(415).json({
+          error: 'unsupported_media_type',
+          message: 'PDF uploads are not supported yet. Export the document as plain text or Markdown (.txt/.md), or paste the text directly.',
+        });
+        return;
+      }
       text = req.file.buffer.toString('utf-8');
     } else if (typeof req.body?.text === 'string') {
       text = req.body.text;

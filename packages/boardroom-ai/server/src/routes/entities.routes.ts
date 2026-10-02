@@ -7,6 +7,27 @@ import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { omnimindClient } from '../services/omnimind-client';
+import {
+  CreateGoalRequestSchema, UpdateGoalRequestSchema,
+  CreateProjectRequestSchema, UpdateProjectRequestSchema,
+  CreateTaskRequestSchema, UpdateTaskRequestSchema,
+  CreatePersonRequestSchema, UpdatePersonRequestSchema,
+  CreateMemoryRequestSchema, UpdateMemoryRequestSchema,
+} from '@boardroom/shared';
+
+// B-113 — local schemas where shared has none
+const CompleteReviewBodySchema = z.object({
+  outcome: z.string().max(5000).optional(),
+  outcomeRating: z.number().int().min(1).max(5).optional(),
+  lessons: z.string().max(5000).optional(),
+  notes: z.string().max(5000).optional(),
+}).passthrough();
+
+const CreateMemoryLinkBodySchema = z.object({
+  entityType: z.string().min(1).max(50),
+  entityId: z.string().min(1).max(200),
+  linkType: z.string().max(50).optional(),
+});
 
 const UpdateProfileSchema = z.object({
   role: z.string().max(200).optional(),
@@ -36,14 +57,14 @@ router.get('/goals', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/goals', async (req: AuthRequest, res, next) => {
+router.post('/goals', validateBody(CreateGoalRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createGoal(req.auth!.userId, req.body);
     res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
-router.patch('/goals/:id', async (req: AuthRequest, res, next) => {
+router.patch('/goals/:id', validateBody(UpdateGoalRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateGoal(req.auth!.userId, req.params.id, req.body);
     res.json(data);
@@ -54,6 +75,17 @@ router.delete('/goals/:id', async (req: AuthRequest, res, next) => {
   try {
     await omnimindClient.deleteGoal(req.auth!.userId, req.params.id);
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// C-111 — hierarchy links. The client creates projects under goals and tasks
+// under projects; without these the created entities are orphans (no
+// GoalProjectLink / ProjectTaskLink row). Proxied 1:1 to OmniMind, which owns
+// the link tables. Responds with OmniMind's body (201 on create).
+router.post('/goals/:goalId/projects/:projectId', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.linkGoalProject(req.auth!.userId, req.params.goalId, req.params.projectId);
+    res.status(201).json(data ?? { status: 'linked' });
   } catch (err) { next(err); }
 });
 
@@ -68,14 +100,14 @@ router.get('/projects', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/projects', async (req: AuthRequest, res, next) => {
+router.post('/projects', validateBody(CreateProjectRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createProject(req.auth!.userId, req.body);
     res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
-router.patch('/projects/:id', async (req: AuthRequest, res, next) => {
+router.patch('/projects/:id', validateBody(UpdateProjectRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateProject(req.auth!.userId, req.params.id, req.body);
     res.json(data);
@@ -86,6 +118,13 @@ router.delete('/projects/:id', async (req: AuthRequest, res, next) => {
   try {
     await omnimindClient.deleteProject(req.auth!.userId, req.params.id);
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+router.post('/projects/:projectId/tasks/:taskId', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.linkProjectTask(req.auth!.userId, req.params.projectId, req.params.taskId);
+    res.status(201).json(data ?? { status: 'linked' });
   } catch (err) { next(err); }
 });
 
@@ -100,14 +139,14 @@ router.get('/tasks', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/tasks', async (req: AuthRequest, res, next) => {
+router.post('/tasks', validateBody(CreateTaskRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createTask(req.auth!.userId, req.body);
     res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
-router.patch('/tasks/:id', async (req: AuthRequest, res, next) => {
+router.patch('/tasks/:id', validateBody(UpdateTaskRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateTask(req.auth!.userId, req.params.id, req.body);
     res.json(data);
@@ -132,14 +171,14 @@ router.get('/people', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/people', async (req: AuthRequest, res, next) => {
+router.post('/people', validateBody(CreatePersonRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createPerson(req.auth!.userId, req.body);
     res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
-router.patch('/people/:id', async (req: AuthRequest, res, next) => {
+router.patch('/people/:id', validateBody(UpdatePersonRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updatePerson(req.auth!.userId, req.params.id, req.body);
     res.json(data);
@@ -221,14 +260,14 @@ router.get('/memories/:id', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/memories', async (req: AuthRequest, res, next) => {
+router.post('/memories', validateBody(CreateMemoryRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createMemory(req.auth!.userId, req.body);
     res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
-router.patch('/memories/:id', async (req: AuthRequest, res, next) => {
+router.patch('/memories/:id', validateBody(UpdateMemoryRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateMemory(req.auth!.userId, req.params.id, req.body);
     res.json(data);
@@ -262,7 +301,7 @@ router.get('/outcome-reviews/pending', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/outcome-reviews/:id/complete', async (req: AuthRequest, res, next) => {
+router.post('/outcome-reviews/:id/complete', validateBody(CompleteReviewBodySchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.completeReview(req.auth!.userId, req.params.id, req.body);
     res.json(data);
@@ -291,7 +330,7 @@ router.get('/relationships/graph', async (req: AuthRequest, res, next) => {
 // Memory Entity Links
 // ---------------------------------------------------------------------------
 
-router.post('/memories/:id/links', async (req: AuthRequest, res, next) => {
+router.post('/memories/:id/links', validateBody(CreateMemoryLinkBodySchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createMemoryLink(req.auth!.userId, req.params.id, req.body);
     res.status(201).json(data);
