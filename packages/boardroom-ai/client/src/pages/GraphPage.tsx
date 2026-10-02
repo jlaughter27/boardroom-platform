@@ -8,6 +8,7 @@ import { EmptyState, Skeleton } from '../components/ui';
 import { KnowledgeGraphView, type KnowledgeGraphViewHandle } from '../components/graph/KnowledgeGraphView';
 import { GraphControls, type GraphFilters } from '../components/graph/GraphControls';
 import { NodeInspector } from '../components/graph/NodeInspector';
+import { UnlinkedMentionsPanel } from '../components/graph/UnlinkedMentionsPanel';
 import { NODE_TYPES } from '../components/graph/graph-theme';
 import { cn } from '../lib/cn';
 
@@ -60,6 +61,8 @@ export default function GraphPage() {
   const [filters, setFiltersState] = useState<GraphFilters>(loadFilters);
   const [selectedId, setSelectedId] = useState<string | null>(params.get('focus'));
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionCount, setMentionCount] = useState<number | null>(null);
   const viewRef = useRef<KnowledgeGraphViewHandle>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -75,6 +78,11 @@ export default function GraphPage() {
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  /** Silent refetch after a link is created (keeps the current render while loading). */
+  const refetch = useCallback(async () => {
+    try { setGraph(await api.getKnowledgeGraph({ memoryLimit: 200 })); } catch { /* keep the old graph */ }
+  }, []);
 
   // ── Keep ?focus= in the URL so a node is shareable / reload-safe ──────────
   useEffect(() => {
@@ -189,11 +197,22 @@ export default function GraphPage() {
             )}
           </p>
         </div>
-        {hovered && !selected && (
-          <div className="hidden text-xs text-muted-foreground md:block">
-            Hovering <span className="text-foreground">{hovered.label}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {hovered && !selected && (
+            <div className="hidden text-xs text-muted-foreground md:block">
+              Hovering <span className="text-foreground">{hovered.label}</span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowMentions((v) => !v)}
+            aria-pressed={showMentions}
+            className={cn('h-8 rounded-md border px-3 text-xs', showMentions ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground')}
+            title="Memories that mention a person, project or goal without being linked to it"
+          >
+            Unlinked mentions{mentionCount !== null ? ` · ${mentionCount}` : ''}
+          </button>
+        </div>
       </div>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
@@ -246,7 +265,7 @@ export default function GraphPage() {
               depthById={depthById}
               className="h-full min-w-0 flex-1"
             />
-            {selected && (
+            {selected ? (
               <NodeInspector
                 node={selected}
                 nodesById={nodesById}
@@ -254,12 +273,24 @@ export default function GraphPage() {
                 onSelect={pick}
                 onFocusLocal={() => setFilters({ ...filters, depth: filters.depth === 0 ? 2 : filters.depth })}
                 onClose={() => setSelectedId(null)}
+                onLinked={refetch}
                 className={cn(
                   'w-full max-w-[340px] shrink-0 border-l border-border',
                   'max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[55%] max-md:max-w-none max-md:border-l-0 max-md:border-t',
                 )}
               />
-            )}
+            ) : showMentions ? (
+              <UnlinkedMentionsPanel
+                onLinked={refetch}
+                onCount={setMentionCount}
+                onSelectNode={pick}
+                onClose={() => setShowMentions(false)}
+                className={cn(
+                  'w-full max-w-[340px] shrink-0 border-l border-border',
+                  'max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[55%] max-md:max-w-none max-md:border-l-0 max-md:border-t',
+                )}
+              />
+            ) : null}
           </div>
         )}
       </div>

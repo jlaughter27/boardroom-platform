@@ -13,6 +13,7 @@ import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn, staggerContainer, staggerItem } from '../lib/motion';
 import { useNavigate } from 'react-router-dom';
 import { AINudge } from '../components/shared/AINudge';
+import { LlmCostWidget } from '../components/dashboard/LlmCostWidget';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -187,6 +188,9 @@ export default function DashboardPage() {
             </motion.div>
           </div>
         )}
+
+        {/* LLM cost — admin only (Phase 6) */}
+        {user?.isAdmin && <LlmCostWidget />}
 
         {configuratorOpen && (
           <DashboardConfigurator

@@ -1,15 +1,49 @@
-import { useState } from 'react';
-import type { OutcomeReviewNudge } from '@boardroom/shared';
+import { useEffect, useMemo, useState } from 'react';
+import type { Decision, OutcomeReviewNudge } from '@boardroom/shared';
 import { Modal } from '../shared/Modal';
 import { completeReview } from '../../lib/api';
+import { useEntitiesStore } from '../../stores/entities.store';
 
 interface OutcomeReviewModalProps {
   nudge: OutcomeReviewNudge;
+  /** Optional: pass the decision directly; otherwise it is looked up by `nudge.decisionId` in the entities store. */
+  decision?: Decision | null;
   onComplete: () => void;
   onClose: () => void;
 }
 
-export function OutcomeReviewModal({ nudge, onComplete, onClose }: OutcomeReviewModalProps) {
+/**
+ * The forecast captured at commit time (Phase 6). Shown ABOVE the rating so
+ * the user judges the outcome against what they predicted, not against how
+ * they feel about it now.
+ */
+export function ForecastRecap({ expectedOutcome, probabilitySuccess }: { expectedOutcome: string | null; probabilitySuccess: number | null }) {
+  if (!expectedOutcome && probabilitySuccess === null) return null;
+  const pct = probabilitySuccess !== null ? Math.round(probabilitySuccess * 100) : null;
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 space-y-1" data-testid="forecast-recap">
+      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Your forecast at the time</p>
+      {expectedOutcome && <p className="text-sm text-foreground">{expectedOutcome}</p>}
+      {pct !== null && (
+        <p className="text-sm text-muted-foreground">
+          You forecast <span className="font-medium text-foreground tabular-nums">{pct} %</span> chance of success.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function OutcomeReviewModal({ nudge, decision: decisionProp, onComplete, onClose }: OutcomeReviewModalProps) {
+  const { decisions, fetchDecisions } = useEntitiesStore();
+  useEffect(() => {
+    if (!decisionProp && decisions.length === 0) void fetchDecisions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const decision = useMemo(
+    () => decisionProp ?? decisions.find((d) => d.id === nudge.decisionId) ?? null,
+    [decisionProp, decisions, nudge.decisionId],
+  );
+
   const [outcome, setOutcome] = useState('');
   const [rating, setRating] = useState(3);
   const [wouldDecideSame, setWouldDecideSame] = useState<boolean | null>(null);
@@ -51,7 +85,15 @@ export function OutcomeReviewModal({ nudge, onComplete, onClose }: OutcomeReview
         <div className="rounded-lg bg-card px-4 py-3">
           <p className="text-sm text-muted-foreground">Decision</p>
           <p className="text-sm font-medium text-foreground">{nudge.decisionTitle}</p>
+          {decision?.chosenPath && (
+            <p className="text-xs text-muted-foreground mt-1">Chosen path: {decision.chosenPath}</p>
+          )}
         </div>
+
+        {/* Original prediction — before the rating, so the review scores the forecast */}
+        {decision && (
+          <ForecastRecap expectedOutcome={decision.expectedOutcome ?? null} probabilitySuccess={decision.probabilitySuccess ?? null} />
+        )}
 
         {/* Outcome description */}
         <div>

@@ -3,6 +3,7 @@
 // Model assignments, token budgets, and prompt file paths for each persona.
 
 import type { BuiltInPersonaId, PersonaConfig } from '../types/persona.types';
+import { MODEL_IDS } from './model-config';
 
 /**
  * Configuration for each BoardRoom persona.
@@ -28,19 +29,18 @@ export const PERSONA_CONFIGS: Readonly<Record<BuiltInPersonaId, PersonaConfig>> 
 
 /**
  * Maps model tier names to full Anthropic model identifiers.
+ *
+ * Phase 6 (2026-10-02): resolves through `MODEL_IDS` in `constants/model-config.ts`
+ * — the single source of truth. The dated pins that used to live here are gone;
+ * prefer importing `MODEL_IDS` directly in new code.
  */
-export const MODEL_MAP = {
-  // Bug #3 — `claude-sonnet-4-6-20250514` was a typo that returned 404
-  // not_found_error on every Alternate dispatch, silently dropping the
-  // persona from the whole flow (surfaced after Bug #2 was fixed).
-  sonnet: 'claude-sonnet-4-5-20250929',
-  haiku: 'claude-haiku-4-5-20251001',
-} as const;
+export const MODEL_MAP: typeof MODEL_IDS = MODEL_IDS;
 
 /**
  * Cost per million tokens for each model tier (USD).
  *
- * Source: Anthropic pricing page (April 2026)
+ * @deprecated Phase 6 — use `MODEL_PRICING_USD_PER_MTOK` / `estimateCostUsd()`
+ * from `constants/model-config.ts` (current Sonnet 5.5 / Haiku 4.5 prices incl. cache).
  */
 export const MODEL_COSTS = {
   sonnet: { inputPerMTok: 3, outputPerMTok: 15 },

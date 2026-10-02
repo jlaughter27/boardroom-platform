@@ -1,22 +1,38 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
 import { ApiError } from '../lib/api';
-import type { PersonaResponse, SynthesisReport, SimulationResult } from '@boardroom/shared';
-import type { SufficiencyScore, UserMode, BoardRoomSSEEvent } from '@boardroom/shared';
+import type { PersonaResponse, SimulationResult, Decision } from '@boardroom/shared';
+import type { SufficiencyScore, BoardRoomSSEEvent } from '@boardroom/shared';
+import type {
+  ClientUserMode,
+  DecideSessionRequest,
+  ExtendedSynthesisReport,
+  Rebuttal,
+  SSERebuttalComplete,
+  SSERebuttalError,
+  SSERebuttalStart,
+} from '../types/debate';
 import { useToastStore } from '../components/ui/Toast';
 
 interface SessionState {
-  currentSession: { id: string; question: string; mode: UserMode } | null;
+  currentSession: { id: string; question: string; mode: ClientUserMode } | null;
   personaResponses: Record<string, PersonaResponse>;
   personaStreaming: Record<string, string>;
   streamingPersonas: Set<string>;
-  synthesis: SynthesisReport | null;
+  /** Debate round 2 — personas currently writing a rebuttal (`rebuttal_start`). */
+  rebuttingPersonas: Set<string>;
+  /** Debate round 2 — completed rebuttals keyed by personaId (`rebuttal_complete`). */
+  rebuttals: Record<string, Rebuttal>;
+  synthesis: ExtendedSynthesisReport | null;
   synthesisStreaming: string;
   isDispatching: boolean;
   isSynthesizing: boolean;
   sufficiency: SufficiencyScore | null;
   simulation: SimulationResult | null;
   isSimulating: boolean;
+  /** Decision committed from this session via `POST /sessions/:id/decide`. */
+  committedDecision: Decision | null;
+  isCommitting: boolean;
   /** Controller for whichever SSE stream (dispatch or synthesis) is in flight. */
   abortController: AbortController | null;
   error: string | null;
@@ -24,16 +40,43 @@ interface SessionState {
   errorStatus: number | null;
 
   clearError: () => void;
-  createSession: (question: string, mode: UserMode) => Promise<void>;
+  createSession: (question: string, mode: ClientUserMode) => Promise<void>;
   dispatch: () => Promise<void>;
   synthesize: () => Promise<void>;
   checkAmbiguity: () => Promise<void>;
   runSimulation: (chosenPath: string) => Promise<void>;
+  commitDecision: (input: DecideSessionRequest) => Promise<Decision | null>;
   reset: () => void;
 }
 
-// SSE dispatch events may include personaId on delta (server extension)
-type DispatchEvent = BoardRoomSSEEvent & Record<string, unknown>;
+// SSE dispatch events may include personaId on delta (server extension) and
+// the Phase 6 debate events, which are not yet part of BoardRoomSSEEvent.
+type DispatchEvent = (BoardRoomSSEEvent | SSERebuttalStart | SSERebuttalComplete | SSERebuttalError) & Record<string, unknown>;
+
+/** Pure reducer for the debate events so the store and tests share one path. */
+export function applyRebuttalEvent(
+  state: Pick<SessionState, 'rebuttingPersonas' | 'rebuttals'>,
+  event: SSERebuttalStart | SSERebuttalComplete | SSERebuttalError,
+): Pick<SessionState, 'rebuttingPersonas' | 'rebuttals'> {
+  if (event.type === 'rebuttal_start') {
+    return {
+      rebuttingPersonas: new Set([...state.rebuttingPersonas, event.personaId]),
+      rebuttals: state.rebuttals,
+    };
+  }
+  const rebutting = new Set(state.rebuttingPersonas);
+  rebutting.delete(event.personaId);
+  if (event.type === 'rebuttal_error') {
+    // The persona keeps its round-1 position; just stop showing "Rebutting…".
+    return { rebuttingPersonas: rebutting, rebuttals: state.rebuttals };
+  }
+  const { type: _type, ...rebuttal } = event;
+  void _type;
+  return {
+    rebuttingPersonas: rebutting,
+    rebuttals: { ...state.rebuttals, [event.personaId]: rebuttal },
+  };
+}
 
 /**
  * Map an error to a user-facing message + status (C-104). OmniMind 4xx now
@@ -61,6 +104,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   personaResponses: {},
   personaStreaming: {},
   streamingPersonas: new Set(),
+  rebuttingPersonas: new Set(),
+  rebuttals: {},
   synthesis: null,
   synthesisStreaming: '',
   isDispatching: false,
@@ -68,6 +113,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sufficiency: null,
   simulation: null,
   isSimulating: false,
+  committedDecision: null,
+  isCommitting: false,
   abortController: null,
   error: null,
   errorStatus: null,
@@ -88,10 +135,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         personaResponses: {},
         personaStreaming: {},
         streamingPersonas: new Set(),
+        rebuttingPersonas: new Set(),
+        rebuttals: {},
         synthesis: null,
         synthesisStreaming: '',
         sufficiency: null,
         simulation: null,
+        committedDecision: null,
+        isCommitting: false,
         error: null,
         errorStatus: null,
       });
@@ -165,9 +216,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             });
             break;
           }
+          case 'rebuttal_start':
+          case 'rebuttal_complete':
+          case 'rebuttal_error': {
+            set(state => applyRebuttalEvent(state, typed as SSERebuttalStart | SSERebuttalComplete | SSERebuttalError));
+            break;
+          }
           case 'synthesis_complete': {
             // quick-take mode synthesizes inline on the dispatch stream
-            set({ synthesis: typed.report as SynthesisReport });
+            set({ synthesis: typed.report as ExtendedSynthesisReport });
             break;
           }
           case 'error': {
@@ -212,7 +269,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             set(state => ({ synthesisStreaming: state.synthesisStreaming + event.text }));
             break;
           case 'synthesis_complete':
-            set({ synthesis: event.report as SynthesisReport, isSynthesizing: false });
+            set({ synthesis: event.report as ExtendedSynthesisReport, isSynthesizing: false });
             break;
           case 'error':
             set({ error: event.error, errorStatus: null, isSynthesizing: false });
@@ -267,6 +324,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  commitDecision: async (input) => {
+    const { currentSession } = get();
+    if (!currentSession) return null;
+    set({ isCommitting: true, error: null, errorStatus: null });
+    try {
+      const decision = await api.commitDecision(currentSession.id, input);
+      set({ committedDecision: decision, isCommitting: false });
+      useToastStore.getState().addToast('Decision committed', 'success');
+      return decision;
+    } catch (err: unknown) {
+      const { message, status } = describeSessionError(err, 'Could not commit decision');
+      useToastStore.getState().addToast(message, 'error');
+      set({ error: message, errorStatus: status, isCommitting: false });
+      return null;
+    }
+  },
+
   reset: () => {
     const { abortController } = get();
     if (abortController) {
@@ -277,6 +351,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       personaResponses: {},
       personaStreaming: {},
       streamingPersonas: new Set(),
+      rebuttingPersonas: new Set(),
+      rebuttals: {},
       synthesis: null,
       synthesisStreaming: '',
       isDispatching: false,
@@ -284,6 +360,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sufficiency: null,
       simulation: null,
       isSimulating: false,
+      committedDecision: null,
+      isCommitting: false,
       abortController: null,
       error: null,
       errorStatus: null,

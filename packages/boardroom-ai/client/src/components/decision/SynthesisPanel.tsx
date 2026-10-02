@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import type { SynthesisReport } from '@boardroom/shared';
+import type { ExtendedSynthesisReport } from '../../types/debate';
 import { Card, Badge } from '../ui';
 
 interface SynthesisPanelProps {
-  report?: SynthesisReport;
+  report?: ExtendedSynthesisReport;
   streamingText?: string;
   isStreaming: boolean;
 }
@@ -115,6 +115,36 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
             {report.assumptionsToMonitor.map((item, i) => (
               <Badge key={i} variant="warning">{item.assumption}</Badge>
             ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {(report.ledgerResolutions?.length ?? 0) > 0 && (
+        <CollapsibleSection title="Disagreements resolved">
+          <ul className="space-y-2" data-testid="ledger-resolutions">
+            {report.ledgerResolutions!.map((entry, i) => (
+              <li key={i} className="rounded-md border border-border bg-card p-3 text-sm">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Claim</div>
+                <p className="text-foreground">{entry.claim}</p>
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mt-2 mb-1">Resolution</div>
+                <p className="text-muted-foreground">{entry.resolution}</p>
+              </li>
+            ))}
+          </ul>
+        </CollapsibleSection>
+      )}
+
+      {(report.droppedConsiderations?.length ?? 0) > 0 && (
+        <CollapsibleSection title="Not addressed by the CEO" defaultOpen={false}>
+          <div className="rounded-md border border-warning/30 bg-warning-muted p-3" data-testid="dropped-considerations">
+            <p className="text-xs text-muted-foreground mb-2">
+              Advisors cited these points in round one; the synthesis did not use them. Worth a second look before you commit.
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
+              {report.droppedConsiderations!.map((item, i) => (
+                <li key={i}>{item}</li>
+              ))}
+            </ul>
           </div>
         </CollapsibleSection>
       )}

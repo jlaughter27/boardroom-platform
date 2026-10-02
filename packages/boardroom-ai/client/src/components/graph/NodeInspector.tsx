@@ -1,9 +1,13 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { KnowledgeGraphEdge, KnowledgeGraphNode, KnowledgeGraphNodeType } from '@boardroom/shared';
+import * as api from '../../lib/api';
+import { useEntitiesStore } from '../../stores/entities.store';
 import { cn } from '../../lib/cn';
 import { ShapeGlyph } from './GraphControls';
+import { EntityPicker, type PickerOption } from './EntityPicker';
 import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR, entityRoute } from './graph-theme';
+import { useToastStore } from '../ui';
 
 interface Props {
   node: KnowledgeGraphNode;
@@ -12,6 +16,8 @@ interface Props {
   onSelect(id: string): void;
   onFocusLocal(): void;
   onClose(): void;
+  /** Called after a link is created so the page can refetch the graph. */
+  onLinked?(): void;
   className?: string;
 }
 
@@ -33,31 +39,201 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+type LinkedItem = { n: KnowledgeGraphNode; via: string };
+type LinkedGroup = { type: KnowledgeGraphNodeType; items: LinkedItem[] };
+
+function groupLinks(pairs: Array<{ other: KnowledgeGraphNode; edge: KnowledgeGraphEdge }>): LinkedGroup[] {
+  const byType = new Map<KnowledgeGraphNodeType, LinkedItem[]>();
+  const seen = new Set<string>();
+  for (const { other, edge } of pairs) {
+    const k = `${other.id}|${edge.id}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const via = edge.label && edge.label !== 'relates_to' ? edge.label : EDGE_VERB[edge.type];
+    if (!byType.has(other.type)) byType.set(other.type, []);
+    byType.get(other.type)!.push({ n: other, via });
+  }
+  for (const list of byType.values()) list.sort((a, b) => a.n.label.localeCompare(b.n.label));
+  return NODE_TYPES.filter((t) => byType.has(t)).map((t) => ({ type: t, items: byType.get(t)! }));
+}
+
+// ---------------------------------------------------------------------------
+// Link editors (Phase 6)
+// ---------------------------------------------------------------------------
+
+type EditorKind = 'person' | 'decision' | 'dependency';
+
+function LinkEditors({ node, linkedIds, onLinked }: { node: KnowledgeGraphNode; linkedIds: Set<string>; onLinked?(): void }) {
+  const { people, decisions, tasks, fetchPeople, fetchDecisions, fetchTasks } = useEntitiesStore();
+  const [open, setOpen] = useState<EditorKind | null>(null);
+  const [role, setRole] = useState('');
+  const [pending, setPending] = useState<PickerOption | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (node.type === 'project') {
+      if (people.length === 0) void fetchPeople();
+      if (decisions.length === 0) void fetchDecisions();
+    } else if (node.type === 'task' && tasks.length === 0) {
+      void fetchTasks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.id, node.type]);
+
+  useEffect(() => { setOpen(null); setPending(null); setRole(''); }, [node.id]);
+
+  if (node.type !== 'project' && node.type !== 'task') return null;
+
+  const personOptions: PickerOption[] = people.map((p) => ({ id: p.id, label: p.name, hint: p.role }));
+  const decisionOptions: PickerOption[] = decisions.map((d) => ({ id: d.id, label: d.title, hint: d.status.toLowerCase() }));
+  const taskOptions: PickerOption[] = tasks.map((t) => ({ id: t.id, label: t.title, hint: t.status.toLowerCase() }));
+
+  const excludeFor = (type: KnowledgeGraphNodeType) => {
+    const s = new Set<string>();
+    for (const id of linkedIds) if (id.startsWith(`${type}:`)) s.add(id.slice(type.length + 1));
+    if (type === node.type) s.add(node.refId);
+    return s;
+  };
+
+  async function commit(kind: EditorKind, option: PickerOption) {
+    setSaving(true);
+    const toast = useToastStore.getState().addToast;
+    try {
+      if (kind === 'person') await api.addProjectPerson(node.refId, option.id, role.trim() || undefined);
+      else if (kind === 'decision') await api.linkProjectDecision(node.refId, option.id);
+      else await api.addTaskDependency(node.refId, option.id);
+      toast(
+        kind === 'person' ? `${option.label} added to ${node.label}` : kind === 'decision' ? `Linked decision “${option.label}”` : `${node.label} now depends on “${option.label}”`,
+        'success',
+      );
+      setOpen(null); setPending(null); setRole('');
+      onLinked?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not create link', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const chip = (kind: EditorKind, label: string) => (
+    <button
+      key={kind}
+      type="button"
+      onClick={() => { setOpen(open === kind ? null : kind); setPending(null); }}
+      aria-expanded={open === kind}
+      className={cn('h-7 rounded-md border px-2.5 text-xs', open === kind ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground')}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <section className="border-b border-border px-4 py-2.5" aria-label="Add links">
+      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">Add link</div>
+      <div className="flex flex-wrap gap-1.5">
+        {node.type === 'project' && chip('person', '+ Person (role)')}
+        {node.type === 'project' && chip('decision', '+ Decision')}
+        {node.type === 'task' && chip('dependency', 'Depends on…')}
+      </div>
+
+      {open === 'person' && (
+        <div className="mt-2 space-y-2">
+          {pending ? (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate text-foreground">{pending.label}</span>
+              <button type="button" onClick={() => setPending(null)} className="text-xs text-muted-foreground hover:text-foreground">change</button>
+            </div>
+          ) : (
+            <EntityPicker options={personOptions} exclude={excludeFor('person')} placeholder="Search people…" onPick={setPending} autoFocus aria-label="Person to add" />
+          )}
+          <div className="flex gap-2">
+            <input
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="Role (optional)"
+              aria-label="Role on this project"
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-card px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              type="button"
+              disabled={!pending || saving}
+              onClick={() => pending && commit('person', pending)}
+              className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {open === 'decision' && (
+        <div className="mt-2">
+          <EntityPicker options={decisionOptions} exclude={excludeFor('decision')} placeholder="Search decisions…" onPick={(o) => commit('decision', o)} autoFocus aria-label="Decision to link" />
+          {saving && <p className="mt-1 text-xs text-muted-foreground">Linking…</p>}
+        </div>
+      )}
+
+      {open === 'dependency' && (
+        <div className="mt-2">
+          <EntityPicker options={taskOptions} exclude={excludeFor('task')} placeholder="Search tasks this one depends on…" onPick={(o) => commit('dependency', o)} autoFocus aria-label="Task this task depends on" />
+          {saving && <p className="mt-1 text-xs text-muted-foreground">Linking…</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inspector
+// ---------------------------------------------------------------------------
+
 /**
  * Backlinks panel for the selected node — the part of Obsidian's graph that
- * people actually use. Groups neighbours by type, each row re-selects.
+ * people actually use. Linked list comes from `GET /graph/backlinks/:id`
+ * (includes memories beyond the page's capped set); falls back to the local
+ * edges when the request fails. Groups neighbours by type, each row re-selects.
  */
-export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, onClose, className }: Props) {
-  const groups = useMemo(() => {
-    const byType = new Map<KnowledgeGraphNodeType, Array<{ n: KnowledgeGraphNode; via: string }>>();
+export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, onClose, onLinked, className }: Props) {
+  const [remote, setRemote] = useState<{ nodeId: string; groups: LinkedGroup[] } | null>(null);
+  const [loadingRemote, setLoadingRemote] = useState(false);
+
+  const localGroups = useMemo(() => {
+    const pairs: Array<{ other: KnowledgeGraphNode; edge: KnowledgeGraphEdge }> = [];
     for (const e of edges) {
       let otherId: string | null = null;
       if (e.source === node.id) otherId = e.target;
       else if (e.target === node.id) otherId = e.source;
       if (!otherId) continue;
       const other = nodesById.get(otherId);
-      if (!other) continue;
-      const via = e.label && e.label !== 'relates_to' ? e.label : EDGE_VERB[e.type];
-      if (!byType.has(other.type)) byType.set(other.type, []);
-      byType.get(other.type)!.push({ n: other, via });
+      if (other) pairs.push({ other, edge: e });
     }
-    for (const list of byType.values()) list.sort((a, b) => a.n.label.localeCompare(b.n.label));
-    return NODE_TYPES.filter((t) => byType.has(t)).map((t) => ({ type: t, items: byType.get(t)! }));
+    return groupLinks(pairs);
   }, [node.id, nodesById, edges]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingRemote(true);
+    api.getGraphBacklinks(node.id)
+      .then((res) => {
+        if (cancelled) return;
+        setRemote({ nodeId: node.id, groups: groupLinks(res.backlinks.map((b) => ({ other: b.node, edge: b.edge }))) });
+      })
+      .catch(() => { if (!cancelled) setRemote(null); }) // fall back to local edges
+      .finally(() => { if (!cancelled) setLoadingRemote(false); });
+    return () => { cancelled = true; };
+  }, [node.id, edges]);
+
+  const groups = remote && remote.nodeId === node.id ? remote.groups : localGroups;
+  const usingRemote = !!remote && remote.nodeId === node.id;
   const total = groups.reduce((s, g) => s + g.items.length, 0);
+  const linkedIds = useMemo(() => new Set(groups.flatMap((g) => g.items.map((i) => i.n.id))), [groups]);
   const route = entityRoute(node.type, node.refId, node.meta);
   const color = `var(--color-entity-${node.type})`;
+
+  const selectRow = (id: string) => {
+    if (nodesById.has(id)) onSelect(id);
+    else useToastStore.getState().addToast('That node is outside the current graph view (memory cap or filters).', 'info');
+  };
 
   return (
     <aside className={cn('flex min-h-0 flex-col bg-card text-foreground', className)} aria-label={`${TYPE_SINGULAR[node.type]} details`}>
@@ -96,10 +272,14 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
         )}
       </div>
 
+      <LinkEditors node={node} linkedIds={linkedIds} onLinked={onLinked} />
+
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <div className="mb-2 flex items-baseline justify-between">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Linked</h3>
-          <span className="text-xs tabular-nums text-muted-foreground">{total}</span>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Linked{loadingRemote && !usingRemote ? <span className="ml-1 normal-case tracking-normal">· updating…</span> : null}
+          </h3>
+          <span className="text-xs tabular-nums text-muted-foreground" title={usingRemote ? 'From /graph/backlinks' : 'From the loaded graph'}>{total}</span>
         </div>
         {total === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -119,8 +299,8 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
                     <li key={n.id}>
                       <button
                         type="button"
-                        onClick={() => onSelect(n.id)}
-                        className="flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-muted"
+                        onClick={() => selectRow(n.id)}
+                        className={cn('flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-muted', !nodesById.has(n.id) && 'text-muted-foreground')}
                       >
                         <span className="min-w-0 flex-1 truncate">{n.label}</span>
                         <span className="shrink-0 text-[11px] text-muted-foreground">{via}</span>

@@ -26,7 +26,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './client/src'),
-      '@boardroom/shared': resolve(__dirname, '../../shared/src'),
+      '@boardroom/shared': resolve(__dirname, '../shared/src'),
     },
   },
 });

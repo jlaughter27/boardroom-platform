@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useEntitiesStore } from '../stores/entities.store';
 import { PersonCard } from '../components/memory/PersonCard';
+import { PeopleDuplicatesBanner } from '../components/memory/PeopleDuplicatesBanner';
+import { cn } from '../lib/cn';
 import { RelationshipGraph } from '../components/memory/RelationshipGraph';
 import { useRelationshipData } from '../hooks/useRelationshipData';
 import { PageWrapper, Button, Card, Input, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
@@ -24,7 +26,18 @@ export default function PeopleDirectoryPage() {
   const [newNotes, setNewNotes] = useState('');
   const [creating, setCreating] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('directory');
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const { data: graphData, isLoading: graphLoading, hasEnoughData } = useRelationshipData();
+
+  /** "Open both" from the duplicates banner: clear the search, highlight both cards, scroll to the first. */
+  function openBoth(aId: string, bId: string) {
+    setActiveTab('directory');
+    setSearch('');
+    setHighlightIds(new Set([aId, bId]));
+    requestAnimationFrame(() => {
+      document.getElementById(`person-${aId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
 
   useEffect(() => {
     if (people.length === 0) fetchPeople();
@@ -69,6 +82,11 @@ export default function PeopleDirectoryPage() {
         </div>
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
+
+        {/* Possible duplicates (Phase 6) */}
+        {!isLoading && people.length >= 2 && (
+          <PeopleDuplicatesBanner onOpenBoth={openBoth} refreshKey={people.length} />
+        )}
 
         {people.length < 3 && !isLoading && (
           <AINudge
@@ -157,7 +175,13 @@ export default function PeopleDirectoryPage() {
                 ) : (
                   <motion.div {...staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {filtered.map((person) => (
-                      <motion.div key={person.id} {...staggerItem}>
+                      <motion.div
+                        key={person.id}
+                        {...staggerItem}
+                        id={`person-${person.id}`}
+                        className={cn('rounded-lg transition-shadow', highlightIds.has(person.id) && 'ring-2 ring-primary ring-offset-2 ring-offset-background')}
+                        onClick={() => { if (highlightIds.size) setHighlightIds(new Set()); }}
+                      >
                         <PersonCard person={person} onEdit={updatePerson} onDelete={deletePerson} />
                       </motion.div>
                     ))}

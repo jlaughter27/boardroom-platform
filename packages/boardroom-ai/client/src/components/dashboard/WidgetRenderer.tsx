@@ -14,6 +14,7 @@ import { CognitiveLoadBanner } from './CognitiveLoadBanner';
 import { RecentDecisions } from './RecentDecisions';
 import { QuickTakeWidget } from './QuickTakeWidget';
 import { RelationshipMapWidget } from './RelationshipMapWidget';
+import { CommitmentNudgesWidget } from './CommitmentNudgesWidget';
 
 // Map widget types to components
 const WIDGET_MAP: Record<WidgetType, React.ComponentType> = {
@@ -27,6 +28,7 @@ const WIDGET_MAP: Record<WidgetType, React.ComponentType> = {
   cognitive_load: CognitiveLoadBanner,
   quick_take: QuickTakeWidget,
   relationship_map: RelationshipMapWidget,
+  commitment_nudges: CommitmentNudgesWidget,
 };
 
 // Size classes for the grid

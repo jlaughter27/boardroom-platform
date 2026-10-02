@@ -10,9 +10,12 @@ import { SynthesisPanel } from '../components/decision/SynthesisPanel';
 import { SufficiencyBanner } from '../components/decision/SufficiencyBanner';
 import { SimulationButton } from '../components/decision/SimulationButton';
 import { SimulationPanel } from '../components/decision/SimulationPanel';
-import { MODE_CONFIGS, PERSONA_CONFIGS } from '@boardroom/shared';
+import { DecisionCommitCard } from '../components/decision/DecisionCommitCard';
+import { WhatChangedCard } from '../components/decision/WhatChangedCard';
 import * as api from '../lib/api';
-import type { UserMode, PersonaId, CustomPersona, PersonaResponse, SynthesisReport, SufficiencyScore } from '@boardroom/shared';
+import type { PersonaId, CustomPersona, PersonaResponse, SufficiencyScore } from '@boardroom/shared';
+import { CLIENT_MODE_CONFIGS, type ClientUserMode, type ExtendedSynthesisReport } from '../types/debate';
+import { useDebounce } from '../hooks/useDebounce';
 import { PageWrapper, Button, Badge, Card } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { AINudge } from '../components/shared/AINudge';
@@ -25,7 +28,8 @@ export default function DecisionSessionPage() {
   usePageTitle(isNew ? 'New Decision' : 'Decision Session');
 
   const [question, setQuestion] = useState('');
-  const [mode, setMode] = useState<UserMode>('decide');
+  const [mode, setMode] = useState<ClientUserMode>('decide');
+  const debouncedQuestion = useDebounce(question, 600);
   const [customPersonas, setCustomPersonas] = useState<CustomPersona[]>([]);
 
   useEffect(() => {
@@ -38,7 +42,8 @@ export default function DecisionSessionPage() {
     currentSession, personaResponses, personaStreaming, streamingPersonas,
     synthesis, synthesisStreaming, isDispatching, isSynthesizing,
     sufficiency, simulation, isSimulating, error, errorStatus,
-    createSession, dispatch, synthesize, checkAmbiguity, runSimulation, reset, clearError,
+    rebuttals, rebuttingPersonas, committedDecision, isCommitting,
+    createSession, dispatch, synthesize, checkAmbiguity, runSimulation, commitDecision, reset, clearError,
   } = useSessionStore();
 
   // Loader keyed on the route id (C-107): navigating A → B must not render A's
@@ -60,9 +65,20 @@ export default function DecisionSessionPage() {
         useSessionStore.setState({
           currentSession: { id: session.id, question: session.question, mode: session.mode },
           personaResponses: (session.personaResponses ?? {}) as Record<string, PersonaResponse>,
-          synthesis: session.ceoSynthesis as SynthesisReport | null,
+          synthesis: session.ceoSynthesis as ExtendedSynthesisReport | null,
           sufficiency: session.sufficiencyScore as SufficiencyScore | null,
         });
+        // A session that already committed a decision shows the success state, not the form.
+        if (session.decisionId) {
+          const decisionId = session.decisionId;
+          api.getDecisions().then(decisions => {
+            if (cancelled) return;
+            const found = decisions.find(d => d.id === decisionId) ?? null;
+            if (found && useSessionStore.getState().currentSession?.id === id) {
+              useSessionStore.setState({ committedDecision: found });
+            }
+          }).catch(() => { /* non-fatal: the form stays available; server answers 409 if re-submitted */ });
+        }
       }).catch(() => {
         if (!cancelled) navigate('/decisions/new', { replace: true });
       });
@@ -85,8 +101,10 @@ export default function DecisionSessionPage() {
     hasPersonas || isDispatching ? 'personas' :
     'input';
 
-  const modeConfig = currentSession ? MODE_CONFIGS[currentSession.mode] : MODE_CONFIGS[mode];
+  const modeConfig = (currentSession ? CLIENT_MODE_CONFIGS[currentSession.mode] : CLIENT_MODE_CONFIGS[mode]) ?? CLIENT_MODE_CONFIGS.decide;
   const personaIds: PersonaId[] = modeConfig.personas;
+  // "What changed since last time" matches the question against known entities
+  const whatChangedQuestion = currentSession?.question ?? debouncedQuestion;
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isCheckingClarity, setIsCheckingClarity] = useState(false);
@@ -149,6 +167,11 @@ export default function DecisionSessionPage() {
           </div>
         )}
 
+        {/* What changed since last time — first card when the question maps to a known entity */}
+        {whatChangedQuestion.trim().length >= 4 && (
+          <WhatChangedCard question={whatChangedQuestion} currentSessionId={currentSession?.id ?? null} />
+        )}
+
         {/* Phase 1: Input */}
         <AnimatePresence mode="wait">
           {phase === 'input' && (
@@ -207,7 +230,7 @@ export default function DecisionSessionPage() {
                   {currentSession?.question}
                 </h1>
                 <Badge variant="accent" className="mt-1">
-                  {MODE_CONFIGS[currentSession?.mode ?? 'decide'].label}
+                  {(CLIENT_MODE_CONFIGS[currentSession?.mode ?? 'decide'] ?? CLIENT_MODE_CONFIGS.decide).label}
                 </Badge>
               </div>
               <Button variant="secondary" size="sm" onClick={handleNewDecision}>
@@ -227,6 +250,19 @@ export default function DecisionSessionPage() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Decision commit (Phase 6) — shown once synthesis is complete */}
+            {phase === 'synthesis' && synthesis && !isSynthesizing && (
+              <motion.div {...slideUp}>
+                <DecisionCommitCard
+                  report={synthesis}
+                  personaResponses={personaResponses}
+                  committed={committedDecision}
+                  isCommitting={isCommitting}
+                  onCommit={commitDecision}
+                />
+              </motion.div>
+            )}
 
             {/* Action bar */}
             {phase === 'synthesis' && synthesis && (
@@ -284,6 +320,8 @@ export default function DecisionSessionPage() {
                     response={personaResponses[pid]}
                     streamingText={personaStreaming[pid]}
                     isStreaming={streamingPersonas.has(pid)}
+                    isRebutting={rebuttingPersonas.has(pid)}
+                    rebuttal={rebuttals[pid]}
                   />
                 </motion.div>
               ))}
@@ -295,6 +333,8 @@ export default function DecisionSessionPage() {
                     response={personaResponses[cp.personaId]}
                     streamingText={personaStreaming[cp.personaId]}
                     isStreaming={streamingPersonas.has(cp.personaId)}
+                    isRebutting={rebuttingPersonas.has(cp.personaId)}
+                    rebuttal={rebuttals[cp.personaId]}
                   />
                 </motion.div>
               ))}
@@ -302,7 +342,7 @@ export default function DecisionSessionPage() {
 
             {isDispatching && (
               <div className="text-center text-sm text-muted-foreground">
-                Dispatching personas...
+                {rebuttingPersonas.size > 0 ? 'Advisors are debating…' : 'Dispatching personas...'}
               </div>
             )}
           </motion.div>

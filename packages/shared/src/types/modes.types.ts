@@ -3,7 +3,7 @@
 
 import type { PersonaId } from './persona.types';
 
-export type UserMode = 'decide' | 'stress-test' | 'plan' | 'clarify' | 'review' | 'quick-take';
+export type UserMode = 'decide' | 'stress-test' | 'plan' | 'clarify' | 'review' | 'quick-take' | 'premortem';
 
 export interface ModeConfig {
   id: UserMode;
@@ -54,6 +54,16 @@ export const MODE_CONFIGS: Record<UserMode, ModeConfig> = {
     label: 'Quick Take',
     description: 'Single unified analysis (fast, cheap)',
     personas: [],
+    includesCEO: true,
+  },
+  // Phase 6 — Klein pre-mortem: "it is six months later and this failed".
+  // Personas write the post-mortem in past tense; the CEO ranks the failure
+  // causes and emits the assumptions that broke as `assumptionsToMonitor`.
+  'premortem': {
+    id: 'premortem',
+    label: 'Pre-mortem',
+    description: 'Imagine it failed six months from now — what broke, and which assumptions were wrong',
+    personas: ['critic', 'technician', 'questionnaire'],
     includesCEO: true,
   },
 };
