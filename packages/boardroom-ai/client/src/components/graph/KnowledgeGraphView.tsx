@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
-import ForceGraph2D, { type ForceGraphMethods, type NodeObject, type LinkObject } from 'react-force-graph-2d';
+import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@boardroom/shared';
 import {
   TYPE_BASE_RADIUS, TYPE_SHAPE, drawShape, readGraphPalette, type GraphPalette,
 } from './graph-theme';
+import { createGraphStore, idOf, syncGraphData, type GraphViewLink, type GraphViewNode } from './graph-data';
 
 /**
  * Obsidian-style force graph on canvas.
@@ -17,22 +18,11 @@ import {
  *  - node radius ∝ √degree, clamped; labels appear above a zoom threshold
  *    or for hovered / selected / neighbour nodes
  *  - reduced motion → the layout is computed off-screen, then shown at rest
+ *  - node / link objects are stable per id (see graph-data.ts): selecting a
+ *    node never relayouts; only a change in the visible id set re-heats
  */
 
-export interface GraphViewNode extends NodeObject {
-  id: string;
-  data: KnowledgeGraphNode;
-  degree: number;
-  /** Distance from the focus node when local-graph mode is on (0 = focus) */
-  depth?: number;
-}
-
-export interface GraphViewLink extends LinkObject {
-  id: string;
-  source: string | GraphViewNode;
-  target: string | GraphViewNode;
-  data: KnowledgeGraphEdge;
-}
+export type { GraphViewNode, GraphViewLink } from './graph-data';
 
 export interface KnowledgeGraphViewHandle {
   focusNode(id: string, zoom?: number): void;
@@ -51,8 +41,7 @@ interface Props {
   className?: string;
 }
 
-const idOf = (v: string | GraphViewNode | number | undefined): string =>
-  typeof v === 'object' && v !== null ? String(v.id) : String(v);
+const PENDING_FOCUS_TTL_MS = 5000;
 
 export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(function KnowledgeGraphView(
   { nodes, edges, selectedId, onSelect, onHoverChange, showLabels, depthById, className },
@@ -87,52 +76,62 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
     return () => mo.disconnect();
   }, []);
 
-  // ── Graph data (library mutates node objects, so build fresh copies) ──────
-  const { graphData, neighbours } = useMemo(() => {
-    const degree = new Map<string, number>();
-    const neigh = new Map<string, Set<string>>();
-    for (const e of edges) {
-      degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
-      degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
-      if (!neigh.has(e.source)) neigh.set(e.source, new Set());
-      if (!neigh.has(e.target)) neigh.set(e.target, new Set());
-      neigh.get(e.source)!.add(e.target);
-      neigh.get(e.target)!.add(e.source);
-    }
-    const gNodes: GraphViewNode[] = nodes.map((n) => ({
-      id: n.id, data: n, degree: degree.get(n.id) ?? 0, depth: depthById?.get(n.id),
-    }));
-    const gLinks: GraphViewLink[] = edges.map((e) => ({ id: e.id, source: e.source, target: e.target, data: e }));
-    return { graphData: { nodes: gNodes, links: gLinks }, neighbours: neigh };
-  }, [nodes, edges, depthById]);
+  // ── Graph data: one stable object per id (positions survive re-renders) ──
+  const storeRef = useRef(createGraphStore());
+  const { graphData, neighbours, idsChanged } = useMemo(
+    () => syncGraphData(storeRef.current, nodes, edges, depthById),
+    [nodes, edges, depthById],
+  );
 
-  // ── Forces ────────────────────────────────────────────────────────────────
+  // ── Forces — only re-heat when the id set changed, never on selection ─────
   useEffect(() => {
     const fg = fgRef.current;
-    if (!fg) return;
+    if (!fg || !idsChanged) return;
     const n = graphData.nodes.length;
     fg.d3Force('charge')?.strength(n > 600 ? -40 : n > 200 ? -70 : -120).distanceMax(400);
     fg.d3Force('link')
       ?.distance((l: GraphViewLink) => (l.data.type === 'memory_entity' ? 28 : l.data.type === 'goal_hierarchy' ? 70 : 48))
       .strength((l: GraphViewLink) => (l.data.type === 'memory_entity' ? 0.6 : 0.9));
     fg.d3ReheatSimulation();
-  }, [graphData]);
+  }, [graphData, idsChanged]);
 
   // ── Imperative API ────────────────────────────────────────────────────────
   const zoomToFit = useCallback(() => fgRef.current?.zoomToFit(reducedMotion ? 0 : 500, 48), [reducedMotion]);
+
+  /**
+   * Focus requested before the node existed / had a position — retried on the
+   * next engine tick or stop, and dropped after PENDING_FOCUS_TTL_MS so a stale
+   * request cannot yank the viewport on an unrelated relayout later.
+   */
+  const pendingFocus = useRef<{ id: string; zoom: number; at: number } | null>(null);
+
+  const tryFocus = useCallback((id: string, zoom: number): boolean => {
+    const fg = fgRef.current;
+    if (!fg) return true; // no graph mounted — nothing to wait for
+    const node = storeRef.current.nodeMap.get(id);
+    if (!node || node.x === undefined || node.y === undefined || Number.isNaN(node.x) || Number.isNaN(node.y)) return false;
+    fg.centerAt(node.x, node.y, reducedMotion ? 0 : 400);
+    fg.zoom(zoom, reducedMotion ? 0 : 400);
+    return true;
+  }, [reducedMotion]);
+
+  const flushPendingFocus = useCallback(() => {
+    const p = pendingFocus.current;
+    if (!p) return;
+    if (Date.now() - p.at > PENDING_FOCUS_TTL_MS || tryFocus(p.id, p.zoom)) pendingFocus.current = null;
+  }, [tryFocus]);
+
   useImperativeHandle(ref, () => ({
     focusNode(id, zoom = 2.2) {
-      const node = graphData.nodes.find((n) => n.id === id);
-      const fg = fgRef.current;
-      if (!node || !fg || node.x === undefined || node.y === undefined) return;
-      fg.centerAt(node.x, node.y, reducedMotion ? 0 : 400);
-      fg.zoom(zoom, reducedMotion ? 0 : 400);
+      if (tryFocus(id, zoom)) { pendingFocus.current = null; return; }
+      pendingFocus.current = { id, zoom, at: Date.now() };
     },
     zoomToFit,
-  }), [graphData, reducedMotion, zoomToFit]);
+  }), [tryFocus, zoomToFit]);
 
+  // Fit the viewport once per layout — i.e. once per change of the id set.
   const fitOnce = useRef(false);
-  useEffect(() => { fitOnce.current = false; }, [graphData]);
+  useEffect(() => { if (idsChanged) fitOnce.current = false; }, [graphData, idsChanged]);
 
   // ── Emphasis set (hovered or selected + neighbours) ───────────────────────
   const focusId = hoverId ?? selectedId;
@@ -237,7 +236,12 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
         cooldownTicks={reducedMotion ? 0 : 220}
         d3AlphaDecay={0.03}
         d3VelocityDecay={0.32}
-        onEngineStop={() => { if (!fitOnce.current) { fitOnce.current = true; zoomToFit(); } }}
+        onEngineTick={flushPendingFocus}
+        onEngineStop={() => {
+          // A pending focus wins over the one-time fit (fitting would undo the centring).
+          if (pendingFocus.current) { flushPendingFocus(); fitOnce.current = true; return; }
+          if (!fitOnce.current) { fitOnce.current = true; zoomToFit(); }
+        }}
         autoPauseRedraw={false}
         minZoom={0.15}
         maxZoom={8}

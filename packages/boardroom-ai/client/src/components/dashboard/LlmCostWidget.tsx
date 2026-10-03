@@ -36,6 +36,7 @@ const W = 240, H = 56, P = 6;
 function Sparkline({ points, reducedMotion }: { points: LlmUsageSummary['byDay']; reducedMotion: boolean }) {
   const [active, setActive] = useState<number | null>(null);
   const id = useId();
+  if (points.length === 0) return <div className="h-14 w-full" aria-hidden />;
   const max = Math.max(0.0001, ...points.map((p) => p.usd));
   const xs = points.map((_, i) => P + (i / Math.max(1, points.length - 1)) * (W - 2 * P));
   const ys = points.map((p) => H - P - (p.usd / max) * (H - 2 * P));
@@ -100,10 +101,13 @@ export function LlmCostWidget() {
     return () => { cancelled = true; };
   }, []);
 
-  const days = useMemo(() => (data ? fillDays(data.byDay, data.days || DAYS) : []), [data]);
-  const topPurposes = useMemo(() => (data ? [...data.byPurpose].sort((a, b) => b.usd - a.usd).slice(0, 4) : []), [data]);
-  const cacheRate = useMemo(() => (data ? overallCacheHitRate(data.byPurpose) : null), [data]);
-  const totalCalls = useMemo(() => (data ? data.byPurpose.reduce((s, p) => s + p.calls, 0) : 0), [data]);
+  // Defensive: a partial server payload must not take the dashboard down (R-C-06).
+  const byDay = useMemo(() => data?.byDay ?? [], [data]);
+  const byPurpose = useMemo(() => data?.byPurpose ?? [], [data]);
+  const days = useMemo(() => (data ? fillDays(byDay, Math.max(1, data.days || DAYS)) : []), [data, byDay]);
+  const topPurposes = useMemo(() => [...byPurpose].sort((a, b) => b.usd - a.usd).slice(0, 4), [byPurpose]);
+  const cacheRate = useMemo(() => overallCacheHitRate(byPurpose), [byPurpose]);
+  const totalCalls = useMemo(() => byPurpose.reduce((s, p) => s + p.calls, 0), [byPurpose]);
 
   if (failed) return null;
   if (loading || !data) {
@@ -127,7 +131,7 @@ export function LlmCostWidget() {
 
       <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] gap-x-6 gap-y-3 items-end">
         <div>
-          <div className="text-3xl font-semibold text-foreground">{formatUsd(data.totalUsd)}</div>
+          <div className="text-3xl font-semibold text-foreground">{formatUsd(data.totalUsd ?? 0)}</div>
           <div className="text-xs text-muted-foreground tabular-nums">{totalCalls.toLocaleString()} calls</div>
         </div>
         <div className="min-w-0">

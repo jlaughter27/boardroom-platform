@@ -97,9 +97,9 @@ describe('Phase 6 api param building', () => {
     await api.getPeopleDuplicates();
     expect(lastCall()[0]).toBe('/api/people/duplicates');
     await api.getLlmUsageSummary();
-    expect(lastCall()[0]).toBe('/api/usage/llm/summary?days=7');
+    expect(lastCall()[0]).toBe('/api/usage/llm/summary?days=7&all=1');
     await api.getLlmUsageSummary(30);
-    expect(lastCall()[0]).toBe('/api/usage/llm/summary?days=30');
+    expect(lastCall()[0]).toBe('/api/usage/llm/summary?days=30&all=1');
   });
 
   it('capsules + hybrid search', async () => {

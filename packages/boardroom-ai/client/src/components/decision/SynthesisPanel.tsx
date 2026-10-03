@@ -1,7 +1,56 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import * as api from '../../lib/api';
 import type { ExtendedSynthesisReport } from '../../types/debate';
 import { Card, Badge } from '../ui';
+
+/** Most memory ids resolved per synthesis; the rest render as shortened ids. */
+export const DROPPED_RESOLVE_CAP = 10;
+
+export function shortMemoryId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}…` : id;
+}
+
+/**
+ * `droppedConsiderations` are memory ids (server-computed). Resolve them to
+ * titles via `GET /memories/:id` (settled in one batch, capped) and link each
+ * to the Memory Explorer; an unresolvable id falls back to a shortened id.
+ */
+function DroppedConsiderations({ ids }: { ids: string[] }) {
+  const [titles, setTitles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const toResolve = ids.slice(0, DROPPED_RESOLVE_CAP);
+    if (toResolve.length === 0) return;
+    Promise.allSettled(toResolve.map((id) => api.getMemory(id))).then((results) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled' && r.value?.title) next[toResolve[i]] = r.value.title;
+      });
+      setTitles(next);
+    });
+    return () => { cancelled = true; };
+  }, [ids]);
+
+  return (
+    <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
+      {ids.map((id) => {
+        const title = titles[id];
+        return (
+          <li key={id}>
+            <Link to={`/memory?id=${encodeURIComponent(id)}`} className="text-foreground hover:text-primary underline-offset-2 hover:underline">
+              {title ?? shortMemoryId(id)}
+            </Link>
+            {!title && <span className="ml-1 text-[11px] text-muted-foreground">memory</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 interface SynthesisPanelProps {
   report?: ExtendedSynthesisReport;
@@ -140,11 +189,7 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
             <p className="text-xs text-muted-foreground mb-2">
               Advisors cited these points in round one; the synthesis did not use them. Worth a second look before you commit.
             </p>
-            <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
-              {report.droppedConsiderations!.map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ul>
+            <DroppedConsiderations ids={report.droppedConsiderations!} />
           </div>
         </CollapsibleSection>
       )}

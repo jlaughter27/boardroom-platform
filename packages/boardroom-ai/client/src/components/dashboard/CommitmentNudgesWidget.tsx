@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Commitment } from '@boardroom/shared';
 import * as api from '../../lib/api';
 import { useEntitiesStore } from '../../stores/entities.store';
 import type { CommitmentNudgesResponse } from '../../types/debate';
-import { Card, Badge, Skeleton } from '../ui';
+import { Card, Badge, Skeleton, useToastStore } from '../ui';
 
 /** "in 2 days" / "today" / "3 days overdue" — relative to now, day granularity. */
 export function relativeDue(deadline: Date | string | null, now: number = Date.now()): string {
@@ -24,9 +23,11 @@ interface RowProps {
   commitment: Commitment;
   personName: string | null;
   overdue: boolean;
+  onDone(id: string): void;
+  busy: boolean;
 }
 
-function NudgeRow({ commitment, personName, overdue }: RowProps) {
+function NudgeRow({ commitment, personName, overdue, onDone, busy }: RowProps) {
   return (
     <li className="flex items-start justify-between gap-3 py-2">
       <div className="min-w-0">
@@ -36,15 +37,15 @@ function NudgeRow({ commitment, personName, overdue }: RowProps) {
           <span className={overdue ? 'text-danger' : ''}>{relativeDue(commitment.deadline)}</span>
         </p>
       </div>
-      {/* No commitment update route exists on the BoardRoom server yet — "Mark done"
-          links to the People page where the stakeholder (and their commitments) live. */}
-      <Link
-        to="/people"
-        className="shrink-0 h-7 inline-flex items-center rounded-md border border-border px-2.5 text-xs text-foreground hover:bg-muted"
-        title="Open People to update this commitment"
+      <button
+        type="button"
+        onClick={() => onDone(commitment.id)}
+        disabled={busy}
+        className="shrink-0 h-7 inline-flex items-center rounded-md border border-border px-2.5 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+        title="Mark this commitment completed"
       >
         Mark done
-      </Link>
+      </button>
     </li>
   );
 }
@@ -72,6 +73,35 @@ export function CommitmentNudgesWidget() {
   }, []);
 
   const nameById = useMemo(() => new Map(people.map((p) => [p.id, p.name])), [people]);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+
+  /** Optimistic: drop the row now, PATCH, and put it back (with a toast) if the server says no. */
+  const markDone = useCallback(async (id: string) => {
+    const snapshot = data;
+    if (!snapshot) return;
+    setBusyIds((s) => new Set(s).add(id));
+    setData({
+      overdue: snapshot.overdue.filter((c) => c.id !== id),
+      dueSoon: snapshot.dueSoon.filter((c) => c.id !== id),
+    });
+    try {
+      await api.updateCommitment(id, { status: 'COMPLETED', completedAt: new Date().toISOString() });
+      useToastStore.getState().addToast('Commitment marked done', 'success');
+    } catch (e: unknown) {
+      setData((cur) => {
+        const put = (list: Commitment[], from: Commitment[]) => {
+          const row = from.find((c) => c.id === id);
+          return row && !list.some((c) => c.id === id) ? [...list, row] : list;
+        };
+        return cur
+          ? { overdue: put(cur.overdue, snapshot.overdue), dueSoon: put(cur.dueSoon, snapshot.dueSoon) }
+          : snapshot;
+      });
+      useToastStore.getState().addToast(e instanceof Error ? e.message : 'Could not update the commitment', 'error');
+    } finally {
+      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+    }
+  }, [data]);
 
   if (loading) {
     return (
@@ -101,10 +131,10 @@ export function CommitmentNudgesWidget() {
       </div>
       <ul className="divide-y divide-border">
         {data.overdue.map((c) => (
-          <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue />
+          <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue onDone={markDone} busy={busyIds.has(c.id)} />
         ))}
         {data.dueSoon.map((c) => (
-          <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue={false} />
+          <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue={false} onDone={markDone} busy={busyIds.has(c.id)} />
         ))}
       </ul>
     </Card>

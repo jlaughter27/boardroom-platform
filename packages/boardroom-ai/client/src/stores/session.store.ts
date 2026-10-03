@@ -334,6 +334,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       useToastStore.getState().addToast('Decision committed', 'success');
       return decision;
     } catch (err: unknown) {
+      // 409 already_decided → adopt the existing decision instead of showing an error (R-C-08).
+      if (err instanceof ApiError && err.status === 409) {
+        const decisionId = (err.body as { decisionId?: unknown } | undefined)?.decisionId;
+        if (typeof decisionId === 'string' && decisionId) {
+          try {
+            const existing = (await api.getDecisions()).find((d) => d.id === decisionId) ?? null;
+            if (existing) {
+              set({ committedDecision: existing, isCommitting: false, error: null, errorStatus: null });
+              useToastStore.getState().addToast('This session already committed a decision', 'info');
+              return existing;
+            }
+          } catch { /* fall through to the generic error path */ }
+        }
+      }
       const { message, status } = describeSessionError(err, 'Could not commit decision');
       useToastStore.getState().addToast(message, 'error');
       set({ error: message, errorStatus: status, isCommitting: false });

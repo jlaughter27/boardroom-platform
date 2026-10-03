@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act } from '@testing-library/react';
 import { useSessionStore, applyRebuttalEvent } from '../../src/stores/session.store';
 import * as api from '../../src/lib/api';
-import type { Decision, PersonaResponse } from '@boardroom/shared';
+import type { BoardRoomSSEEvent, Decision, PersonaResponse } from '@boardroom/shared';
 
 vi.mock('../../src/lib/api', () => ({
   ApiError: class ApiError extends Error {
@@ -14,6 +14,7 @@ vi.mock('../../src/lib/api', () => ({
   commitDecision: vi.fn(),
   checkAmbiguity: vi.fn(),
   runSimulation: vi.fn(),
+  getDecisions: vi.fn(),
 }));
 
 const addToast = vi.fn();
@@ -33,8 +34,10 @@ const critic: PersonaResponse = {
   dissentFlag: true,
 };
 
-async function* events(list: Record<string, unknown>[]) {
-  for (const e of list) yield e as never;
+/** Typed SSE fixture — events are checked against the shared wire union, then widened to the generator's shape. */
+type StreamEvent = BoardRoomSSEEvent & Record<string, unknown>;
+async function* events(list: BoardRoomSSEEvent[]): AsyncGenerator<StreamEvent> {
+  for (const e of list) yield e as StreamEvent;
 }
 
 describe('applyRebuttalEvent', () => {
@@ -90,7 +93,7 @@ describe('useSessionStore debate + commit', () => {
         },
       },
       { type: 'dispatch_complete', personaCount: 1, durationMs: 10 },
-    ]) as never);
+    ]));
 
     await act(async () => { await useSessionStore.getState().dispatch(); });
 
@@ -107,9 +110,50 @@ describe('useSessionStore debate + commit', () => {
   it('keeps a persona in rebuttingPersonas while its rebuttal is in flight', async () => {
     vi.mocked(api.streamSSE).mockReturnValue(events([
       { type: 'rebuttal_start', personaId: 'technician' },
-    ]) as never);
+    ]));
     await act(async () => { await useSessionStore.getState().dispatch(); });
     expect(useSessionStore.getState().rebuttingPersonas.has('technician')).toBe(true);
+  });
+
+  it('an error event followed by the stream closing clears isDispatching', async () => {
+    vi.mocked(api.streamSSE).mockReturnValue(events([
+      { type: 'persona_start', personaId: 'critic', model: 'haiku' },
+      { type: 'error', error: 'upstream exploded' },
+    ]));
+    await act(async () => { await useSessionStore.getState().dispatch(); });
+    const s = useSessionStore.getState();
+    expect(s.error).toBe('upstream exploded');
+    expect(s.isDispatching).toBe(false);
+    expect(s.abortController).toBeNull();
+  });
+
+  it('commitDecision adopts the existing decision on 409 already_decided', async () => {
+    const existing = { id: 'd9', chosenPath: 'Wait', status: 'DECIDED' } as unknown as Decision;
+    vi.mocked(api.commitDecision).mockRejectedValue(new api.ApiError('This session already committed a decision', 409, { error: 'already_decided', decisionId: 'd9' }));
+    vi.mocked(api.getDecisions).mockResolvedValue([{ id: 'other' } as Decision, existing]);
+
+    let result: Decision | null = null;
+    await act(async () => {
+      result = await useSessionStore.getState().commitDecision({ chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+    });
+
+    expect(result).toEqual(existing);
+    const s = useSessionStore.getState();
+    expect(s.committedDecision).toEqual(existing);
+    expect(s.isCommitting).toBe(false);
+    expect(s.error).toBeNull();
+    expect(addToast).toHaveBeenCalledWith('This session already committed a decision', 'info');
+  });
+
+  it('commitDecision falls back to the error path when the 409 body has no decisionId', async () => {
+    vi.mocked(api.commitDecision).mockRejectedValue(new api.ApiError('conflict', 409, { error: 'already_decided' }));
+    let result: Decision | null = null;
+    await act(async () => {
+      result = await useSessionStore.getState().commitDecision({ chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+    });
+    expect(result).toBeNull();
+    expect(api.getDecisions).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().errorStatus).toBe(409);
   });
 
   it('commitDecision posts to the session and stores the decision', async () => {

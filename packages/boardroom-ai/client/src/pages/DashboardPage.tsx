@@ -14,6 +14,7 @@ import { fadeIn, staggerContainer, staggerItem } from '../lib/motion';
 import { useNavigate } from 'react-router-dom';
 import { AINudge } from '../components/shared/AINudge';
 import { LlmCostWidget } from '../components/dashboard/LlmCostWidget';
+import { ErrorBoundary } from '../components/shared/ErrorBoundary';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -190,7 +191,11 @@ export default function DashboardPage() {
         )}
 
         {/* LLM cost — admin only (Phase 6) */}
-        {user?.isAdmin && <LlmCostWidget />}
+        {user?.isAdmin && (
+          <ErrorBoundary fallback={null}>
+            <LlmCostWidget />
+          </ErrorBoundary>
+        )}
 
         {configuratorOpen && (
           <DashboardConfigurator

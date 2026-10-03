@@ -10,16 +10,14 @@ import { cn } from '../../lib/cn';
 // Series + colours
 // ---------------------------------------------------------------------------
 
-/** Persona hues as the app already uses them (tailwind `persona.*`); user = brand primary. */
-const PERSONA_HEX: Record<string, string> = {
-  optimist: '#22c55e',
-  critic: '#ef4444',
-  alternate: '#a855f7',
-  technician: '#3b82f6',
-  questionnaire: '#eab308',
-  doer: '#f97316',
-  ceo: '#06b6d4',
-};
+/** Core persona ids that have a `--color-persona-<id>` token (styles/tokens.css, both themes). */
+const PERSONA_IDS = ['optimist', 'critic', 'alternate', 'technician', 'questionnaire', 'doer', 'ceo'] as const;
+const PERSONA_TOKEN = new Set<string>(PERSONA_IDS);
+
+/** Persona colour via the design-system token; unknown / custom personas fall back to muted. */
+export function personaColor(personaId: string): string {
+  return PERSONA_TOKEN.has(personaId) ? `var(--color-persona-${personaId})` : 'var(--color-muted-foreground)';
+}
 
 const USER_COLOR = 'var(--color-primary)';
 /** Fixed series order so a filtered persona never repaints the survivors. */
@@ -50,7 +48,7 @@ export function buildSeries(report: CalibrationReport): CalibrationSeries[] {
     out.push({
       id: pid,
       label: PERSONA_CONFIGS[pid]?.name?.replace(/^The /, '') ?? pid,
-      color: PERSONA_HEX[pid] ?? 'var(--color-muted-foreground)',
+      color: personaColor(pid),
       brier: p.brier,
       count: p.count,
       bins: p.bins,

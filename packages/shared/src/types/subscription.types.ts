@@ -18,6 +18,11 @@ export interface SubscriptionData {
   trialEndsAt: string | null;
   currentPeriodEnd: string;
   canceledAt: string | null;
+  /**
+   * Derived by BoardRoom's `GET /subscription`: a cancellation was requested
+   * (`canceledAt` set) but the row stays ACTIVE until `currentPeriodEnd`.
+   */
+  cancelAtPeriodEnd?: boolean;
 }
 
 export interface Subscription {

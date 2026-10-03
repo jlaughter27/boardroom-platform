@@ -285,6 +285,24 @@ export async function getCommitments(): Promise<Commitment[]> {
   return res.items;
 }
 
+export interface UpdateCommitmentInput {
+  description?: string;
+  stakeholderId?: string | null;
+  deadline?: string | null;
+  status?: Commitment['status'] | `${Commitment['status']}`;
+  sourceSessionId?: string | null;
+  linkedProjectId?: string | null;
+  completedAt?: string | null;
+}
+
+/** `PATCH /commitments/:id` (mirrors shared `UpdateCommitmentRequestSchema`). */
+export function updateCommitment(id: string, input: UpdateCommitmentInput) {
+  return request<Commitment>(`/commitments/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export function getUserProfile() {
   return request<UserProfile>('/profile');
 }
@@ -1105,9 +1123,13 @@ export function removeTaskDependency(taskId: string, otherTaskId: string) {
 // Phase 6 — LLM usage (admin)
 // ---------------------------------------------------------------------------
 
-/** `GET /usage/llm/summary?days=7` */
+/**
+ * `GET /usage/llm/summary?days=7&all=1` — admin-only. `all=1` asks for the
+ * workspace-wide summary explicitly rather than relying on the proxy omitting
+ * the user id (R-C-07).
+ */
 export function getLlmUsageSummary(days = 7) {
-  return request<LlmUsageSummary>(`/usage/llm/summary?days=${days}`);
+  return request<LlmUsageSummary>(`/usage/llm/summary?days=${days}&all=1`);
 }
 
 // ---------------------------------------------------------------------------

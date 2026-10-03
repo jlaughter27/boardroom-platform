@@ -61,6 +61,15 @@
   --graph-label: #1a1a16;
   --graph-label-halo: rgba(250, 250, 246, 0.85);
 
+  /* Persona colors — one hue per advisor (same values both themes; tailwind `persona.*`). */
+  --color-persona-optimist: #22c55e;
+  --color-persona-critic: #ef4444;
+  --color-persona-alternate: #a855f7;
+  --color-persona-technician: #3b82f6;
+  --color-persona-questionnaire: #eab308;
+  --color-persona-doer: #f97316;
+  --color-persona-ceo: #06b6d4;
+
   /* Shadows (Light) */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
@@ -164,6 +173,15 @@
   --graph-edge-strong: rgba(232, 232, 226, 0.6);
   --graph-label: #e8e8e2;
   --graph-label-halo: rgba(17, 17, 16, 0.85);
+
+  /* Persona colors (Dark) — unchanged hues; defined per theme so a future re-step is one edit. */
+  --color-persona-optimist: #22c55e;
+  --color-persona-critic: #ef4444;
+  --color-persona-alternate: #a855f7;
+  --color-persona-technician: #3b82f6;
+  --color-persona-questionnaire: #eab308;
+  --color-persona-doer: #f97316;
+  --color-persona-ceo: #06b6d4;
   --color-warning: #fb923c;
   --color-warning-muted: rgba(251, 146, 60, 0.12);
   --color-danger: #f87171;

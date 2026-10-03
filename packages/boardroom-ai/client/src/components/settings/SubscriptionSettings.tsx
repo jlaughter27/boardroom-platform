@@ -146,9 +146,10 @@ export function SubscriptionSettings() {
     );
   }
 
-  // Active
+  // Active (possibly with a pending cancellation — the row stays ACTIVE until the period ends)
   if (sub?.status === 'ACTIVE') {
     const nextBilling = new Date(sub.currentPeriodEnd);
+    const cancelsAtPeriodEnd = sub.cancelAtPeriodEnd === true;
 
     return (
       <section className="bg-card rounded-lg border border-border p-6">
@@ -158,15 +159,22 @@ export function SubscriptionSettings() {
             <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
             <span className="text-sm text-success font-medium">Pro Plan — $29/month</span>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Next billing date: {nextBilling.toLocaleDateString()}
-          </p>
+          {cancelsAtPeriodEnd ? (
+            <p className="text-sm text-warning" data-testid="subscription-cancels-on">
+              Cancels on {nextBilling.toLocaleDateString()} — you keep access until then.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Next billing date: {nextBilling.toLocaleDateString()}
+            </p>
+          )}
           <button
             onClick={handleCancel}
-            disabled={canceling}
+            disabled={canceling || cancelsAtPeriodEnd}
+            title={cancelsAtPeriodEnd ? 'Cancellation already scheduled' : undefined}
             className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/40 text-destructive text-sm rounded-lg transition-colors disabled:opacity-50"
           >
-            {canceling ? 'Canceling...' : 'Cancel Subscription'}
+            {canceling ? 'Canceling...' : cancelsAtPeriodEnd ? 'Cancellation scheduled' : 'Cancel Subscription'}
           </button>
           {actionErrorEl}
         </div>

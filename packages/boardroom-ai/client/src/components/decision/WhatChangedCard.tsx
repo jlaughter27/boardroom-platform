@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { Goal, Person, Project } from '@boardroom/shared';
+import type { Decision, Goal, Person, Project } from '@boardroom/shared';
 import * as api from '../../lib/api';
 import { useEntitiesStore } from '../../stores/entities.store';
 import type { DecisionChangesResponse } from '../../types/debate';
@@ -59,6 +59,77 @@ export function matchQuestionToEntities(
 }
 
 // ---------------------------------------------------------------------------
+// "since" resolution — persisted signals only
+// ---------------------------------------------------------------------------
+
+/** Session rows younger than this are not a usable baseline (server stamps `createdAt` at read time). */
+export const SESSION_SINCE_MIN_AGE_MS = 10 * 60_000;
+
+const toIso = (v: Date | string | null | undefined): string | null => {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
+
+/**
+ * Newest decision that is about the matched entity: ≥ 1 significant token of
+ * the entity title appears in the decision title / question. The wire shape of
+ * a decision carries no entity link, so title overlap is the persisted signal.
+ * Uses `decidedAt ?? createdAt`; the current session's own decision is skipped.
+ */
+export function pickDecisionSince(
+  decisions: Decision[],
+  entity: Pick<MatchedEntity, 'title'>,
+  currentSessionId?: string | null,
+): string | null {
+  const tokens = significantTokens(entity.title);
+  if (tokens.size === 0) return null;
+  let best: number | null = null;
+  for (const d of decisions) {
+    if (currentSessionId && d.sessionId === currentSessionId) continue;
+    const dTokens = significantTokens(`${d.title ?? ''} ${d.question ?? ''}`);
+    let hit = false;
+    for (const t of tokens) if (dTokens.has(t)) { hit = true; break; }
+    if (!hit) continue;
+    const iso = toIso(d.decidedAt ?? d.createdAt);
+    if (!iso) continue;
+    const ms = new Date(iso).getTime();
+    if (best === null || ms > best) best = ms;
+  }
+  return best === null ? null : new Date(best).toISOString();
+}
+
+/**
+ * Resolve the baseline date in order of trust: newest related decision →
+ * entity capsule `generatedAt` → previous session strictly older than 10 min.
+ * Returns null when nothing persisted can anchor "since" (the card then hides).
+ */
+export async function resolveSince(
+  match: MatchedEntity,
+  currentSessionId: string | null | undefined,
+  deps: { getDecisions: typeof api.getDecisions; getCapsules: typeof api.getCapsules; listSessions: typeof api.listSessions } = api,
+  now: number = Date.now(),
+): Promise<string | null> {
+  try {
+    const fromDecision = pickDecisionSince(await deps.getDecisions(), match, currentSessionId);
+    if (fromDecision) return fromDecision;
+  } catch { /* fall through */ }
+  try {
+    const { items } = await deps.getCapsules([`${match.type}:${match.id}`]);
+    const capsule = items.find((c) => c.entityType === match.type && c.entityId === match.id) ?? items[0];
+    const fromCapsule = toIso(capsule?.generatedAt);
+    if (fromCapsule) return fromCapsule;
+  } catch { /* fall through */ }
+  try {
+    const res = await deps.listSessions(10, 0);
+    const prev = res.items.find((s) => s.id !== currentSessionId);
+    const iso = toIso(prev?.createdAt);
+    if (iso && now - new Date(iso).getTime() > SESSION_SINCE_MIN_AGE_MS) return iso;
+  } catch { /* fall through */ }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -85,8 +156,9 @@ const ENTITY_BADGE: Record<MatchedEntity['type'], string> = {
 
 /**
  * "What changed since last time" — first card in a session when the question
- * maps to a known entity and a previous session exists. Calls
- * `GET /decisions/changes?entityId=<type:id>&since=<last session date>`.
+ * maps to a known entity and a persisted baseline exists (see `resolveSince`).
+ * Calls `GET /decisions/changes?entityId=<type:id>&since=<baseline>`. Never
+ * renders "nothing new" when the baseline is unknown — it hides instead.
  */
 export function WhatChangedCard({ question, currentSessionId }: WhatChangedCardProps) {
   const { goals, projects, people, fetchGoals, fetchProjects, fetchPeople } = useEntitiesStore();
@@ -108,19 +180,16 @@ export function WhatChangedCard({ question, currentSessionId }: WhatChangedCardP
     [question, goals, projects, people],
   );
 
-  // Previous session date (most recent session that is not the current one)
+  // Baseline date from persisted signals (decision → capsule → old session); null hides the card.
   useEffect(() => {
     if (!match) return;
     let cancelled = false;
-    api.listSessions(10, 0)
-      .then((res) => {
-        if (cancelled) return;
-        const prev = res.items.find((s) => s.id !== currentSessionId);
-        setSince(prev ? prev.createdAt : null);
-      })
+    setSince(undefined);
+    resolveSince(match, currentSessionId)
+      .then((s) => { if (!cancelled) setSince(s); })
       .catch(() => { if (!cancelled) setSince(null); });
     return () => { cancelled = true; };
-  }, [match?.id, currentSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [match?.type, match?.id, currentSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!match || !since) { setData(null); return; }
@@ -158,7 +227,7 @@ export function WhatChangedCard({ question, currentSessionId }: WhatChangedCardP
         <h3 className="text-sm font-semibold text-foreground">
           What changed around <span className="text-primary">{match.title}</span>
         </h3>
-        <span className="text-xs text-muted-foreground">since your last session {timeAgo(data.since)}</span>
+        <span className="text-xs text-muted-foreground">since {timeAgo(data.since)}</span>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-3 text-xs">
