@@ -5,13 +5,7 @@ import { loginLimiter, registerLimiter } from '../middleware/auth-rate-limiter';
 import { validateBody } from '../middleware/validate';
 import { RegisterBodySchema, LoginBodySchema } from '@boardroom/shared';
 import { omnimindClient } from '../services/omnimind-client';
-
-const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
-const getApiKey = () => {
-  const key = process.env.OMNIMIND_API_KEY;
-  if (!key) throw new Error('FATAL: OMNIMIND_API_KEY is not set');
-  return key;
-};
+import { isAdminEmail, resolveIsAdmin } from '../middleware/admin.middleware';
 
 const router: IRouter = Router();
 
@@ -43,30 +37,13 @@ router.post('/login', loginLimiter, validateBody(LoginBodySchema), async (req, r
   try {
     const { email, password } = req.body;
 
-    // Call OmniMind's /auth/verify endpoint (server-side bcrypt compare)
-    const verifyRes = await fetch(`${OMNIMIND_URL}/auth/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': getApiKey(),
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (verifyRes.status === 401) {
+    // B-115: OmniMind /auth/verify via the resilient client (server-side bcrypt compare)
+    const user = await omnimindClient.verifyCredentials(email, password);
+    if (!user) {
       res.status(401).json({ error: 'unauthorized', message: 'Invalid email or password' });
       return;
     }
 
-    if (!verifyRes.ok) {
-      const errBody = await verifyRes.json().catch(() => ({ error: 'upstream_error' }));
-      throw Object.assign(new Error(`OmniMind POST /auth/verify: ${verifyRes.status}`), {
-        status: verifyRes.status,
-        upstream: errBody,
-      });
-    }
-
-    const user = (await verifyRes.json()) as { id: string; email: string; name: string; teamId: string };
     const token = createToken({ userId: user.id, email: user.email, teamId: user.teamId });
     res.cookie('boardroom_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.json({ userId: user.id, name: user.name });
@@ -91,7 +68,9 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res, next) => {
       res.status(404).json({ error: 'not_found', message: 'User not found' });
       return;
     }
-    res.json({ userId: user.id, email: user.email, name: user.name });
+    // B-101 CONTRACT: { userId, email, name, isAdmin }
+    const isAdmin = isAdminEmail(user.email) || await resolveIsAdmin(req.auth);
+    res.json({ userId: user.id, email: user.email, name: user.name, isAdmin });
   } catch (err) { next(err); }
 });
 

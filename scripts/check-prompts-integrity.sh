@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # check-prompts-integrity.sh
 #
 # Asserts that the runtime persona prompt count doesn't accidentally drop
@@ -11,37 +11,45 @@
 #   1. Try to derive the floor from `git ls-files` (auto-tracks future
 #      additions — adding a new prompt automatically lifts the floor on
 #      next commit).
-#   2. Fall back to a hard literal of 18 if git-baseline is unavailable
-#      (fresh checkout, shallow clone, etc.).
+#   2. Fall back to a hard literal of 18 if the git baseline is unavailable
+#      (fresh checkout, shallow clone, Docker build context with no .git and
+#      no git binary).
 #   3. Never let the floor drop below 18.
 #
 # Why 18?
-#   Post-Phase-D-PR1 baseline. The 19th prompt (`quality-evaluator.system.md`)
-#   is added by `ea24d43` which is deferred to PR 3 per the Zeta plan in
-#   `docs/_inventory/PHASE-C-MIGRATION-MAP.md` v1.4. After PR 3 merges,
-#   the git-baseline path will lift the floor to 19 automatically — no
-#   need to edit this script.
+#   Post-Phase-D-PR1 baseline. Later prompts lift the floor automatically via
+#   the git-baseline path — no need to edit this script.
 #
-# Wired into pre-deploy-check.sh and any future CI workflow.
-# Usage: bash scripts/check-prompts-integrity.sh
+# POSIX sh on purpose: both Dockerfiles run this inside node:20-alpine, which
+# ships busybox sh and no bash. No `pipefail` (not POSIX), and a missing git
+# must degrade to the literal floor instead of aborting the build.
+#
+# Wired into pre-deploy-check.sh, both Dockerfiles, and CI.
+# Usage: sh scripts/check-prompts-integrity.sh
 
-set -euo pipefail
+set -eu
 
 CURRENT=$(ls docs/prompts/*.system.md 2>/dev/null | wc -l | tr -d ' ')
-BASELINE=$(git ls-files 'docs/prompts/*.system.md' 2>/dev/null | wc -l | tr -d ' ')
 
-# If git baseline is missing or zero (fresh checkout, shallow clone), fall back to literal floor of 18
-FLOOR=${BASELINE:-18}
-[ "$FLOOR" -lt 18 ] && FLOOR=18
+BASELINE=0
+if command -v git >/dev/null 2>&1; then
+  BASELINE=$(git ls-files 'docs/prompts/*.system.md' 2>/dev/null | wc -l | tr -d ' ') || BASELINE=0
+fi
+case "$BASELINE" in
+  ''|*[!0-9]*) BASELINE=0 ;;
+esac
 
-if [ -n "$BASELINE" ] && [ "$BASELINE" != "0" ]; then
+FLOOR=$BASELINE
+if [ "$FLOOR" -lt 18 ]; then FLOOR=18; fi
+
+if [ "$BASELINE" -gt 0 ]; then
   FLOOR_SOURCE="git ls-files=$BASELINE"
 else
   FLOOR_SOURCE="literal=18"
 fi
 
 if [ "$CURRENT" -lt "$FLOOR" ]; then
-  echo "FAIL: docs/prompts/*.system.md count is $CURRENT, expected ≥$FLOOR"
+  echo "FAIL: docs/prompts/*.system.md count is $CURRENT, expected >=$FLOOR"
   echo "      (floor source: $FLOOR_SOURCE)"
   echo "      Did you accidentally delete or rename a system prompt?"
   exit 1

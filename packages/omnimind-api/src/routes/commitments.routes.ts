@@ -2,12 +2,15 @@ import { Router } from 'express';
 import type { Router as IRouter } from 'express';
 import { CreateCommitmentRequestSchema, UpdateCommitmentRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
+import { idempotent } from '../middleware/idempotency';
 import * as commitmentService from '../services/commitment.service';
+import { invalidateCoreContext } from '../services/core-context.service';
 
 const router: IRouter = Router();
 
 // POST /commitments — create
-router.post('/', async (req, res, next) => {
+// Phase 6: `Idempotency-Key` replay (middleware owned by A2).
+router.post('/', idempotent('commitments.create'), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
@@ -40,6 +43,16 @@ router.get('/', async (req, res, next) => {
     }, prisma);
 
     res.json(result);
+  } catch (err) { next(err); }
+});
+
+// GET /commitments/nudges — Phase 6: { dueSoon, overdue } (SQL only; must precede /:id)
+router.get('/nudges', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+    const nudges = await commitmentService.getCommitmentNudges(userId, prisma);
+    res.json(nudges);
   } catch (err) { next(err); }
 });
 
@@ -86,6 +99,9 @@ router.delete('/:id', async (req, res, next) => {
     const existing = await prisma.commitment.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
     if (!existing) { res.status(404).json({ error: 'not_found', message: 'Commitment not found' }); return; }
     await prisma.commitment.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } });
+    // Phase 6: open commitments live in the cached core block.
+    invalidateCoreContext(userId);
+    commitmentService.invalidateNudgeCache(userId);
     res.json({ id: req.params.id, status: 'deleted' });
   } catch (err) { next(err); }
 });

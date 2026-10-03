@@ -21,6 +21,7 @@ export function SimulationButton({ defaultPath, isSimulating, onSimulate }: Simu
     return (
       <Button
         variant="secondary"
+        data-simulation-button
         onClick={() => setExpanded(true)}
         disabled={isSimulating}
       >
@@ -31,6 +32,7 @@ export function SimulationButton({ defaultPath, isSimulating, onSimulate }: Simu
 
   return (
     <motion.div
+      data-simulation-button
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: 'auto' }}
       className="overflow-hidden"

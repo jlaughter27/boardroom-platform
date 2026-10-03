@@ -31,6 +31,17 @@ describe('streaming', () => {
 
       expect(mockRes.write).toHaveBeenCalledWith(`data: ${JSON.stringify(event)}\n\n`);
     });
+
+    // B-111
+    it('is a no-op once the response has ended or the socket is destroyed', () => {
+      const ended: Partial<Response> = { write: vi.fn(), writableEnded: true } as any;
+      sendSSE(ended as Response, { type: 'done' });
+      expect(ended.write).not.toHaveBeenCalled();
+
+      const destroyed: Partial<Response> = { write: vi.fn(), destroyed: true } as any;
+      sendSSE(destroyed as Response, { type: 'done' });
+      expect(destroyed.write).not.toHaveBeenCalled();
+    });
   });
 
   describe('streamClaudeResponse()', () => {

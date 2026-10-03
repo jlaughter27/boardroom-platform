@@ -22,6 +22,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const CustomPersonasPage = lazy(() => import('./pages/CustomPersonasPage'));
 const IntegrationsPage = lazy(() => import('./pages/IntegrationsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const GraphPage = lazy(() => import('./pages/GraphPage'));
 
 function ProtectedRoute() {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -38,6 +39,15 @@ function ProtectedRoute() {
     return <Navigate to="/login" replace />;
   }
 
+  return <Outlet />;
+}
+
+/** Admin-only routes: redirect non-admins to the dashboard (C-103). */
+function AdminRoute() {
+  const user = useAuthStore((s) => s.user);
+  if (!user?.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
   return <Outlet />;
 }
 
@@ -96,7 +106,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster />
-      <CommandPalette />
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
       <Suspense fallback={PageFallback}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -111,10 +123,13 @@ export default function App() {
                 <Route path="/decisions/:id" element={<DecisionSessionPage />} />
                 <Route path="/memory" element={<MemoryExplorerPage />} />
                 <Route path="/people" element={<PeopleDirectoryPage />} />
+                <Route path="/graph" element={<GraphPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/personas" element={<CustomPersonasPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
-                <Route path="/admin" element={<AdminPage />} />
+                <Route element={<AdminRoute />}>
+                  <Route path="/admin" element={<AdminPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>

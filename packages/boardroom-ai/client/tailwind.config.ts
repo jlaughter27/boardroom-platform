@@ -61,15 +61,26 @@ export default {
         danger: { DEFAULT: 'var(--color-danger)', muted: 'var(--color-danger-muted)' },
         info: { DEFAULT: 'var(--color-info)', muted: 'var(--color-info-muted)' },
 
-        // ── Persona colors (hardcoded — Phase 5 will add CSS var indirection) ──
+        // ── Entity colors (knowledge graph, badges) — CSS vars, both themes ──
+        entity: {
+          goal: 'var(--color-entity-goal)',
+          project: 'var(--color-entity-project)',
+          task: 'var(--color-entity-task)',
+          person: 'var(--color-entity-person)',
+          decision: 'var(--color-entity-decision)',
+          commitment: 'var(--color-entity-commitment)',
+          memory: 'var(--color-entity-memory)',
+        },
+
+        // ── Persona colors — CSS vars (tokens.css), both themes ──
         persona: {
-          optimist: '#22c55e',
-          critic: '#ef4444',
-          alternate: '#a855f7',
-          technician: '#3b82f6',
-          questionnaire: '#eab308',
-          doer: '#f97316',
-          ceo: '#06b6d4',
+          optimist: 'var(--color-persona-optimist)',
+          critic: 'var(--color-persona-critic)',
+          alternate: 'var(--color-persona-alternate)',
+          technician: 'var(--color-persona-technician)',
+          questionnaire: 'var(--color-persona-questionnaire)',
+          doer: 'var(--color-persona-doer)',
+          ceo: 'var(--color-persona-ceo)',
         },
 
         // ── Status colors (hardcoded, work for both modes) ──

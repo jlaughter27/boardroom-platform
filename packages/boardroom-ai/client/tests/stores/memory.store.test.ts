@@ -18,7 +18,7 @@ vi.mock('../../src/components/ui/Toast', () => ({
   },
 }));
 
-const mockMemory: Memory = {
+const mockMemory = {
   id: '1',
   userId: 'user1',
   content: 'Test memory content',
@@ -29,9 +29,9 @@ const mockMemory: Memory = {
   status: 'active',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
-};
+} as unknown as Memory; // legacy fixture shape (pre-enum); the store treats memories opaquely
 
-const mockMemory2: Memory = {
+const mockMemory2 = {
   id: '2',
   userId: 'user1',
   content: 'Second memory content',
@@ -42,7 +42,7 @@ const mockMemory2: Memory = {
   status: 'active',
   createdAt: '2024-01-02T00:00:00.000Z',
   updatedAt: '2024-01-02T00:00:00.000Z',
-};
+} as unknown as Memory;
 
 describe('useMemoryStore', () => {
   beforeEach(() => {

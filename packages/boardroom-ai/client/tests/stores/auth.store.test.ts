@@ -39,7 +39,7 @@ describe('useAuthStore', () => {
 
   describe('login', () => {
     it('successfully logs in user', async () => {
-      const mockUser = { id: '123', email: 'test@example.com', name: 'Test User' };
+      const mockUser = { userId: '123', email: 'test@example.com', name: 'Test User' };
       vi.mocked(api.login).mockResolvedValue({ userId: '123', name: 'Test User' });
       vi.mocked(api.getMe).mockResolvedValue(mockUser);
 
@@ -88,7 +88,7 @@ describe('useAuthStore', () => {
 
   describe('register', () => {
     it('successfully registers user', async () => {
-      const mockUser = { id: '123', email: 'new@example.com', name: 'New User' };
+      const mockUser = { userId: '123', email: 'new@example.com', name: 'New User' };
       vi.mocked(api.register).mockResolvedValue({ userId: '123', name: 'New User' });
       vi.mocked(api.getMe).mockResolvedValue(mockUser);
 
@@ -127,7 +127,7 @@ describe('useAuthStore', () => {
     it('successfully logs out user', async () => {
       // First, set a logged-in state
       useAuthStore.setState({
-        user: { id: '123', email: 'test@example.com', name: 'Test User' },
+        user: { userId: '123', email: 'test@example.com', name: 'Test User' },
         isAuthenticated: true,
         isLoading: false,
         error: null,
@@ -149,7 +149,7 @@ describe('useAuthStore', () => {
 
   describe('checkAuth', () => {
     it('successfully authenticates existing user', async () => {
-      const mockUser = { id: '123', email: 'test@example.com', name: 'Test User' };
+      const mockUser = { userId: '123', email: 'test@example.com', name: 'Test User' };
       vi.mocked(api.getMe).mockResolvedValue(mockUser);
 
       const { result } = renderHook(() => useAuthStore());

@@ -8,6 +8,12 @@
 #   1. OmniMind API running and OMNIMIND_API_URL + OMNIMIND_API_KEY set in env
 #   2. Tenants seeded (run the migration: prisma/migrations/20260509000000_mcp_phase_1)
 #   3. Built: pnpm --filter @boardroom/omnimind-mcp build
+#
+# Each printed key is an `omk_...` AGENT key. Set it as OMNIMIND_MCP_AGENT_KEY in
+# that agent's MCP config env (the MCP server sends it to OmniMind as x-agent-key).
+# It is NOT OMNIMIND_MCP_API_KEY — that variable is the inbound bearer token for
+# HTTP-mode clients only. --source-weight must be a finite number in [0, 2].
+# If the API is unreachable, keygen prints a fallback INSERT for the `agents` table.
 
 set -euo pipefail
 
@@ -65,4 +71,4 @@ node "$DIST" keygen \
   --source-weight 0.8
 
 echo ""
-echo "=== Done. Update agent-configs/*.json with the generated keys. ==="
+echo "=== Done. Put each key in OMNIMIND_MCP_AGENT_KEY of the matching agent-configs/*.json env. ==="

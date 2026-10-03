@@ -8,7 +8,12 @@ import type { BoardRoomSSEEvent } from '@boardroom/shared';
 /**
  * Send a typed SSE event to the client.
  */
-export const sendSSE = (res: Response, event: BoardRoomSSEEvent): void => {
+export const sendSSE = (
+  res: Response,
+  event: BoardRoomSSEEvent | (Record<string, unknown> & { type: string }),
+): void => {
+  // B-111: never write to a socket the client has already closed.
+  if (res.writableEnded || res.destroyed) return;
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 };
 

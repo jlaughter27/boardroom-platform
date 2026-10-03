@@ -11,16 +11,40 @@ SQL
 
 echo "Extensions enabled"
 
-# Establish migration baseline for databases previously set up via db push.
-# prisma migrate resolve is idempotent — safe to run on every startup.
-# For a fresh DB these will fail harmlessly; for existing DBs they register
-# the pre-existing schema so migrate deploy can take over from here.
-prisma migrate resolve $SCHEMA --applied 20250410_add_search_indexes 2>/dev/null || true
-prisma migrate resolve $SCHEMA --applied 20260407000000_add_embedding_column 2>/dev/null || true
-prisma migrate resolve $SCHEMA --applied 20260509000000_mcp_phase_1 2>/dev/null || true
-prisma migrate resolve $SCHEMA --applied 20260509000001_mcp_phase_4 2>/dev/null || true
+# ---------------------------------------------------------------------------
+# Migration baseline (AUDIT-2026-10-02 / O-104)
+#
+# Production was set up with `prisma db push` before migrations existed, so
+# its tables were never created by a migration. For such databases we mark the
+# baseline migrations as applied and let `migrate deploy` run only what is new.
+#
+# IMPORTANT: `prisma migrate resolve --applied` does NOT "fail harmlessly" on
+# a fresh database — it succeeds, records the migration as applied without
+# running it, and the next migration then crashes with
+# `relation "memory_entries" does not exist`. That was the O-104 crash loop.
+# So we first detect whether application tables exist and only resolve the
+# baseline when they do. A fresh database simply runs `migrate deploy`, which
+# applies 0_init (full schema) followed by every later migration (all of which
+# are idempotent — see prisma/migrations/README.md).
+# ---------------------------------------------------------------------------
+DB_STATE="$(node prisma/scripts/detect-baseline.cjs)"
+echo "Database state: ${DB_STATE}"
 
-echo "Migration baseline resolved"
+if [ "$DB_STATE" = "existing" ]; then
+  # Each resolve is idempotent across restarts ("already applied" → non-zero
+  # exit, which is why `|| true` is used). Order matters: 0_init first.
+  prisma migrate resolve $SCHEMA --applied 0_init 2>/dev/null || true
+  prisma migrate resolve $SCHEMA --applied 20250410_add_search_indexes 2>/dev/null || true
+  prisma migrate resolve $SCHEMA --applied 20260407000000_add_embedding_column 2>/dev/null || true
+  prisma migrate resolve $SCHEMA --applied 20260509000000_mcp_phase_1 2>/dev/null || true
+  prisma migrate resolve $SCHEMA --applied 20260509000001_mcp_phase_4 2>/dev/null || true
+  echo "Migration baseline resolved (existing database)"
+elif [ "$DB_STATE" = "fresh" ]; then
+  echo "Fresh database — skipping baseline resolve; migrate deploy will apply 0_init"
+else
+  echo "Could not determine database state (got '${DB_STATE}'); refusing to guess" >&2
+  exit 1
+fi
 
 # Deploy any pending migrations (replaces db push — tracks history, no data-loss flag)
 prisma migrate deploy $SCHEMA

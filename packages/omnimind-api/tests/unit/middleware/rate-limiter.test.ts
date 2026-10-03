@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { rateLimiter } from '../../../src/middleware/rate-limiter';
+import { rateLimiter, rateLimitKeyFor, IP_BUCKET_MULTIPLIER } from '../../../src/middleware/rate-limiter';
 // WS-7: use the real shared constant — the test previously hardcoded 60,
 // but `RATE_LIMITS.MAX_QUERIES_PER_MINUTE` is 20 in packages/shared. The
 // arithmetic assertions below scale with it.
@@ -117,3 +117,44 @@ describe('rateLimiter middleware', () => {
     expect(mockRes.status).not.toHaveBeenCalled();
   });
 });
+
+describe('rateLimiter IP fallback (F-105 / F-207)', () => {
+  const IP_LIMIT = RATE_LIMITS.MAX_QUERIES_PER_MINUTE * IP_BUCKET_MULTIPLIER;
+
+  it('never skips: requests without x-user-id are bucketed by req.ip and get limited (widened budget)', () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as unknown as Response;
+    const next = vi.fn();
+    const req = { path: '/admin/stats', method: 'GET', headers: {}, ip: `10.0.0.${Date.now() % 250}` } as unknown as Request;
+    for (let i = 0; i < IP_LIMIT + 1; i++) {
+      rateLimiter(req, res, next);
+    }
+    expect(next).toHaveBeenCalledTimes(IP_LIMIT);
+    expect(res.status).toHaveBeenCalledWith(429);
+  });
+
+  it('different IPs get different buckets', () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as unknown as Response;
+    const next = vi.fn();
+    const a = { path: '/x', method: 'GET', headers: {}, ip: `10.1.0.${Date.now() % 250}` } as unknown as Request;
+    const b = { path: '/x', method: 'GET', headers: {}, ip: `10.2.0.${Date.now() % 250}` } as unknown as Request;
+    for (let i = 0; i < IP_LIMIT; i++) rateLimiter(a, res, next);
+    rateLimiter(b, res, next);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(IP_LIMIT + 1);
+  });
+
+  it('agent identity is used before falling back to IP', () => {
+    expect(rateLimitKeyFor({ headers: { 'x-agent-id': 'agent-z' }, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'agent:agent-z', byIp: false });
+    expect(rateLimitKeyFor({ headers: { 'x-user-id': 'u1', 'x-agent-id': 'agent-z' }, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'user:u1', byIp: false });
+    expect(rateLimitKeyFor({ headers: {}, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'ip:9.9.9.9', byIp: true });
+  });
+
+  it('M-106: POST /mcp/audit is left to the agent limiter audit bucket', () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as unknown as Response;
+    const next = vi.fn();
+    const req = { path: '/mcp/audit', method: 'POST', headers: {}, ip: `10.3.0.${Date.now() % 250}` } as unknown as Request;
+    for (let i = 0; i < IP_LIMIT + 5; i++) rateLimiter(req, res, next);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+});
+

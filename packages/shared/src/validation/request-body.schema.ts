@@ -13,8 +13,10 @@ export const LoginBodySchema = z.object({
 
 export const CreateSessionBodySchema = z.object({
   question: z.string().min(1).max(5000),
-  mode: z.enum(['decide', 'stress-test', 'plan', 'clarify', 'review', 'quick-take']).optional(),
+  mode: z.enum(['decide', 'stress-test', 'plan', 'clarify', 'review', 'quick-take', 'premortem']).optional(),
   roomId: z.string().optional(),
+  /** Phase 6 — temporal validity: retrieve only what was known at this instant (ISO). */
+  asOf: z.string().datetime().optional(),
 });
 
 export const UpdateUserProfileBodySchema = z.object({
@@ -39,5 +41,14 @@ export const ContextForPersonaBodySchema = z.object({
   query: z.string().min(1).max(5000),
   persona: z.string().min(1),
   maxItems: z.number().min(1).max(20).optional(),
-  includeEntities: z.array(z.enum(['memories', 'people', 'goals', 'projects', 'decisions'])).optional(),
+  // Phase 6 (lane B): 'commitments' / 'tasks' were already sent by the Critic /
+  // Technician / Doer context strategy (B-114) but rejected here with 422 —
+  // additive enum extension so those personas stop losing their context call.
+  includeEntities: z.array(z.enum(['memories', 'people', 'goals', 'projects', 'decisions', 'commitments', 'tasks'])).optional(),
+  /** Phase 6 — temporal validity: retrieve what was believed at this instant (ISO 8601). */
+  asOf: z.string().datetime({ offset: true }).optional(),
+  /** Phase 6 — Critic also reads archived / superseded memories. */
+  includeArchived: z.boolean().optional(),
+  /** Phase 6 — Critic focuses on DECISION-class memories. */
+  memoryClass: z.string().max(40).optional(),
 });

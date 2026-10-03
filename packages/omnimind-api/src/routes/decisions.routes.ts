@@ -1,24 +1,32 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
-import { CreateDecisionRequestSchema, UpdateDecisionRequestSchema } from '@boardroom/shared';
+import {
+  CreateDecisionRequestSchema,
+  UpdateDecisionRequestSchema,
+  CalibrationQuerySchema,
+  EntityChangesQuerySchema,
+} from '@boardroom/shared';
 import { prisma } from '../lib/db';
+import { idempotent } from '../middleware/idempotency';
 import * as decisionService from '../services/decision.service';
+import { getCalibrationReport } from '../services/calibration.service';
 import { scheduleReviews } from '../services/outcome-review.service';
 
 const router: IRouter = Router();
 
+const zodDetails = (issues: Array<{ path: PropertyKey[]; message: string }>) =>
+  issues.map(i => ({ field: i.path.join('.'), message: i.message }));
+
 // POST /decisions — create
-router.post('/', async (req, res, next) => {
+// Phase 6: `Idempotency-Key` replay (middleware owned by A2).
+router.post('/', idempotent('decisions.create'), async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
     const parseResult = CreateDecisionRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
-      res.status(422).json({
-        error: 'validation_failed',
-        details: parseResult.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
-      });
+      res.status(422).json({ error: 'validation_failed', details: zodDetails(parseResult.error.issues) });
       return;
     }
 
@@ -39,6 +47,40 @@ router.get('/', async (req, res, next) => {
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
     }, prisma);
 
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// GET /decisions/calibration?successThreshold=4 — Phase 6 (must precede /:id)
+router.get('/calibration', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const q = CalibrationQuerySchema.safeParse(req.query);
+    if (!q.success) { res.status(422).json({ error: 'validation_failed', details: zodDetails(q.error.issues) }); return; }
+
+    const report = await getCalibrationReport(userId, q.data.successThreshold, prisma);
+    res.json(report);
+  } catch (err) { next(err); }
+});
+
+// GET /decisions/changes?entityId=goal:x&since=ISO — Phase 6 (must precede /:id)
+router.get('/changes', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const q = EntityChangesQuerySchema.safeParse(req.query);
+    if (!q.success) { res.status(422).json({ error: 'validation_failed', details: zodDetails(q.error.issues) }); return; }
+
+    const ref = decisionService.parseEntityRef(q.data.entityId);
+    if (!ref) { res.status(422).json({ error: 'validation_failed', details: [{ field: 'entityId', message: 'Expected <goal|project|person>:<id>' }] }); return; }
+
+    // R-O-04: memories are scoped to the agent tenant when an agent context is present.
+    const result = await decisionService.getEntityChanges(userId, ref, new Date(q.data.since), prisma, {
+      tenantId: req.agentContext?.tenantId,
+    });
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -64,10 +106,7 @@ router.patch('/:id', async (req, res, next) => {
 
     const parseResult = UpdateDecisionRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
-      res.status(422).json({
-        error: 'validation_failed',
-        details: parseResult.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
-      });
+      res.status(422).json({ error: 'validation_failed', details: zodDetails(parseResult.error.issues) });
       return;
     }
 

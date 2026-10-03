@@ -3,10 +3,18 @@
 import type { ToolName } from '../types/tool.types';
 import type { PersonaId } from '../types/persona.types';
 
-export const TOOL_PERMISSIONS: Readonly<Record<ToolName, readonly PersonaId[]>> = {
+/**
+ * Persona permissions per REGISTERED tool.
+ *
+ * Partial on purpose: `document_read` (B-114) is a stub that BoardRoom no
+ * longer registers, so it has no entry here — a tool absent from this map is
+ * never advertised to any persona (tool-registry.ts treats `undefined` as
+ * "not allowed"). The literal stays in `ToolName` so the stub module and its
+ * tests still compile; add the entry back when the tool is real.
+ */
+export const TOOL_PERMISSIONS: Readonly<Partial<Record<ToolName, readonly PersonaId[]>>> = {
   web_search: ['alternate', 'technician', 'ceo'],
   calculator: ['technician', 'critic', 'ceo'],
-  document_read: ['technician', 'alternate', 'critic', 'ceo'],
 } as const;
 
 export const TOOL_LIMITS = {

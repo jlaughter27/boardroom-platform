@@ -41,7 +41,11 @@ route file, service file, Prisma model, and contract update.
 artifacts and dead orphan routes (memory-graph, memory-health,
 embedding-monitoring, memory-maintenance). They reference Prisma models that
 don't exist and were broking typecheck. See repo-root audit plan for context.
-Excluded from build/typecheck via `tsconfig.json`.
+`src/_disabled/` (AUDIT-2026-10-02) holds the compiled-but-unmounted files
+that were still in the live tree (semantic-dedup, memory-graph/health routes
++ services, incremental-embedding, memory-cleanup-scheduler) — see its README.
+All three are excluded from build/typecheck via `tsconfig.json`.
+
 
 ## API Contract
 See docs/contracts/omnimind-api.contract.md for every endpoint spec.

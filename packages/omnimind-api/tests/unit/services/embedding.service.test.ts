@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { generateEmbeddingWithRetry, embedMemory, backfillEmbeddings, getEmbeddingStatus } from '../../../src/services/embedding.service';
+import { generateEmbeddingWithRetry, embedMemory, backfillEmbeddings, getEmbeddingStatus, __resetOpenAIClientForTest } from '../../../src/services/embedding.service';
+
 import { prisma } from '../../../src/lib/db';
 import { logger } from '../../../src/lib/logger';
 
@@ -317,7 +318,33 @@ describe('embedding.service.ts', () => {
       expect(mockOpenAIClient.embeddings.create).not.toHaveBeenCalled();
     });
 
+    it('O-102: ministry rows are never sent to OpenAI (routed to the local embedder, skipped when unavailable)', async () => {
+      const mockMemories = [
+        { id: 'mem-business', title: 'B', content: 'business', domain: 'business' },
+        { id: 'mem-ministry', title: 'M', content: 'pastoral note', domain: 'Ministry' },
+      ];
+      mockPrisma.memoryEntry.count.mockResolvedValue(2);
+      mockPrisma.$queryRaw.mockResolvedValue(mockMemories);
+      mockOpenAIClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [0.1, 0.2] }] });
+      // Ollama is down → ministry embed returns null → row skipped, never OpenAI.
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const result = await backfillEmbeddings('user-123', 50);
+
+      // The selected SQL must include domain
+      const [strings] = mockPrisma.$queryRaw.mock.calls[0];
+      expect(strings.join('?')).toContain('domain');
+
+      expect(mockOpenAIClient.embeddings.create).toHaveBeenCalledTimes(1);
+      expect(mockOpenAIClient.embeddings.create).toHaveBeenCalledWith(expect.objectContaining({ input: 'B\n\nbusiness' }));
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('/api/embeddings'), expect.anything());
+      expect(result.processed).toBe(1);
+      expect(mockLogger.warn).toHaveBeenCalledWith('Backfill embedding failed after retries', { memoryId: 'mem-ministry' });
+      fetchSpy.mockRestore();
+    });
+
     it('should not return negative remaining count', async () => {
+
       const userId = 'user-123';
       const mockMemories = [
         { id: 'mem-1', title: 'Memory 1', content: 'Content 1' },
@@ -372,7 +399,34 @@ describe('embedding.service.ts', () => {
     });
   });
 
+  describe('F-213: module-level OpenAI client', () => {
+    it('constructs the client once and reuses it across calls with the same key', async () => {
+      __resetOpenAIClientForTest();
+      mockOpenAIConstructor.mockClear();
+      mockOpenAIClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [0.1] }] });
+
+      await generateEmbeddingWithRetry('a');
+      await generateEmbeddingWithRetry('b');
+      await generateEmbeddingWithRetry('c');
+
+      expect(mockOpenAIConstructor).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-creates the client when OPENAI_API_KEY changes', async () => {
+      __resetOpenAIClientForTest();
+      mockOpenAIConstructor.mockClear();
+      mockOpenAIClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [0.1] }] });
+
+      await generateEmbeddingWithRetry('a');
+      process.env.OPENAI_API_KEY = 'rotated-key';
+      await generateEmbeddingWithRetry('b');
+
+      expect(mockOpenAIConstructor).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('sleep function', () => {
+
     it('should wait for specified milliseconds', async () => {
       const startTime = Date.now();
       

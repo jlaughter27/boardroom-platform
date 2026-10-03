@@ -6,6 +6,7 @@ import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn } from '../lib/motion';
 import * as api from '../lib/api';
 import type { AdminStats, AdminAgent, AdminAuditEntry, AdminMemory, AdminContradiction, DuplicatePair } from '../lib/api';
+import { useAuthStore } from '../stores/auth.store';
 
 type Tab = 'overview' | 'memories' | 'audit' | 'agents' | 'contradictions' | 'duplicates';
 
@@ -94,7 +95,7 @@ function OverviewTab() {
         <StatCard label="Last Activity" value={relativeTime(stats.lastActivity)} />
       </div>
       <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" onClick={handleSummarize} disabled={summarizing}>
+        <Button variant="secondary" size="sm" onClick={handleSummarize} disabled={summarizing}>
           {summarizing ? 'Running…' : 'Trigger Session Summarizer'}
         </Button>
         {summaryMsg && <p className="text-sm text-muted-foreground">{summaryMsg}</p>}
@@ -178,10 +179,10 @@ function MemoriesTab() {
       )}
 
       <div className="flex gap-2 pt-1">
-        <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
+        <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
           Previous
         </Button>
-        <Button variant="outline" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
+        <Button variant="secondary" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
           Next
         </Button>
       </div>
@@ -254,10 +255,10 @@ function AuditTab() {
         </div>
       )}
       <div className="flex gap-2 pt-1">
-        <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
+        <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
           Previous
         </Button>
-        <Button variant="outline" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
+        <Button variant="secondary" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
           Next
         </Button>
       </div>
@@ -341,8 +342,8 @@ function ContradictionsTab() {
               <div className="flex items-start justify-between gap-2">
                 <p className="text-foreground">{a.description}</p>
                 <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                  a.severity === 'HIGH' ? 'bg-destructive/10 text-destructive' :
-                  a.severity === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                  a.severity.toUpperCase() === 'HIGH' ? 'bg-destructive/10 text-destructive' :
+                  a.severity.toUpperCase() === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
                   'bg-muted text-muted-foreground'
                 }`}>{a.severity}</span>
               </div>
@@ -370,6 +371,7 @@ function DuplicatesTab() {
   const [error, setError] = useState<string | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(0.85);
+  const userId = useAuthStore((s) => s.user?.userId);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -382,9 +384,13 @@ function DuplicatesTab() {
   useEffect(() => { load(); }, [load]);
 
   async function handleMerge(keepId: string, archiveId: string) {
+    if (!userId) {
+      setError('Not signed in — cannot attribute merge.');
+      return;
+    }
     setMerging(archiveId);
     try {
-      await api.mergeAdminDuplicates(keepId, archiveId, 'admin');
+      await api.mergeAdminDuplicates(keepId, archiveId, userId);
       setPairs((prev) => prev.filter((p) => !(p.a_id === keepId && p.b_id === archiveId) && !(p.a_id === archiveId && p.b_id === keepId)));
     } catch (e) {
       setError((e as Error).message);
@@ -407,7 +413,7 @@ function DuplicatesTab() {
           <option value={0.85}>0.85 (likely duplicates)</option>
           <option value={0.75}>0.75 (similar content)</option>
         </select>
-        <Button size="sm" variant="outline" onClick={load}>Refresh</Button>
+        <Button size="sm" variant="secondary" onClick={load}>Refresh</Button>
       </div>
       <p className="text-xs text-muted-foreground">{pairs.length} pair{pairs.length !== 1 ? 's' : ''} found</p>
       {loading ? (
@@ -431,7 +437,7 @@ function DuplicatesTab() {
                   <span className="text-xs font-mono text-primary">{(p.cosine * 100).toFixed(1)}%</span>
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="secondary"
                     disabled={merging === p.b_id}
                     onClick={() => handleMerge(p.a_id, p.b_id)}
                     className="text-xs"
@@ -440,7 +446,7 @@ function DuplicatesTab() {
                   </Button>
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="secondary"
                     disabled={merging === p.a_id}
                     onClick={() => handleMerge(p.b_id, p.a_id)}
                     className="text-xs"

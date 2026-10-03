@@ -6,6 +6,73 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-03 — Phase 6 — Independent pre-merge review: 42 findings, 42 fixed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** 1,481 passing | **Report:** `docs/audits/REVIEW-2026-10-03.md`
+
+- 2 CRITICAL (every LLM route aborted before its first call because the disconnect handler listened on `req` not `res`; OAuth callbacks swallowed by the SPA fallback), 7 HIGH (read-only agents 403 on hybrid search, superseded-row dedup/consolidate data loss, prompts missing from the OmniMind image, restore drill could never pass, thinking-block parsing, graph relayout on click, "what changed" baseline), 16 MEDIUM, 17 LOW — all fixed with a test that fails on the old code
+- three of the HIGH/CRITICAL items were regressions from the previous day's own fixes; see the report's "Pattern worth keeping"
+- first CI run on the PR failed typecheck only in CI: the lockfile carried `@types/node` 22 and 25, boardroom-ai declared neither, and the hoisted copy differed between CI and the sandbox (22 requires `AbortSignal.onabort`, 25 dropped it). Fixed by pinning the whole workspace to `@types/node ^22` (root pnpm override + explicit devDependency in boardroom-ai; both images run Node 20)
+- first Docker matrix run failed in both images at `RUN bash scripts/check-prompts-integrity.sh`: `node:20-alpine` has no bash, and the script also died under `set -e` because the builder has no `git` (this pre-dated the branch in boardroom-ai's Dockerfile; R-D-01 copied it into omnimind-api's). Script rewritten as POSIX `sh` with the git baseline degrading to the literal floor; both Dockerfiles invoke it with `sh`
+- after both fixes the full CI matrix is green on the PR head. First real `retrieval-eval` measurement (mock embeddings, 114 queries, 0 HTTP errors): for-persona recall@10 0.520, MRR 0.440, nDCG@10 0.419, abstention 0.80; `/memories/search` recall@10 0.535, MRR 0.549. Gates unchanged (ratchet needs three green runs on `main`)
+
+---
+
+## 2026-10-02 — Phase 6 — Research backlog implemented (8 moves, 6 lanes)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** 1,318 passing (was 896 after the audit)
+
+- foundation: Anthropic SDK 0.131, OTel deps, Prisma migration `20261002100000_phase6_foundation` (Decision forecasts, WeeklyMemo.itemStates, ContextCapsule provenance, MemoryEntry.consolidatedFrom, LlmUsage, IdempotencyKey), `shared/constants/model-config.ts`, `docs/contracts/PHASE-6-CONTRACTS.md`
+- omnimind-api: `GET /context/core`, calibration + changes endpoints, `asOf` temporal validity in all four layers, reflection service/job + capsules, commitment nudges job, interactive memo, `/usage/llm`, shared Anthropic client with usage recording, `EMBEDDING_PROVIDER=mock`, OTel, `::` bind; link writers (person/decision/dependency), backlinks, unlinked mentions, people duplicates, hybrid `POST /memories/search`, `supersedes`, `Idempotency-Key` middleware
+- boardroom-ai server: cached system blocks + Sonnet 5.5 + effort + Haiku guard, usage rows, debate protocol (rebuttals, ledger, dropped considerations), `premortem` mode, `POST /sessions/:id/decide`, persona-specific retrieval, OTel with verified traceparent, proxies for every new endpoint
+- boardroom-ai client: DecisionCommitCard, forecast recap in review, CalibrationPanel, debate view, pre-mortem picker, WhatChangedCard, CommitmentNudgesWidget, interactive WeeklyMemoCard, PeopleDuplicatesBanner, graph backlinks/unlinked mentions/link editors, admin LlmCostWidget
+- omnimind-mcp: 18 tools via registerTool (annotations, outputSchema, structuredContent), idempotencyKey, cursor pagination, hybrid memory_search, memory_reflect / memory_consolidate / graph_neighborhood, 4 resources, 3 prompts
+- eval/ops: 114-query labeled retrieval gold set + IR runner gated in a pgvector CI job, persona distinctiveness + sycophancy probe, `services/backup/` + restore drill, BACKUPS / OBSERVABILITY / PRIVATE-NETWORKING docs
+
+---
+
+## 2026-10-02 — Phase 6 prep — Knowledge graph view + improvement research
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed
+
+### Knowledge graph (Obsidian-style)
+- omnimind-api: `GET /graph` (`services/knowledge-graph.service.ts`, `routes/knowledge-graph.routes.ts`) — one bulk read over Goals/Projects/Tasks/People/Decisions/Commitments + top-N memories and every link table; namespaced node ids, dangling edges dropped, domain filter keeps domain-less neighbours, tenant scoping on memories, no memory content on the wire; 5 unit tests
+- shared: `types/graph.types.ts` + `validation/graph.schema.ts` (KnowledgeGraph, query schema with URL coercion)
+- boardroom-ai server: `GET /api/graph` proxy with query validation
+- boardroom-ai client: `/graph` page (`pages/GraphPage.tsx`, `components/graph/*`) on `react-force-graph-2d` (canvas): hover neighbourhood highlight with fade, click → backlinks inspector, drag, zoom, search-to-focus (`/`), type chips as legend+filter, domain filter, local-graph depth slider 1–3, labels/orphans toggles, `?focus=` deep link, reduced-motion path, bottom-sheet inspector on phones; nav item added
+- design tokens: `--color-entity-*` for both themes (validated categorical set, shape per type), `--graph-*` canvas tokens; Tailwind `entity.*`
+- contract doc: Knowledge Graph section
+
+### Research
+- `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md` — 1–6 month improvement research (memory architecture, graph UX, decision loops, persona protocol, ops, MCP) with 8 ranked moves
+
+---
+
+## 2026-10-02 — Phase 5.7 — Audit remediation: all 82 findings addressed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, 9 commits after the audit report
+
+- deps/infra: lockfile regenerated (BoardRoom Docker build fixed), vulnerable deps patched (26 high → 0), `.github/workflows/ci.yml` (frozen install, typecheck incl. client, tests, audit, Docker builds)
+- boardroom-ai server: admin allowlist, SPA fallback predicate + production-mode integration test, Stripe webhook before JSON/auth, trust proxy, CEO double-call removed, 4xx passthrough, OAuth state TTL/nonce, per-user LLM limiter, AbortController on disconnect, quick-take path, Zod on every write, dead services quarantined, context-strategy caps wired
+- boardroom-ai client: client typecheck added (35 errors fixed), CommandPalette crash, session race, 401 handling, search sequencing, idempotent onboarding, admin gating, billing error surfacing
+- omnimind-api: `0_init` migration + fresh/existing detection, tenant-scoped dedup, domain-aware backfill, non-compounding decay (`base_importance`), tenant-scope enforcement, graceful shutdown + job overlap guards, encryption write path + fail-closed decrypt, admin key, IP-fallback limiters, `x-agent-key` verification + scope enforcement, goal↔project / project↔task link routes
+- omnimind-mcp: stateful HTTP transport (SDK-client e2e test), mandatory HTTP key + timing-safe compare + body cap + health, tag-based queries + exact-title task matching, audit redaction, typed validation errors, keygen fixes
+- shared: Memory type aligned with Prisma, Zod/TS/Prisma drift fixed, `@boardroom/shared/node` subpath for Node-only utils, `document_read` dropped from TOOL_PERMISSIONS
+- docs: contract (headers, link routes), runbook (new env vars + operator checklist), FRAGILE-ZONES, MCP runbook + agent configs, CLAUDE.md limitations
+
+---
+
+## 2026-10-02 — Audit — Full-platform independent code audit (all 4 packages + infra)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Report only, no code changed
+
+- `docs/audits/AUDIT-2026-10-02.md`: 5 CRITICAL / 16 HIGH / 33 MEDIUM / 28 LOW open findings; first-ever pass over `boardroom-ai` server + client
+- CRITICALs: lockfile drift breaks BoardRoom Docker build since PR #17 (R-101); `/admin` reachable cross-tenant by any sign-up (B-101); prod SPA fallback swallows every entity GET (B-102); MCP HTTP transport fails on request 2 (M-101); fresh DB cannot boot under `migrate deploy` (O-104)
+- Prior-audit re-verification: 12/39 May findings fixed, 4 partial, 23 open; F-202 mutated into silent write loss (O-101)
+- Baseline: typecheck green 5/5, 500 unit tests pass — see "Why green tests did not catch this"
+
+---
+
 ## 2026-05-09 — Phase 5 Solo Go-Live — Ministry disable + importance decay + dedup + /admin/duplicates
 
 **Branch:** `claude/fix-memory-layer-production-qdmH8` | **Commits:** `0054de0`, `869f368` | **Status:** Pushed

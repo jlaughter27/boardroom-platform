@@ -4,7 +4,9 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import type { AuthRequest } from '../middleware/auth';
+import { validateBody } from '../middleware/validate';
 import { omnimindClient } from '../services/omnimind-client';
+import { CreateCustomPersonaRequestSchema, UpdateCustomPersonaRequestSchema } from '@boardroom/shared';
 
 const router: IRouter = Router();
 
@@ -17,7 +19,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
 });
 
 // POST /custom-personas — create
-router.post('/', async (req: AuthRequest, res, next) => {
+router.post('/', validateBody(CreateCustomPersonaRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createCustomPersona(req.auth!.userId, req.body);
     res.status(201).json(data);
@@ -25,7 +27,7 @@ router.post('/', async (req: AuthRequest, res, next) => {
 });
 
 // PATCH /custom-personas/:id — update
-router.patch('/:id', async (req: AuthRequest, res, next) => {
+router.patch('/:id', validateBody(UpdateCustomPersonaRequestSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.updateCustomPersona(req.auth!.userId, req.params.id, req.body);
     res.json(data);

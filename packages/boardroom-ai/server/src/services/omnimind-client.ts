@@ -1,3 +1,4 @@
+import type { KnowledgeGraph } from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -112,7 +113,14 @@ export class OmniMindClient {
   // ---------------------------------------------------------------------------
   // Core request — timeout + retry + circuit breaker
   // ---------------------------------------------------------------------------
-  private async request<T>(method: string, path: string, userId?: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    userId?: string,
+    body?: unknown,
+    /** S-2: per-call extra headers (e.g. `x-admin-key`). Cannot override the auth/correlation headers. */
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
     // Circuit breaker gate
     if (!this.breaker.canRequest()) {
       throw Object.assign(
@@ -123,6 +131,7 @@ export class OmniMindClient {
 
     const requestId = crypto.randomUUID();
     const headers: Record<string, string> = {
+      ...(extraHeaders ?? {}),
       'Content-Type': 'application/json',
       'x-api-key': this.apiKey,
       'x-request-id': requestId,
@@ -161,6 +170,8 @@ export class OmniMindClient {
 
         // Success — reset breaker
         this.breaker.recordSuccess();
+        // Phase 6 link routes may answer 204 No Content — nothing to parse.
+        if (res.status === 204) return undefined as T;
         return res.json() as Promise<T>;
       } catch (err: unknown) {
         const error = err as Error & { status?: number; code?: string };
@@ -204,8 +215,130 @@ export class OmniMindClient {
   }
 
   // Context
-  async getContextForPersona(req: { query: string; persona: string; userId: string; maxItems?: number; includeEntities?: string[] }) {
+  async getContextForPersona(req: {
+    query: string;
+    persona: string;
+    userId: string;
+    maxItems?: number;
+    includeEntities?: string[];
+    /** Phase 6 — Critic reads archived/superseded memories too. */
+    includeArchived?: boolean;
+    /** Phase 6 — Critic focuses on DECISION-class memories. */
+    memoryClass?: string;
+    /** Phase 6 — temporal validity: only what was valid at this instant (ISO). */
+    asOf?: string;
+  }) {
     return this.request('POST', '/context/for-persona', req.userId, req);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 6 — core context, decisions/calibration, reflection, nudges, usage
+  // ---------------------------------------------------------------------------
+
+  /** Deterministic markdown block shared by every persona call (prompt-cache prefix). */
+  async getCoreContext(userId: string) {
+    return this.request<{ block: string; tokensEstimate: number; hash: string; generatedAt: string }>(
+      'GET', '/context/core', userId,
+    );
+  }
+
+  async createDecision(userId: string, input: unknown) {
+    return this.request('POST', '/decisions', userId, input);
+  }
+
+  async getCalibration(userId: string, params?: Record<string, string>) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/decisions/calibration${qs}`, userId);
+  }
+
+  async getDecisionChanges(userId: string, params: Record<string, string>) {
+    const qs = '?' + new URLSearchParams(params).toString();
+    return this.request('GET', `/decisions/changes${qs}`, userId);
+  }
+
+  async reflectEntity(userId: string, body: { entityType: 'goal' | 'project' | 'person'; entityId: string }) {
+    return this.request('POST', '/context/reflect', userId, body);
+  }
+
+  async getCapsules(userId: string, entityIds: string[]) {
+    const qs = entityIds.length ? '?' + new URLSearchParams({ entityIds: entityIds.join(',') }).toString() : '';
+    return this.request('GET', `/context/capsules${qs}`, userId);
+  }
+
+  async getCommitmentNudges(userId: string) {
+    return this.request('GET', '/commitments/nudges', userId);
+  }
+
+  /** Phase 6 — lets the nudges widget mark a commitment FULFILLED / etc. */
+  async updateCommitment(userId: string, id: string, input: unknown) {
+    return this.request('PATCH', `/commitments/${id}`, userId, input);
+  }
+
+  async updateMemoItem(userId: string, memoId: string, itemKey: string, body: { state: 'accepted' | 'dismissed' | 'snoozed'; until?: string }) {
+    return this.request('PATCH', `/cortex/memo/${encodeURIComponent(memoId)}/items/${encodeURIComponent(itemKey)}`, userId, body);
+  }
+
+  /** Fire-and-forget target of lib/llm-usage.ts. No x-user-id header requirement; userId travels in the body. */
+  async postLlmUsage(body: { service: string; purpose: string; model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number; durationMs?: number; sessionId?: string; userId?: string }) {
+    return this.request<{ id: string; costUsd: number }>('POST', '/usage/llm', body.userId, body);
+  }
+
+  /**
+   * S-2: OmniMind requires `x-admin-key` for the cross-user (`all=1`) summary.
+   * Pass `adminKey` to send it; omitted, the call is scoped to the API key only.
+   */
+  async getLlmUsageSummary(params?: Record<string, string>, options: { adminKey?: string } = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    const extra = options.adminKey ? { 'x-admin-key': options.adminKey } : undefined;
+    return this.request('GET', `/usage/llm/summary${qs}`, undefined, undefined, extra);
+  }
+
+  // Phase 6 — entity links (ProjectPersonLink / DecisionProjectLink / TaskDependency)
+  async linkProjectPerson(userId: string, projectId: string, personId: string, body?: { role?: string }) {
+    return this.request('POST', `/projects/${projectId}/people/${personId}`, userId, body ?? {});
+  }
+
+  async unlinkProjectPerson(userId: string, projectId: string, personId: string) {
+    return this.request('DELETE', `/projects/${projectId}/people/${personId}`, userId);
+  }
+
+  async linkProjectDecision(userId: string, projectId: string, decisionId: string) {
+    return this.request('POST', `/projects/${projectId}/decisions/${decisionId}`, userId);
+  }
+
+  async unlinkProjectDecision(userId: string, projectId: string, decisionId: string) {
+    return this.request('DELETE', `/projects/${projectId}/decisions/${decisionId}`, userId);
+  }
+
+  async addTaskDependency(userId: string, taskId: string, otherTaskId: string) {
+    return this.request('POST', `/tasks/${taskId}/depends-on/${otherTaskId}`, userId);
+  }
+
+  async removeTaskDependency(userId: string, taskId: string, otherTaskId: string) {
+    return this.request('DELETE', `/tasks/${taskId}/depends-on/${otherTaskId}`, userId);
+  }
+
+  // Phase 6 — graph extras
+  async getBacklinks(userId: string, nodeId: string) {
+    return this.request('GET', `/graph/backlinks/${encodeURIComponent(nodeId)}`, userId);
+  }
+
+  async getUnlinkedMentions(userId: string, limit?: number) {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request('GET', `/graph/unlinked-mentions${qs}`, userId);
+  }
+
+  async linkUnlinkedMention(userId: string, body: { memoryId: string; entityType: string; entityId: string }) {
+    return this.request('POST', '/graph/unlinked-mentions/link', userId, body);
+  }
+
+  async getPeopleDuplicates(userId: string) {
+    return this.request('GET', '/people/duplicates', userId);
+  }
+
+  /** Hybrid search (same stack as /context/for-persona). */
+  async searchMemoriesHybrid(userId: string, body: { query: string; limit?: number; domain?: string; tags?: string[]; status?: string; includeArchived?: boolean; asOf?: string; cursor?: string }) {
+    return this.request('POST', '/memories/search', userId, body);
   }
 
   // Memory
@@ -250,10 +383,21 @@ export class OmniMindClient {
     );
   }
 
-  async getUserByEmail(email: string) {
-    return this.request<{ id: string; email: string; name: string; passwordHash: string; teamId: string } | null>(
-      'POST', '/auth/login', undefined, { email }
-    );
+  /**
+   * B-115 — Credential verification goes through the resilient client
+   * (timeout/retry/breaker/x-request-id). OmniMind performs the bcrypt
+   * compare server-side; passwordHash never crosses the seam.
+   * Returns null on 401 (invalid credentials); rethrows anything else.
+   */
+  async verifyCredentials(email: string, password: string) {
+    try {
+      return await this.request<{ id: string; email: string; name: string; teamId: string }>(
+        'POST', '/auth/verify', undefined, { email, password }
+      );
+    } catch (err: unknown) {
+      if ((err as { status?: number }).status === 401) return null;
+      throw err;
+    }
   }
 
   async getUserById(id: string) {
@@ -333,6 +477,18 @@ export class OmniMindClient {
 
   async deleteTask(userId: string, id: string) {
     return this.request('DELETE', `/tasks/${id}`, userId);
+  }
+
+  // Entity hierarchy links (C-111). PROPOSED OmniMind contract — OmniMind does
+  // not expose these yet (only the GoalProjectLink / ProjectTaskLink Prisma
+  // models exist). Until the omnimind-api side lands, these return the
+  // upstream 404 unchanged (B-106 pass-through).
+  async linkGoalProject(userId: string, goalId: string, projectId: string) {
+    return this.request('POST', `/goals/${goalId}/projects/${projectId}`, userId);
+  }
+
+  async linkProjectTask(userId: string, projectId: string, taskId: string) {
+    return this.request('POST', `/projects/${projectId}/tasks/${taskId}`, userId);
   }
 
   // User profile
@@ -471,6 +627,12 @@ export class OmniMindClient {
     return this.request('GET', '/relationships/graph', userId);
   }
 
+  /** Knowledge graph (Obsidian-style view). Query keys mirror shared KnowledgeGraphQuery. */
+  async getKnowledgeGraph(userId: string, query: Record<string, string> = {}) {
+    const qs = new URLSearchParams(query).toString();
+    return this.request<KnowledgeGraph>('GET', `/graph${qs ? `?${qs}` : ''}`, userId);
+  }
+
   // Memory Entity Links
   async createMemoryLink(userId: string, memoryId: string, data: { entityType: string; entityId: string; linkType?: string }) {
     return this.request('POST', `/memories/${memoryId}/links`, userId, data);
@@ -490,8 +652,9 @@ export class OmniMindClient {
   }
 
   // Admin (no userId — cross-agent views)
-  async getAdminStats() {
-    return this.request('GET', '/admin/stats');
+  async getAdminStats(params?: Record<string, string>) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/stats${qs}`);
   }
 
   async getAdminAgents() {

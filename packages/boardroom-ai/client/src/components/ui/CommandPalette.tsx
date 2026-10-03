@@ -1,10 +1,9 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { useCommandPaletteStore } from '../../stores/commandPalette.store';
-import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut';
 
 export { useCommandPaletteStore } from '../../stores/commandPalette.store';
 
@@ -19,32 +18,18 @@ const pages = [
 ];
 
 export function CommandPalette() {
-  const { open, toggle, close } = useCommandPaletteStore();
+  // Cmd/Ctrl+K is bound once, in useKeyboardShortcuts (Layout) — see C-116.
+  const { open, close } = useCommandPaletteStore();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const { goals, projects, people, decisions } = useEntitiesStore();
-
-  const toggleCb = useCallback(() => toggle(), [toggle]);
-  useKeyboardShortcut('k', toggleCb, { meta: true });
-
-  // Also support Ctrl+K for non-Mac
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && !e.metaKey && e.key === 'k') {
-        e.preventDefault();
-        toggle();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [toggle]);
 
   const filteredGoals = useMemo(
     () => goals.filter((g) => g.title.toLowerCase().includes(search.toLowerCase())).slice(0, 5),
     [goals, search]
   );
   const filteredProjects = useMemo(
-    () => projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase())).slice(0, 5),
+    () => projects.filter((p) => p.title.toLowerCase().includes(search.toLowerCase())).slice(0, 5),
     [projects, search]
   );
   const filteredPeople = useMemo(
@@ -132,12 +117,12 @@ export function CommandPalette() {
                     {filteredProjects.map((project) => (
                       <Command.Item
                         key={project.id}
-                        value={`project-${project.name}`}
+                        value={`project-${project.title}`}
                         onSelect={() => navigateTo('/')}
                         className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted"
                       >
                         <span className="text-base w-5 text-center text-primary">{'\u25A3'}</span>
-                        {project.name}
+                        {project.title}
                       </Command.Item>
                     ))}
                   </Command.Group>

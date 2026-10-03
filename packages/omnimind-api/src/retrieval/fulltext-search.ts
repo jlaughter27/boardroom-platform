@@ -1,6 +1,9 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ScoredResult } from './structured-filter';
-import { archiveCutoffDate } from './forgetting-curve';
+import { archiveCutoffDate, type LayerErrorHook } from './forgetting-curve';
+import { decryptRows } from './row-decrypt';
+import { logger } from '../lib/logger';
+import { temporalValiditySql, memoryClassSql } from './temporal-validity';
 
 export interface FulltextSearchOptions {
   limit?: number;
@@ -9,7 +12,14 @@ export interface FulltextSearchOptions {
   tenantId?: string;
   /** Admin escape hatch — skip tenant filter entirely. Defaults to false. */
   includeAllTenants?: boolean;
+  /** Phase 6: temporal validity — "what was believed at this instant". */
+  asOf?: Date;
+  /** Phase 6: restrict to one MemoryClass (WORKING|EPISODIC|SEMANTIC|DECISION). */
+  memoryClass?: string;
+  /** F-204: invoked when the layer fails and degrades to []. */
+  onLayerError?: LayerErrorHook;
 }
+
 
 /**
  * Full-text search over memory titles + content.
@@ -55,6 +65,8 @@ export async function fulltextSearch(
   if (!tsQuery) return [];
 
   const limit = options.limit ?? 20;
+  const validity = temporalValiditySql(options.asOf);
+  const classFilter = memoryClassSql(options.memoryClass);
 
   try {
     // Four-way branch on (tenant, includeArchived). Each branch is a real
@@ -68,63 +80,76 @@ export async function fulltextSearch(
       last_accessed_at: Date | null;
       source_weight: number;
       rank: number;
+      domain: string | null;
+      encrypted_content: Uint8Array | null;
     }>;
 
+    // O-103: the forgetting curve falls back to created_at when the memory
+    // has never been recalled (last_accessed_at IS NULL).
     if (tenantId && includeArchived) {
       results = await prisma.$queryRaw`
-        SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
+        SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
                ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND tenant_id = ${tenantId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
+          AND ${validity}
+          AND ${classFilter}
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
         LIMIT ${limit}
       `;
     } else if (tenantId && !includeArchived) {
       results = await prisma.$queryRaw`
-        SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
+        SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
                ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND tenant_id = ${tenantId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
-          AND (importance >= 0.4 OR last_accessed_at >= ${cutoff})
+          AND ${validity}
+          AND ${classFilter}
+          AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
         LIMIT ${limit}
       `;
     } else if (!tenantId && includeArchived) {
       results = await prisma.$queryRaw`
-        SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
+        SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
                ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
+          AND ${validity}
+          AND ${classFilter}
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
         LIMIT ${limit}
       `;
     } else {
       results = await prisma.$queryRaw`
-        SELECT id, title, content, tags, importance, last_accessed_at, source_weight,
+        SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
                ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
-          AND (importance >= 0.4 OR last_accessed_at >= ${cutoff})
+          AND ${validity}
+          AND ${classFilter}
+          AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
         ORDER BY rank DESC
         LIMIT ${limit}
       `;
     }
 
-    return results.map(r => ({
+    return decryptRows(results).map(r => ({
+
       id: r.id,
       type: 'memory' as const,
       content: r.content,
@@ -137,8 +162,13 @@ export async function fulltextSearch(
       lastAccessedAt: r.last_accessed_at,
       sourceWeight: r.source_weight,
     }));
-  } catch {
-    // FTS may fail if extensions aren't enabled yet — degrade gracefully
+  } catch (err) {
+    // F-204: FTS may fail if extensions aren't enabled yet — degrade, but
+    // log it and report it so the context package is marked degraded.
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('[fts] retrieval layer failed — degrading to []', { error: error.message });
+    options.onLayerError?.('fts', error);
     return [];
   }
 }
+

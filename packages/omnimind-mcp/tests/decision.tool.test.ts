@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { decisionLogTool } from '../src/tools/decision.tool';
-import { ScopeDeniedError } from '../src/types';
+import { ScopeDeniedError, McpValidationError } from '../src/types';
 import type { OmniMindClient } from '../src/lib/client';
 import type { AgentContext } from '../src/types';
 
@@ -10,7 +10,7 @@ function makeCtx(scopes: string[] = ['decision:write']): AgentContext {
 
 function makeMockClient(): OmniMindClient {
   return {
-    createMemory: vi.fn().mockResolvedValue({ id: 'dec-1' }),
+    createMemory: vi.fn().mockResolvedValue({ id: 'dec-1', status: 'created' }),
     logAudit: vi.fn().mockResolvedValue(undefined),
   } as unknown as OmniMindClient;
 }
@@ -25,6 +25,7 @@ describe('decision_log', () => {
     const result = await tool.execute({ title: 'Use Postgres', content: 'Decided Postgres over Mongo', userId: 'u-1' });
     expect(result.logged).toBe(true);
     expect(result.id).toBe('dec-1');
+    expect(result.action).toBe('created');
   });
 
   it('throws ScopeDeniedError when missing decision:write', async () => {
@@ -32,9 +33,9 @@ describe('decision_log', () => {
     await expect(tool.execute({ title: 'test', content: 'x', userId: 'u' })).rejects.toThrow(ScopeDeniedError);
   });
 
-  it('throws on empty title', async () => {
+  it('throws McpValidationError on empty title', async () => {
     const tool = decisionLogTool(client, makeCtx());
-    await expect(tool.execute({ title: '', content: 'x', userId: 'u' })).rejects.toThrow();
+    await expect(tool.execute({ title: '', content: 'x', userId: 'u' })).rejects.toBeInstanceOf(McpValidationError);
   });
 
   it('includes decision tag in created memory', async () => {
@@ -42,7 +43,36 @@ describe('decision_log', () => {
     await tool.execute({ title: 'Use Redis', content: 'For session storage', userId: 'u' });
     expect(client.createMemory).toHaveBeenCalledWith(
       expect.objectContaining({ tags: expect.arrayContaining(['decision']) }),
-      'u'
+      'u',
+      undefined
     );
+  });
+
+  it('Phase 6: forwards idempotencyKey as a write option', async () => {
+    const tool = decisionLogTool(client, makeCtx());
+    await tool.execute({ title: 'Use Redis', content: 'For session storage', userId: 'u', idempotencyKey: 'dec-abc' });
+    expect(vi.mocked(client.createMemory).mock.calls[0][2]).toEqual({ idempotencyKey: 'dec-abc' });
+  });
+
+  it('F-205: normalizes domain (trim + lowercase) before sending', async () => {
+    const tool = decisionLogTool(client, makeCtx());
+    await tool.execute({ title: 't', content: 'c', userId: 'u', domain: '  Business ' });
+    expect(client.createMemory).toHaveBeenCalledWith(expect.objectContaining({ domain: 'business' }), 'u', undefined);
+  });
+
+  it('F-205/F-212: ministry decision is refused, audited, and its content redacted', async () => {
+    const tool = decisionLogTool(client, makeCtx());
+    const result = await tool.execute({ title: 'Pastoral care plan', content: 'Sensitive pastoral detail', userId: 'u', domain: 'MINISTRY' });
+    expect(result.logged).toBe(false);
+    expect(result.error).toBe('MINISTRY_DEFERRED');
+    expect(client.createMemory).not.toHaveBeenCalled();
+    const entry = vi.mocked(client.logAudit).mock.calls[0][0];
+    expect(entry.toolName).toBe('decision_log');
+    expect(entry.errorMessage).toBe('MINISTRY_DEFERRED');
+    const input = entry.inputJson as Record<string, unknown>;
+    expect(input.content).toBe('[REDACTED:ministry]');
+    expect(input.title).toBe('[REDACTED:ministry]');
+    expect(input.domain).toBe('ministry');
+    expect(input.userId).toBe('u');
   });
 });

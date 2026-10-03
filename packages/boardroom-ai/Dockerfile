@@ -16,7 +16,7 @@ COPY scripts/check-prompts-integrity.sh scripts/check-prompts-integrity.sh
 
 # Fail fast if the runtime persona-prompt count drops accidentally during a build.
 # Catches: COPY glob mismatch, accidental file delete, missed .system.md in a refactor.
-RUN bash scripts/check-prompts-integrity.sh
+RUN sh scripts/check-prompts-integrity.sh
 
 # Build shared package explicitly first — pnpm workspace symlinks in Docker
 # can prevent TypeScript from finding .d.ts files through node_modules resolution

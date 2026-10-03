@@ -6,7 +6,7 @@
 // Deliberately lightweight — no wavesurfer/wavejs dep, no streaming.
 // One record → one blob → one upload.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 
 export interface VoiceRecorderProps {
   /** Max recording duration in seconds. Auto-stops at this limit. */

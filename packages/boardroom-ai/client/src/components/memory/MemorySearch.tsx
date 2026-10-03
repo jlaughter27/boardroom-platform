@@ -7,6 +7,9 @@ export function MemorySearch() {
   const { filters, setFilters, search } = useMemoryStore();
   const [query, setQuery] = useState(filters.q ?? '');
   const debouncedQuery = useDebounce(query, 300);
+  // Domain is free text too — debounce it like `q` instead of firing per keystroke (C-113)
+  const [domain, setDomain] = useState(filters.domain ?? '');
+  const debouncedDomain = useDebounce(domain, 300);
 
   useEffect(() => {
     if (debouncedQuery !== (filters.q ?? '')) {
@@ -14,8 +17,15 @@ export function MemorySearch() {
     }
   }, [debouncedQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (debouncedDomain !== (filters.domain ?? '')) {
+      setFilters({ domain: debouncedDomain || undefined });
+    }
+  }, [debouncedDomain]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function clearAll() {
     setQuery('');
+    setDomain('');
     // Reset all filters and re-search
     useMemoryStore.setState({ filters: {} });
     search({});
@@ -54,8 +64,8 @@ export function MemorySearch() {
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"
-          value={filters.domain ?? ''}
-          onChange={(e) => setFilters({ domain: e.target.value || undefined })}
+          value={domain}
+          onChange={(e) => setDomain(e.target.value)}
           placeholder="Domain"
           className={`${selectClass} w-28`}
         />

@@ -64,7 +64,10 @@ Return a single JSON object matching the `SynthesisReport` interface. No markdow
       "reviewAt": "2026-05-15"
     }
   ],
-  "sourceMemoryIds": ["mem_id_1", "mem_id_2"]
+  "sourceMemoryIds": ["mem_id_1", "mem_id_2"],
+  "ledgerResolutions": [
+    { "claim": "Hiring now preserves the Q3 launch", "resolution": "Rejected: the Critic's cited runway memory shows a hire pushes cash-out before launch; the launch date should move instead." }
+  ]
 }
 ```
 
@@ -75,7 +78,16 @@ Return a single JSON object matching the `SynthesisReport` interface. No markdow
 - `nextActions`: 3-5 actions. Each must be concrete enough to execute without further clarification. Include owner (name or role) and timeline.
 - `topRisks`: 2-4 risks. These are the residual risks AFTER your recommendation — what could still go wrong.
 - `assumptionsToMonitor`: 2-4 assumptions with specific review dates (ISO date strings). These are check-in points to validate the recommendation is still correct.
-- `sourceMemoryIds`: Reference memory IDs cited by any persona in their outputs.
+- `sourceMemoryIds`: Reference memory IDs cited by any persona in their outputs. Carry forward every id a persona cited whose fact still bears on your recommendation — ids you drop are reported to the user as "dropped considerations".
+- `ledgerResolutions`: One entry per row of the `## Disagreement Ledger` section when it is present (same order, `claim` quoting the row). Each `resolution` says which side you take and the fact that decides it. Emit `[]` when no ledger was provided. Do NOT emit a `droppedConsiderations` field — the system computes it.
+- `assumptionsToMonitor` entries MAY carry `"confidence": "HIGH" | "MEDIUM" | "LOW" | "SPECULATIVE"` (how much the user should currently trust the assumption). It is required in Pre-mortem Mode.
+
+## Round 2 and the Disagreement Ledger
+
+Some sessions run a second round: advisors who dissented or sat outside the majority saw the others' positions (anonymized) and either **defended** or **conceded**. When that happened you receive, after the persona perspectives:
+
+- A `Round 2` note under each affected persona: stance, reason, revised recommendation and revised confidence. Weigh the revised position, not the original one.
+- A `## Disagreement Ledger` section: machine-built rows `{ claim, heldBy, opposedBy, citedMemoryIds }`. You must address every row in `ledgerResolutions`. A defended minority claim backed by a memory id the majority never cited deserves more weight than its head-count suggests; a claim conceded by its own holder can be resolved briefly.
 
 ## Tone Rules
 

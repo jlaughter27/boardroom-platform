@@ -8,7 +8,9 @@ and end-to-end session quality.
 ```bash
 # Individual runners
 npm run eval:retrieval    # Retrieval quality (seeds memories, queries, scores)
-npm run eval:personas     # Persona uniqueness + structural compliance
+npm run eval:retrieval:ir # Labeled IR eval: recall@5/10, MRR, nDCG@10 per slice + archetype (CI-gated)
+npm run eval:retrieval:seed # Seed only the IR gold corpus (idempotent)
+npm run eval:personas     # Persona distinctiveness (TF-IDF cosine), structure, opt-in sycophancy probe
 npm run eval:e2e          # Full session lifecycle
 
 # All evals
@@ -18,6 +20,8 @@ npm run eval:all
 ## Prerequisites
 
 - **eval:retrieval** — Requires OmniMind API running (`localhost:3333`)
+- **eval:retrieval:ir** — Requires OmniMind only (no LLM key; `EMBEDDING_PROVIDER=mock` is fine). Runbook: `docs/runbooks/retrieval-eval.md`
+- **eval:personas** — Offline by default; `EVAL_LIVE=1` dispatches real sessions, `EVAL_SYCOPHANCY=1` needs `ANTHROPIC_API_KEY`
 - **eval:personas** — Requires both services + `ANTHROPIC_API_KEY`
 - **eval:e2e** — Requires both services + `ANTHROPIC_API_KEY`
 
@@ -43,8 +47,11 @@ eval/
     persona-uniqueness.md
     ambiguity-handling.md
     synthesis-quality.md
+  retrieval/          # Labeled IR eval: seed-memories.json, gold/*.json, thresholds.json, seed.ts, metrics.ts (+ __tests__)
+  personas/           # distinctiveness.ts — TF-IDF cosine, flip-rate helpers (+ __tests__)
   runners/            # TypeScript evaluation runners
     eval-retrieval.ts   # Seeds memories, queries context, scores precision
+    eval-retrieval-ir.ts # Gold-set IR metrics; exits 1 below thresholds.json (CI job retrieval-eval)
     eval-personas.ts    # Dispatches personas, checks uniqueness + structure
     eval-e2e.ts         # Full session lifecycle test
   results/            # Auto-generated JSON result files (gitignored)

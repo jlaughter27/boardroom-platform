@@ -2,11 +2,18 @@ import { schedule, type ScheduledTask } from 'node-cron';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
 import { processEmbeddingOutboxEntry } from '../services/memory.service';
+import { createJobGuard } from './job-guard';
 
 let retryJob: ScheduledTask | null = null;
 
 const MAX_ATTEMPTS = 5;
 const MAX_BATCH_SIZE = 50;
+
+// O-109: a tick (50 rows × up to 3 OpenAI attempts, or 10 s Ollama timeouts)
+// can exceed the 2-minute interval. Without this guard two ticks would
+// double-increment `attempts` (dead-lettering rows after ~3 real tries) and
+// embed the same memory twice.
+const retryGuard = createJobGuard('embedding-retry');
 
 /**
  * WS-2.3 — Embedding Outbox retry cron.
@@ -73,7 +80,7 @@ async function runRetryTick(): Promise<{ tried: number; succeeded: number; faile
 
 export function startEmbeddingRetryScheduler(): void {
   // Every 2 minutes
-  retryJob = schedule('*/2 * * * *', async () => {
+  retryJob = schedule('*/2 * * * *', () => retryGuard.run(async () => {
     try {
       const stats = await runRetryTick();
       if (stats.tried > 0 || stats.succeeded > 0 || stats.failed > 0) {
@@ -82,13 +89,14 @@ export function startEmbeddingRetryScheduler(): void {
     } catch (err) {
       logger.error('[embedding-retry] Job error', { error: (err as Error).message });
     }
-  });
+  }));
 
   logger.info('[embedding-retry] Embedding retry scheduler started (every 2 min)');
 }
 
 export function stopEmbeddingRetryScheduler(): void {
   retryJob?.stop();
+  retryJob = null;
   logger.info('[embedding-retry] Embedding retry scheduler stopped');
 }
 

@@ -1,25 +1,32 @@
 {
-  "_comment": "ChatGPT Desktop MCP configuration for josh-personal tenant. chatgpt-desktop-josh is read-only (memory:read, sourceWeight=0.6). ChatGPT Desktop uses HTTP transport rather than stdio. Start the HTTP server first: node dist/index.js http",
+  "_comment": "ChatGPT Desktop MCP configuration for josh-personal tenant. chatgpt-desktop-josh is read-only (memory:read, sourceWeight=0.6). ChatGPT Desktop uses the stateful Streamable HTTP transport rather than stdio. Start the HTTP server first: node dist/index.js http. OMNIMIND_MCP_API_KEY is the INBOUND bearer token (required; the server refuses to start without it) and must equal the Authorization header below. OMNIMIND_MCP_AGENT_KEY is the omk_ key from keygen for chatgpt-desktop-josh (outbound x-agent-key to OmniMind). OMNIMIND_MCP_ALLOWED_HOSTS lists the exact Host header values accepted (DNS-rebinding protection). OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
   "mcpServers": {
     "omnimind": {
       "type": "http",
       "url": "http://localhost:3334",
       "headers": {
-        "x-mcp-api-key": "REPLACE_WITH_MCP_API_KEY"
+        "Authorization": "Bearer REPLACE_WITH_MCP_API_KEY"
       }
     }
   },
   "_http_server_startup": {
     "command": "node",
-    "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js", "http"],
+    "args": [
+      "/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js",
+      "http"
+    ],
     "env": {
       "OMNIMIND_MCP_AGENT_NAME": "chatgpt-desktop-josh",
       "OMNIMIND_MCP_TENANT_ID": "josh-personal",
       "OMNIMIND_MCP_SCOPES": "memory:read",
       "OMNIMIND_MCP_SOURCE_WEIGHT": "0.6",
+      "OMNIMIND_MCP_AGENT_KEY": "REPLACE_WITH_AGENT_KEY_FROM_KEYGEN",
       "OMNIMIND_MCP_API_KEY": "REPLACE_WITH_MCP_API_KEY",
+      "OMNIMIND_MCP_ALLOWED_HOSTS": "127.0.0.1:3334,localhost:3334",
       "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
-      "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY"
+      "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
+      "OMNIMIND_MCP_USER_ID": "REPLACE_WITH_USER_ID_OPTIONAL"
     }
-  }
+  },
+  "_health_check": "curl -s http://localhost:3334/health  (no auth; returns {status, uptime, sessions, agent, tenant})"
 }

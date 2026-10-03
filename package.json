@@ -5,17 +5,21 @@
   "workspaces": [
     "packages/shared",
     "packages/omnimind-api",
-    "packages/boardroom-ai"
+    "packages/boardroom-ai",
+    "packages/omnimind-mcp"
   ],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
     "test": "turbo run test",
     "test:all": "pnpm test && pnpm test:e2e",
+    "test:eval": "vitest run --dir eval",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "clean": "turbo run clean",
     "eval:retrieval": "tsx eval/runners/eval-retrieval.ts",
+    "eval:retrieval:seed": "tsx eval/retrieval/seed.ts",
+    "eval:retrieval:ir": "tsx eval/runners/eval-retrieval-ir.ts",
     "eval:personas": "tsx eval/runners/eval-personas.ts",
     "eval:e2e": "tsx eval/runners/eval-e2e.ts",
     "eval:all": "npm run eval:retrieval && npm run eval:personas && npm run eval:e2e",
@@ -23,7 +27,20 @@
     "pre-deploy": "bash scripts/pre-deploy-check.sh"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "esbuild"]
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild"
+    ],
+    "overrides": {
+      "form-data@>=4.0.0 <4.0.6": ">=4.0.6",
+      "hono@<4.12.25": ">=4.12.25",
+      "fast-uri@>=3.0.0 <=3.1.3": ">=3.1.4",
+      "ip-address@<=10.3.0": ">=10.3.1",
+      "deepmerge-ts@<8.0.0": ">=8.0.0",
+      "@types/node": "^22.0.0"
+    }
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

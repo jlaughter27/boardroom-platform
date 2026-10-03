@@ -3,12 +3,21 @@ import { runValidationPipeline } from '../memory/validation/pipeline';
 import { SOURCE_WEIGHTS, SourceType } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
-import { decrypt } from '../lib/crypto';
+import { decryptMemory, encryptMemoryContent, normalizeDomain } from '../lib/memory-crypto';
 import { HttpError } from '../middleware/error-handler';
 import type { AgentContext } from '../middleware/agent-context';
 import { prisma as defaultPrisma } from '../lib/db';
+import { tryDecryptMemory } from '../lib/memory-crypto';
+import { structuredFilter } from '../retrieval/structured-filter';
+import { fulltextSearch } from '../retrieval/fulltext-search';
+import { trigramSearch } from '../retrieval/trigram-search';
+import { semanticSearch } from '../retrieval/semantic-search';
+import { rankAndDeduplicate } from '../retrieval/ranker';
 
 export type { AgentContext };
+// O-111: single decrypt entry point shared with the retrieval layers.
+export { decryptMemory };
+
 
 // WS-4.2 — Strict sourceType validation set. Previously the SOURCE_WEIGHTS
 // lookup silently fell back to MANUAL on invalid input, hiding data-quality
@@ -23,15 +32,9 @@ const MINISTRY_DEFERRED_MSG =
 
 const DEDUP_THRESHOLD = 0.92;
 
-/**
- * WS-6 F-101 — Canonicalize a domain value so the ministry refusal gate
- * cannot be bypassed by case/whitespace variants. Mirrors the Zod transform
- * on CreateMemoryRequestSchema.domain in @boardroom/shared. Service-layer
- * normalization is a defense-in-depth pass for callers that bypass Zod.
- */
-function normalizeDomain(d: string): string {
-  return d.trim().toLowerCase();
-}
+// WS-6 F-101 — domain normalization (defense-in-depth for callers that bypass
+// Zod) now lives in lib/memory-crypto.ts so the retrieval layers share it.
+
 
 /**
  * Backward-compat shim: legacy callers pass (userId, input, prisma).
@@ -70,8 +73,17 @@ function resolveContextAndPrisma(
   );
 }
 
+/**
+ * O-101 / F-202 — cosine near-duplicate lookup, scoped to BOTH the user and
+ * the caller's tenant. Without the tenant filter an agent in tenant A could
+ * "merge into" (and re-stamp) a memory that lives in tenant B.
+ *
+ * R-O-02: invalidated / superseded rows are never dedup targets — merging into
+ * one would resurrect a belief that was explicitly replaced.
+ */
 async function findNearDuplicate(
   userId: string,
+  tenantId: string,
   embedding: number[],
   threshold: number,
   prisma: PrismaClient
@@ -81,18 +93,27 @@ async function findNearDuplicate(
       SELECT id, importance, tags
       FROM "memory_entries"
       WHERE user_id = ${userId}
+        AND tenant_id = ${tenantId}
         AND embedding IS NOT NULL
         AND deleted_at IS NULL
         AND status != 'ARCHIVED'
+        AND invalid_at IS NULL
+        AND superseded_by IS NULL
         AND 1 - (embedding <=> ${embedding}::vector) >= ${threshold}
       ORDER BY embedding <=> ${embedding}::vector
       LIMIT 1
     `;
     return rows[0] ?? null;
-  } catch {
+  } catch (err) {
+    // Dedup is a best-effort heuristic; a failure here must not block the
+    // write, but it must not be silent either (F-204 spirit).
+    logger.warn('findNearDuplicate failed — skipping dedup for this write', {
+      error: (err as Error).message,
+    });
     return null;
   }
 }
+
 
 // Create memory — validate first, then write
 export async function createMemory(
@@ -140,33 +161,60 @@ export async function createMemory(
     });
   }
 
-  // Cosine dedup: if a near-identical memory exists (>0.92 similarity), update it instead of creating
-  const embedText = `${input.title} ${input.content}`.slice(0, 8000);
-  const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
-  if (dedupeEmbedding) {
-    const dupe = await findNearDuplicate(userId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
-    if (dupe) {
-      // CRITICAL: pass the agent context through the dedup update path so we don't strip
-      // tenantId / agentId / sourceWeight on the merge (fix for Bug #3).
-      logger.info('Near-duplicate detected — auto-superseding existing memory', { dupeId: dupe.id });
-      await updateMemory(userId, dupe.id, {
-        title: input.title,
-        content: input.content,
-        importance: Math.max(dupe.importance, input.importance ?? 0.5),
-        tags: Array.from(new Set([...dupe.tags, ...(input.tags ?? [])])),
-      }, agentContext, prisma);
-      return {
-        success: true as const,
-        data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
-      };
-    }
-  }
-
-  // Run validation pipeline
+  // Run validation pipeline FIRST (O-115 / rule 6): every write path —
+  // including the dedup-update branch below — goes through schema + temporal
+  // + budget validation. Previously the dedup branch ran before and bypassed it.
   const validation = await runValidationPipeline(input, userId, input.domain, prisma);
   if (!validation.valid) {
     return { success: false as const, errors: validation.errors };
   }
+
+  // Cosine dedup: if a near-identical memory exists (>0.92 similarity) IN THE
+  // CALLER'S TENANT, update it instead of creating.
+  //
+  // O-101 / F-202: only runs when an agent context (and therefore a tenant) is
+  // present. BoardRoom AI writes carry no tenant and are single-user, so dedup
+  // is skipped rather than searched cross-tenant.
+  if (agentContext) {
+    const embedText = `${input.title} ${input.content}`.slice(0, 8000);
+    const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
+    if (dedupeEmbedding) {
+      const dupe = await findNearDuplicate(userId, agentContext.tenantId, dedupeEmbedding, DEDUP_THRESHOLD, prisma);
+      if (dupe) {
+        // Pass the agent context through the dedup update path so we don't strip
+        // tenantId / agentId / sourceWeight on the merge (fix for Bug #3).
+        logger.info('Near-duplicate detected — auto-superseding existing memory', { dupeId: dupe.id });
+        const updated = await updateMemory(userId, dupe.id, {
+          title: input.title,
+          content: input.content,
+          importance: Math.max(dupe.importance, input.importance ?? 0.5),
+          tags: Array.from(new Set([...dupe.tags, ...(input.tags ?? [])])),
+        }, agentContext, prisma);
+
+        if (updated) {
+          return {
+            success: true as const,
+            data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
+          };
+        }
+
+        // O-101: updateMemory is user+tenant scoped and returns null when the
+        // candidate is not visible to this caller. Previously we still answered
+        // {status:'updated', id:<foreign id>} and silently dropped the write.
+        // Now we fall through and create the memory normally.
+        logger.warn('Near-duplicate update returned null (candidate not visible in caller scope) — creating instead', {
+          dupeId: dupe.id,
+          tenantId: agentContext.tenantId,
+        });
+      }
+    }
+  }
+
+  // O-111: ministry content is encrypted at rest (placeholder in `content`,
+  // ciphertext in `encrypted_content`). Returns null for non-ministry rows and
+  // in dev/test without ENCRYPTION_KEY; throws in production without a key.
+  const encrypted = encryptMemoryContent(input.domain, input.content);
+
 
   // Source weight resolution: agent context (from header / Agent table) wins,
   // else fall back to the static sourceType lookup table.
@@ -187,6 +235,9 @@ export async function createMemory(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       memoryClass: (input.memoryClass ?? 'SEMANTIC') as any,
       importance: input.importance ?? 0.5,
+      // O-103: undecayed importance — the decay job recomputes `importance`
+      // from this every run instead of compounding on its own output.
+      baseImportance: input.importance ?? 0.5,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       confidence: (input.confidence ?? 'MEDIUM') as any,
       sourceRef: input.sourceRef ?? null,
@@ -199,8 +250,11 @@ export async function createMemory(
       // (the service-layer counterpart to the migration's 'legacy' DB default).
       agentId: agentContext?.agentId ?? 'boardroom-ai',
       ...(agentContext ? { tenantId: agentContext.tenantId } : {}),
+      // O-111: overrides `content` with the placeholder when encrypted.
+      ...(encrypted ?? {}),
     },
   });
+
 
   // WS-2: Embedding outbox pattern. Enqueue an outbox row up-front so a stuck
   // embedding is always recoverable via the embedding-retry-scheduler cron,
@@ -361,17 +415,6 @@ export async function processEmbeddingOutboxEntry(
   return { succeeded: false, error: message };
 }
 
-// Decrypt ministry content in-place (mutates a copy)
-function decryptMemory<T extends { domain: string; content: string; encryptedContent: Buffer | Uint8Array | null }>(
-  mem: T
-): T & { content: string } {
-  // WS-6 F-101 — normalize the legacy stored domain before comparing.
-  if (normalizeDomain(mem.domain) === 'ministry' && mem.encryptedContent) {
-    const encoded = Buffer.from(mem.encryptedContent).toString('utf-8');
-    return { ...mem, content: decrypt(encoded) };
-  }
-  return mem;
-}
 
 // Get single memory by ID, scoped to userId AND tenantId (when context is present)
 export async function getMemory(
@@ -389,8 +432,9 @@ export async function getMemory(
 
   const memory = await prisma.memoryEntry.findFirst({ where });
   if (!memory) return null;
-  return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
+  return decryptMemory(memory);
 }
+
 
 // Search/filter memories
 export async function searchMemories(
@@ -412,6 +456,12 @@ export async function searchMemories(
      * derived from agentContext. Filtering by `filters.tenantId` still applies.
      */
     includeAllTenants?: boolean;
+    /**
+     * R-O-02: invalidated rows (`invalidAt` set — superseded / consolidated)
+     * are hidden by default. `?includeInvalidated=true` on the list route
+     * opts back in (provenance / audit views).
+     */
+    includeInvalidated?: boolean;
   },
   agentContextOrPrisma?: AgentContext | PrismaClient,
   prismaArg?: PrismaClient
@@ -424,6 +474,7 @@ export async function searchMemories(
   const where: Prisma.MemoryEntryWhereInput = {
     userId,
     deletedAt: null,
+    ...(filters.includeInvalidated ? {} : { invalidAt: null }),
   };
 
   // Tenant resolution precedence:
@@ -468,9 +519,8 @@ export async function searchMemories(
     prisma.memoryEntry.count({ where }),
   ]);
 
-  const items = rawItems.map(m =>
-    decryptMemory(m as typeof m & { encryptedContent: Buffer | null })
-  );
+  const items = rawItems.map(m => decryptMemory(m));
+
 
   return { items, total, offset, limit };
 }
@@ -495,6 +545,43 @@ export async function updateMemory(
   const existing = await prisma.memoryEntry.findFirst({ where: ownershipWhere });
   if (!existing) return null;
 
+  // R-O-02 / R-M-01: an invalidated row (superseded or consolidated away) is
+  // frozen. Editing it would resurrect a replaced belief, and letting it act
+  // as the KEEPER of a `supersedes` request could flip a pair and leave both
+  // rows invalid. Callers must PATCH the row named in `supersededBy` instead.
+  const frozen = existing as { invalidAt?: Date | null; supersededBy?: string | null };
+  if (frozen.invalidAt || frozen.supersededBy) {
+    throw new HttpError(409, {
+      code: 'memory_superseded',
+      message: frozen.supersededBy
+        ? `Memory ${id} was superseded by ${frozen.supersededBy}; update that memory instead`
+        : `Memory ${id} was invalidated and can no longer be updated`,
+    });
+  }
+
+  // Phase 6 (A2) — `supersedes: <oldId>`: this row (`id`) replaces `oldId`.
+  // The old row is stamped `invalidAt = now, supersededBy = id` (content
+  // untouched) and `oldId` is appended to this row's `consolidatedFrom`.
+  // Resolved here so the old row is verified in the same user/tenant scope.
+  const { supersedes, ...inputWithoutSupersedes } = input as Record<string, unknown> & { supersedes?: unknown };
+  input = inputWithoutSupersedes;
+  let supersededRow: { id: string } | null = null;
+  if (supersedes !== undefined && supersedes !== null) {
+    if (typeof supersedes !== 'string' || supersedes.length === 0) {
+      throw new HttpError(422, { code: 'validation_failed', message: 'supersedes must be a memory id' });
+    }
+    if (supersedes === id) {
+      throw new HttpError(422, { code: 'validation_failed', message: 'A memory cannot supersede itself' });
+    }
+    supersededRow = await prisma.memoryEntry.findFirst({
+      where: { ...ownershipWhere, id: supersedes },
+      select: { id: true },
+    });
+    if (!supersededRow) {
+      throw new HttpError(404, { code: 'not_found', message: 'Memory to supersede not found' });
+    }
+  }
+
   // WS-6 F-101 — Normalize the input domain (if present) and compare existing.domain
   // case-insensitively so legacy rows with non-normalized domains are still gated.
   if (typeof input.domain === 'string') {
@@ -517,16 +604,48 @@ export async function updateMemory(
       }
     : {};
 
+  // O-103: an explicit importance change resets the undecayed base as well.
+  const baseImportancePatch =
+    typeof input.importance === 'number' ? { baseImportance: input.importance } : {};
+
+  // O-111: ministry rows keep ciphertext in encrypted_content — re-encrypt on
+  // content change. (Unreachable today because of the MINISTRY_DEFERRED gate
+  // above; wired so the write path is complete when Phase 6 lifts the gate.)
+  const encryptedPatch =
+    typeof input.content === 'string'
+      ? encryptMemoryContent(
+          typeof input.domain === 'string' ? input.domain : existing.domain,
+          input.content
+        ) ?? {}
+      : {};
+
+  const alreadyConsolidated = Array.isArray((existing as { consolidatedFrom?: unknown }).consolidatedFrom)
+    ? ((existing as { consolidatedFrom: string[] }).consolidatedFrom).includes(supersededRow?.id ?? '')
+    : false;
+  const consolidatedPatch =
+    supersededRow && !alreadyConsolidated ? { consolidatedFrom: { push: supersededRow.id } } : {};
+
   const updateData: Record<string, unknown> = {
     ...input,
     ...contextOverrides,
+    ...baseImportancePatch,
+    ...encryptedPatch,
+    ...consolidatedPatch,
     version: { increment: 1 },
   };
+
 
   const memory = await prisma.memoryEntry.update({
     where: { id },
     data: updateData as Parameters<typeof prisma.memoryEntry.update>[0]['data'],
   });
+
+  if (supersededRow) {
+    await prisma.memoryEntry.update({
+      where: { id: supersededRow.id },
+      data: { invalidAt: new Date(), supersededBy: id, version: { increment: 1 } },
+    });
+  }
 
   // Re-embed if content or title changed (sync for test determinism)
   if ('content' in input || 'title' in input) {
@@ -537,10 +656,11 @@ export async function updateMemory(
     }
   }
 
-  return decryptMemory(memory as typeof memory & { encryptedContent: Buffer | null });
+  return decryptMemory(memory);
 }
 
 // Archive (soft delete)
+
 export async function archiveMemory(
   userId: string,
   id: string,
@@ -576,4 +696,130 @@ export async function validateMemoryInput(
   prisma: PrismaClient
 ) {
   return runValidationPipeline(input, userId, domain, prisma);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 (A2) — hybrid search for MCP / BoardRoom (`POST /memories/search`).
+//
+// Same stack as `assembleContextForPersona`: structured + FTS + trigram +
+// semantic → rankAndDeduplicate → forgetting curve (inside the layers) →
+// decrypt. Differences from the persona path: no persona tag boosts / token
+// budget, no recall reinforcement (an agent paging through results is not a
+// persona recall), and the ranked pool is paginated with an opaque cursor.
+// ---------------------------------------------------------------------------
+
+export const HYBRID_SEARCH_MAX_LIMIT = 50;
+export const HYBRID_SEARCH_DEFAULT_LIMIT = 20;
+/** Candidates requested from each layer; the ranked pool is at most 4× this. */
+const HYBRID_LAYER_LIMIT = 50;
+const HYBRID_POOL_MAX = 200;
+
+export interface HybridSearchParams {
+  query: string;
+  limit?: number;
+  domain?: string;
+  tags?: string[];
+  status?: string;
+  includeArchived?: boolean;
+  asOf?: Date;
+  cursor?: string | null;
+}
+
+export interface HybridSearchResult<T = unknown> {
+  items: Array<T & { score: number }>;
+  nextCursor: string | null;
+}
+
+/** In-memory mirror of the layers' temporal filter (defense in depth after ranking). */
+function isTemporallyValid(row: { validAt: Date; invalidAt: Date | null }, asOf?: Date): boolean {
+  const at = asOf ?? new Date();
+  if (asOf && row.validAt.getTime() > asOf.getTime()) return false;
+  return row.invalidAt === null || row.invalidAt.getTime() > at.getTime();
+}
+
+export function encodeSearchCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset }), 'utf-8').toString('base64');
+}
+
+/** Throws HttpError 400 on a malformed cursor. */
+export function decodeSearchCursor(cursor: string | null | undefined): number {
+  if (!cursor) return 0;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8')) as { offset?: unknown };
+    if (parsed && typeof parsed.offset === 'number' && Number.isInteger(parsed.offset) && parsed.offset >= 0) {
+      return parsed.offset;
+    }
+  } catch {
+    /* fall through */
+  }
+  throw new HttpError(400, { code: 'invalid_cursor', message: 'cursor is not a valid search cursor' });
+}
+
+export async function hybridSearchMemories(
+  userId: string,
+  params: HybridSearchParams,
+  agentContext: AgentContext | undefined,
+  prisma: PrismaClient
+): Promise<HybridSearchResult> {
+  const query = params.query.trim();
+  const limit = Math.min(Math.max(Math.floor(params.limit ?? HYBRID_SEARCH_DEFAULT_LIMIT), 1), HYBRID_SEARCH_MAX_LIMIT);
+  const offset = decodeSearchCursor(params.cursor);
+  const domain = params.domain ? normalizeDomain(params.domain) : undefined;
+  const includeArchived = params.includeArchived ?? false;
+  const asOf = params.asOf;
+
+  // Tenant: agent requests are scoped to their tenant; BoardRoom (no agent
+  // context) is single-user and opts into all tenants — same as /context/for-persona.
+  const tenantId = agentContext?.tenantId;
+  const scope = { tenantId, includeAllTenants: !tenantId, includeArchived, asOf };
+
+  const queryEmbedding = await generateEmbeddingWithRetry(query, domain).catch(() => null);
+
+  const [structured, fts, trigram, semantic] = await Promise.all([
+    structuredFilter(userId, query, { limit: HYBRID_LAYER_LIMIT, domain, tags: params.tags, ...scope }, prisma)
+      .catch(err => { logger.error('[structured] hybrid search layer failed', { error: (err as Error).message }); return []; }),
+    fulltextSearch(userId, query, { limit: HYBRID_LAYER_LIMIT, ...scope }, prisma),
+    trigramSearch(userId, query, { limit: HYBRID_LAYER_LIMIT, ...scope }, prisma),
+    queryEmbedding ? semanticSearch(userId, queryEmbedding, { limit: HYBRID_LAYER_LIMIT, ...scope }, prisma) : Promise.resolve([]),
+  ]);
+
+  const ranked = rankAndDeduplicate(
+    [
+      { layer: 'structured', results: structured },
+      { layer: 'fts', results: fts },
+      { layer: 'trigram', results: trigram },
+      { layer: 'semantic', results: semantic },
+    ],
+    HYBRID_POOL_MAX
+  ).filter(r => r.type === 'memory');
+  if (ranked.length === 0) return { items: [], nextCursor: null };
+
+  // Full rows for the ranked ids, with the explicit filters applied in SQL so
+  // pagination runs over the filtered, ranked list.
+  const where: Prisma.MemoryEntryWhereInput = {
+    id: { in: ranked.map(r => r.id) },
+    userId,
+    deletedAt: null,
+    ...(tenantId ? { tenantId } : {}),
+    ...(domain ? { domain } : {}),
+    ...(params.tags && params.tags.length > 0 ? { tags: { hasEvery: params.tags } } : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    status: params.status ? (params.status as any) : { not: 'ARCHIVED' },
+  };
+  const rows = await prisma.memoryEntry.findMany({ where });
+  const byId = new Map(rows.map(r => [r.id, r]));
+
+  const ordered: Array<Record<string, unknown> & { score: number }> = [];
+  for (const r of ranked) {
+    const row = byId.get(r.id);
+    if (!row) continue;
+    if (!isTemporallyValid(row, asOf)) continue; // defense in depth — the layers filter too
+    const dec = tryDecryptMemory(row);
+    if (!dec) continue; // logged by memory-crypto; never surface ciphertext
+    ordered.push({ ...dec, score: Number(r.relevanceScore.toFixed(4)) });
+  }
+
+  const page = ordered.slice(offset, offset + limit);
+  const nextCursor = ordered.length > offset + limit ? encodeSearchCursor(offset + limit) : null;
+  return { items: page, nextCursor };
 }
