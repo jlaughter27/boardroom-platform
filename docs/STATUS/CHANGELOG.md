@@ -12,6 +12,7 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 - 2 CRITICAL (every LLM route aborted before its first call because the disconnect handler listened on `req` not `res`; OAuth callbacks swallowed by the SPA fallback), 7 HIGH (read-only agents 403 on hybrid search, superseded-row dedup/consolidate data loss, prompts missing from the OmniMind image, restore drill could never pass, thinking-block parsing, graph relayout on click, "what changed" baseline), 16 MEDIUM, 17 LOW — all fixed with a test that fails on the old code
 - three of the HIGH/CRITICAL items were regressions from the previous day's own fixes; see the report's "Pattern worth keeping"
+- first CI run on the PR failed typecheck only in CI: the lockfile carried `@types/node` 22 and 25, boardroom-ai declared neither, and the hoisted copy differed between CI and the sandbox (22 requires `AbortSignal.onabort`, 25 dropped it). Fixed by pinning the whole workspace to `@types/node ^22` (root pnpm override + explicit devDependency in boardroom-ai; both images run Node 20)
 
 ---
 
