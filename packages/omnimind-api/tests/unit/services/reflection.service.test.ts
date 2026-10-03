@@ -15,10 +15,12 @@ vi.mock('../../../src/lib/anthropic', () => ({
 import {
   shouldReflect,
   reflectionThreshold,
+  reflectionMaxPerTick,
   findReflectionCandidates,
   reflectEntity,
   CAPSULE_STALE_AFTER_DAYS,
 } from '../../../src/services/reflection.service';
+import { logger } from '../../../src/lib/logger';
 
 describe('reflection (Phase 6)', () => {
   describe('shouldReflect threshold rule', () => {
@@ -75,11 +77,48 @@ describe('reflection (Phase 6)', () => {
       const [strings, ...values] = mockPrisma.$queryRaw.mock.calls[0];
       const sql = (strings as string[]).join('?').replace(/\s+/g, ' ');
       expect(sql).toContain("l.entity_type IN ('goal', 'project', 'person')");
-      expect(sql).toContain("m.domain != 'ministry'");
+      expect(sql).toContain("lower(trim(m.domain)) <> 'ministry'"); // R-O-10
+      expect(sql).toContain('ORDER BY importance_sum DESC');            // R-O-09
+      expect(sql).toMatch(/LIMIT \?\s*$/);
       expect(sql).toContain("m.status != 'ARCHIVED'");
       expect(sql).toContain('m.deleted_at IS NULL');
       expect(sql).toContain('(cc.generated_at IS NULL OR m.created_at > cc.generated_at)');
       expect(values[0]).toEqual(new Date('2026-09-25T00:00:00Z'));
+    });
+  });
+
+  describe('R-O-09: per-tick cap', () => {
+    const mockPrisma = { $queryRaw: vi.fn(), contextCapsule: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } } as any;
+    const orig = process.env.REFLECTION_MAX_PER_TICK;
+    beforeEach(() => vi.clearAllMocks());
+    afterEach(() => { if (orig === undefined) delete process.env.REFLECTION_MAX_PER_TICK; else process.env.REFLECTION_MAX_PER_TICK = orig; });
+
+    it('reflectionMaxPerTick defaults to 50 and honours the env override', () => {
+      delete process.env.REFLECTION_MAX_PER_TICK;
+      expect(reflectionMaxPerTick()).toBe(50);
+      process.env.REFLECTION_MAX_PER_TICK = '7';
+      expect(reflectionMaxPerTick()).toBe(7);
+      process.env.REFLECTION_MAX_PER_TICK = '0';
+      expect(reflectionMaxPerTick()).toBe(50);
+    });
+
+    it('binds LIMIT maxPerTick+1, returns at most maxPerTick candidates and logs the overflow', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([
+        { user_id: 'u1', entity_type: 'goal', entity_id: 'g1', importance_sum: 3.0, has_capsule: false },
+        { user_id: 'u1', entity_type: 'goal', entity_id: 'g2', importance_sum: 2.0, has_capsule: false },
+        { user_id: 'u1', entity_type: 'goal', entity_id: 'g3', importance_sum: 1.0, has_capsule: false }, // the +1 sentinel row
+      ]);
+      const out = await findReflectionCandidates(mockPrisma, { maxPerTick: 2, threshold: 0.8 });
+      expect(out.map(c => c.entityId)).toEqual(['g1', 'g2']);
+      const values = mockPrisma.$queryRaw.mock.calls[0].slice(1);
+      expect(values).toContain(3); // LIMIT maxPerTick + 1
+      expect(logger.warn).toHaveBeenCalledWith('[reflection] candidate overflow — capping this tick', expect.objectContaining({ maxPerTick: 2, overflow: 1 }));
+    });
+
+    it('no overflow log when the result fits', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ user_id: 'u1', entity_type: 'goal', entity_id: 'g1', importance_sum: 3.0, has_capsule: false }]);
+      await findReflectionCandidates(mockPrisma, { maxPerTick: 2 });
+      expect(logger.warn).not.toHaveBeenCalled();
     });
   });
 
@@ -160,10 +199,19 @@ describe('reflection (Phase 6)', () => {
       expect(mockCreateMessage).not.toHaveBeenCalled();
     });
 
-    it('never sends ministry-domain memories to the model', async () => {
+    it('never sends ministry-domain memories to the model (case/whitespace-insensitive, R-O-10)', async () => {
+      mockPrisma.memoryEntry.findMany.mockResolvedValue([
+        { id: 'm1', title: 'Pricing', content: 'Raised prices 10%', domain: 'business', encryptedContent: null, importance: 0.7, createdAt: new Date('2026-09-30T00:00:00Z'), invalidAt: null, status: 'CONFIRMED' },
+        { id: 'm9', title: 'Prayer list', content: 'SECRET PASTORAL NOTE', domain: 'Ministry ', encryptedContent: null, importance: 0.9, createdAt: new Date('2026-10-01T00:00:00Z'), invalidAt: null, status: 'CONFIRMED' },
+      ]);
       await reflectEntity('u1', 'goal', 'g1', mockPrisma, now);
       const where = mockPrisma.memoryEntry.findMany.mock.calls[0][0].where;
-      expect(where.domain).toEqual({ not: 'ministry' });
+      expect(where.NOT).toEqual({ domain: { equals: 'ministry', mode: 'insensitive' } });
+      const prompt = mockCreateMessage.mock.calls[0][0].messages[0].content as string;
+      expect(prompt).toContain('Raised prices 10%');
+      expect(prompt).not.toContain('SECRET PASTORAL NOTE');
+      // provenance excludes the ministry row too
+      expect(mockPrisma.contextCapsule.create.mock.calls[0][0].data.sourceMemoryIds).toEqual(['m1']);
     });
   });
 });

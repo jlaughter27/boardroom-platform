@@ -217,6 +217,17 @@ describe('Memory Service', () => {
         expect(values).toContain('user-1');
       });
 
+      it('R-O-02: dedup query never targets invalidated / superseded rows', async () => {
+        const p = dedupPrisma();
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        p.$queryRaw.mockResolvedValue([]);
+        await createMemory('user-1', validInput, agentContext, p);
+        const sql = (p.$queryRaw.mock.calls[0][0] as string[]).join('?').replace(/\s+/g, ' ');
+        expect(sql).toContain('invalid_at IS NULL');
+        expect(sql).toContain('superseded_by IS NULL');
+        expect(sql).toContain("status != 'ARCHIVED'");
+      });
+
       it('O-115: validation pipeline runs BEFORE the dedup-update branch', async () => {
         const p = dedupPrisma();
         vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
@@ -348,6 +359,7 @@ describe('Memory Service', () => {
         where: {
           userId: 'user-1',
           deletedAt: null,
+          invalidAt: null,
           status: { not: 'ARCHIVED' },
         },
         orderBy: { createdAt: 'desc' },
@@ -385,6 +397,7 @@ describe('Memory Service', () => {
         where: {
           userId: 'user-1',
           deletedAt: null,
+          invalidAt: null,
           domain: 'business',
           memoryClass: 'SEMANTIC',
           status: 'DRAFT',
@@ -399,6 +412,18 @@ describe('Memory Service', () => {
         take: 50,
         skip: 10,
       });
+    });
+
+    it('R-O-02: hides invalidated rows by default and includeInvalidated:true lifts the filter', async () => {
+      mockPrisma.memoryEntry.findMany.mockResolvedValue([]);
+      mockPrisma.memoryEntry.count.mockResolvedValue(0);
+
+      await searchMemories('user-1', {}, mockPrisma);
+      expect(mockPrisma.memoryEntry.findMany.mock.calls[0][0].where.invalidAt).toBeNull();
+      expect(mockPrisma.memoryEntry.count.mock.calls[0][0].where.invalidAt).toBeNull();
+
+      await searchMemories('user-1', { includeInvalidated: true }, mockPrisma);
+      expect(mockPrisma.memoryEntry.findMany.mock.calls[1][0].where).not.toHaveProperty('invalidAt');
     });
 
     it('should cap limit at 100', async () => {
@@ -448,6 +473,47 @@ describe('Memory Service', () => {
       });
       expect(embedMemory).toHaveBeenCalledWith('mem-123');
       expect(result).toBe(updatedMemory);
+    });
+
+    describe('R-O-02 / R-M-01: invalidated rows are frozen (409 memory_superseded)', () => {
+      const superseded = {
+        id: 'mem-old', userId: 'user-1', version: 3, domain: 'business', content: 'old', encryptedContent: null,
+        invalidAt: new Date('2026-10-01T00:00:00Z'), supersededBy: 'mem-new',
+      };
+
+      it('plain update of a superseded row → 409 naming supersededBy, no write', async () => {
+        mockPrisma.memoryEntry.findFirst.mockResolvedValue(superseded);
+        await expect(updateMemory('user-1', 'mem-old', { title: 'Zombie' }, mockPrisma))
+          .rejects.toMatchObject({ statusCode: 409, body: { code: 'memory_superseded', message: expect.stringContaining('mem-new') } });
+        expect(mockPrisma.memoryEntry.update).not.toHaveBeenCalled();
+      });
+
+      it('an invalidated row (invalidAt set, no supersededBy) is frozen too', async () => {
+        mockPrisma.memoryEntry.findFirst.mockResolvedValue({ ...superseded, supersededBy: null });
+        await expect(updateMemory('user-1', 'mem-old', { tags: ['x'] }, mockPrisma))
+          .rejects.toMatchObject({ statusCode: 409, body: { code: 'memory_superseded' } });
+        expect(mockPrisma.memoryEntry.update).not.toHaveBeenCalled();
+      });
+
+      it('R-M-01: a superseded row cannot act as the KEEPER of a supersedes request (pair flip)', async () => {
+        mockPrisma.memoryEntry.findFirst.mockResolvedValue(superseded);
+        await expect(updateMemory('user-1', 'mem-old', { supersedes: 'mem-new' }, mockPrisma))
+          .rejects.toMatchObject({ statusCode: 409, body: { code: 'memory_superseded' } });
+        expect(mockPrisma.memoryEntry.update).not.toHaveBeenCalled();
+      });
+
+      it('a live keeper may still supersede another row', async () => {
+        const keeper = { id: 'mem-new', userId: 'user-1', version: 1, domain: 'business', content: 'new', encryptedContent: null, invalidAt: null, supersededBy: null, consolidatedFrom: [] };
+        mockPrisma.memoryEntry.findFirst
+          .mockResolvedValueOnce(keeper)
+          .mockResolvedValueOnce({ id: 'mem-old' });
+        mockPrisma.memoryEntry.update.mockResolvedValue({ ...keeper, version: 2 });
+        await updateMemory('user-1', 'mem-new', { supersedes: 'mem-old' }, mockPrisma);
+        expect(mockPrisma.memoryEntry.update).toHaveBeenCalledWith(expect.objectContaining({
+          where: { id: 'mem-old' },
+          data: expect.objectContaining({ supersededBy: 'mem-new' }),
+        }));
+      });
     });
 
     it('should return null when memory not found', async () => {

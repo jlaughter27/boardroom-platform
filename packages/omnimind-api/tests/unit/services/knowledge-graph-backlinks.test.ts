@@ -60,8 +60,9 @@ describe('getBacklinks', () => {
     expect(byType.memory_entity.node).toMatchObject({ id: 'memory:m1', type: 'memory', label: 'Pricing call notes' });
     expect(byType.memory_entity.edge).toMatchObject({ source: 'memory:m1', target: 'project:p1', label: 'relates_to' });
     // memory links are looked up for this node, not through the capped graph layer
+    // R-O-13: case-insensitive on entity_type so legacy mixed-case rows still match
     expect(prisma.memoryEntityLink.findMany).toHaveBeenCalledWith({
-      where: { entityType: 'project', entityId: 'p1' },
+      where: { entityType: { equals: 'project', mode: 'insensitive' }, entityId: 'p1' },
       select: { memoryId: true, linkType: true },
     });
   });

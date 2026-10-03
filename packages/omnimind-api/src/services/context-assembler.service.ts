@@ -6,7 +6,7 @@ import { fulltextSearch } from '../retrieval/fulltext-search';
 import { trigramSearch } from '../retrieval/trigram-search';
 import { semanticSearch } from '../retrieval/semantic-search';
 import { rankAndDeduplicate } from '../retrieval/ranker';
-import { packageForPersona, type RetrievalContextPackage } from '../retrieval/context-packager';
+import { packageForPersona, personaLimits, type RetrievalContextPackage } from '../retrieval/context-packager';
 import { generateEmbeddingWithRetry as generateEmbedding } from './embedding.service';
 import type { ScoredResult } from '../retrieval/structured-filter';
 import type { RetrievalLayer } from '../retrieval/forgetting-curve';
@@ -15,6 +15,12 @@ import { logger } from '../lib/logger';
 
 /** Phase 6: at most this many entity capsules are injected per persona call. */
 export const MAX_CAPSULES_PER_CALL = 3;
+/** R-O-06: prepended items (capsules, commitments) may never squeeze the ranked list below this. */
+export const MIN_RANKED_ITEMS = 3;
+/** R-O-06: per-capsule text caps so three capsules cannot eat the whole token budget. */
+export const CAPSULE_SUMMARY_MAX_CHARS = 600;
+export const CAPSULE_LIST_MAX_ENTRIES = 3;
+const CAPSULE_LIST_ENTRY_MAX_CHARS = 160;
 
 /** Normalise a caller-supplied memoryClass; unknown values are ignored (logged), never 422. */
 export function normalizeMemoryClass(raw?: string | null): MemoryClass | undefined {
@@ -222,17 +228,40 @@ export async function assembleContextForPersona(
   // Phase 6: the Doer gets "Open commitments" lines (SQL only) prepended.
   const commitmentItems = persona === 'doer' ? await loadDoerCommitmentItems(userId, prisma) : [];
 
-  // Package for the specific persona
-  const pkg = packageForPersona(allResults, persona, totalCandidates, layersUsed, { degradedLayers });
-  const prepended = [...commitmentItems, ...capsuleItems];
+  // R-O-06 (CLAUDE.md rule 7): prepended items count against the persona's
+  // maxItems and token budget. Reserve their slots/tokens BEFORE packaging the
+  // ranked results, keeping at least MIN_RANKED_ITEMS slots for retrieval and
+  // dropping trailing prepended items that would not fit the budget at all.
+  const limits = personaLimits(persona);
+  const callerMax = options?.maxItems && options.maxItems > 0 ? Math.min(options.maxItems, limits.maxItems) : limits.maxItems;
+  const prepended: PackagedItem[] = [];
+  let prependedTokens = 0;
+  for (const item of [...commitmentItems, ...capsuleItems]) {
+    const t = estimateTokens(item.content);
+    const slotsLeft = callerMax - prepended.length - MIN_RANKED_ITEMS;
+    if (slotsLeft <= 0 || prependedTokens + t > limits.tokenBudget) {
+      logger.info('[context] dropping prepended item — persona budget exhausted', { persona, id: item.id });
+      continue;
+    }
+    prepended.push(item);
+    prependedTokens += t;
+  }
+
+  const pkg = packageForPersona(allResults, persona, totalCandidates, layersUsed, {
+    degradedLayers,
+    maxItems: Math.max(MIN_RANKED_ITEMS, callerMax - prepended.length),
+    tokenBudget: Math.max(0, limits.tokenBudget - prependedTokens),
+  });
   if (prepended.length === 0) return pkg;
-  const prependedTokens = prepended.reduce((sum, i) => sum + estimateTokens(i.content), 0);
   return {
     ...pkg,
     items: [...prepended, ...pkg.items],
     tokenEstimate: pkg.tokenEstimate + prependedTokens,
   };
 }
+
+const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+const clipList = (xs: string[]): string[] => xs.slice(0, CAPSULE_LIST_MAX_ENTRIES).map(x => clip(x, CAPSULE_LIST_ENTRY_MAX_CHARS));
 
 type PackagedItem = RetrievalContextPackage['items'][number];
 
@@ -256,11 +285,12 @@ async function loadCapsuleItems(userId: string, entityResults: ScoredResult[], p
     const now = Date.now();
     return capsules.map(c => {
       const stale = c.staleAfter.getTime() < now;
-      const parts = [`Capsule (${c.entityType}) — ${c.summary}`];
-      if (c.openRisks.length) parts.push(`Open risks: ${c.openRisks.join('; ')}`);
-      if (c.unresolvedQuestions.length) parts.push(`Unresolved: ${c.unresolvedQuestions.join('; ')}`);
-      if (c.recentChanges.length) parts.push(`Recent changes: ${c.recentChanges.join('; ')}`);
-      if (c.activeStakeholders.length) parts.push(`Stakeholders: ${c.activeStakeholders.join(', ')}`);
+      // R-O-06: bounded text — summary ≤600 chars, ≤3 entries per list.
+      const parts = [`Capsule (${c.entityType}) — ${clip(c.summary, CAPSULE_SUMMARY_MAX_CHARS)}`];
+      if (c.openRisks.length) parts.push(`Open risks: ${clipList(c.openRisks).join('; ')}`);
+      if (c.unresolvedQuestions.length) parts.push(`Unresolved: ${clipList(c.unresolvedQuestions).join('; ')}`);
+      if (c.recentChanges.length) parts.push(`Recent changes: ${clipList(c.recentChanges).join('; ')}`);
+      if (c.activeStakeholders.length) parts.push(`Stakeholders: ${clipList(c.activeStakeholders).join(', ')}`);
       return {
         type: c.entityType as PackagedItem['type'],
         id: c.entityId,

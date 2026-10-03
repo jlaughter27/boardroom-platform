@@ -23,6 +23,19 @@ export interface RetrievalContextPackage extends ContextPackage {
 export interface PackageOptions {
   /** Layers that threw during retrieval (F-204). */
   degradedLayers?: RetrievalLayer[];
+  /** R-O-06: cap on ranked items (callers reserve slots for prepended items). Never raises the persona default. */
+  maxItems?: number;
+  /** R-O-06: token budget for ranked items (callers subtract prepended tokens). Never raises the persona default. */
+  tokenBudget?: number;
+}
+
+/** Persona-level limits from RETRIEVAL_CONFIG (CLAUDE.md rule 7). */
+export function personaLimits(persona: PersonaId): { maxItems: number; tokenBudget: number } {
+  const isCEO = persona === 'ceo';
+  return {
+    maxItems: isCEO ? RETRIEVAL_CONFIG.maxItemsCEO : RETRIEVAL_CONFIG.maxItemsPerPersona,
+    tokenBudget: isCEO ? RETRIEVAL_CONFIG.tokenBudgetCEO : RETRIEVAL_CONFIG.tokenBudgetPerPersona,
+  };
 }
 
 const PERSONA_TAG_BOOSTS: Record<string, string[]> = {
@@ -44,9 +57,9 @@ export function packageForPersona(
   layersUsed: string[],
   options: PackageOptions = {}
 ): RetrievalContextPackage {
-  const isCEO = persona === 'ceo';
-  const maxItems = isCEO ? RETRIEVAL_CONFIG.maxItemsCEO : RETRIEVAL_CONFIG.maxItemsPerPersona;
-  const tokenBudget = isCEO ? RETRIEVAL_CONFIG.tokenBudgetCEO : RETRIEVAL_CONFIG.tokenBudgetPerPersona;
+  const limits = personaLimits(persona);
+  const maxItems = Math.max(0, Math.min(limits.maxItems, options.maxItems ?? limits.maxItems));
+  const tokenBudget = Math.max(0, Math.min(limits.tokenBudget, options.tokenBudget ?? limits.tokenBudget));
 
   // Apply persona-specific tag boosts
   const boostTags = PERSONA_TAG_BOOSTS[persona] ?? [];

@@ -111,8 +111,27 @@ export function extractText(message: Anthropic.Message): string {
     .trim();
 }
 
-/** Strip ```json fences and parse. Throws SyntaxError on invalid JSON. */
+/**
+ * Strip ```json fences and parse. R-O-11: when the model adds a preamble or
+ * trailer ("Here is the JSON: {...} Let me know…"), fall back to the outermost
+ * `{…}` / `[…]` span. Throws a clear Error when no JSON can be recovered.
+ */
 export function parseJsonFromText(text: string): unknown {
-  const jsonStr = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return JSON.parse(jsonStr);
+  const jsonStr = text.replace(/```(?:json)?\n?/gi, '').replace(/```\n?/g, '').trim();
+  try {
+    return JSON.parse(jsonStr);
+  } catch (firstErr) {
+    const starts = [jsonStr.indexOf('{'), jsonStr.indexOf('[')].filter(i => i >= 0);
+    if (starts.length > 0) {
+      const start = Math.min(...starts);
+      const close = jsonStr[start] === '{' ? '}' : ']';
+      const end = jsonStr.lastIndexOf(close);
+      if (end > start) {
+        try {
+          return JSON.parse(jsonStr.slice(start, end + 1));
+        } catch { /* fall through to the clear error below */ }
+      }
+    }
+    throw new Error(`parseJsonFromText: no valid JSON object/array in model output (${(firstErr as Error).message}); head=${JSON.stringify(jsonStr.slice(0, 80))}`);
+  }
 }

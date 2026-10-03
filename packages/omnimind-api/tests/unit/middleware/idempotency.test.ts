@@ -1,7 +1,7 @@
 /**
  * Phase 6 (A2) — Idempotency-Key middleware with a fake prisma: miss → store,
  * hit → replay with original status + `Idempotent-Replayed: true`, scope
- * (agentId vs x-user-id), route mismatch, TTL expiry, key length, unique
+ * (verified agent+user vs x-user-id — R-O-14), route mismatch, TTL expiry, key length, unique
  * constraint race → re-read and replay, non-2xx not stored.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -45,10 +45,10 @@ function fakeDb(now: () => Date) {
   return { prisma: { idempotencyKey } as unknown as IdempotencyPrisma, idempotencyKey, rows, now };
 }
 
-function makeApp(db: ReturnType<typeof fakeDb>, handler?: express.RequestHandler, agent?: { agentId: string }) {
+function makeApp(db: ReturnType<typeof fakeDb>, handler?: express.RequestHandler, agent?: { agentId: string; verified?: boolean }) {
   const app = express();
   app.use(express.json());
-  if (agent) app.use((req, _res, next) => { (req as any).agentContext = { agentId: agent.agentId, tenantId: 't', sourceWeight: 1 }; next(); });
+  if (agent) app.use((req, _res, next) => { (req as any).agentContext = { agentId: agent.agentId, tenantId: 't', sourceWeight: 1, verified: agent.verified ?? true }; next(); });
   let calls = 0;
   app.post('/things', idempotent('things.create', { prisma: db.prisma, now: db.now }), handler ?? ((req, res) => {
     calls += 1;
@@ -92,15 +92,38 @@ describe('idempotent()', () => {
     expect(handlerCalls()).toBe(1);
   });
 
-  it('scope is agentContext.agentId when present, else x-user-id — same key in different scopes does not collide', async () => {
+  it('R-O-14: scope is agent:<id>:user:<x-user-id> for a verified agent, else user:<x-user-id> — same key in different scopes does not collide', async () => {
     const db = fakeDb(now);
     const userApp = makeApp(db);
-    const agentApp = makeApp(db, undefined, { agentId: 'claude-code-josh' });
+    const agentApp = makeApp(db, undefined, { agentId: 'claude-code-josh', verified: true });
     const a = await request(userApp.app).post('/things').set('x-user-id', 'u1').set('Idempotency-Key', 'same').send({});
     const b = await request(agentApp.app).post('/things').set('x-user-id', 'u1').set('Idempotency-Key', 'same').send({});
     expect(a.headers['idempotent-replayed']).toBeUndefined();
     expect(b.headers['idempotent-replayed']).toBeUndefined();
-    expect([...db.rows.values()].map(r => r.scope).sort()).toEqual(['agent:claude-code-josh', 'user:u1']);
+    expect([...db.rows.values()].map(r => r.scope).sort()).toEqual(['agent:claude-code-josh:user:u1', 'user:u1']);
+  });
+
+  it('R-O-14: the same verified agent acting for two users never replays across them', async () => {
+    const db = fakeDb(now);
+    const { app, handlerCalls } = makeApp(db, undefined, { agentId: 'claude-code-josh', verified: true });
+    const a = await request(app).post('/things').set('x-user-id', 'u1').set('Idempotency-Key', 'k').send({});
+    const b = await request(app).post('/things').set('x-user-id', 'u2').set('Idempotency-Key', 'k').send({});
+    expect(a.body.id).toBe('thing-1');
+    expect(b.body.id).toBe('thing-2');
+    expect(b.headers['idempotent-replayed']).toBeUndefined();
+    expect(handlerCalls()).toBe(2);
+    expect([...db.rows.values()].map(r => r.scope).sort()).toEqual(['agent:claude-code-josh:user:u1', 'agent:claude-code-josh:user:u2']);
+  });
+
+  it('R-O-14: an UNVERIFIED (legacy header) agent falls back to the user scope — a spoofed x-agent-id gets no namespace of its own', async () => {
+    const db = fakeDb(now);
+    const legacy = makeApp(db, undefined, { agentId: 'spoofed', verified: false });
+    const user = makeApp(db);
+    const a = await request(legacy.app).post('/things').set('x-user-id', 'u1').set('Idempotency-Key', 'k').send({});
+    const b = await request(user.app).post('/things').set('x-user-id', 'u1').set('Idempotency-Key', 'k').send({});
+    expect(a.headers['idempotent-replayed']).toBeUndefined();
+    expect(b.headers['idempotent-replayed']).toBe('true'); // same scope → replay
+    expect([...db.rows.values()].map(r => r.scope)).toEqual(['user:u1']);
   });
 
   it('422 idempotency_key_reused when the same scope+key hits a different route', async () => {

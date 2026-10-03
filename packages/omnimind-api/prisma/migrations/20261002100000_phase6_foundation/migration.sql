@@ -1,23 +1,26 @@
--- AlterTable
-ALTER TABLE "memory_entries" ADD COLUMN     "consolidated_from" TEXT[] DEFAULT ARRAY[]::TEXT[];
+-- Idempotent per prisma/migrations/README.md (R-O-08): safe to run after the
+-- 0_init snapshot and on re-runs. Semantics identical to the original.
 
 -- AlterTable
-ALTER TABLE "decisions" ADD COLUMN     "decided_at" TIMESTAMP(3),
-ADD COLUMN     "expected_outcome" TEXT,
-ADD COLUMN     "mode" TEXT,
-ADD COLUMN     "persona_forecasts" JSONB NOT NULL DEFAULT '[]',
-ADD COLUMN     "probability_success" DOUBLE PRECISION;
+ALTER TABLE "memory_entries" ADD COLUMN IF NOT EXISTS "consolidated_from" TEXT[] DEFAULT ARRAY[]::TEXT[];
 
 -- AlterTable
-ALTER TABLE "context_capsules" ADD COLUMN     "importance_seen" DOUBLE PRECISION NOT NULL DEFAULT 0,
-ADD COLUMN     "source_memory_ids" TEXT[] DEFAULT ARRAY[]::TEXT[],
-ADD COLUMN     "version" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "decisions" ADD COLUMN IF NOT EXISTS "decided_at" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "expected_outcome" TEXT,
+ADD COLUMN IF NOT EXISTS "mode" TEXT,
+ADD COLUMN IF NOT EXISTS "persona_forecasts" JSONB NOT NULL DEFAULT '[]',
+ADD COLUMN IF NOT EXISTS "probability_success" DOUBLE PRECISION;
 
 -- AlterTable
-ALTER TABLE "weekly_memos" ADD COLUMN     "item_states" JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE "context_capsules" ADD COLUMN IF NOT EXISTS "importance_seen" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS "source_memory_ids" TEXT[] DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+
+-- AlterTable
+ALTER TABLE "weekly_memos" ADD COLUMN IF NOT EXISTS "item_states" JSONB NOT NULL DEFAULT '{}';
 
 -- CreateTable
-CREATE TABLE "llm_usage" (
+CREATE TABLE IF NOT EXISTS "llm_usage" (
     "id" TEXT NOT NULL,
     "user_id" TEXT,
     "tenant_id" TEXT,
@@ -37,7 +40,7 @@ CREATE TABLE "llm_usage" (
 );
 
 -- CreateTable
-CREATE TABLE "idempotency_keys" (
+CREATE TABLE IF NOT EXISTS "idempotency_keys" (
     "id" TEXT NOT NULL,
     "scope" TEXT NOT NULL,
     "key" TEXT NOT NULL,
@@ -51,14 +54,14 @@ CREATE TABLE "idempotency_keys" (
 );
 
 -- CreateIndex
-CREATE INDEX "llm_usage_user_id_created_at_idx" ON "llm_usage"("user_id", "created_at");
+CREATE INDEX IF NOT EXISTS "llm_usage_user_id_created_at_idx" ON "llm_usage"("user_id", "created_at");
 
 -- CreateIndex
-CREATE INDEX "llm_usage_created_at_idx" ON "llm_usage"("created_at");
+CREATE INDEX IF NOT EXISTS "llm_usage_created_at_idx" ON "llm_usage"("created_at");
 
 -- CreateIndex
-CREATE INDEX "idempotency_keys_expires_at_idx" ON "idempotency_keys"("expires_at");
+CREATE INDEX IF NOT EXISTS "idempotency_keys_expires_at_idx" ON "idempotency_keys"("expires_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "idempotency_keys_scope_key_key" ON "idempotency_keys"("scope", "key");
+CREATE UNIQUE INDEX IF NOT EXISTS "idempotency_keys_scope_key_key" ON "idempotency_keys"("scope", "key");
 

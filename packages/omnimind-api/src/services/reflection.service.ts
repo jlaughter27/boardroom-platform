@@ -4,7 +4,7 @@ import type { ReflectableEntityType, ReflectionLLMOutput } from '@boardroom/shar
 import { logger } from '../lib/logger';
 import { loadSystemPrompt } from '../lib/prompt-loader';
 import { createMessage, extractText, parseJsonFromText } from '../lib/anthropic';
-import { tryDecryptMemory } from '../lib/memory-crypto';
+import { tryDecryptMemory, normalizeDomain } from '../lib/memory-crypto';
 import { HttpError } from '../middleware/error-handler';
 
 /**
@@ -24,6 +24,12 @@ import { HttpError } from '../middleware/error-handler';
 export const CAPSULE_STALE_AFTER_DAYS = 14;
 export const REFLECTION_LOOKBACK_DAYS = 7;
 const MAX_MEMORIES = 30;
+
+/** R-O-09: hard cap on entities reflected per scheduler tick (env `REFLECTION_MAX_PER_TICK`, default 50). */
+export function reflectionMaxPerTick(): number {
+  const raw = parseInt(process.env.REFLECTION_MAX_PER_TICK ?? '50', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 50;
+}
 
 export function reflectionThreshold(): number {
   const raw = parseFloat(process.env.REFLECTION_THRESHOLD ?? '0.8');
@@ -66,12 +72,16 @@ interface CandidateRow {
  */
 export async function findReflectionCandidates(
   prisma: PrismaClient,
-  opts: { lookbackDays?: number; threshold?: number; now?: Date } = {},
+  opts: { lookbackDays?: number; threshold?: number; now?: Date; maxPerTick?: number } = {},
 ): Promise<ReflectionCandidate[]> {
   const now = opts.now ?? new Date();
   const threshold = opts.threshold ?? reflectionThreshold();
   const since = new Date(now.getTime() - (opts.lookbackDays ?? REFLECTION_LOOKBACK_DAYS) * 86_400_000);
+  const maxPerTick = opts.maxPerTick ?? reflectionMaxPerTick();
 
+  // R-O-09: the heaviest entities first, bounded to maxPerTick (+1 so we can
+  // tell whether anything was left behind and log it).
+  // R-O-10: ministry exclusion is case/whitespace-insensitive (legacy rows).
   const rows = await prisma.$queryRaw<CandidateRow[]>`
     SELECT m.user_id,
            l.entity_type,
@@ -85,14 +95,24 @@ export async function findReflectionCandidates(
     WHERE l.entity_type IN ('goal', 'project', 'person')
       AND m.deleted_at IS NULL
       AND m.status != 'ARCHIVED'
-      AND m.domain != 'ministry'
+      AND lower(trim(m.domain)) <> 'ministry'
       AND m.created_at >= ${since}
       AND (cc.generated_at IS NULL OR m.created_at > cc.generated_at)
     GROUP BY m.user_id, l.entity_type, l.entity_id
+    ORDER BY importance_sum DESC
+    LIMIT ${maxPerTick + 1}
   `;
 
+  if (rows.length > maxPerTick) {
+    logger.warn('[reflection] candidate overflow — capping this tick', {
+      maxPerTick,
+      overflow: rows.length - maxPerTick,
+      hint: 'raise REFLECTION_MAX_PER_TICK or REFLECTION_THRESHOLD',
+    });
+  }
+
   const out: ReflectionCandidate[] = [];
-  for (const r of rows) {
+  for (const r of rows.slice(0, maxPerTick)) {
     const importanceSum = Number(r.importance_sum ?? 0);
     const hasCapsule = Boolean(r.has_capsule);
     if (!shouldReflect({ importanceSinceCapsule: importanceSum, hasCapsule, threshold })) {
@@ -191,7 +211,8 @@ export async function reflectEntity(
         where: {
           id: { in: memoryIds }, userId, deletedAt: null,
           status: { not: 'ARCHIVED' },
-          domain: { not: 'ministry' },
+          // R-O-10: case-insensitive at the DB; the post-filter below catches whitespace variants.
+          NOT: { domain: { equals: 'ministry', mode: 'insensitive' } },
         },
         orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }],
         take: MAX_MEMORIES,
@@ -200,6 +221,8 @@ export async function reflectEntity(
     : [];
 
   const memories = rawMemories
+    // R-O-10: never send a ministry row to the model, however its domain was spelled.
+    .filter(m => normalizeDomain(m.domain) !== 'ministry')
     .map(m => tryDecryptMemory(m))
     .filter((m): m is NonNullable<typeof m> => m !== null)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());

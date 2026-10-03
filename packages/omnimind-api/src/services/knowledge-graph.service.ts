@@ -378,8 +378,9 @@ export async function getBacklinks(
     node = nodes.get(id);
     if (!node) return null;
 
+    // R-O-13: legacy rows may carry mixed-case entity types — match case-insensitively.
     const links = await prisma.memoryEntityLink.findMany({
-      where: { entityType: type, entityId: refId },
+      where: { entityType: { equals: type, mode: 'insensitive' }, entityId: refId },
       select: { memoryId: true, linkType: true },
     });
     if (links.length > 0) {

@@ -46,6 +46,16 @@ export async function generateWeeklyMemo(userId: string, prisma: PrismaClient): 
 
   const decisionsAwaitingReview = awaitingReview.map(d => d.id);
 
+  // R-O-12: idempotency check BEFORE the LLM call — a memo for this week must
+  // not cost a Sonnet call to discover. Same return shape as the create path.
+  const existingMemo = await prisma.weeklyMemo.findFirst({
+    where: { userId, weekStart: { gte: weekStart, lte: now } },
+  });
+  if (existingMemo) {
+    logger.info('Weekly memo already exists for this period', { userId, memoId: existingMemo.id });
+    return { ...existingMemo, decisionsAwaitingReview };
+  }
+
   // Build prompt context
   const context = `
 ## Decisions This Week (${decisions.length})
@@ -87,15 +97,6 @@ ${contradictions.map(c => `- ${c.description} (${c.severity})`).join('\n') || 'N
   const lastMemo = await prisma.weeklyMemo.findFirst({ where: { userId }, orderBy: { weekStart: 'desc' } });
   const lastScore = lastMemo ? (lastMemo.thinkingQualityScore > 10 ? lastMemo.thinkingQualityScore / 10 : lastMemo.thinkingQualityScore) : 0;
   const scoreChange = lastMemo ? memoData.thinkingQualityScore - lastScore : 0;
-
-  // Idempotency: check if memo already exists for this week (match on weekStart only)
-  const existingMemo = await prisma.weeklyMemo.findFirst({
-    where: { userId, weekStart: { gte: weekStart, lte: now } },
-  });
-  if (existingMemo) {
-    logger.info('Weekly memo already exists for this period', { userId, memoId: existingMemo.id });
-    return existingMemo;
-  }
 
   // Phase 6: decisions awaiting review → `review:<id>` pressure points + memo section.
   const reviewPoints = decisionsAwaitingReview.map(id => `review:${id}`);

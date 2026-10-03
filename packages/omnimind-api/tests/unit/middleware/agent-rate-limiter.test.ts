@@ -13,6 +13,27 @@ describe('agentRateLimiter', () => {
     expect(classifyOp({ method: 'POST', path: '/decisions' } as Request)).toBe('decision');
   });
 
+  it('R-O-07: POST search/validate/for-persona are billed as reads, not writes', () => {
+    expect(classifyOp({ method: 'POST', path: '/memories/search' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'POST', path: '/memories/search-similar' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'POST', path: '/memories/validate' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'POST', path: '/context/for-persona' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'POST', path: '/context/reflect' } as Request)).toBe('write');
+    expect(classifyOp({ method: 'HEAD', path: '/memories' } as Request)).toBe('read');
+  });
+
+  it('R-O-07: POST /memories/search does not consume the write budget', () => {
+    const agent = `agent-search-${Date.now()}`;
+    const next = vi.fn();
+    const res = mkRes();
+    const search = { method: 'POST', path: '/memories/search', headers: { 'x-agent-id': agent } } as unknown as Request;
+    const write = { method: 'POST', path: '/memories', headers: { 'x-agent-id': agent } } as unknown as Request;
+    for (let i = 0; i < 250; i++) agentRateLimiter(search, res, next); // > WRITE_LIMIT (200), < READ_LIMIT (1000)
+    agentRateLimiter(write, res, next);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(251);
+  });
+
   it('M-106: audit POSTs do not consume the write budget', () => {
     const agent = `agent-${Date.now()}`;
     const next = vi.fn();

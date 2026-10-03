@@ -10,7 +10,8 @@ import { normalizeDomain } from '../lib/memory-crypto';
  *   newest 500 live memories of the user (tenant-scoped when an agent
  *   context is present)  ×  candidate entities (VALUES list)
  *   matched with a word-boundary, case-insensitive regex (`~*` + `\m…\M`)
- *   minus pairs that already have a MemoryEntityLink.
+ *   minus pairs that already have a MemoryEntityLink (compared on
+ *   `lower(entity_type)` so legacy mixed-case rows still count — R-O-13).
  *
  * Ministry rows match on `title` only: their `content` column holds the
  * encryption placeholder / ciphertext (O-111), never plaintext, so the SQL
@@ -155,7 +156,7 @@ export async function findUnlinkedMentions(
       ON (m.title ~* c.pattern OR (lower(m.domain) <> 'ministry' AND m.content ~* c.pattern))
     WHERE NOT EXISTS (
       SELECT 1 FROM memory_entity_links l
-      WHERE l.memory_id = m.id AND l.entity_type = c.entity_type AND l.entity_id = c.entity_id
+      WHERE l.memory_id = m.id AND lower(l.entity_type) = c.entity_type AND l.entity_id = c.entity_id
     )
     ORDER BY m.created_at DESC, c.entity_type, c.entity_label
     LIMIT ${limit}
@@ -190,7 +191,19 @@ export type LinkMentionResult =
   | { ok: true; created: boolean; link: { id: string; memoryId: string; entityType: string; entityId: string; linkType: string } }
   | { ok: false; reason: 'memory_not_found' | 'entity_not_found' };
 
-async function entityExists(prisma: PrismaClient, userId: string, type: LinkableEntityType, id: string): Promise<boolean> {
+/** R-O-13: every entity type the legacy `POST /memories/:id/links` route accepts (lower-cased). */
+export type LegacyLinkEntityType = LinkableEntityType | 'memory';
+export const LEGACY_LINK_ENTITY_TYPES: readonly LegacyLinkEntityType[] = [...LINKABLE_ENTITY_TYPES, 'memory'];
+
+/** Lower-case + validate a caller-supplied entityType; null when unknown. */
+export function normalizeLinkEntityType(raw: unknown): LegacyLinkEntityType | null {
+  if (typeof raw !== 'string') return null;
+  const t = raw.trim().toLowerCase();
+  return (LEGACY_LINK_ENTITY_TYPES as readonly string[]).includes(t) ? (t as LegacyLinkEntityType) : null;
+}
+
+/** True when the entity is the user's and live. Exported so the legacy links route reuses one lookup (R-O-13). */
+export async function entityExists(prisma: PrismaClient, userId: string, type: LegacyLinkEntityType, id: string): Promise<boolean> {
   const where = { id, userId, deletedAt: null } as const;
   const select = { id: true } as const;
   switch (type) {
@@ -200,6 +213,7 @@ async function entityExists(prisma: PrismaClient, userId: string, type: Linkable
     case 'task': return !!(await prisma.task.findFirst({ where, select }));
     case 'decision': return !!(await prisma.decision.findFirst({ where, select }));
     case 'commitment': return !!(await prisma.commitment.findFirst({ where, select }));
+    case 'memory': return !!(await prisma.memoryEntry.findFirst({ where, select }));
     default: return false;
   }
 }

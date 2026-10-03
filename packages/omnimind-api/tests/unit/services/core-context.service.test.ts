@@ -130,6 +130,32 @@ describe('core context (Phase 6)', () => {
       expect(mockPrisma.goal.findMany.mock.calls[1][0].where.userId).toBe('u2');
     });
 
+    it('R-O-05: constraint memories are tenant-scoped for agents and the cache is keyed per (user, tenant)', async () => {
+      await getCoreContext('u1', mockPrisma, { tenantId: 'josh-business' });
+      expect(mockPrisma.memoryEntry.findMany.mock.calls[0][0].where).toMatchObject({ userId: 'u1', tags: { has: 'constraint' }, tenantId: 'josh-business' });
+
+      // same user, no tenant (BoardRoom) → separate slot + unscoped query
+      await getCoreContext('u1', mockPrisma);
+      expect(mockPrisma.goal.findMany).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.memoryEntry.findMany.mock.calls[1][0].where).not.toHaveProperty('tenantId');
+
+      // same user, other tenant → third slot
+      await getCoreContext('u1', mockPrisma, { tenantId: 'tgfc-ministry' });
+      expect(mockPrisma.goal.findMany).toHaveBeenCalledTimes(3);
+
+      // cache hits within the TTL for each variant
+      await getCoreContext('u1', mockPrisma, { tenantId: 'josh-business' });
+      await getCoreContext('u1', mockPrisma);
+      expect(mockPrisma.goal.findMany).toHaveBeenCalledTimes(3);
+
+      // invalidation clears every tenant variant for that user
+      invalidateCoreContext('u1');
+      await getCoreContext('u1', mockPrisma, { tenantId: 'josh-business' });
+      await getCoreContext('u1', mockPrisma);
+      await getCoreContext('u1', mockPrisma, { tenantId: 'tgfc-ministry' });
+      expect(mockPrisma.goal.findMany).toHaveBeenCalledTimes(6);
+    });
+
     it('queries only live, active, level ≤ 1 goals and open commitments inside the 14-day horizon', async () => {
       await getCoreContext('u1', mockPrisma);
       expect(mockPrisma.goal.findMany.mock.calls[0][0].where).toMatchObject({ userId: 'u1', deletedAt: null, status: 'active', level: { lte: 1 } });

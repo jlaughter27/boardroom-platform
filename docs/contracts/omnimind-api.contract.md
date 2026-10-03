@@ -9,8 +9,10 @@
 - **Auth**: Every request (except `GET /health`) requires `x-api-key` header matching `OMNIMIND_API_KEY` env var
 - **User scoping**: Every data-mutating or data-reading endpoint requires `x-user-id` header. ALL queries are scoped to this user. No cross-user data access.
 - **Agent identity (MCP callers, 2026-10-02)**: `x-agent-key: omk_…` is verified against `agents.api_key_hash`; when present, `agentId`/`tenantId`/`scopes`/`sourceWeight` come from the agent row and any disagreeing `x-agent-id` / `x-tenant-id` / `x-source-weight` header → `403 agent_header_mismatch`. Without `x-agent-key` the legacy header triple is accepted unverified (solo mode) unless `OMNIMIND_REQUIRE_AGENT_KEY=true`. Verified agents have `Agent.scopes` enforced per route.
+- **Scope rules (verified agents, 2026-10-03)**: `GET`/`HEAD` on `/memories`, `/context`, `/decisions`, `/tasks`, `/commitments`, `/projects`, `/people`, `/goals`, `/graph`, `/cortex`, `/usage` → `memory:read`. The POST reads `POST /memories/search`, `POST /memories/search-similar`, `POST /memories/validate`, `POST /context/for-persona` → `memory:read` (and are billed against the agent's `read` rate bucket). Writes: `/decisions` → `decision:write`, `/tasks` → `task:write`, `/commitments` → `commitment:write`, `/projects` → `project:write`; `/memories` (+ links), `/people`, `/goals`, `POST /context/reflect`, `/graph` link writers, `/cortex` scans/patches/generate/simulate, `POST /usage/llm` → `memory:write`. Missing scope → `403 insufficient_scope { required, agentId }`. Wildcards: `*`, `<prefix>:*`.
 - **Tenant scoping**: when agent context is present, reads are scoped to its tenant. `?tenantId=` that disagrees → `403`. Cross-tenant views require `x-admin-key` + `?includeAllTenants=true`.
-- **Admin**: `/admin/*` and `POST /mcp/agents` require `x-admin-key` matching `OMNIMIND_ADMIN_KEY` (timing-safe). Unset in production → `503 admin_disabled`.
+- **Admin**: `/admin/*` and `POST /mcp/agents` require `x-admin-key` matching `OMNIMIND_ADMIN_KEY` (timing-safe). Unset in production → `503 admin_disabled`. `GET /usage/llm/summary?all=1` is gated by the same header (→ `403 admin_required`, see below).
+- **Idempotency scope**: `Idempotency-Key` replay is scoped to `agent:<agentId>:user:<x-user-id>` for a verified agent and `user:<x-user-id>` otherwise (BoardRoom and unverified legacy agents).
 - **Rate limits**: per-user, per-agent and audit buckets; callers without an identity header are keyed by IP (never skipped).
 - **Content-Type**: `application/json` for all request/response bodies
 - **Timestamps**: ISO 8601 strings in JSON. Parsed to `Date` internally.
@@ -44,6 +46,12 @@ All errors follow this shape:
   error: "rate_limited",
   message: string,
   retryAfter: number // seconds
+}
+
+// 409 — Conflict (e.g. PATCH on a superseded memory)
+{
+  code: "memory_superseded",
+  message: string // names the superseding memory id
 }
 
 // 500 — Internal error
@@ -182,6 +190,8 @@ Search/filter memories.
 }
 ```
 
+**Invalidated rows (2026-10-03):** rows with `invalidAt` set (superseded / consolidated away) are hidden by default. `?includeInvalidated=true` opts back in (provenance / audit views). `POST /memories/search-similar` and the create-time dedup never return or merge into invalidated rows.
+
 ### PATCH /memories/:id
 
 Partial update. Runs sync validation pipeline.
@@ -193,6 +203,8 @@ Partial update. Runs sync validation pipeline.
 **Response 404/422:** As above
 
 **Phase 6 — `supersedes`:** the body may carry `supersedes: <oldMemoryId>`. `:id` is the **new** row; the old row (same user, same tenant when an agent context is present) gets `invalidAt = now(), supersededBy = :id` — its content is never mutated — and `oldId` is appended to `:id`'s `consolidatedFrom`. 404 when the old row is not in scope, 422 on self-supersede. Retrieval layers hide invalidated rows by default (see `asOf`).
+
+**Response 409 `memory_superseded` (2026-10-03):** `:id` is itself invalidated (`invalidAt` / `supersededBy` set). Invalidated rows are frozen — a plain update would resurrect a replaced belief, and letting one act as the keeper of a `supersedes` request could flip a pair and leave both rows invalid. The message names `supersededBy`; PATCH that row instead.
 
 ### DELETE /memories/:id
 
@@ -803,8 +815,9 @@ Response 200: { nodes: GraphNode[], edges: GraphEdge[] }
 
 ### POST /memories/:id/links
 Create link between memory and entity.
-Request: { entityType: string, entityId: string, linkType: string }
-Response 201: MemoryEntityLink
+Request: { entityType: 'goal'|'project'|'task'|'person'|'decision'|'commitment'|'memory', entityId: string, linkType?: string (default `relates_to`) }
+`entityType` is lower-cased before validation (2026-10-03); the entity must exist for this user.
+Response 201: MemoryEntityLink · 422 unknown `entityType` · 404 memory or entity not found
 
 ### GET /memories/:id/links
 List links for a memory.
@@ -830,6 +843,10 @@ Fire-and-forget usage sink for BoardRoom, MCP and OmniMind's own Anthropic calls
 
 Default scope: the calling user. `all=1` aggregates every row (admin cost widget; job rows without a user
 only appear here). `byDay` is zero-filled per UTC day, ascending.
+
+**`all=1` is admin-gated (2026-10-03):** the request must carry `x-admin-key` matching `OMNIMIND_ADMIN_KEY`
+(same semantics as `/admin/*`; BoardRoom's admin proxy forwards the header). Otherwise `403 admin_required`.
+Without `all=1` the header is ignored and the summary is scoped to `x-user-id`.
 
 **Response 200:** `{ days, totalUsd, byDay: [{date, usd, calls}], byPurpose: [{purpose, usd, calls, cacheHitRate}], byModel: [{model, usd, calls, inputTokens, outputTokens}] }`
 

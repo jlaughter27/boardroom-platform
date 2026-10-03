@@ -77,7 +77,10 @@ router.get('/changes', async (req, res, next) => {
     const ref = decisionService.parseEntityRef(q.data.entityId);
     if (!ref) { res.status(422).json({ error: 'validation_failed', details: [{ field: 'entityId', message: 'Expected <goal|project|person>:<id>' }] }); return; }
 
-    const result = await decisionService.getEntityChanges(userId, ref, new Date(q.data.since), prisma);
+    // R-O-04: memories are scoped to the agent tenant when an agent context is present.
+    const result = await decisionService.getEntityChanges(userId, ref, new Date(q.data.since), prisma, {
+      tenantId: req.agentContext?.tenantId,
+    });
     res.json(result);
   } catch (err) { next(err); }
 });

@@ -6,7 +6,9 @@ import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import {
   buildSnippet,
+  entityExists,
   escapeRegex,
+  normalizeLinkEntityType,
   findUnlinkedMentions,
   linkMention,
   mentionPattern,
@@ -80,6 +82,7 @@ describe('findUnlinkedMentions', () => {
     expect(text).toContain("status <> 'ARCHIVED'");
     expect(text).toContain('ORDER BY created_at DESC');
     expect(text).toContain('NOT EXISTS');
+    expect(text).toContain('lower(l.entity_type) = c.entity_type'); // R-O-13: legacy mixed-case rows still count as linked
     expect(text).toContain('m.title ~* c.pattern');
     expect(text).toContain("lower(m.domain) <> 'ministry' AND m.content ~* c.pattern");
     expect(text).toContain("CASE WHEN lower(m.domain) = 'ministry' THEN '' ELSE m.content END");
@@ -171,5 +174,24 @@ describe('linkMention', () => {
     expect(await linkMention('user-1', { memoryId: 'x', entityType: 'person', entityId: 'u1' }, {}, p1)).toEqual({ ok: false, reason: 'memory_not_found' });
     const p2 = fakePrisma();
     expect(await linkMention('user-1', { memoryId: 'm1', entityType: 'goal', entityId: 'g-nope' }, {}, p2)).toEqual({ ok: false, reason: 'entity_not_found' });
+  });
+});
+
+describe('legacy link helpers (R-O-13)', () => {
+  it('normalizeLinkEntityType lower-cases and enum-validates', () => {
+    expect(normalizeLinkEntityType('Project')).toBe('project');
+    expect(normalizeLinkEntityType(' GOAL ')).toBe('goal');
+    expect(normalizeLinkEntityType('memory')).toBe('memory');
+    expect(normalizeLinkEntityType('widget')).toBeNull();
+    expect(normalizeLinkEntityType(42)).toBeNull();
+    expect(normalizeLinkEntityType(undefined)).toBeNull();
+  });
+
+  it('entityExists checks the user-scoped, live row (memory included)', async () => {
+    const prisma = fakePrisma();
+    expect(await entityExists(prisma, 'user-1', 'project', 'p1')).toBe(true);
+    expect(await entityExists(prisma, 'user-1', 'goal', 'g1')).toBe(false);
+    expect(await entityExists(prisma, 'user-1', 'memory', 'm1')).toBe(true);
+    expect((prisma as any).memoryEntry.findFirst).toHaveBeenCalledWith({ where: { id: 'm1', userId: 'user-1', deletedAt: null }, select: { id: true } });
   });
 });

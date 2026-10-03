@@ -9,12 +9,30 @@ describe('scope table mirrors CLAUDE.md', () => {
     ['GET', '/memories', 'memory:read'],
     ['GET', '/memories/abc', 'memory:read'],
     ['POST', '/memories', 'memory:write'],
+    ['POST', '/memories/search', 'memory:read'], // R-O-01: MCP memory_search
     ['POST', '/memories/search-similar', 'memory:read'],
     ['POST', '/memories/validate', 'memory:read'],
     ['PATCH', '/memories/abc', 'memory:write'],
     ['DELETE', '/memories/abc', 'memory:write'],
     ['POST', '/memories/abc/links', 'memory:write'],
     ['POST', '/context/for-persona', 'memory:read'],
+    ['GET', '/context/core', 'memory:read'],
+    ['GET', '/context/capsules', 'memory:read'],
+    ['POST', '/context/reflect', 'memory:write'], // R-O-03: reflect writes a capsule
+    // R-O-03: /graph, /cortex, /usage were unlisted (no enforcement at all)
+    ['GET', '/graph', 'memory:read'],
+    ['GET', '/graph/backlinks/project:p1', 'memory:read'],
+    ['GET', '/graph/unlinked-mentions', 'memory:read'],
+    ['POST', '/graph/unlinked-mentions/link', 'memory:write'],
+    ['GET', '/cortex/patterns', 'memory:read'],
+    ['GET', '/cortex/memo/latest', 'memory:read'],
+    ['POST', '/cortex/patterns/scan', 'memory:write'],
+    ['POST', '/cortex/memo/generate', 'memory:write'],
+    ['PATCH', '/cortex/memo/m1/items/k', 'memory:write'],
+    ['PATCH', '/cortex/contradictions/c1', 'memory:write'],
+    ['POST', '/cortex/simulate', 'memory:write'],
+    ['GET', '/usage/llm/summary', 'memory:read'],
+    ['POST', '/usage/llm', 'memory:write'],
     ['POST', '/decisions', 'decision:write'],
     ['GET', '/decisions', 'memory:read'],
     ['POST', '/tasks', 'task:write'],
@@ -55,6 +73,23 @@ describe('agentScopeEnforcer', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'insufficient_scope', required: 'memory:write' }));
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('R-O-01: a read-only verified agent may POST /memories/search', () => {
+    const { req, res, next } = mk('POST', '/memories/search', { agentId: 'ro', tenantId: 't', sourceWeight: 1, scopes: ['memory:read'], verified: true });
+    agentScopeEnforcer(req, res, next);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('R-O-03: a read-only verified agent is denied POST /context/reflect and POST /cortex/memo/generate', () => {
+    for (const path of ['/context/reflect', '/cortex/memo/generate']) {
+      const { req, res, next } = mk('POST', path, { agentId: 'ro', tenantId: 't', sourceWeight: 1, scopes: ['memory:read'], verified: true });
+      agentScopeEnforcer(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'insufficient_scope', required: 'memory:write' }));
+      expect(next).not.toHaveBeenCalled();
+    }
   });
 
   it('passes a verified agent that holds the scope', () => {

@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { READ_POSTS } from './scope-enforcer';
 
 // Per-agent hourly rate limits
 const READ_LIMIT = parseInt(process.env.AGENT_RATE_READ ?? '1000', 10);
@@ -34,8 +35,11 @@ export function stopAgentRateLimiterCleanup(): void {
 
 export function classifyOp(req: Request): OpType {
   if (req.method === 'POST' && req.path === '/mcp/audit') return 'audit';
+  // R-O-07: POST search/validate/for-persona endpoints are reads in disguise
+  // (same table the scope enforcer uses) — bill them against the read bucket.
+  if (req.method === 'POST' && READ_POSTS.has(req.path)) return 'read';
   if (req.path.includes('decision')) return 'decision';
-  if (req.method === 'GET') return 'read';
+  if (req.method === 'GET' || req.method === 'HEAD') return 'read';
   return 'write';
 }
 

@@ -15,8 +15,9 @@ import { logger } from '../lib/logger';
  * cache. Relative deadlines are therefore rendered as absolute YYYY-MM-DD
  * dates (which only change when the data changes), never as "in 3 days".
  *
- * Cached in-process for 60 s per user; `invalidateCoreContext(userId)` is
- * called from the goal / project / commitment / profile write paths.
+ * Cached in-process for 60 s per (user, tenant); `invalidateCoreContext(userId)`
+ * drops every tenant variant and is called from the goal / project /
+ * commitment / profile write paths.
  */
 
 export const CORE_CONTEXT_MAX_GOALS = 8;
@@ -118,7 +119,17 @@ export function hashBlock(block: string): string {
   return createHash('sha256').update(block).digest('hex');
 }
 
-export async function loadCoreContextInput(userId: string, prisma: PrismaClient, now: Date = new Date()): Promise<CoreContextInput> {
+export interface CoreContextOptions {
+  /** R-O-05: agent tenant — constraint memories are scoped to it when present. */
+  tenantId?: string;
+}
+
+export async function loadCoreContextInput(
+  userId: string,
+  prisma: PrismaClient,
+  now: Date = new Date(),
+  opts: CoreContextOptions = {},
+): Promise<CoreContextInput> {
   const horizon = new Date(now.getTime() + CORE_CONTEXT_COMMITMENT_HORIZON_DAYS * 86_400_000);
 
   const [profile, goals, commitments, constraintMemories] = await Promise.all([
@@ -136,7 +147,10 @@ export async function loadCoreContextInput(userId: string, prisma: PrismaClient,
       take: 20,
     }),
     prisma.memoryEntry.findMany({
-      where: { userId, deletedAt: null, status: { not: 'ARCHIVED' }, tags: { has: 'constraint' }, invalidAt: null, domain: { not: 'ministry' } },
+      where: {
+        userId, deletedAt: null, status: { not: 'ARCHIVED' }, tags: { has: 'constraint' }, invalidAt: null, domain: { not: 'ministry' },
+        ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
+      },
       select: { title: true },
       orderBy: { title: 'asc' },
       take: 10,
@@ -178,17 +192,21 @@ export async function loadCoreContextInput(userId: string, prisma: PrismaClient,
   };
 }
 
-// ── 60 s per-user cache + invalidation ──
+// ── 60 s per-user (× tenant) cache + invalidation ──
 
 interface CacheEntry { value: CoreContextResponse; expiresAt: number }
 const cache = new Map<string, CacheEntry>();
 
-export async function getCoreContext(userId: string, prisma: PrismaClient): Promise<CoreContextResponse> {
-  const hit = cache.get(userId);
+/** R-O-05: one cache slot per (user, tenant) — a BoardRoom (no tenant) block must never be served to an agent. */
+export const coreContextCacheKey = (userId: string, tenantId?: string | null): string => `${userId}:${tenantId ?? '*'}`;
+
+export async function getCoreContext(userId: string, prisma: PrismaClient, opts: CoreContextOptions = {}): Promise<CoreContextResponse> {
+  const key = coreContextCacheKey(userId, opts.tenantId);
+  const hit = cache.get(key);
   const nowMs = Date.now();
   if (hit && hit.expiresAt > nowMs) return hit.value;
 
-  const input = await loadCoreContextInput(userId, prisma);
+  const input = await loadCoreContextInput(userId, prisma, new Date(nowMs), opts);
   const block = renderCoreBlock(input);
   const value: CoreContextResponse = {
     block,
@@ -196,18 +214,24 @@ export async function getCoreContext(userId: string, prisma: PrismaClient): Prom
     hash: hashBlock(block),
     generatedAt: new Date(nowMs).toISOString(),
   };
-  cache.set(userId, { value, expiresAt: nowMs + TTL_MS });
+  cache.set(key, { value, expiresAt: nowMs + TTL_MS });
   return value;
 }
 
 /**
- * Drop the cached block for a user. Called from goal / project / commitment /
- * profile write paths (routes in this lane; A2 calls it from entity.service).
+ * Drop every cached block for a user (all tenant variants). Called from goal /
+ * project / commitment / profile write paths (routes in this lane; A2 calls it
+ * from entity.service).
  */
 export function invalidateCoreContext(userId: string | undefined | null): void {
   if (!userId) return;
-  if (cache.delete(userId)) {
-    logger.info('[core-context] cache invalidated', { userId });
+  const prefix = `${userId}:`;
+  let dropped = 0;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix) && cache.delete(key)) dropped += 1;
+  }
+  if (dropped > 0) {
+    logger.info('[core-context] cache invalidated', { userId, variants: dropped });
   }
 }
 

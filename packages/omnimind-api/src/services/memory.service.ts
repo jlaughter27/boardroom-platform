@@ -77,6 +77,9 @@ function resolveContextAndPrisma(
  * O-101 / F-202 — cosine near-duplicate lookup, scoped to BOTH the user and
  * the caller's tenant. Without the tenant filter an agent in tenant A could
  * "merge into" (and re-stamp) a memory that lives in tenant B.
+ *
+ * R-O-02: invalidated / superseded rows are never dedup targets — merging into
+ * one would resurrect a belief that was explicitly replaced.
  */
 async function findNearDuplicate(
   userId: string,
@@ -94,6 +97,8 @@ async function findNearDuplicate(
         AND embedding IS NOT NULL
         AND deleted_at IS NULL
         AND status != 'ARCHIVED'
+        AND invalid_at IS NULL
+        AND superseded_by IS NULL
         AND 1 - (embedding <=> ${embedding}::vector) >= ${threshold}
       ORDER BY embedding <=> ${embedding}::vector
       LIMIT 1
@@ -451,6 +456,12 @@ export async function searchMemories(
      * derived from agentContext. Filtering by `filters.tenantId` still applies.
      */
     includeAllTenants?: boolean;
+    /**
+     * R-O-02: invalidated rows (`invalidAt` set — superseded / consolidated)
+     * are hidden by default. `?includeInvalidated=true` on the list route
+     * opts back in (provenance / audit views).
+     */
+    includeInvalidated?: boolean;
   },
   agentContextOrPrisma?: AgentContext | PrismaClient,
   prismaArg?: PrismaClient
@@ -463,6 +474,7 @@ export async function searchMemories(
   const where: Prisma.MemoryEntryWhereInput = {
     userId,
     deletedAt: null,
+    ...(filters.includeInvalidated ? {} : { invalidAt: null }),
   };
 
   // Tenant resolution precedence:
@@ -532,6 +544,20 @@ export async function updateMemory(
 
   const existing = await prisma.memoryEntry.findFirst({ where: ownershipWhere });
   if (!existing) return null;
+
+  // R-O-02 / R-M-01: an invalidated row (superseded or consolidated away) is
+  // frozen. Editing it would resurrect a replaced belief, and letting it act
+  // as the KEEPER of a `supersedes` request could flip a pair and leave both
+  // rows invalid. Callers must PATCH the row named in `supersededBy` instead.
+  const frozen = existing as { invalidAt?: Date | null; supersededBy?: string | null };
+  if (frozen.invalidAt || frozen.supersededBy) {
+    throw new HttpError(409, {
+      code: 'memory_superseded',
+      message: frozen.supersededBy
+        ? `Memory ${id} was superseded by ${frozen.supersededBy}; update that memory instead`
+        : `Memory ${id} was invalidated and can no longer be updated`,
+    });
+  }
 
   // Phase 6 (A2) — `supersedes: <oldId>`: this row (`id`) replaces `oldId`.
   // The old row is stamped `invalidAt = now, supersededBy = id` (content

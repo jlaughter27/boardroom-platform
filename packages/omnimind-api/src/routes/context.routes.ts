@@ -56,7 +56,8 @@ router.get('/core', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { missingUser(res); return; }
-    res.json(await getCoreContext(userId, prisma));
+    // R-O-05: constraint memories + cache slot are scoped to the agent tenant when present.
+    res.json(await getCoreContext(userId, prisma, { tenantId: req.agentContext?.tenantId }));
   } catch (err) { next(err); }
 });
 

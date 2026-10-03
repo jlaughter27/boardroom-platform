@@ -3,7 +3,11 @@
  *
  * Contract (PHASE-6-CONTRACTS.md › Idempotency):
  *   - header `Idempotency-Key` (≤128 chars); absent → the route runs as usual
- *   - scope = `req.agentContext.agentId` when present, else `x-user-id`
+ *   - scope = `agent:<agentId>:user:<x-user-id>` for a VERIFIED agent context,
+ *     else `user:<x-user-id>` (BoardRoom and unverified legacy agents — a
+ *     spoofable `x-agent-id` must not carve out its own replay namespace).
+ *     R-O-14: the user is always part of the scope so two users behind the
+ *     same agent never replay each other's results.
  *   - hit (same scope+key, not expired, 24 h TTL) → replay the stored body with
  *     the original status and `Idempotent-Replayed: true`
  *   - miss → run the handler; on a 2xx JSON response store `{status, body}`
@@ -59,12 +63,16 @@ function readKey(req: Request): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-function resolveScope(req: Request): string | null {
-  const agentId = req.agentContext?.agentId;
-  if (agentId) return `agent:${agentId}`;
+export function resolveScope(req: Request): string | null {
   const userId = req.headers['x-user-id'];
-  const s = Array.isArray(userId) ? userId[0] : userId;
-  return typeof s === 'string' && s.trim().length ? `user:${s.trim()}` : null;
+  const raw = Array.isArray(userId) ? userId[0] : userId;
+  const user = typeof raw === 'string' && raw.trim().length ? raw.trim() : null;
+  if (!user) return null;
+  const ctx = req.agentContext;
+  // R-O-14: only a verified agent identity widens the scope; legacy header-only
+  // agents fall back to the user scope.
+  if (ctx?.verified && ctx.agentId) return `agent:${ctx.agentId}:user:${user}`;
+  return `user:${user}`;
 }
 
 function replay(res: Response, stored: StoredResult): void {

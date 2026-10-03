@@ -7,6 +7,7 @@ import * as memoryService from '../services/memory.service';
 import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
 import { isAdminRequest } from '../middleware/admin-auth';
 import { idempotent } from '../middleware/idempotency';
+import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES } from '../services/unlinked-mentions.service';
 
 // Phase 6 (A2) — PATCH /memories/:id gains `supersedes: <oldMemoryId>`
 // (old row → invalidAt=now, supersededBy=:id; :id.consolidatedFrom += old).
@@ -66,7 +67,8 @@ router.post('/backfill-embeddings', async (req, res, next) => {
 });
 
 // POST /memories/search-similar — cosine similarity search with threshold (used by MCP fact-extractor dedup)
-// Must appear before /:id routes
+// Must appear before /:id routes. R-O-02: invalidated / superseded rows are
+// never returned (a dedup merge into one would resurrect a replaced belief).
 router.post('/search-similar', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
@@ -111,6 +113,8 @@ router.post('/search-similar', async (req, res, next) => {
             AND embedding IS NOT NULL
             AND "deleted_at" IS NULL
             AND status != 'ARCHIVED'
+            AND invalid_at IS NULL
+            AND superseded_by IS NULL
             AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
           ORDER BY embedding <=> ${embedding}::vector
           LIMIT ${safeLimit}
@@ -129,6 +133,8 @@ router.post('/search-similar', async (req, res, next) => {
             AND embedding IS NOT NULL
             AND "deleted_at" IS NULL
             AND status != 'ARCHIVED'
+            AND invalid_at IS NULL
+            AND superseded_by IS NULL
             AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
           ORDER BY embedding <=> ${embedding}::vector
           LIMIT ${safeLimit}
@@ -205,6 +211,10 @@ router.get('/', async (req, res, next) => {
 
     const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
     const tenantId = req.query.tenantId as string | undefined;
+    // R-O-02: invalidated rows are hidden by default; ?includeInvalidated=true opts in.
+    const includeInvalidated =
+      typeof req.query.includeInvalidated === 'string' &&
+      req.query.includeInvalidated.toLowerCase() === 'true';
 
     // O-105: an agent may not read outside its own tenant by passing
     // ?tenantId=<other>. Only an admin (x-admin-key) who explicitly opts in
@@ -236,6 +246,7 @@ router.get('/', async (req, res, next) => {
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
       includeAllTenants,
+      includeInvalidated,
     }, req.agentContext, prisma);
 
     res.json(result);
@@ -296,27 +307,45 @@ router.delete('/:id', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // POST /memories/:id/links — create a MemoryEntityLink
+// R-O-13: entityType is lower-cased + enum-validated and the target entity
+// must exist for this user (same lookup as POST /graph/unlinked-mentions/link).
 router.post('/:id/links', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const { entityType, entityId, linkType } = req.body as { entityType: string; entityId: string; linkType?: string };
-    if (!entityType || !entityId) {
+    const { entityType: rawEntityType, entityId, linkType } = req.body as { entityType?: unknown; entityId?: unknown; linkType?: unknown };
+    if (!rawEntityType || typeof entityId !== 'string' || entityId.length === 0) {
       res.status(422).json({ error: 'validation_failed', details: [{ field: 'entityType/entityId', message: 'entityType and entityId are required' }] });
       return;
     }
+    const entityType = normalizeLinkEntityType(rawEntityType);
+    if (!entityType) {
+      res.status(422).json({ error: 'validation_failed', details: [{ field: 'entityType', message: `entityType must be one of ${LEGACY_LINK_ENTITY_TYPES.join('|')}` }] });
+      return;
+    }
+    if (linkType !== undefined && (typeof linkType !== 'string' || linkType.length === 0 || linkType.length > 64)) {
+      res.status(422).json({ error: 'validation_failed', details: [{ field: 'linkType', message: 'linkType must be a non-empty string (≤64 chars)' }] });
+      return;
+    }
 
-    // Verify memory belongs to user
-    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    // Verify memory belongs to user (and tenant, when an agent context is present)
+    const memory = await prisma.memoryEntry.findFirst({
+      where: { id: req.params.id, userId, deletedAt: null, ...(req.agentContext?.tenantId ? { tenantId: req.agentContext.tenantId } : {}) },
+    });
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
+
+    if (!(await entityExists(prisma, userId, entityType, entityId))) {
+      res.status(404).json({ error: 'not_found', message: `${entityType} not found` });
+      return;
+    }
 
     const link = await prisma.memoryEntityLink.create({
       data: {
         memoryId: req.params.id,
         entityType,
         entityId,
-        linkType: linkType ?? 'relates_to',
+        linkType: (linkType as string | undefined) ?? 'relates_to',
       },
     });
 

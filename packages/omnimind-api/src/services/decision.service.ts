@@ -1,6 +1,6 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { ReflectableEntityType } from '@boardroom/shared';
-import { tryDecryptMemory } from '../lib/memory-crypto';
+import { tryDecryptMemory, normalizeDomain } from '../lib/memory-crypto';
 
 export async function createDecision(
   userId: string,
@@ -145,12 +145,25 @@ async function relatedProjectIds(userId: string, ref: ParsedEntityRef, prisma: P
   return links.map(l => l.projectId);
 }
 
+/**
+ * Tenant whose agents may read ministry plaintext. Everyone else sees the
+ * at-rest placeholder for ministry-domain rows (data sovereignty, O-111).
+ */
+const MINISTRY_TENANT_ID = process.env.OMNIMIND_MINISTRY_TENANT_ID ?? 'tgfc-ministry';
+
+export interface EntityChangesOptions {
+  /** R-O-04: agent tenant — memories are scoped to it when present. */
+  tenantId?: string;
+}
+
 export async function getEntityChanges(
   userId: string,
   ref: ParsedEntityRef,
   since: Date,
   prisma: PrismaClient,
+  opts: EntityChangesOptions = {},
 ) {
+  const tenantId = opts.tenantId;
   const projectIds = await relatedProjectIds(userId, ref, prisma);
 
   const [memoryLinks, decisions, commitments, capsule] = await Promise.all([
@@ -187,6 +200,8 @@ export async function getEntityChanges(
     ? await prisma.memoryEntry.findMany({
         where: {
           id: { in: memoryIds }, userId, deletedAt: null,
+          // R-O-04: an agent in tenant A must not see tenant B's memories via a shared entity.
+          ...(tenantId ? { tenantId } : {}),
           OR: [{ createdAt: { gte: since } }, { invalidAt: { gte: since } }],
         },
         orderBy: { createdAt: 'desc' },
@@ -195,9 +210,11 @@ export async function getEntityChanges(
     : [];
 
   // Decrypt ministry rows (placeholder → plaintext); drop undecryptable ones;
-  // never ship ciphertext over the wire.
+  // never ship ciphertext over the wire. R-O-04: an agent caller outside the
+  // ministry tenant gets the placeholder, never the plaintext.
+  const mayDecryptMinistry = !tenantId || tenantId === MINISTRY_TENANT_ID;
   const memories = memoryRows
-    .map(m => tryDecryptMemory(m))
+    .map(m => (mayDecryptMinistry || normalizeDomain(m.domain) !== 'ministry' ? tryDecryptMemory(m) : m))
     .filter((m): m is NonNullable<typeof m> => m !== null)
     .map(({ encryptedContent: _enc, ...rest }) => rest);
 
