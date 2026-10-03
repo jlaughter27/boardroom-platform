@@ -17,7 +17,7 @@ COPY scripts/check-prompts-integrity.sh scripts/check-prompts-integrity.sh
 # Fail fast if the runtime prompt count drops accidentally during a build.
 # OmniMind's prompt-loader reads reflection / cortex / simulation prompts from
 # docs/prompts at runtime (R-D-01) — the same guard boardroom-ai's image runs.
-RUN bash scripts/check-prompts-integrity.sh
+RUN sh scripts/check-prompts-integrity.sh
 
 # Generate Prisma client BEFORE TypeScript build (needs the generated types)
 RUN cd packages/omnimind-api && pnpm exec prisma generate
