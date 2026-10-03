@@ -111,6 +111,13 @@ because CI's semantic layer is deterministic noise. Rules:
 - **Up only.** After three consecutive green runs on `main`, set each gate to
   `floor((observed − 0.05) / 0.05) × 0.05` and add a row to `history`.
 - Promote an `informational` metric to `gates` once it has been stable for a month (nDCG@10 and abstention accuracy are the next candidates).
+
+### Observations
+
+| date | run | for-persona recall@10 | MRR | nDCG@10 | abstention | /memories/search recall@10 | MRR | note |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| 2026-10-03 | PR #20, first real run | 0.520 | 0.440 | 0.419 | 0.80 | 0.535 | 0.549 | gates 0.5 / 0.35 pass; `update` slice weakest (0.27 / 0.20); `business` archetype lowest (0.42); 114/114 scored, 0 HTTP errors, 10/10 supersede links confirmed |
+
 - Lowering a gate requires a note here with the reason (e.g. a deliberate
   ranker change that trades recall for precision) and a link to the PR.
 - Changing the corpus or gold set resets the three-run counter.

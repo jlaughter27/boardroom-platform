@@ -28,7 +28,7 @@ Source: `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md`. Built by six paralle
 2. Optional but recommended: set `OTEL_EXPORTER_OTLP_ENDPOINT` (+ headers) on both services; pick one backend.
 3. Switch `OMNIMIND_API_URL` to `http://omnimind-api.railway.internal:3333` after confirming OmniMind binds `::` on the new image.
 4. Add `OMNIMIND_MCP_USER_ID` to MCP agent configs so resources can read.
-5. Watch the first `retrieval-eval` CI run; thresholds ratchet upward only.
+5. First `retrieval-eval` CI run passed (2026-10-03: for-persona recall@10 0.520 / MRR 0.440 vs gates 0.5 / 0.35; weakest slice `update` at 0.27). Thresholds ratchet upward only, after three green runs on `main`.
 6. Enable branch protection on `verify`, `docker`, `retrieval-eval`.
 
 **Design calls made (revisit if wrong):** memo-accepted memories use `sourceType AGENT_EXTRACTED` (enum has no CORTEX); reflection skips ministry memories; `GET /usage/llm/summary` is user-scoped unless `?all=1`; Haiku personas get no `output_config` (API rejects effort on Haiku 4.5); pre-mortem assumptions keep `{assumption, reviewAt, confidence}`; decide route is not LLM-rate-limited; `NODE_ENV=ci` in the eval job.

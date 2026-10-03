@@ -464,7 +464,7 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 8. Agent identity verification (`x-agent-key`) is opt-in (`OMNIMIND_REQUIRE_AGENT_KEY=false` by default); the legacy unverified header triple still works for solo mode.
 9. Ministry domain remains gated (`MINISTRY_DEFERRED` 503); the encryption-at-rest write path is wired and unit-tested behind the gate.
 10. `includeEntities: commitments|tasks` is accepted by `/context/for-persona` but those tables are not yet searched by the assembler (`ScoredResult.type` has no task/commitment member).
-11. The retrieval-eval CI job has not yet run against a real pgvector stack (no docker in the build sandbox); the first CI run is the first real measurement. Thresholds start low (recall@10 ≥ 0.5, MRR ≥ 0.35) and ratchet per `docs/runbooks/retrieval-eval.md`.
+11. The retrieval-eval CI job's first real run (PR #20, 2026-10-03, mock embeddings) passed with a thin margin on the gated leg: for-persona recall@10 0.520 vs gate 0.5, MRR 0.440 vs 0.35; `/memories/search` recall@10 0.535, MRR 0.549; the `update` slice is the weakest (recall@10 0.27). The run is deterministic (hash-seeded vectors), so the margin is stable, not flaky. Thresholds ratchet upward only after three green runs on `main` per `docs/runbooks/retrieval-eval.md`.
 12. Reflection and commitment-nudge jobs, OTel export, private networking and the backup service all need Railway env/config (see the runbook checklist).
 
 ## Resilience layer (omnimind-client.ts)
