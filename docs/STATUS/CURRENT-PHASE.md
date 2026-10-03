@@ -1,6 +1,6 @@
 # Current Phase
 
-**Phase in flight:** ✅ **Phase 6 build — research backlog implemented (pending deploy + operator checklist)**
+**Phase in flight:** ✅ **Phase 6 build — implemented and independently reviewed (pending deploy + operator checklist)**
 **Last update:** 2026-10-02
 **Updated by:** Claude (audit + remediation session, branch `claude/amazing-mccarthy-grvem2`)
 
@@ -10,7 +10,7 @@
 
 ## ✅ Phase 6 build — all 8 research moves implemented (2026-10-02)
 
-Source: `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md`. Built by six parallel lanes against `docs/contracts/PHASE-6-CONTRACTS.md`; 6 commits (`d12181d`…HEAD). Final state: typecheck 5/5, **1,318 tests passing** (125 mcp · 135 shared · 225 server · 78 client · 713 omnimind · 42 eval), client build green, client↔server route seam check clean.
+Source: `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md`. Built by six parallel lanes against `docs/contracts/PHASE-6-CONTRACTS.md`; 6 commits (`d12181d`…HEAD). Final state after the 2026-10-03 review (`docs/audits/REVIEW-2026-10-03.md`, 42 findings fixed): typecheck 5/5, **1,481 tests passing** (138 mcp · 135 shared · 261 server · 92 client · 810 omnimind · 45 eval), client build green, client↔server route seam check clean, frozen install clean, no high advisories.
 
 | # | Move | Status |
 |---|---|---|
