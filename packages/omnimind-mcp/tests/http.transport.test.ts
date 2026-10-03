@@ -6,11 +6,14 @@
  * notifications/initialized → tools/list, asserting 18 tools. Also covers
  * fail-closed auth, /health, session routing, DELETE, 413 and host checks.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { request as httpRequest } from 'http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { startHttpServer, resolveHttpConfig, keysMatch, extractPresentedKey, MAX_BODY_BYTES, type StartedHttpServer } from '../src/transports/http';
+import {
+  startHttpServer, createHttpApp, resolveHttpConfig, resolveSessionIdleMs, keysMatch, extractPresentedKey,
+  MAX_BODY_BYTES, DEFAULT_SESSION_IDLE_MS, type StartedHttpServer, type Session,
+} from '../src/transports/http';
 import type { AgentContext } from '../src/types';
 
 const API_KEY = 'test-inbound-key';
@@ -151,14 +154,14 @@ describe('Streamable HTTP end-to-end (M-101)', () => {
 });
 
 describe('fail-closed auth + hardening (F-203 / M-105)', () => {
-  it('GET /health needs no key and reports sessions', async () => {
+  it('GET /health needs no key and reports only status / uptime / sessions (R-M-05)', async () => {
     const res = await rawRequest({ method: 'GET', path: '/health' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.status).toBe('ok');
-    expect(typeof body.uptime).toBe('number');
-    expect(typeof body.sessions).toBe('number');
-    expect(body.tenant).toBe('josh-business');
+    expect(body).toEqual({ status: 'ok', uptime: expect.any(Number), sessions: expect.any(Number) });
+    expect(Object.keys(body).sort()).toEqual(['sessions', 'status', 'uptime']);
+    expect(res.body).not.toContain('josh-business');
+    expect(res.body).not.toContain('http-test-agent');
   });
 
   it('rejects missing / wrong keys with 401 before touching MCP', async () => {
@@ -209,3 +212,125 @@ describe('fail-closed auth + hardening (F-203 / M-105)', () => {
     expect(res.status).toBe(405);
   });
 });
+
+describe('session lifecycle (R-M-04)', () => {
+  it('resolveSessionIdleMs reads OMNIMIND_MCP_SESSION_IDLE_MS and falls back on junk', () => {
+    expect(resolveSessionIdleMs({} as NodeJS.ProcessEnv)).toBe(DEFAULT_SESSION_IDLE_MS);
+    expect(DEFAULT_SESSION_IDLE_MS).toBe(30 * 60 * 1000);
+    expect(resolveSessionIdleMs({ OMNIMIND_MCP_SESSION_IDLE_MS: '5000' } as NodeJS.ProcessEnv)).toBe(5000);
+    expect(resolveSessionIdleMs({ OMNIMIND_MCP_SESSION_IDLE_MS: 'soon' } as NodeJS.ProcessEnv)).toBe(DEFAULT_SESSION_IDLE_MS);
+    expect(resolveSessionIdleMs({ OMNIMIND_MCP_SESSION_IDLE_MS: '-1' } as NodeJS.ProcessEnv)).toBe(DEFAULT_SESSION_IDLE_MS);
+  });
+
+  describe('idle sweep (fake timers)', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    function fakeSession(lastSeenAt: number): Session & { transport: { close: ReturnType<typeof vi.fn> } } {
+      return { transport: { close: vi.fn().mockResolvedValue(undefined) } as never, server: {} as never, createdAt: lastSeenAt, lastSeenAt };
+    }
+
+    it('closes sessions idle longer than sessionIdleMs on the sweep interval and keeps active ones', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-03T00:00:00Z'));
+      const app = createHttpApp({
+        apiKey: 'k', agentCtx, log: () => {},
+        createServerFn: () => ({ server: {} as never, agentCtx }),
+        sessionIdleMs: 1_000, sweepIntervalMs: 250,
+      });
+      const old = fakeSession(Date.now());
+      app.sessions.set('old', old);
+      await vi.advanceTimersByTimeAsync(600);
+      const fresh = fakeSession(Date.now());
+      app.sessions.set('fresh', fresh);
+      expect(app.sessions.size).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(500); // t=1100: old idle 1100 ≥ 1000, fresh idle 500
+      expect(app.sessions.has('old')).toBe(false);
+      expect(old.transport.close).toHaveBeenCalledTimes(1);
+      expect(app.sessions.has('fresh')).toBe(true);
+      expect(fresh.transport.close).not.toHaveBeenCalled();
+
+      // A request on the session refreshes it: simulate by bumping lastSeenAt, then wait past the idle window.
+      await vi.advanceTimersByTimeAsync(400); // t=1500, fresh idle 900
+      fresh.lastSeenAt = Date.now();
+      await vi.advanceTimersByTimeAsync(900); // t=2400, fresh idle 900 since bump → kept
+      expect(app.sessions.has('fresh')).toBe(true);
+      await vi.advanceTimersByTimeAsync(250); // t=2650, idle 1150 → swept
+      expect(app.sessions.has('fresh')).toBe(false);
+      expect(fresh.transport.close).toHaveBeenCalledTimes(1);
+
+      // close() stops the sweeper (no further timers fire against a closed app).
+      await app.close();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('sweepIdle removes the entry even when transport.close rejects, and reports what it closed', async () => {
+      vi.useFakeTimers();
+      const app = createHttpApp({ apiKey: 'k', agentCtx, log: () => {}, createServerFn: () => ({ server: {} as never, agentCtx }), sessionIdleMs: 10, sweepIntervalMs: 60_000 });
+      const broken = fakeSession(Date.now() - 50);
+      broken.transport.close.mockRejectedValueOnce(new Error('already closed'));
+      app.sessions.set('broken', broken);
+      app.sessions.set('live', fakeSession(Date.now()));
+      await expect(app.sweepIdle()).resolves.toEqual(['broken']);
+      expect(app.sessions.has('broken')).toBe(false);
+      expect(app.sessions.has('live')).toBe(true);
+      await app.close();
+    });
+  });
+
+  describe('cap eviction (real server)', () => {
+    let small: StartedHttpServer;
+    beforeAll(async () => {
+      small = await startHttpServer(0, { apiKey: API_KEY, agentCtx, log: () => {}, maxSessions: 1 });
+    });
+    afterAll(async () => { await small.close(); });
+
+    function connectSmall() {
+      const client = new Client({ name: 'cap-test', version: '0.0.0' });
+      const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${small.port}/`), {
+        requestInit: { headers: { Authorization: `Bearer ${API_KEY}` } },
+      });
+      return { client, transport, connect: () => client.connect(transport) };
+    }
+
+    it('requests bump lastSeenAt, and at the cap a new initialize evicts the least-recently-seen session instead of 503', async () => {
+      const a = connectSmall();
+      await a.connect();
+      const sidA = a.transport.sessionId as string;
+      const seenAtInit = small.app.sessions.get(sidA)!.lastSeenAt;
+      await new Promise(r => setTimeout(r, 5));
+      await a.client.listTools();
+      expect(small.app.sessions.get(sidA)!.lastSeenAt).toBeGreaterThan(seenAtInit);
+
+      const b = connectSmall();
+      await b.connect(); // cap is 1 → A is evicted, B is admitted
+      const sidB = b.transport.sessionId as string;
+      expect(sidB).not.toBe(sidA);
+      expect(small.app.sessions.size).toBe(1);
+      expect(small.app.sessions.has(sidA)).toBe(false);
+      expect(small.app.sessions.has(sidB)).toBe(true);
+      const { tools } = await b.client.listTools();
+      expect(tools).toHaveLength(TOOL_COUNT);
+
+      // The evicted session is gone server-side.
+      const stale = await rawRequestTo(small.port, { method: 'POST', path: '/', headers: { authorization: `Bearer ${API_KEY}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sidA }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list' }) });
+      expect(stale.status).toBe(404);
+
+      await b.client.close();
+      await a.client.close().catch(() => undefined);
+    });
+  });
+});
+
+function rawRequestTo(port: number, opts: { method: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port, method: opts.method, path: opts.path, headers: opts.headers }, res => {
+      const chunks: Buffer[] = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString() }));
+    });
+    req.on('error', reject);
+    if (opts.body) req.write(opts.body);
+    req.end();
+  });
+}

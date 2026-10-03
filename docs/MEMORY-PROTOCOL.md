@@ -187,7 +187,12 @@ Every tool is registered with MCP spec 2025-11-25 **annotations** (hints — the
 
 ### Idempotency keys
 
-`memory_write`, `task_upsert`, `decision_log` and `commitment_log` accept an optional `idempotencyKey` (string, ≤128 chars). It is sent to OmniMind as the `Idempotency-Key` header; the same (agent, key) within 24 h replays the original result (`Idempotent-Replayed: true`) instead of writing again. **Use it whenever you might retry** — the 0.80/0.92 cosine dedup is a safety net, not a guarantee. For `memory_write` the key covers the whole call; each extracted fact is written under `<key>:<n>` so a replay returns the same rows.
+`memory_write`, `task_upsert`, `decision_log` and `commitment_log` accept an optional `idempotencyKey` (string, **≤100 chars** — `MCP_IDEMPOTENCY_KEY_MAX_LENGTH` in `@boardroom/shared`; OmniMind's header allows 128, the MCP cap is lower so derived keys never need truncating). It is sent to OmniMind as the `Idempotency-Key` header; the same (agent, key) within 24 h replays the original result (`Idempotent-Replayed: true`) instead of writing again. **Use it whenever you might retry** — the 0.80/0.92 cosine dedup is a safety net, not a guarantee.
+
+For `memory_write` the key covers the whole call and two layers make a retry cheap and exact:
+
+1. **MCP-side replay cache.** The server keeps the last ≤500 successful `memory_write` results for 24 h, keyed by `(agentId, userId, idempotencyKey)`. A retry with the same triple returns the cached `{ created, updated, skipped }` without re-running Haiku fact extraction or touching the API (the replay is still audited). Refusals (`MINISTRY_DEFERRED`, `FACT_EXTRACTOR_UNAVAILABLE`) are never cached, so a retry after an outage really runs. The cache is per process; after an MCP restart the second layer still protects the rows.
+2. **Per-fact server keys.** Each extracted fact is written under `<first 32 chars of your key>:<sha256(key + ':' + factText) hex, 64 chars>` (≤97 chars). Keys are unique per distinct fact text and stable across retries, so OmniMind replays the same N rows. (The previous `<key>:<n>` form truncated to 128 and collided for long keys.)
 
 ### Pagination
 

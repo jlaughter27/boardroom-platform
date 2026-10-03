@@ -13,8 +13,14 @@ import { KnowledgeGraphEdgeSchema, KnowledgeGraphNodeSchema } from './graph.sche
 
 // ── Shared primitives ──
 
-/** `Idempotency-Key` header value accepted by the write tools (≤128 chars). */
-export const McpIdempotencyKeySchema = z.string().min(1).max(128);
+/**
+ * User-supplied idempotency key accepted by the MCP write tools (≤100 chars).
+ * OmniMind's `Idempotency-Key` header allows 128; the MCP cap is lower so
+ * `memory_write` can derive a per-extracted-fact key (`<key[0..32)>:<sha256 hex[0..64)>`)
+ * that always fits under the server limit without truncation collisions.
+ */
+export const MCP_IDEMPOTENCY_KEY_MAX_LENGTH = 100;
+export const McpIdempotencyKeySchema = z.string().min(1).max(MCP_IDEMPOTENCY_KEY_MAX_LENGTH);
 
 /** Opaque pagination cursor (base64 of `{offset}`) — never parsed by clients. */
 export const McpCursorSchema = z.string().min(1).max(256);

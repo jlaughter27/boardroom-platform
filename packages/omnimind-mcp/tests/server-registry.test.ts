@@ -80,13 +80,13 @@ describe('tool registry (registerTool)', () => {
     expect(idempotent).not.toContain('memory_write');
   });
 
-  it('write tools advertise idempotencyKey (≤128) in their input schema', async () => {
+  it('write tools advertise idempotencyKey (≤100) in their input schema', async () => {
     const { tools } = await client.listTools();
     for (const name of ['memory_write', 'task_upsert', 'decision_log', 'commitment_log']) {
       const t = tools.find(x => x.name === name)!;
       const prop = (t.inputSchema.properties as Record<string, { maxLength?: number }>).idempotencyKey;
       expect(prop, name).toBeDefined();
-      expect(prop.maxLength, name).toBe(128);
+      expect(prop.maxLength, name).toBe(100); // R-M-03: MCP cap is 100 so derived per-fact keys fit under the server's 128
     }
     for (const name of ['memory_search', 'task_list', 'commitment_list']) {
       const t = tools.find(x => x.name === name)!;
@@ -152,6 +152,33 @@ describe('resources (registerResource + ResourceTemplate)', () => {
 
     const graph = JSON.parse((await client.readResource({ uri: 'omnimind://josh-business/graph/goal:g1' })).contents[0].text as string);
     expect(graph).toMatchObject({ root: 'goal:g1', hops: 2, truncated: false });
+  });
+
+  it('R-M-06: goal / person / graph resource reads post an audit row (status is audited as status_get)', async () => {
+    mockClient.logAudit.mockClear();
+    const client = await connect(fullCtx);
+    await client.readResource({ uri: 'omnimind://josh-business/goal/g1' });
+    await client.readResource({ uri: 'omnimind://josh-business/person/p1' });
+    await client.readResource({ uri: 'omnimind://josh-business/graph/goal:g1' });
+    await client.readResource({ uri: 'omnimind://josh-business/status' });
+    const entries = mockClient.logAudit.mock.calls.map(c => c[0] as { toolName: string; agentId: string; tenantId: string; inputJson: unknown; outputJson: unknown; durationMs: number });
+    const names = entries.map(e => e.toolName);
+    expect(names).toEqual(expect.arrayContaining(['resource:goal', 'resource:person', 'resource:graph', 'status_get']));
+    const goal = entries.find(e => e.toolName === 'resource:goal')!;
+    expect(goal).toMatchObject({ agentId: 't', tenantId: 'josh-business', inputJson: { id: 'g1', userId: 'user-1' } });
+    // M-104 sanitizer applies: ids/titles survive, capsule summary text does not.
+    expect(goal.outputJson).toEqual({ goal: { id: 'g1', title: 'Goal' }, capsule: { id: 'cap', entityType: 'goal', entityId: 'g1' } });
+    expect(entries.find(e => e.toolName === 'resource:graph')!.inputJson).toEqual({ nodeId: 'goal:g1', hops: 2, userId: 'user-1' });
+    expect(entries.find(e => e.toolName === 'resource:person')!.inputJson).toEqual({ id: 'p1', userId: 'user-1' });
+  });
+
+  it('R-M-06: a failing resource read is audited with errorMessage and still rejects', async () => {
+    mockClient.logAudit.mockClear();
+    mockClient.getGoal.mockRejectedValueOnce(new Error('OmniMind 500'));
+    const client = await connect(fullCtx);
+    await expect(client.readResource({ uri: 'omnimind://josh-business/goal/g-missing' })).rejects.toThrow(/OmniMind 500/);
+    const entry = mockClient.logAudit.mock.calls.map(c => c[0] as { toolName: string; errorMessage?: string }).find(e => e.toolName === 'resource:goal');
+    expect(entry?.errorMessage).toBe('OmniMind 500');
   });
 
   it('refuses any other tenant in the URI', async () => {

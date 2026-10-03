@@ -5,6 +5,11 @@
  *
  * One `StreamableHTTPServerTransport` + `McpServer` pair per MCP session,
  * keyed by the `mcp-session-id` header the SDK issues on `initialize`.
+ *
+ * Session lifecycle (R-M-04): every request on a session bumps `lastSeenAt`;
+ * a sweeper closes sessions idle longer than `OMNIMIND_MCP_SESSION_IDLE_MS`
+ * (default 30 min) once a minute, and when the cap is reached a new
+ * `initialize` evicts the least-recently-seen session instead of answering 503.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { createHash, randomUUID, timingSafeEqual } from 'crypto';
@@ -18,12 +23,24 @@ import type { AgentContext } from '../types';
 export const DEFAULT_PORT = 3334;
 export const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 export const MAX_SESSIONS = 100;
+export const DEFAULT_SESSION_IDLE_MS = 30 * 60 * 1000;
+export const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000;
 const SESSION_HEADER = 'mcp-session-id';
 
-interface Session {
+export interface Session {
   transport: StreamableHTTPServerTransport;
   server: McpServer;
   createdAt: number;
+  /** Last request routed to this session (ms epoch); drives idle eviction. */
+  lastSeenAt: number;
+}
+
+/** R-M-04 — idle timeout from env; invalid / non-positive values fall back to the default. */
+export function resolveSessionIdleMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.OMNIMIND_MCP_SESSION_IDLE_MS?.trim();
+  if (!raw) return DEFAULT_SESSION_IDLE_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_IDLE_MS;
 }
 
 export interface HttpTransportOptions {
@@ -36,6 +53,12 @@ export interface HttpTransportOptions {
   /** Factory for the per-session McpServer (defaults to createMcpServer). */
   createServerFn?: (ctx: AgentContext) => { server: McpServer; agentCtx: AgentContext };
   log?: (line: string) => void;
+  /** Max live sessions before the least-recently-seen one is evicted (default MAX_SESSIONS). */
+  maxSessions?: number;
+  /** Idle time after which a session is closed (default env OMNIMIND_MCP_SESSION_IDLE_MS / 30 min). */
+  sessionIdleMs?: number;
+  /** How often the idle sweeper runs (default 60 s). */
+  sweepIntervalMs?: number;
 }
 
 export interface HttpConfig {
@@ -127,6 +150,10 @@ export interface HttpApp {
   sessions: Map<string, Session>;
   /** Called once the listening port is known so default allowedHosts can be derived. */
   setPort: (port: number) => void;
+  /** The `Host` values the DNS-rebinding guard accepts right now. */
+  allowedHosts: () => string[];
+  /** Close every session idle longer than `sessionIdleMs`; returns the ids closed. Runs on a timer; exposed for tests. */
+  sweepIdle: (now?: number) => Promise<string[]>;
   close: () => Promise<void>;
 }
 
@@ -138,9 +165,39 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
   let boundPort: number | undefined;
   const agentCtx = opts.agentCtx ?? resolveAgentFromEnv();
   const makeServer = opts.createServerFn ?? ((ctx: AgentContext) => createMcpServer(ctx));
+  const maxSessions = opts.maxSessions ?? MAX_SESSIONS;
+  const sessionIdleMs = opts.sessionIdleMs ?? resolveSessionIdleMs();
+  const sweepIntervalMs = opts.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
 
   const allowedHosts = (): string[] =>
     opts.allowedHosts ?? defaultAllowedHosts(boundPort ?? DEFAULT_PORT);
+
+  /** Remove from the map first so a slow/failed transport.close() can never leave a ghost entry. */
+  async function closeSession(sid: string, reason: string): Promise<void> {
+    const session = sessions.get(sid);
+    if (!session) return;
+    sessions.delete(sid);
+    log(`[omnimind-mcp] session ${reason} ${sid} (${sessions.size} active)`);
+    await session.transport.close().catch(() => undefined);
+  }
+
+  async function sweepIdle(now = Date.now()): Promise<string[]> {
+    const stale: string[] = [];
+    for (const [sid, s] of sessions) if (now - s.lastSeenAt >= sessionIdleMs) stale.push(sid);
+    for (const sid of stale) await closeSession(sid, `idle-closed after ${Math.round(sessionIdleMs / 1000)}s`);
+    return stale;
+  }
+
+  async function evictLeastRecentlySeen(): Promise<void> {
+    let victim: string | undefined;
+    let oldest = Infinity;
+    for (const [sid, s] of sessions) if (s.lastSeenAt < oldest) { oldest = s.lastSeenAt; victim = sid; }
+    if (victim) await closeSession(victim, `evicted (cap ${maxSessions})`);
+  }
+
+  // R-M-04 — unref'd so the sweeper never keeps a shutting-down process alive.
+  const sweeper = setInterval(() => { void sweepIdle(); }, sweepIntervalMs);
+  sweeper.unref?.();
 
   async function createSession(): Promise<Session> {
     const { server } = makeServer(agentCtx);
@@ -149,7 +206,8 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
       enableDnsRebindingProtection: true,
       allowedHosts: allowedHosts(),
       onsessioninitialized: (sid: string) => {
-        sessions.set(sid, { transport, server, createdAt: Date.now() });
+        const now = Date.now();
+        sessions.set(sid, { transport, server, createdAt: now, lastSeenAt: now });
         log(`[omnimind-mcp] session opened ${sid} (${sessions.size} active)`);
       },
       onsessionclosed: (sid: string) => {
@@ -162,7 +220,8 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
       if (sid && sessions.delete(sid)) log(`[omnimind-mcp] session dropped ${sid} (${sessions.size} active)`);
     };
     await server.connect(transport);
-    return { transport, server, createdAt: Date.now() };
+    const now = Date.now();
+    return { transport, server, createdAt: now, lastSeenAt: now };
   }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -170,12 +229,12 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
     const method = req.method ?? 'GET';
 
     if (url.pathname === '/health' && method === 'GET') {
+      // R-M-05 — unauthenticated, so it says nothing about who this server is
+      // (agent name / tenant id used to be here).
       sendJson(res, 200, {
         status: 'ok',
         uptime: Math.round((Date.now() - startedAt) / 1000),
         sessions: sessions.size,
-        agent: agentCtx.agentName,
-        tenant: agentCtx.tenantId,
       });
       return;
     }
@@ -215,15 +274,15 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
           rpcError(res, 404, -32001, 'Session not found');
           return;
         }
+        session.lastSeenAt = Date.now();
         await session.transport.handleRequest(req, res, body);
         return;
       }
 
       if (isInitializeRequest(body)) {
-        if (sessions.size >= MAX_SESSIONS) {
-          rpcError(res, 503, -32000, `Too many active sessions (max ${MAX_SESSIONS})`);
-          return;
-        }
+        // R-M-04 — at the cap, make room by dropping the least-recently-seen
+        // session (an abandoned client) rather than refusing the live one.
+        while (sessions.size >= maxSessions) await evictLeastRecentlySeen();
         const session = await createSession();
         await session.transport.handleRequest(req, res, body);
         return;
@@ -243,6 +302,7 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
         rpcError(res, 404, -32001, 'Session not found');
         return;
       }
+      session.lastSeenAt = Date.now();
       await session.transport.handleRequest(req, res);
       return;
     }
@@ -265,12 +325,13 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
   }
 
   async function close(): Promise<void> {
+    clearInterval(sweeper);
     const open = Array.from(sessions.values());
     sessions.clear();
     await Promise.all(open.map(s => s.transport.close().catch(() => undefined)));
   }
 
-  return { handler, sessions, setPort: p => { boundPort = p; }, close };
+  return { handler, sessions, setPort: p => { boundPort = p; }, allowedHosts, sweepIdle, close };
 }
 
 let processHandlersInstalled = false;
@@ -333,6 +394,15 @@ export async function startHttpServer(
 
   const log = opts?.log ?? ((line: string) => console.log(line));
   log(`[omnimind-mcp] HTTP transport started on port ${boundPort} (stateful Streamable HTTP, health: GET /health)`);
+  // R-M-07 — the DNS-rebinding guard refuses any other Host with 403, which
+  // is confusing behind a proxy / Railway domain. Say what is accepted.
+  const hosts = app.allowedHosts();
+  const hostsFromDefault = !(opts?.allowedHosts ?? config.allowedHosts);
+  log(`[omnimind-mcp] allowedHosts: ${hosts.join(', ')}${hostsFromDefault ? ' (default — loopback only)' : ''}`);
+  if (hostsFromDefault) {
+    log('[omnimind-mcp] hint: set OMNIMIND_MCP_ALLOWED_HOSTS=<host[:port]>[,…] to the exact Host header clients send when this server is reached through a proxy, container hostname or public domain; otherwise those requests get 403 Invalid Host header.');
+  }
+  log(`[omnimind-mcp] sessions: idle timeout ${Math.round((opts?.sessionIdleMs ?? resolveSessionIdleMs()) / 1000)}s, cap ${opts?.maxSessions ?? MAX_SESSIONS} (least-recently-seen evicted at cap)`);
 
   const close = async () => {
     await app.close();

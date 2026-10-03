@@ -5,8 +5,9 @@
 //
 //   import { sha256Hash, validateEnv } from '@boardroom/shared/node';
 //
-// The same symbols are temporarily still re-exported from the root barrel for
-// the three existing server importers; see the note in ./index.ts.
+// These symbols are NOT on the root barrel (`@boardroom/shared`) — importing
+// them from there fails at typecheck. Server packages import this subpath
+// directly; see the note in ./index.ts.
 
 export { sha256Hash } from './utils/hashing';
 export { validateEnv } from './utils/env-validator';

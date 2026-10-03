@@ -45,6 +45,18 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # eval/ is not a workspace package, so `pnpm test` (turbo) never reached
+      # its vitest suites (metrics, gold validators, persona distinctiveness).
+      - name: Eval unit tests
+        run: pnpm test:eval
+
+      # services/backup is plain bash; syntax-check every script and run the
+      # restore-drill unit test (rclone / pg_restore / psql stubbed — no DB).
+      - name: Backup scripts (bash -n + restore-drill test)
+        run: |
+          for f in services/backup/*.sh services/backup/tests/*.sh; do bash -n "$f"; done
+          bash services/backup/tests/restore-drill.test.sh
+
       - name: Dependency audit (high+ fails)
         run: pnpm audit --prod --audit-level high
 
@@ -160,10 +172,25 @@ jobs:
           echo "omnimind-api did not become healthy"; cat "$RUNNER_TEMP/omnimind.log"; exit 1
 
       # Seeds the three gold corpora (idempotent, one synthetic user per
-      # archetype) and runs the IR eval. The per-user limiter is 20 req/min per
-      # method, which the eval client honours — expect ~6-8 minutes.
-      - name: Seed + IR eval
-        run: pnpm eval:retrieval:ir
+      # archetype). The per-user limiter is 20 req/min per method, which the
+      # eval client honours — seed + eval take ~6-8 minutes together.
+      - name: Seed gold corpora
+        run: pnpm eval:retrieval:seed
+
+      # The API stamps created_at = now() on every POST, so all 136 rows would
+      # share one timestamp and the temporal slice / recency decay would measure
+      # nothing. Spread them per metadata.createdAtOffsetDays (always ≤ 0, hence
+      # NOW() + offset). Same statement as eval/retrieval/seed.ts BACKDATE_SQL.
+      - name: Backdate seeded memories per createdAtOffsetDays
+        working-directory: packages/omnimind-api
+        run: |
+          printf '%s\n' "UPDATE memory_entries SET created_at = NOW() + ((metadata->>'createdAtOffsetDays')::int * interval '1 day'), valid_at = NOW() + ((metadata->>'createdAtOffsetDays')::int * interval '1 day') WHERE metadata ? 'evalKey' AND metadata ? 'createdAtOffsetDays';" \
+            | pnpm exec prisma db execute --schema prisma/schema.prisma --stdin
+
+      # Exit 1 = a gate missed; exit 2 = some query answered non-200 (those are
+      # excluded from the metrics and listed in the report).
+      - name: IR eval
+        run: EVAL_IR_SKIP_SEED=1 pnpm eval:retrieval:ir
 
       - name: Server log (on failure)
         if: failure()

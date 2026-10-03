@@ -29,6 +29,19 @@ import { validateSeedFile, type SeedFile, type SeedMemory } from './gold-schema'
 
 export const EVAL_TAG = 'eval-ir';
 const RESULTS_DIR = join(__dirname, '..', 'results');
+
+/**
+ * R-E-02 — the API stamps `created_at = now()` on every POST, so freshly seeded
+ * rows all share one timestamp and the temporal slice / recency decay measure
+ * nothing. The seeder has no HTTP way to backdate rows; run this ONE statement
+ * against the OmniMind database after seeding (CI does it via
+ * `prisma db execute --stdin`; locally paste it into psql). Offsets are ≤ 0
+ * days, hence `NOW() + offset`.
+ */
+export const BACKDATE_SQL =
+  "UPDATE memory_entries SET created_at = NOW() + ((metadata->>'createdAtOffsetDays')::int * interval '1 day'), " +
+  "valid_at = NOW() + ((metadata->>'createdAtOffsetDays')::int * interval '1 day') " +
+  "WHERE metadata ? 'evalKey' AND metadata ? 'createdAtOffsetDays';";
 export const SEED_MAP_PATH = join(RESULTS_DIR, '.seed-map.json');
 
 export interface SeedMap {
@@ -170,6 +183,9 @@ export async function seedAll(opts: { archetypes?: string[]; log?: (s: string) =
   mkdirSync(RESULTS_DIR, { recursive: true });
   writeFileSync(SEED_MAP_PATH, JSON.stringify(map, null, 2));
   log(`seed map written to ${SEED_MAP_PATH} (${Object.keys(map.ids).length} ids)`);
+  log('NOTE: seeded rows share created_at. Before evaluating, backdate them per metadata.createdAtOffsetDays with:');
+  log(`  ${BACKDATE_SQL}`);
+  log('(CI runs this via `prisma db execute --stdin`; see docs/runbooks/retrieval-eval.md.)');
   return map;
 }
 

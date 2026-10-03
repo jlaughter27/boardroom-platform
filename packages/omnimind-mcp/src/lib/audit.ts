@@ -29,6 +29,10 @@ const OUTPUT_SAFE_KEYS = new Set([
   'root', 'hops', 'nodes', 'edges', 'source', 'target', 'type', 'refId', 'truncated',
   'entityType', 'entityId', 'capsule', 'version', 'generatedAt', 'staleAfter',
   'commitmentsDueSoon', 'dueSoon', 'overdue', 'deadline',
+  // R-M-06 — resource payload wrappers (`omnimind://…/goal/{id}`, `/person/{id}`).
+  // Structural only: the nested entity is reduced to id / title / name like any
+  // other object; descriptions, notes and capsule prose are still dropped.
+  'goal', 'person',
 ]);
 
 /**

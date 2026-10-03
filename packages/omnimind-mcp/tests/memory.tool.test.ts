@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { memoryWriteTool, memorySearchTool, memorySupersedeT, memoryReflectTool, memoryConsolidateTool, chooseKeep } from '../src/tools/memory.tool';
+import {
+  memoryWriteTool, memorySearchTool, memorySupersedeT, memoryReflectTool, memoryConsolidateTool,
+  chooseKeep, isInvalidatedMemory, deriveFactIdempotencyKey, memoryWriteReplayCache, FACT_KEY_PREFIX_LENGTH,
+} from '../src/tools/memory.tool';
 import { ScopeDeniedError, McpValidationError } from '../src/types';
 import type { OmniMindClient } from '../src/lib/client';
 import type { AgentContext } from '../src/types';
@@ -36,6 +39,7 @@ describe('memory_write', () => {
   beforeEach(() => {
     client = makeMockClient();
     ctx = makeCtx();
+    memoryWriteReplayCache.clear();
   });
 
   it('creates a memory when no duplicates found', async () => {
@@ -119,12 +123,71 @@ describe('memory_write', () => {
     await tool.execute({ content: 'x', userId: 'user-1', skipExtraction: true, idempotencyKey: 'req-42' });
     expect(vi.mocked(client.createMemory).mock.calls[0][2]).toEqual({ idempotencyKey: 'req-42' });
     await tool.execute({ content: 'Josh decided X', userId: 'user-1', idempotencyKey: 'req-43' });
-    expect(vi.mocked(client.createMemory).mock.calls[1][2]).toEqual({ idempotencyKey: 'req-43:0' });
+    const factKey = (vi.mocked(client.createMemory).mock.calls[1][2] as { idempotencyKey: string }).idempotencyKey;
+    expect(factKey).toBe(deriveFactIdempotencyKey('req-43', 'Test fact'));
+    expect(factKey).toMatch(/^req-43:[0-9a-f]{64}$/);
   });
 
-  it('Phase 6: rejects an idempotencyKey longer than 128 chars', async () => {
+  it('R-M-03: accepts a 100-char idempotencyKey and rejects 101', async () => {
     const tool = memoryWriteTool(client, ctx);
-    await expect(tool.execute({ content: 'x', userId: 'u', idempotencyKey: 'k'.repeat(129) })).rejects.toBeInstanceOf(McpValidationError);
+    await expect(tool.execute({ content: 'x', userId: 'u', skipExtraction: true, idempotencyKey: 'k'.repeat(100) })).resolves.toMatchObject({ ok: true });
+    await expect(tool.execute({ content: 'x', userId: 'u', idempotencyKey: 'k'.repeat(101) })).rejects.toBeInstanceOf(McpValidationError);
+  });
+
+  it('R-M-03: per-fact keys stay distinct for a 100-char user key and fit under the 128-char server cap', async () => {
+    const userKey = 'k'.repeat(100);
+    const keys = ['fact one', 'fact two', 'fact three'].map(t => deriveFactIdempotencyKey(userKey, t));
+    expect(new Set(keys).size).toBe(3);
+    for (const k of keys) {
+      expect(k.length).toBeLessThanOrEqual(128);
+      expect(k.startsWith(userKey.slice(0, FACT_KEY_PREFIX_LENGTH) + ':')).toBe(true);
+    }
+    // Stable across retries (same input → same key) and sensitive to the user key.
+    expect(deriveFactIdempotencyKey(userKey, 'fact one')).toBe(keys[0]);
+    expect(deriveFactIdempotencyKey('j'.repeat(100), 'fact one')).not.toBe(keys[0]);
+
+    // Through the tool: three extracted facts under one long key → three different header values.
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    vi.mocked(extractAndDedup).mockResolvedValueOnce([
+      { text: 'fact one', type: 'context', action: 'create' },
+      { text: 'fact two', type: 'context', action: 'create' },
+      { text: 'fact three', type: 'context', action: 'create' },
+    ]);
+    await memoryWriteTool(client, ctx).execute({ content: 'three facts', userId: 'user-1', idempotencyKey: userKey });
+    const sent = vi.mocked(client.createMemory).mock.calls.map(c => (c[2] as { idempotencyKey: string }).idempotencyKey);
+    expect(sent).toEqual(keys);
+  });
+
+  it('R-M-03: a retry with the same (agent, user, key) replays the first result without re-running extraction', async () => {
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    const before = vi.mocked(extractAndDedup).mock.calls.length;
+    const tool = memoryWriteTool(client, ctx);
+    const first = await tool.execute({ content: 'Josh picked Railway', userId: 'user-1', idempotencyKey: 'retry-1' });
+    const second = await tool.execute({ content: 'Josh picked Railway', userId: 'user-1', idempotencyKey: 'retry-1' });
+    expect(second).toEqual(first);
+    expect(vi.mocked(extractAndDedup).mock.calls.length - before).toBe(1);
+    expect(client.createMemory).toHaveBeenCalledTimes(1);
+    // The replay is still audited.
+    expect(vi.mocked(client.logAudit).mock.calls.filter(c => c[0].toolName === 'memory_write')).toHaveLength(2);
+
+    // A different user (or agent) with the same key is a different request.
+    await tool.execute({ content: 'Josh picked Railway', userId: 'user-2', idempotencyKey: 'retry-1' });
+    expect(client.createMemory).toHaveBeenCalledTimes(2);
+    await memoryWriteTool(client, { ...ctx, agentId: 'other-agent' }).execute({ content: 'Josh picked Railway', userId: 'user-1', idempotencyKey: 'retry-1' });
+    expect(client.createMemory).toHaveBeenCalledTimes(3);
+  });
+
+  it('R-M-03: without an idempotencyKey nothing is cached and refusals are never cached', async () => {
+    const tool = memoryWriteTool(client, ctx);
+    await tool.execute({ content: 'a', userId: 'user-1', skipExtraction: true });
+    await tool.execute({ content: 'a', userId: 'user-1', skipExtraction: true });
+    expect(client.createMemory).toHaveBeenCalledTimes(2);
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    vi.mocked(extractAndDedup).mockRejectedValueOnce(Object.assign(new Error('down'), { code: 'FACT_EXTRACTOR_UNAVAILABLE' }));
+    const refused = await tool.execute({ content: 'b', userId: 'user-1', idempotencyKey: 'ref-1' });
+    expect(refused.ok).toBe(false);
+    const retried = await tool.execute({ content: 'b', userId: 'user-1', idempotencyKey: 'ref-1' });
+    expect(retried.ok).toBe(true); // extractor recovered → the retry really runs
   });
 
   it('surfaces FACT_EXTRACTOR_UNAVAILABLE as a typed refusal', async () => {
@@ -262,6 +325,89 @@ describe('memory_consolidate (Phase 6)', () => {
     expect(chooseKeep(A, B)).toEqual({ keepId: 'a', archiveId: 'b' });
     expect(chooseKeep(B, { ...A, importance: 0.1 })).toEqual({ keepId: 'b', archiveId: 'a' });
     expect(chooseKeep({ ...B, importance: 0.9 }, A)).toEqual({ keepId: 'b', archiveId: 'a' });
+  });
+
+  it('R-M-01: chooseKeep always keeps the row that is still valid, whatever its importance', () => {
+    const invalidatedA = { ...A, importance: 0.99, invalidAt: '2026-10-02T00:00:00Z', supersededBy: 'b' };
+    expect(chooseKeep(invalidatedA, B)).toEqual({ keepId: 'b', archiveId: 'a' });
+    expect(chooseKeep(B, invalidatedA)).toEqual({ keepId: 'b', archiveId: 'a' });
+    expect(chooseKeep({ ...A, status: 'SUPERSEDED' } as never, B)).toEqual({ keepId: 'b', archiveId: 'a' });
+    expect(isInvalidatedMemory({ invalidAt: null, supersededBy: null, status: 'CONFIRMED' } as never)).toBe(false);
+    expect(isInvalidatedMemory({ invalidAt: '2026-10-02T00:00:00Z', status: 'CONFIRMED' } as never)).toBe(true);
+    expect(isInvalidatedMemory({ supersededBy: 'x' } as never)).toBe(true);
+    expect(isInvalidatedMemory({ status: 'ARCHIVED' } as never)).toBe(true);
+  });
+
+  it('R-M-01: superseded rows (invalidAt set, status still CONFIRMED) are excluded from the scan and from hits', async () => {
+    const supersededA = { ...A, status: 'CONFIRMED', invalidAt: '2026-10-02T00:00:00Z', supersededBy: 'b' };
+    // (1) the listing carries the temporal columns
+    const client = makeMockClient();
+    vi.mocked(client.searchMemories).mockResolvedValue([supersededA, B] as never);
+    vi.mocked(client.searchSimilar).mockImplementation(async ({ query }) => {
+      if (query === B.content) return [{ ...B, similarity: 1 }, { ...A, similarity: 0.97 }] as never; // hit WITHOUT the columns
+      return [] as never;
+    });
+    const r1 = await memoryConsolidateTool(client, makeCtx(['memory:write'])).execute({ userId: 'u', dryRun: false });
+    expect(r1.scanned).toBe(1);
+    expect(r1.pairs).toEqual([]);
+    expect(client.updateMemory).not.toHaveBeenCalled();
+    // A itself was never used as a query (it is not scanned).
+    expect(vi.mocked(client.searchSimilar).mock.calls.map(c => c[0].query)).toEqual([B.content]);
+
+    // (2) the superseded row is outside the recent window but search-similar returns it with invalidAt
+    const client2 = makeMockClient();
+    vi.mocked(client2.searchMemories).mockResolvedValue([B] as never);
+    vi.mocked(client2.searchSimilar).mockResolvedValue([{ ...B, similarity: 1 }, { ...supersededA, similarity: 0.97 }] as never);
+    const r2 = await memoryConsolidateTool(client2, makeCtx(['memory:write'])).execute({ userId: 'u' });
+    expect(r2.pairs).toEqual([]);
+
+    // (3) a hit flagged only by status is skipped too
+    const client3 = makeMockClient();
+    vi.mocked(client3.searchMemories).mockResolvedValue([B] as never);
+    vi.mocked(client3.searchSimilar).mockResolvedValue([{ ...B, similarity: 1 }, { ...A, status: 'ARCHIVED', similarity: 0.97 }] as never);
+    const r3 = await memoryConsolidateTool(client3, makeCtx(['memory:write'])).execute({ userId: 'u' });
+    expect(r3.pairs).toEqual([]);
+  });
+
+  it('R-M-02: a row similar to two keepers is archived exactly once per pass', async () => {
+    const lowA = { ...A, importance: 0.5 };
+    const highB = { ...B, importance: 0.9, content: 'Josh likes TS strict (b)' };
+    const highC = { ...C, importance: 0.9, content: 'Josh likes TS strict (c)' };
+    const client = makeMockClient();
+    vi.mocked(client.searchMemories).mockResolvedValue([lowA, highB, highC] as never);
+    vi.mocked(client.searchSimilar).mockImplementation(async ({ query }) => {
+      if (query === lowA.content) return [{ ...lowA, similarity: 1 }, { ...highB, similarity: 0.95 }, { ...highC, similarity: 0.93 }] as never;
+      if (query === highB.content) return [{ ...highB, similarity: 1 }, { ...lowA, similarity: 0.95 }] as never;
+      return [{ ...highC, similarity: 1 }, { ...lowA, similarity: 0.93 }] as never;
+    });
+    const result = await memoryConsolidateTool(client, makeCtx(['memory:write'])).execute({ userId: 'u', dryRun: false });
+    const archives = result.pairs.filter(p => p.archiveId === 'a');
+    expect(archives).toHaveLength(1);
+    expect(result.pairs).toEqual([{ keepId: 'b', archiveId: 'a', similarity: 0.95 }]);
+    expect(result.applied).toBe(1);
+    expect(client.updateMemory).toHaveBeenCalledTimes(1);
+    expect(client.updateMemory).toHaveBeenCalledWith('b', expect.objectContaining({ supersedes: 'a' }), 'u');
+  });
+
+  it('R-M-02: a row already chosen as keeper is never archived under another keeper in the same pass', async () => {
+    // B keeps A (B more important). Then C (even more important) is similar to B:
+    // archiving B would orphan A's supersede → skipped.
+    const a = { ...A, importance: 0.3 };
+    const b = { ...B, importance: 0.6 };
+    const c = { ...C, importance: 0.9, content: 'Josh likes TS strict (c)' };
+    const client = makeMockClient();
+    vi.mocked(client.searchMemories).mockResolvedValue([a, b, c] as never);
+    vi.mocked(client.searchSimilar).mockImplementation(async ({ query }) => {
+      if (query === a.content) return [{ ...a, similarity: 1 }, { ...b, similarity: 0.96 }] as never;
+      if (query === b.content) return [{ ...b, similarity: 1 }, { ...a, similarity: 0.96 }, { ...c, similarity: 0.94 }] as never;
+      return [{ ...c, similarity: 1 }, { ...b, similarity: 0.94 }] as never;
+    });
+    const result = await memoryConsolidateTool(client, makeCtx(['memory:write'])).execute({ userId: 'u' });
+    expect(result.pairs).toEqual([{ keepId: 'b', archiveId: 'a', similarity: 0.96 }]);
+    const touched = result.pairs.flatMap(p => [p.keepId, p.archiveId]);
+    expect(new Set(result.pairs.map(p => p.archiveId)).size).toBe(result.pairs.length);
+    expect(result.pairs.some(p => p.archiveId === 'b')).toBe(false);
+    expect(touched).not.toContain('c');
   });
 
   it('dryRun (default) proposes de-duplicated pairs ≥0.92 and writes nothing', async () => {

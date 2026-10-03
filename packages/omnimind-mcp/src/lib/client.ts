@@ -65,7 +65,10 @@ export type MemoryRecord = MemoryApiRecord;
 export type SimilarMemoryRecord = Pick<
   MemoryApiRecord,
   'id' | 'title' | 'content' | 'domain' | 'tags' | 'importance' | 'sourceType' | 'tenantId' | 'sourceWeight' | 'createdAt' | 'updatedAt'
-> & { similarity: number };
+> &
+  // Temporal-validity columns ride along when the route returns them; the
+  // consolidation pass uses them to skip rows that are already superseded.
+  Partial<Pick<MemoryApiRecord, 'status' | 'invalidAt' | 'supersededBy'>> & { similarity: number };
 
 export interface CreateMemoryParams {
   title: string;
@@ -371,7 +374,7 @@ export class OmniMindClient {
   }
 
   async getMemory(id: string, userId: string): Promise<MemoryRecord> {
-    return this.request<MemoryRecord>('GET', `/memories/${id}`, undefined, userId);
+    return this.request<MemoryRecord>('GET', `/memories/${encodeURIComponent(id)}`, undefined, userId);
   }
 
   async searchSimilar(params: SearchSimilarParams): Promise<SimilarMemoryRecord[]> {

@@ -75,12 +75,25 @@ export function abstentionScore(scores: readonly number[], threshold: number): n
   return scores.some(s => s >= threshold) ? 0 : 1;
 }
 
+/** First occurrence wins; a ranker that returns the same id twice must not score it twice. */
+export function dedupeRanked(ranked: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ranked) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 export function scoreQuery(
-  ranked: readonly string[],
+  rankedRaw: readonly string[],
   scores: readonly number[],
   relevant: readonly string[],
   opts: { abstentionThreshold: number; staleKeys?: readonly string[] },
 ): QueryMetrics {
+  const ranked = dedupeRanked(rankedRaw);
   const rel = new Set(relevant);
   if (rel.size === 0) {
     const a = abstentionScore(scores, opts.abstentionThreshold);

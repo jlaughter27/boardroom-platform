@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recallAtK, reciprocalRank, ndcgAtK, abstentionScore, scoreQuery, summarize, evaluateGates } from '../metrics';
+import { recallAtK, reciprocalRank, ndcgAtK, abstentionScore, scoreQuery, summarize, evaluateGates, dedupeRanked } from '../metrics';
 
 const rel = new Set(['a', 'b', 'c']);
 
@@ -50,6 +50,30 @@ describe('abstention', () => {
   it('propagates into every metric column via scoreQuery', () => {
     const m = scoreQuery(['x'], [0.9], [], { abstentionThreshold: 0.3 });
     expect(m).toMatchObject({ recallAt5: 0, recallAt10: 0, mrr: 0, ndcgAt10: 0, abstention: 0, staleHit: null });
+  });
+});
+
+describe('duplicate ids in the ranking (R-E-04)', () => {
+  it('dedupeRanked keeps the first occurrence in order', () => {
+    expect(dedupeRanked(['a', 'b', 'a', 'c', 'b'])).toEqual(['a', 'b', 'c']);
+    expect(dedupeRanked([])).toEqual([]);
+  });
+  it('scoreQuery never counts a repeated id twice (nDCG stays ≤ 1, recall/MRR unchanged)', () => {
+    const dup = scoreQuery(['a', 'a', 'a', 'b'], [0.9, 0.9, 0.9, 0.8], ['a', 'b'], { abstentionThreshold: 0.3 });
+    const clean = scoreQuery(['a', 'b'], [0.9, 0.8], ['a', 'b'], { abstentionThreshold: 0.3 });
+    expect(dup).toEqual(clean);
+    expect(dup.ndcgAt10).toBeLessThanOrEqual(1);
+    expect(dup.ndcgAt10).toBeCloseTo(1);
+    // Without dedupe a repeated single hit would have inflated DCG past IDCG.
+    expect(ndcgAtK(['a', 'a'], new Set(['a']), 10)).toBeGreaterThan(1);
+    expect(scoreQuery(['a', 'a'], [0.9, 0.9], ['a'], { abstentionThreshold: 0.3 }).ndcgAt10).toBe(1);
+    // Duplicates pushing a relevant id past the cutoff are a real ranking error only once deduped.
+    const padded = ['x', 'x', 'x', 'x', 'x', 'x', 'a'];
+    expect(scoreQuery(padded, padded.map(() => 0.5), ['a'], { abstentionThreshold: 0.3 }).recallAt5).toBe(1);
+  });
+  it('stale-hit detection also runs on the deduped top-10', () => {
+    const r = ['old', ...Array.from({ length: 12 }, () => 'old'), 'new'];
+    expect(scoreQuery(r, r.map(() => 0.5), ['new'], { abstentionThreshold: 0.3, staleKeys: ['old'] })).toMatchObject({ staleHit: 1, mrr: 0.5 });
   });
 });
 

@@ -2,6 +2,7 @@ import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OmniMindClient } from './lib/client';
 import { requireScope } from './lib/namespace';
+import { withAudit } from './lib/audit';
 import { statusGetTool } from './tools/status.tool';
 import { walkNeighborhood } from './tools/graph.tool';
 import type { AgentContext } from './types';
@@ -16,6 +17,10 @@ import type { AgentContext } from './types';
  * can probe). Reads run as `ctx.defaultUserId` (`OMNIMIND_MCP_USER_ID`); when
  * it is unset the resource returns a `NO_USER_BOUND` payload rather than
  * guessing a user.
+ *
+ * Every read is audited (R-M-06): the status resource delegates to
+ * `status_get` (audited as that tool); goal / person / graph reads go through
+ * `withAudit` under `resource:<name>` so mcp_audit_logs sees them too.
  */
 export const RESOURCE_MIME = 'application/json';
 export const RESOURCE_TEMPLATES = [
@@ -81,11 +86,15 @@ export function registerResources(server: McpServer, client: OmniMindClient, ctx
       requireScope(ctx, 'memory:read');
       if (!ctx.defaultUserId) return noUser(uri.href);
       const id = decodeURIComponent(one(vars.id));
-      const [goal, capsules] = await Promise.all([
-        client.getGoal(id, ctx.defaultUserId),
-        client.getCapsules([`goal:${id}`], ctx.defaultUserId).catch(() => []),
-      ]);
-      return json(uri.href, { goal, capsule: capsules[0] ?? null });
+      const userId = ctx.defaultUserId;
+      const payload = await withAudit(client, ctx, 'resource:goal', { id, userId }, async () => {
+        const [goal, capsules] = await Promise.all([
+          client.getGoal(id, userId),
+          client.getCapsules([`goal:${id}`], userId).catch(() => []),
+        ]);
+        return { goal, capsule: capsules[0] ?? null };
+      });
+      return json(uri.href, payload);
     }
   );
 
@@ -98,11 +107,15 @@ export function registerResources(server: McpServer, client: OmniMindClient, ctx
       requireScope(ctx, 'memory:read');
       if (!ctx.defaultUserId) return noUser(uri.href);
       const id = decodeURIComponent(one(vars.id));
-      const [person, capsules] = await Promise.all([
-        client.getPerson(id, ctx.defaultUserId),
-        client.getCapsules([`person:${id}`], ctx.defaultUserId).catch(() => []),
-      ]);
-      return json(uri.href, { person, capsule: capsules[0] ?? null });
+      const userId = ctx.defaultUserId;
+      const payload = await withAudit(client, ctx, 'resource:person', { id, userId }, async () => {
+        const [person, capsules] = await Promise.all([
+          client.getPerson(id, userId),
+          client.getCapsules([`person:${id}`], userId).catch(() => []),
+        ]);
+        return { person, capsule: capsules[0] ?? null };
+      });
+      return json(uri.href, payload);
     }
   );
 
@@ -115,7 +128,10 @@ export function registerResources(server: McpServer, client: OmniMindClient, ctx
       requireScope(ctx, 'memory:read');
       if (!ctx.defaultUserId) return noUser(uri.href);
       const nodeId = decodeURIComponent(one(vars.nodeId));
-      const graph = await walkNeighborhood(client, ctx.defaultUserId, nodeId, 2);
+      const userId = ctx.defaultUserId;
+      const graph = await withAudit(client, ctx, 'resource:graph', { nodeId, hops: 2, userId }, () =>
+        walkNeighborhood(client, userId, nodeId, 2)
+      );
       return json(uri.href, graph);
     }
   );

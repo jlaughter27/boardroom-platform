@@ -14,7 +14,7 @@ curl -s https://omnimind-api-production.up.railway.app/health | jq .
 curl -s http://localhost:3334/health | jq .
 ```
 
-Expected: OmniMind API → `{ "status": "ok", ... }`; MCP HTTP → `{ "status": "ok", "uptime": <seconds>, "sessions": <n>, "agent": "<name>", "tenant": "<id>" }`.
+Expected: OmniMind API → `{ "status": "ok", ... }`; MCP HTTP → `{ "status": "ok", "uptime": <seconds>, "sessions": <n> }` — exactly those three keys. The endpoint is unauthenticated, so it deliberately does not reveal the agent name or tenant id (they were removed in R-M-05); read them from the startup log instead.
 
 ---
 
@@ -25,12 +25,15 @@ Expected: OmniMind API → `{ "status": "ok", ... }`; MCP HTTP → `{ "status": 
 | Env var | Required | Purpose |
 |---|---|---|
 | `OMNIMIND_MCP_API_KEY` | **yes** | Inbound bearer token clients present (`Authorization: Bearer …` or `x-mcp-api-key`). Server **exits 1** when unset — it never runs open. Compared in constant time. |
-| `OMNIMIND_MCP_ALLOWED_HOSTS` | no | Comma-separated exact `Host` values accepted (DNS-rebinding protection). Default `127.0.0.1:<port>,localhost:<port>,[::1]:<port>`. Set this when fronting with a proxy/hostname. |
+| `OMNIMIND_MCP_ALLOWED_HOSTS` | no | Comma-separated exact `Host` values accepted (DNS-rebinding protection). Default `127.0.0.1:<port>,localhost:<port>,[::1]:<port>`. Set this when fronting with a proxy/hostname. The effective list is logged at startup (`[omnimind-mcp] allowedHosts: …`) together with a hint when the loopback default is in use — if clients see `403 Invalid Host header`, copy the `Host` they send into this variable. |
+| `OMNIMIND_MCP_SESSION_IDLE_MS` | no | Idle timeout per MCP session (default `1800000` = 30 min). A sweeper runs every minute and closes sessions with no request for longer than this; invalid or non-positive values fall back to the default. |
 | `OMNIMIND_MCP_AGENT_KEY` | recommended | This agent's `omk_` key from keygen; sent to OmniMind as `x-agent-key` (outbound). Different thing from `OMNIMIND_MCP_API_KEY`. |
 
 | `OMNIMIND_MCP_USER_ID` | no (both modes) | User the `omnimind://{tenant}/…` **resources** read as. Tools always take `userId` explicitly; resources have no argument channel. Unset → resources return `{ error: "NO_USER_BOUND" }`. |
 
-Behaviour: one MCP session per `initialize` (response carries `mcp-session-id`; clients must echo it), `GET` opens the SSE stream, `DELETE` ends the session, max 100 live sessions, request bodies capped at 1 MiB (413), any handler failure → 500 JSON (process keeps running; `unhandledRejection` / `uncaughtException` are logged, not fatal).
+Behaviour: one MCP session per `initialize` (response carries `mcp-session-id`; clients must echo it), `GET` opens the SSE stream, `DELETE` ends the session, request bodies capped at 1 MiB (413), any handler failure → 500 JSON (process keeps running; `unhandledRejection` / `uncaughtException` are logged, not fatal).
+
+Session lifecycle: every request on a session refreshes its `lastSeenAt`. Sessions idle longer than `OMNIMIND_MCP_SESSION_IDLE_MS` are closed by a once-a-minute sweeper (`session idle-closed <id>` in the log; the client gets `404 Session not found` on its next call and must re-`initialize`). The cap is 100 live sessions; when it is reached a new `initialize` evicts the least-recently-seen session (`session evicted (cap 100)`) instead of answering 503, so an abandoned client can never lock out a live one.
 
 ---
 

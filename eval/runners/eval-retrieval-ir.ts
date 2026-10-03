@@ -18,6 +18,9 @@
  *
  * Output: eval/results/retrieval-ir-<YYYY-MM-DD>.json and .md. Exit code 1
  * when the `gateOn` leg misses any gate in eval/retrieval/thresholds.json.
+ * Exit code 2 when any query answered non-200 (R-E-03): errored queries are
+ * EXCLUDED from the metrics (an empty ranking would read as a recall miss and
+ * blame the ranker for an outage) and listed separately in the report.
  *
  * Needs only OmniMind (no BoardRoom, no LLM key). In CI the embedder is
  * EMBEDDING_PROVIDER=mock, so the semantic layer is deterministic noise and
@@ -59,6 +62,15 @@ interface QueryRow {
   relevant: string[];
   forPersona: { leg: LegResult; metrics: QueryMetrics } | null;
   memorySearch: { leg: LegResult; metrics: QueryMetrics } | null;
+}
+
+/** A query/leg that did not answer 200 — reported, never scored. */
+interface ErroredQuery {
+  id: string;
+  archetype: string;
+  slice: GoldQuery['slice'];
+  leg: 'forPersona' | 'memorySearch';
+  status: number;
 }
 
 function loadGold(): GoldFile[] {
@@ -139,6 +151,7 @@ export async function runIrEval(): Promise<number> {
 
   let memorySearchAvailable = process.env.EVAL_IR_SKIP_MEMORY_SEARCH !== '1';
   const rows: QueryRow[] = [];
+  const errored: ErroredQuery[] = [];
 
   await Promise.all(gold.filter(g => archetypes.includes(g.archetype)).map(async g => {
     const userId = seedMap.users[g.archetype] ?? userIdFor(cfg.userPrefix, seed, g.archetype);
@@ -147,6 +160,12 @@ export async function runIrEval(): Promise<number> {
     for (const q of g.queries) {
       const stale = q.slice === 'update' ? staleKeysFor(q, supersededBy) : [];
       const fp = await legForPersona(client, q, idToKey);
+      if (fp.status !== 200) {
+        // R-E-03: an HTTP failure is not a ranking result. Keep it out of the averages.
+        errored.push({ id: q.id, archetype: g.archetype, slice: q.slice, leg: 'forPersona', status: fp.status });
+        log(`${g.archetype.padEnd(16)} ${q.id.padEnd(8)} ${q.slice.padEnd(10)} HTTP ${fp.status} — excluded from scoring`);
+        continue;
+      }
       const row: QueryRow = {
         id: q.id, archetype: g.archetype, slice: q.slice, persona: q.persona, query: q.query, relevant: q.relevantMemoryKeys,
         forPersona: { leg: fp, metrics: scoreQuery(fp.rankedKeys, fp.scores, q.relevantMemoryKeys, { abstentionThreshold: thresholds.abstentionScoreThreshold, staleKeys: stale }) },
@@ -157,13 +176,16 @@ export async function runIrEval(): Promise<number> {
         if (ms.status === 404) {
           memorySearchAvailable = false;
           log('POST /memories/search answered 404 — hybrid search leg skipped (not deployed yet)');
+        } else if (ms.status !== 200) {
+          errored.push({ id: q.id, archetype: g.archetype, slice: q.slice, leg: 'memorySearch', status: ms.status });
+          log(`${g.archetype.padEnd(16)} ${q.id.padEnd(8)} ${q.slice.padEnd(10)} memorySearch HTTP ${ms.status} — leg excluded from scoring`);
         } else {
           row.memorySearch = { leg: ms, metrics: scoreQuery(ms.rankedKeys, ms.scores, q.relevantMemoryKeys, { abstentionThreshold: thresholds.abstentionScoreThreshold, staleKeys: stale }) };
         }
       }
       rows.push(row);
       const m = row.forPersona!.metrics;
-      log(`${g.archetype.padEnd(16)} ${q.id.padEnd(8)} ${q.slice.padEnd(10)} r@10=${m.recallAt10.toFixed(2)} mrr=${m.mrr.toFixed(2)} items=${fp.rawCount}${fp.degraded ? ' DEGRADED' : ''}${fp.status !== 200 ? ` HTTP ${fp.status}` : ''}`);
+      log(`${g.archetype.padEnd(16)} ${q.id.padEnd(8)} ${q.slice.padEnd(10)} r@10=${m.recallAt10.toFixed(2)} mrr=${m.mrr.toFixed(2)} items=${fp.rawCount}${fp.degraded ? ' DEGRADED' : ''}`);
     }
   }));
 
@@ -183,7 +205,8 @@ export async function runIrEval(): Promise<number> {
   const gateLeg = legs.includes(thresholds.gateOn) ? thresholds.gateOn : 'forPersona';
   const gate = evaluateGates(summaries[gateLeg].overall, thresholds.gates);
   const degradedCount = rows.filter(r => r.forPersona?.leg.degraded).length;
-  const httpErrors = rows.filter(r => r.forPersona && r.forPersona.leg.status !== 200).length;
+  const httpErrors = errored.length;
+  const plannedQueries = rows.length + errored.filter(e => e.leg === 'forPersona').length;
 
   const date = process.env.EVAL_IR_DATE ?? new Date().toISOString().slice(0, 10);
   mkdirSync(RESULTS_DIR, { recursive: true });
@@ -197,7 +220,8 @@ export async function runIrEval(): Promise<number> {
     gateLeg,
     gate,
     seed: { users: seedMap.users, supersedeConfirmed: seedMap.supersedeConfirmed, supersedeUnconfirmed: seedMap.supersedeUnconfirmed },
-    counts: { queries: rows.length, degradedResponses: degradedCount, httpErrors },
+    counts: { queries: plannedQueries, scored: rows.length, degradedResponses: degradedCount, httpErrors },
+    errors: errored,
     summaries,
     queries: rows,
   };
@@ -206,9 +230,11 @@ export async function runIrEval(): Promise<number> {
   const md: string[] = [];
   md.push(`# Retrieval IR eval — ${date}`, '');
   md.push(`- OmniMind: \`${cfg.baseUrl}\``);
-  md.push(`- Queries: ${rows.length} across ${archetypes.join(', ')}; degraded responses: ${degradedCount}; HTTP errors: ${httpErrors}`);
+  md.push(`- Queries: ${plannedQueries} across ${archetypes.join(', ')}; scored: ${rows.length}; degraded responses: ${degradedCount}; HTTP errors (excluded from scoring): ${httpErrors}`);
   md.push(`- Supersede links confirmed: ${seedMap.supersedeConfirmed.length}, unconfirmed: ${seedMap.supersedeUnconfirmed.length}`);
-  md.push(`- Gate (${gateLeg}): **${gate.pass ? 'PASS' : 'FAIL'}**${gate.failures.length ? ' — ' + gate.failures.map(f => `${f.metric} ${f.observed.toFixed(3)} < ${f.threshold}`).join(', ') : ''}`, '');
+  md.push(`- Gate (${gateLeg}): **${gate.pass ? 'PASS' : 'FAIL'}**${gate.failures.length ? ' — ' + gate.failures.map(f => `${f.metric} ${f.observed.toFixed(3)} < ${f.threshold}`).join(', ') : ''}`);
+  if (httpErrors > 0) md.push(`- **Infrastructure: ${httpErrors} HTTP error(s) → exit 2** (the gate verdict above covers only the ${rows.length} queries that answered 200)`);
+  md.push('');
   for (const leg of legs) {
     const s = summaries[leg];
     md.push(`## ${leg === 'forPersona' ? 'POST /context/for-persona' : 'POST /memories/search'}`, '');
@@ -217,11 +243,19 @@ export async function runIrEval(): Promise<number> {
   const worst = rows.filter(r => r.forPersona && r.slice !== 'abstention').sort((a, b) => a.forPersona!.metrics.recallAt10 - b.forPersona!.metrics.recallAt10).slice(0, 10);
   md.push('## Lowest recall@10 (for-persona)', '', '| id | slice | recall@10 | MRR | returned keys |', '|---|---|---:|---:|---|');
   for (const r of worst) md.push(`| ${r.id} | ${r.slice} | ${r.forPersona!.metrics.recallAt10.toFixed(2)} | ${r.forPersona!.metrics.mrr.toFixed(2)} | ${r.forPersona!.leg.rankedKeys.slice(0, 5).join(', ') || '(none)'} |`);
+  if (errored.length > 0) {
+    md.push('', '## HTTP errors (excluded from scoring)', '', '| id | archetype | slice | leg | status |', '|---|---|---|---|---:|');
+    for (const e of errored) md.push(`| ${e.id} | ${e.archetype} | ${e.slice} | ${e.leg} | ${e.status} |`);
+  }
   md.push('', `Thresholds ratchet upward only — see docs/runbooks/retrieval-eval.md.`);
   writeFileSync(mdPath, md.join('\n') + '\n');
 
   console.log('\n' + md.join('\n'));
   console.log(`\nResults: ${jsonPath}\n         ${mdPath}`);
+  if (httpErrors > 0) {
+    console.error(`[eval-retrieval-ir] ${httpErrors} query/leg(s) answered non-200 — infrastructure failure, exit 2 (gate ${gate.pass ? 'would pass' : 'would fail'} on the scored subset)`);
+    return 2;
+  }
   return gate.pass ? 0 : 1;
 }
 

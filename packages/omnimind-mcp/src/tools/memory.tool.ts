@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import {
   normalizeDomain,
@@ -16,6 +17,7 @@ import { requireScope } from '../lib/namespace';
 import { withAudit, auditRefusal, redactInputForAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
 import { MAX_PAGE_SIZE } from '../lib/cursor';
+import { LruTtlCache, replayCacheKey } from '../lib/replay-cache';
 import type { OmniMindClient, MemoryRecord } from '../lib/client';
 import {
   ADDITIVE_WRITE_ANNOTATIONS,
@@ -23,7 +25,7 @@ import {
   IDEMPOTENT_WRITE_ANNOTATIONS,
   READ_ONLY_ANNOTATIONS,
 } from '../types';
-import type { AgentContext, McpTool, MemoryWriteResult } from '../types';
+import type { AgentContext, McpTool, MemoryWriteResult, MemoryWriteSuccess } from '../types';
 
 /**
  * Normalize domain so refusal gates (ministry) cannot be bypassed by case or
@@ -39,10 +41,32 @@ export const DomainSchema = z
 export const MINISTRY_DEFERRED_MESSAGE =
   'Ministry-domain memories are deferred. Use a non-ministry domain. Ministry path will return in Phase 6+.';
 
-/** Phase 6 — optional `Idempotency-Key` for the write tools (≤128 chars). */
+/** Phase 6 — optional `Idempotency-Key` for the write tools (≤100 chars; see MCP_IDEMPOTENCY_KEY_MAX_LENGTH). */
 export const IdempotencyKeyInput = McpIdempotencyKeySchema.optional().describe(
-  'Optional idempotency key (≤128 chars). Repeating a call with the same key within 24h replays the first result instead of writing again.'
+  'Optional idempotency key (≤100 chars). Repeating a call with the same key within 24h replays the first result instead of writing again.'
 );
+
+/** Length of the user-key prefix kept readable at the front of a derived per-fact key. */
+export const FACT_KEY_PREFIX_LENGTH = 32;
+
+/**
+ * R-M-03 — per-extracted-fact `Idempotency-Key`. The old `${key}:${i}`.slice(0,128)
+ * collided once the user key approached the cap (every fact truncated to the
+ * same string). Now: `<first 32 chars of the user key>:<sha256(key + ':' + factText) hex, 64 chars>`
+ * — ≤ 97 chars (under OmniMind's 128 limit), unique per distinct fact text,
+ * and stable across retries so the server replays the same N rows.
+ */
+export function deriveFactIdempotencyKey(userKey: string, factText: string): string {
+  const digest = createHash('sha256').update(`${userKey}:${factText}`).digest('hex').slice(0, 64);
+  return `${userKey.slice(0, FACT_KEY_PREFIX_LENGTH)}:${digest}`;
+}
+
+/**
+ * R-M-03 — process-local replay cache for the whole `memory_write` result
+ * (≤500 entries, 24 h), keyed by (agentId, userId, idempotencyKey). A retry
+ * with the same key returns the cached result without re-running extraction.
+ */
+export const memoryWriteReplayCache = new LruTtlCache<MemoryWriteSuccess>();
 
 /** Cosine threshold above which two memories are treated as duplicates by memory_consolidate. */
 export const CONSOLIDATE_SIMILARITY_THRESHOLD = 0.92;
@@ -117,8 +141,20 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
 
       const auditInput = redactInputForAudit(input);
 
+      const replayKey = input.idempotencyKey
+        ? replayCacheKey(ctx.agentId, input.userId, input.idempotencyKey)
+        : undefined;
+      if (replayKey) {
+        const replayed = memoryWriteReplayCache.get(replayKey);
+        if (replayed) {
+          // Same (agent, user, key) within 24 h: hand back the first result and
+          // skip extraction + API writes entirely. Still audited.
+          return withAudit(client, ctx, 'memory_write', auditInput, async () => replayed);
+        }
+      }
+
       try {
-        return await withAudit(client, ctx, 'memory_write', auditInput, async (): Promise<MemoryWriteResult> => {
+        const result = await withAudit(client, ctx, 'memory_write', auditInput, async (): Promise<MemoryWriteSuccess> => {
           const created: string[] = [];
           const updated: string[] = [];
 
@@ -164,10 +200,10 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
 
           // One idempotency key covers the whole call; each extracted fact gets
           // a derived key so a replay returns the same N rows, not one.
-          const factOpts = (i: number) =>
-            input.idempotencyKey ? { idempotencyKey: `${input.idempotencyKey}:${i}`.slice(0, 128) } : undefined;
+          const factOpts = (factText: string) =>
+            input.idempotencyKey ? { idempotencyKey: deriveFactIdempotencyKey(input.idempotencyKey, factText) } : undefined;
 
-          for (const [i, fact] of facts.entries()) {
+          for (const fact of facts) {
             if (fact.action === 'create') {
               record(await client.createMemory({
                 title: fact.text.slice(0, 80),
@@ -179,14 +215,14 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
                 agentId: ctx.agentId,
                 tenantId: ctx.tenantId,
                 sourceWeight: ctx.sourceWeight,
-              }, input.userId, factOpts(i)));
+              }, input.userId, factOpts(fact.text)));
             } else if (fact.action === 'update' && fact.supersedes) {
               // Explicit supersede — `supersedes` is NOT accepted on POST /memories.
               const mem = await client.updateMemory(fact.supersedes, {
                 content: fact.text,
                 sourceType: 'MCP_AGENT',
                 agentId: ctx.agentId,
-              }, input.userId, factOpts(i));
+              }, input.userId, factOpts(fact.text));
               updated.push(mem.id);
             } else {
               skipped++;
@@ -195,6 +231,8 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
 
           return { ok: true, created, updated, skipped };
         });
+        if (replayKey) memoryWriteReplayCache.set(replayKey, result);
+        return result;
       } catch (err) {
         // WS-2.4 — surface Haiku outages as a typed refusal the agent can retry.
         if ((err as { code?: string }).code === 'FACT_EXTRACTOR_UNAVAILABLE') {
@@ -295,10 +333,26 @@ export function memoryReflectTool(client: OmniMindClient, ctx: AgentContext) {
   } satisfies McpTool;
 }
 
-type ConsolidationCandidate = Pick<MemoryRecord, 'id' | 'importance' | 'createdAt'>;
+type ConsolidationCandidate = Pick<MemoryRecord, 'id' | 'importance' | 'createdAt'> &
+  Partial<Pick<MemoryRecord, 'status' | 'invalidAt' | 'supersededBy'>>;
 
-/** keep = higher importance; tie → newer `createdAt`. Exported for tests. */
+/**
+ * R-M-01 — a row that has already been superseded (temporal `invalidAt` /
+ * `supersededBy` set, or a terminal status) must never be re-proposed: the
+ * old code re-listed it with status still CONFIRMED and a later pass could
+ * flip the pair back. Exported for tests.
+ */
+export function isInvalidatedMemory(m: Partial<Pick<MemoryRecord, 'status' | 'invalidAt' | 'supersededBy'>>): boolean {
+  if (m.invalidAt) return true;
+  if (m.supersededBy) return true;
+  return m.status === 'SUPERSEDED' || m.status === 'ARCHIVED';
+}
+
+/** keep = the row that is still valid; then higher importance; tie → newer `createdAt`. Exported for tests. */
 export function chooseKeep(a: ConsolidationCandidate, b: ConsolidationCandidate): { keepId: string; archiveId: string } {
+  const invA = isInvalidatedMemory(a);
+  const invB = isInvalidatedMemory(b);
+  if (invA !== invB) return invA ? { keepId: b.id, archiveId: a.id } : { keepId: a.id, archiveId: b.id };
   const ia = a.importance ?? 0;
   const ib = b.importance ?? 0;
   if (ia !== ib) return ia > ib ? { keepId: a.id, archiveId: b.id } : { keepId: b.id, archiveId: a.id };
@@ -338,13 +392,17 @@ export function memoryConsolidateTool(client: OmniMindClient, ctx: AgentContext)
         });
         // Ministry rows are never touched: their content is encrypted and their
         // embeddings live on the local model; consolidation is OpenAI-side only.
-        const scannable = recent.filter(m => !isMinistryDomain(m.domain));
-        const excluded = new Set(recent.filter(m => isMinistryDomain(m.domain)).map(m => m.id));
+        // Already-superseded rows (R-M-01) are excluded from the scan AND from
+        // the candidate hits below, so a pair never involves an invalidated row.
+        const untouchable = (m: MemoryRecord) => isMinistryDomain(m.domain) || isInvalidatedMemory(m);
+        const scannable = recent.filter(m => !untouchable(m));
+        const excluded = new Set(recent.filter(untouchable).map(m => m.id));
         const byId = new Map(scannable.map(m => [m.id, m]));
 
         const pairs: McpConsolidationPair[] = [];
         const seen = new Set<string>();
         const archived = new Set<string>();
+        const keepers = new Set<string>();
 
         for (const mem of scannable) {
           if (archived.has(mem.id) || !mem.content?.trim()) continue;
@@ -361,16 +419,22 @@ export function memoryConsolidateTool(client: OmniMindClient, ctx: AgentContext)
             continue; // one failed similarity lookup must not abort the whole pass
           }
           for (const hit of hits) {
+            // R-M-02: once `mem` has been archived under one keeper in this
+            // pass, no further hit may archive it again (or keep it).
+            if (archived.has(mem.id)) break;
             if (hit.id === mem.id || hit.similarity < CONSOLIDATE_SIMILARITY_THRESHOLD) continue;
-            if (isMinistryDomain(hit.domain) || excluded.has(hit.id)) continue;
+            if (isMinistryDomain(hit.domain) || excluded.has(hit.id) || isInvalidatedMemory(hit)) continue;
             const key = [mem.id, hit.id].sort().join('|');
             if (seen.has(key)) continue;
             seen.add(key);
             const other = byId.get(hit.id) ?? hit;
-            if (archived.has(other.id)) continue;
+            if (archived.has(other.id) || isInvalidatedMemory(other)) continue;
             const { keepId, archiveId } = chooseKeep(mem, other);
-            if (archived.has(keepId)) continue;
+            // Never archive a row that is already acting as a keeper, and never
+            // keep a row that is already being archived (conflicting direction).
+            if (archived.has(keepId) || keepers.has(archiveId)) continue;
             archived.add(archiveId);
+            keepers.add(keepId);
             pairs.push({ keepId, archiveId, similarity: Math.min(1, Math.max(0, hit.similarity)) });
           }
         }

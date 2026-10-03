@@ -78,6 +78,20 @@ there, prove the API can talk to it, write the dated line down.
 
    It prints `DRILL PASSED` and a markdown row such as
    `| 2026-10-02 | omnimind-20261002-030001.dump.gz.enc | memory_entries=1842 | health=ok | PASS | restored from R2 into scratch DB |`.
+   Progress (`[drill] …`) goes to **stderr**; stdout carries only that row, so
+   `bash restore-drill.sh > row.txt` captures exactly the line to append.
+
+   `pg_restore` runs with `--no-owner --no-privileges` and **without**
+   `--exit-on-error`: on a scratch role the `COMMENT ON EXTENSION` entries
+   (owned by the server superuser) and the pre-created `vector` / `pg_trgm`
+   extensions always error, which used to abort the whole restore. The drill
+   now keeps the full stderr, tolerates only errors matching
+   `must be owner of extension|already exists|COMMENT ON EXTENSION`
+   (override with `TOLERATED_RESTORE_ERRORS`), logs
+   `pg_restore exit=<rc> errors=<n> tolerated=<n> remaining=<n>`, and fails on
+   any remaining error (printing them). The script's behaviour is covered by
+   `services/backup/tests/restore-drill.test.sh` (rclone / pg_restore / psql
+   stubbed), which CI runs in the `verify` job.
 4. **If `ENCRYPTION_KEY` is set on the scratch API**, `GET /memories?domain=ministry&limit=1`
    through it with the service key and confirm `content` is plaintext (not the
    encrypted placeholder). That is the only way to know the key in the vault is

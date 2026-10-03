@@ -24,8 +24,15 @@
 
 set -euo pipefail
 
-log() { printf '[drill] %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-die() { log "ERROR: $*" >&2; record_result FAIL "$*"; exit 1; }
+# Progress goes to STDERR on purpose: stdout carries only the markdown row, so
+# nothing here can leak into a captured value (R-D-02: `log` inside
+# `fetch_latest` used to pollute the artifact path and the R2 path always failed).
+log() { printf '[drill] %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die() { log "ERROR: $*"; record_result FAIL "$*"; exit 1; }
+
+# pg_restore errors that are expected on a scratch role / pre-created extensions
+# and never indicate data loss. Anything else fails the drill (R-D-03).
+TOLERATED_RESTORE_ERRORS="${TOLERATED_RESTORE_ERRORS:-must be owner of extension|already exists|COMMENT ON EXTENSION}"
 
 : "${DRILL_DATABASE_URL:?DRILL_DATABASE_URL is required (scratch DB only)}"
 BACKUP_PREFIX="${BACKUP_PREFIX:-omnimind}"
@@ -60,6 +67,8 @@ configure_rclone() {
   export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
 }
 
+# Sets FETCHED_ARTIFACT (never echoes — see the note on log()).
+FETCHED_ARTIFACT=""
 fetch_latest() {
   : "${R2_BUCKET:?R2_BUCKET is required when BACKUP_FILE is not set}"
   configure_rclone
@@ -70,7 +79,18 @@ fetch_latest() {
   [ -n "$latest" ] || die "no backups found under ${base}"
   log "latest backup: ${latest}"
   rclone copy "${base}/${latest}" "$WORK" --s3-no-check-bucket --stats 0
-  printf '%s/%s\n' "$WORK" "$(basename "$latest")"
+  FETCHED_ARTIFACT="${WORK}/$(basename "$latest")"
+}
+
+# Collapse pg_restore's stderr into one line per error (the "Command was: …"
+# continuation lines are appended to their error) so a tolerated pattern can
+# match on either the ERROR text or the SQL it came from.
+restore_error_records() {
+  awk '
+    /^pg_restore: / { if (cur != "") print cur; cur = ($0 ~ /^pg_restore: error:/) ? $0 : ""; next }
+    { if (cur != "") cur = cur " " $0 }
+    END { if (cur != "") print cur }
+  ' "$1"
 }
 
 main() {
@@ -81,7 +101,8 @@ main() {
   if [ -n "${BACKUP_FILE:-}" ]; then
     artifact="$BACKUP_FILE"
   else
-    artifact="$(fetch_latest)"
+    fetch_latest
+    artifact="$FETCHED_ARTIFACT"
   fi
   [ -s "$artifact" ] || die "artifact missing or empty: $artifact"
   ARTIFACT_NAME="$(basename "$artifact")"
@@ -109,13 +130,26 @@ SQL
 
   log "pg_restore starting"
   # --no-owner/--no-privileges: the scratch role differs from production's.
-  # Exit status is tolerated only for the extension-ownership warnings; any
-  # table-level error fails the drill.
-  if ! pg_restore --dbname="$DRILL_DATABASE_URL" --no-owner --no-privileges --exit-on-error "$dump" 2> "$WORK/restore.err"; then
-    cat "$WORK/restore.err" >&2
-    die "pg_restore failed"
+  # No --exit-on-error: the first `COMMENT ON EXTENSION` (owned by the server
+  # superuser, not the scratch role) would abort the whole restore. Instead the
+  # full stderr is kept and only errors outside TOLERATED_RESTORE_ERRORS fail
+  # the drill.
+  local restore_rc=0
+  pg_restore --dbname="$DRILL_DATABASE_URL" --no-owner --no-privileges "$dump" 2> "$WORK/restore.err" || restore_rc=$?
+  local total_errors tolerated_errors remaining_errors
+  total_errors=$(restore_error_records "$WORK/restore.err" | grep -c . || true)
+  remaining_errors=$(restore_error_records "$WORK/restore.err" | grep -Ev "$TOLERATED_RESTORE_ERRORS" | grep -c . || true)
+  tolerated_errors=$((total_errors - remaining_errors))
+  log "pg_restore exit=${restore_rc} errors=${total_errors} tolerated=${tolerated_errors} remaining=${remaining_errors}"
+  if [ "$remaining_errors" -gt 0 ]; then
+    restore_error_records "$WORK/restore.err" | grep -Ev "$TOLERATED_RESTORE_ERRORS" >&2
+    die "pg_restore failed: ${remaining_errors} non-tolerated error(s)"
   fi
-  log "pg_restore complete"
+  if [ "$restore_rc" -ne 0 ] && [ "$total_errors" -eq 0 ]; then
+    cat "$WORK/restore.err" >&2
+    die "pg_restore exited ${restore_rc} without a parseable error"
+  fi
+  log "pg_restore complete (${tolerated_errors} tolerated extension-ownership/already-exists error(s) filtered)"
 
   ROWS=$(psql "$DRILL_DATABASE_URL" -tAc 'SELECT count(*) FROM memory_entries;')
   local decisions tasks migrations

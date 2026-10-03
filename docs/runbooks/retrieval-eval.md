@@ -30,9 +30,25 @@ pnpm exec prisma db execute --schema prisma/schema.prisma --stdin <<<'CREATE EXT
 DATABASE_URL=... pnpm exec prisma migrate deploy --schema prisma/schema.prisma
 DATABASE_URL=... OMNIMIND_API_KEY=dev-omnimind-api-key-local-only EMBEDDING_PROVIDER=mock ANTHROPIC_API_KEY=x OPENAI_API_KEY=x pnpm dev
 
-# 3. seed + evaluate (repo root)
-OMNIMIND_API_URL=http://localhost:3333 OMNIMIND_API_KEY=dev-omnimind-api-key-local-only pnpm eval:retrieval:ir
+# 3. seed (repo root)
+OMNIMIND_API_URL=http://localhost:3333 OMNIMIND_API_KEY=dev-omnimind-api-key-local-only pnpm eval:retrieval:seed
+
+# 4. backdate the rows — the API stamps created_at = now() on every POST, so without
+#    this all 136 memories share one timestamp and the temporal slice / recency decay
+#    measure nothing. The seeder prints this exact statement when it finishes
+#    (eval/retrieval/seed.ts BACKDATE_SQL). Offsets are ≤ 0 days, hence NOW() + offset.
+psql postgresql://test_user:test_password@localhost:5433/boardroom_test -c \
+  "UPDATE memory_entries SET created_at = NOW() + ((metadata->>'createdAtOffsetDays')::int * interval '1 day'), valid_at = NOW() + ((metadata->>'createdAtOffsetDays')::int * interval '1 day') WHERE metadata ? 'evalKey' AND metadata ? 'createdAtOffsetDays';"
+
+# 5. evaluate (reuses eval/results/.seed-map.json)
+EVAL_IR_SKIP_SEED=1 OMNIMIND_API_URL=http://localhost:3333 OMNIMIND_API_KEY=dev-omnimind-api-key-local-only pnpm eval:retrieval:ir
 ```
+
+`pnpm eval:retrieval:ir` without `EVAL_IR_SKIP_SEED=1` still seeds and evaluates
+in one go, but then the backdate step is skipped and the temporal numbers are
+meaningless — fine for a quick ranker smoke test, not for a measurement. CI
+(`retrieval-eval` job) runs seed → backdate (via
+`prisma db execute --stdin`) → eval as three steps.
 
 Useful switches:
 
@@ -68,7 +84,14 @@ per slice and per archetype. Extras:
 
 Gating: only the `gateOn` leg (`forPersona`) and only `gates` in
 `thresholds.json` fail the run (exit 1). `informational` metrics are reported
-but never gate. Exit 2 = infrastructure failure (server down, invalid gold).
+but never gate. Exit 2 = infrastructure failure: server down, invalid gold, **or
+any query/leg that answered non-200**. Errored queries are excluded from every
+average (an empty ranking from a 500 would otherwise read as a recall miss and
+blame the ranker) and listed under "HTTP errors (excluded from scoring)" in the
+markdown / `errors[]` in the JSON; `counts.queries` is the planned total and
+`counts.scored` what entered the metrics. Rankings are de-duplicated before
+scoring (first occurrence wins), so a layer returning the same id twice cannot
+inflate nDCG.
 
 ## Adding gold queries
 
@@ -79,7 +102,7 @@ but never gate. Exit 2 = infrastructure failure (server down, invalid gold).
 2. If the fact does not exist yet, add a memory first: stable `key`, `createdAtOffsetDays ≤ 0`, optional `explicitDate`, optional `supersedes` (same archetype). Keep it synthetic; never paste real data, and never use domain `ministry` (refused by the API and off-limits for synthetic pastoral content).
 3. Phrase queries the way a founder asks a persona, and let them share at least one distinctive term with the gold memory — with mock embeddings only lexical layers carry signal, so a purely paraphrased query measures the embedder, not the ranker.
 4. Abstention queries should avoid the corpus' proper nouns (a shared name makes the trigram layer fire legitimately).
-5. `pnpm exec vitest run eval/` — `gold.test.ts` enforces all of the above (≥ 35 queries and ≥ 5 abstention per archetype, keys resolve, slices covered, update queries don't list stale keys).
+5. `pnpm test:eval` (= `vitest run --dir eval`, also a step in the CI `verify` job) — `gold.test.ts` enforces all of the above (≥ 35 queries and ≥ 5 abstention per archetype, keys resolve, slices covered, update queries don't list stale keys).
 
 ## How thresholds ratchet
 
