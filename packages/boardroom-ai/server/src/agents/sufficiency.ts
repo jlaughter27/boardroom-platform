@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SufficiencyScore } from '@boardroom/shared';
 import { MODEL_IDS, SufficiencyScoreLLMSchema } from '@boardroom/shared';
 import { loadSystemPrompt } from '../lib/prompt-loader';
-import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 
 export async function checkSufficiency(
@@ -22,10 +22,11 @@ export async function checkSufficiency(
   }, { signal });
   recordUsage({ purpose: 'sufficiency', model, usage: response.usage, durationMs: Date.now() - startedAt, ...meta });
 
-  const text = response.content[0];
-  if (!text || text.type !== 'text') {
+  const text = firstText(response); // R-B-03
+  if (text === null) {
     return { score: 0, missingDimensions: [], suggestedQuestions: [], inferredIntent: question, canProceed: true };
   }
+  assertNotTruncated(response);
 
-  return SufficiencyScoreLLMSchema.parse(JSON.parse(stripJsonFences(text.text)));
+  return SufficiencyScoreLLMSchema.parse(JSON.parse(stripJsonFences(text)));
 }

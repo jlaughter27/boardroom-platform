@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { buildSystemBlocks, stripJsonFences, EFFORT } from '../../src/lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, TRUNCATED_OUTPUT_MESSAGE, EFFORT } from '../../src/lib/llm-request';
+
+describe('llm-request — firstText / assertNotTruncated (R-B-03)', () => {
+  it('firstText skips a leading thinking block and returns the first text block', () => {
+    expect(firstText({ content: [{ type: 'thinking' }, { type: 'text', text: '{"a":1}' }, { type: 'text', text: 'later' }] })).toBe('{"a":1}');
+  });
+  it('firstText returns null when there is no text block', () => {
+    expect(firstText({ content: [] })).toBeNull();
+    expect(firstText({ content: [{ type: 'thinking' }, { type: 'tool_use' }] })).toBeNull();
+  });
+  it('assertNotTruncated throws the clear message only for stop_reason max_tokens', () => {
+    expect(() => assertNotTruncated({ stop_reason: 'max_tokens' })).toThrow(TRUNCATED_OUTPUT_MESSAGE);
+    expect(() => assertNotTruncated({ stop_reason: 'end_turn' })).not.toThrow();
+    expect(() => assertNotTruncated({ stop_reason: null })).not.toThrow();
+    expect(() => assertNotTruncated({})).not.toThrow();
+  });
+});
 
 describe('llm-request — buildSystemBlocks', () => {
   it('[core, prompt] with cache_control on both', () => {

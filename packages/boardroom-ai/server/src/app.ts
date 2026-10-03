@@ -89,7 +89,23 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   });
 
   // ---------------------------------------------------------------------------
-  // 3. Serve React client in production (before auth wall — static assets are public)
+  // 3. Public BROWSER-NAVIGATED GET routes — must sit ABOVE the SPA fallback.
+  //
+  // R-B-02: Google redirects the user's browser to the OAuth callbacks with
+  // `Accept: text/html`. With these registered below the `app.get('*')`
+  // fallback, the predicate in step 4 ("GET + prefers HTML") matched first and
+  // served index.html, so the callback handler never ran and the token was
+  // never stored. /health moves up for the same reason (a browser visit got
+  // the SPA). B-107 still applies: direct handlers, not `app.get(path, router)`.
+  // optionalAuth lets the handler cross-check state.userId against the cookie
+  // when one IS present.
+  // ---------------------------------------------------------------------------
+  app.use('/health', healthRouter);
+  app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback);
+  app.get('/integrations/gmail/callback', optionalAuthMiddleware, gmailCallback);
+
+  // ---------------------------------------------------------------------------
+  // 4. Serve React client in production (before auth wall — static assets are public)
   // ---------------------------------------------------------------------------
   if (process.env.NODE_ENV === 'production') {
     const clientDist = options.clientDist ?? path.resolve(__dirname, '../../client/dist');
@@ -113,23 +129,19 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   }
 
   // ---------------------------------------------------------------------------
-  // 4. Public routes (no auth required)
+  // 5. Remaining public routes (no auth required). These are fetch()-driven
+  //    (JSON Accept), so the SPA predicate above already lets them through;
+  //    the browser-navigated public GETs live in step 3.
   // ---------------------------------------------------------------------------
-  app.use('/health', healthRouter);
   app.use('/auth', authRouter);
-  // B-107: OAuth callbacks registered as direct handlers (Google redirects here
-  // without a guaranteed cookie). optionalAuth lets the handler cross-check
-  // state.userId against the cookie when one IS present.
-  app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback);
-  app.get('/integrations/gmail/callback', optionalAuthMiddleware, gmailCallback);
 
   // ---------------------------------------------------------------------------
-  // 5. Auth wall — all routes below require valid JWT
+  // 6. Auth wall — all routes below require valid JWT
   // ---------------------------------------------------------------------------
   app.use(authMiddleware);
 
   // ---------------------------------------------------------------------------
-  // 6. Protected routes
+  // 7. Protected routes
   // ---------------------------------------------------------------------------
   app.use('/subscription', subscriptionRouter);
   app.use('/sessions', requireSubscription, sessionsRouter);
@@ -147,7 +159,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
   // ---------------------------------------------------------------------------
-  // 7. Error handler (must be last)
+  // 8. Error handler (must be last)
   // ---------------------------------------------------------------------------
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     const status = (err as Error & { status?: number }).status;

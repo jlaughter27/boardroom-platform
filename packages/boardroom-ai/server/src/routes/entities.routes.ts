@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { KnowledgeGraphQuerySchema } from '@boardroom/shared';
 import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
+import { llmRateLimiter } from '../middleware/llm-rate-limiter';
+import { requireSubscription } from '../middleware/subscription.middleware';
 import { omnimindClient } from '../services/omnimind-client';
 import {
   CreateGoalRequestSchema, UpdateGoalRequestSchema,
@@ -86,7 +88,10 @@ router.get('/context/core', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/context/reflect', validateBody(ReflectBodySchema), async (req: AuthRequest, res, next) => {
+// R-B-05: reflection spends a Haiku call on the OmniMind side — gate it like
+// every other LLM-backed route (per-user LLM bucket + subscription), which the
+// bare `/` mount of this router does not provide.
+router.post('/context/reflect', llmRateLimiter, requireSubscription, validateBody(ReflectBodySchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.reflectEntity(req.auth!.userId, req.body);
     res.json(data);

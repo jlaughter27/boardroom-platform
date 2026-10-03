@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { IRouter } from 'express';
+import type { IRouter, Response } from 'express';
 import type { AuthRequest } from '../middleware/auth';
 import { checkSessionLimit } from '../middleware/session-rate-limiter';
 import { CEOOrchestrator, type SessionState } from '../agents/orchestrator';
@@ -30,6 +30,12 @@ const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
 interface StoredSession extends SessionState {
   createdAt: number;
   lastActivityAt: number;
+  /**
+   * R-B-06: set SYNCHRONOUSLY before the first `await` in POST /:id/decide so a
+   * concurrent second commit is rejected while the first is still in flight
+   * (`decisionId` is only known after OmniMind answers). Cleared on failure.
+   */
+  decisionPending?: boolean;
 }
 
 const sessions = new Map<string, StoredSession>();
@@ -60,9 +66,19 @@ router.param('id', (_req, _res, next, id) => {
 });
 
 // B-111: abort upstream LLM work when the client disconnects.
-function abortOnClose(req: AuthRequest): AbortSignal {
+//
+// R-B-01: listen on the RESPONSE, never on the request. On Node >= 16 an
+// IncomingMessage emits `close` as soon as its body has been fully consumed —
+// which express.json() does for every JSON POST before the handler runs — so a
+// `req.on('close')` signal was already aborted before the first Anthropic call
+// and every persona failed with "Request was aborted". `res.on('close')` fires
+// when the underlying socket goes away; `writableFinished` distinguishes a
+// normal end from a mid-stream disconnect.
+export function abortOnClose(res: Response): AbortSignal {
   const ac = new AbortController();
-  req.on('close', () => ac.abort());
+  res.on('close', () => {
+    if (!res.writableFinished) ac.abort();
+  });
   return ac.signal;
 }
 
@@ -138,7 +154,7 @@ router.get('/:id', (req: AuthRequest, res) => {
     personaResponses: Object.fromEntries(session.personaResponses),
     ceoSynthesis: session.synthesis,
     sufficiencyScore: null,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(session.createdAt).toISOString(), // S-1: real creation time
     // Phase 6
     rebuttals: Object.fromEntries(session.rebuttals ?? []),
     ledger: session.ledger ?? [],
@@ -148,17 +164,20 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // GET /sessions -- list (returns recent from in-memory store)
+// S-1: each row carries the session's REAL createdAt and the list is newest
+// first (it used to stamp `now` on every row, so the client could not order).
 router.get('/', (req: AuthRequest, res) => {
   const userId = req.auth!.userId;
   const userSessions = Array.from(sessions.values())
     .filter(s => s.userId === userId)
+    .sort((a, b) => b.createdAt - a.createdAt)
     .map(s => ({
       id: s.id,
       question: s.question,
       mode: s.mode,
       personaCount: s.personaResponses.size,
       hasSynthesis: s.synthesis !== null,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(s.createdAt).toISOString(),
     }));
   res.json({ items: userSessions, total: userSessions.length, offset: 0, limit: 20 });
 });
@@ -172,7 +191,7 @@ router.post('/:id/dispatch', llmRateLimiter, async (req: AuthRequest, res, next)
       return;
     }
     const orchestrator = getOrchestrator();
-    await orchestrator.dispatch(session, res, abortOnClose(req));
+    await orchestrator.dispatch(session, res, abortOnClose(res));
   } catch (err) { next(err); }
 });
 
@@ -190,7 +209,7 @@ router.post('/:id/synthesize', llmRateLimiter, async (req: AuthRequest, res, nex
       return;
     }
     const orchestrator = getOrchestrator();
-    await orchestrator.synthesize(session, res, abortOnClose(req));
+    await orchestrator.synthesize(session, res, abortOnClose(res));
   } catch (err) { next(err); }
 });
 
@@ -205,7 +224,7 @@ router.post('/:id/check-ambiguity', llmRateLimiter, async (req: AuthRequest, res
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
     const client = createAnthropicClient(apiKey);
-    const score = await checkSufficiency(session.question, client, abortOnClose(req), { sessionId: session.id, userId: session.userId });
+    const score = await checkSufficiency(session.question, client, abortOnClose(res), { sessionId: session.id, userId: session.userId });
     res.json(score);
   } catch (err) { next(err); }
 });
@@ -219,7 +238,7 @@ router.post('/:id/questionnaire', llmRateLimiter, async (req: AuthRequest, res, 
       return;
     }
     const orchestrator = getOrchestrator();
-    const result = await orchestrator.runQuestionnaire(session, abortOnClose(req));
+    const result = await orchestrator.runQuestionnaire(session, abortOnClose(res));
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -247,7 +266,7 @@ router.post('/:id/plan', llmRateLimiter, async (req: AuthRequest, res, next) => 
       return;
     }
     const orchestrator = getOrchestrator();
-    const result = await orchestrator.runDoer(session, abortOnClose(req));
+    const result = await orchestrator.runDoer(session, abortOnClose(res));
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -264,7 +283,7 @@ router.post('/:id/extract-memories', llmRateLimiter, async (req: AuthRequest, re
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
     const client = createAnthropicClient(apiKey);
 
-    const result = await proposeExtractions(session, client, abortOnClose(req));
+    const result = await proposeExtractions(session, client, abortOnClose(res));
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -304,7 +323,24 @@ router.post('/:id/decide', validateBody(DecideBodySchema), async (req: AuthReque
       res.status(409).json({ error: 'already_decided', message: 'This session already committed a decision', decisionId: session.decisionId });
       return;
     }
-    const decision = await commitDecision(session, req.body as DecideBody, omnimindClient);
+    // R-B-06: the check above is not atomic across the `await` below — two
+    // concurrent commits both saw `decisionId` unset and both created a
+    // Decision. Mark the session synchronously before awaiting; the second
+    // request is rejected while the first is in flight.
+    if (session.decisionPending) {
+      res.status(409).json({ error: 'decision_pending', message: 'A decision commit for this session is already in progress' });
+      return;
+    }
+    session.decisionPending = true;
+    let decision;
+    try {
+      decision = await commitDecision(session, req.body as DecideBody, omnimindClient);
+    } catch (err) {
+      session.decisionPending = false; // allow a retry after an upstream failure
+      throw err;
+    }
+    session.decisionPending = false;
+    session.decisionId = decision.id; // commitDecision sets it too; make the invariant explicit here
     res.status(201).json(decision);
   } catch (err) { next(err); }
 });

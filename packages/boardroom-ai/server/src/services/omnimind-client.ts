@@ -113,7 +113,14 @@ export class OmniMindClient {
   // ---------------------------------------------------------------------------
   // Core request — timeout + retry + circuit breaker
   // ---------------------------------------------------------------------------
-  private async request<T>(method: string, path: string, userId?: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    userId?: string,
+    body?: unknown,
+    /** S-2: per-call extra headers (e.g. `x-admin-key`). Cannot override the auth/correlation headers. */
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
     // Circuit breaker gate
     if (!this.breaker.canRequest()) {
       throw Object.assign(
@@ -124,6 +131,7 @@ export class OmniMindClient {
 
     const requestId = crypto.randomUUID();
     const headers: Record<string, string> = {
+      ...(extraHeaders ?? {}),
       'Content-Type': 'application/json',
       'x-api-key': this.apiKey,
       'x-request-id': requestId,
@@ -275,9 +283,14 @@ export class OmniMindClient {
     return this.request<{ id: string; costUsd: number }>('POST', '/usage/llm', body.userId, body);
   }
 
-  async getLlmUsageSummary(params?: Record<string, string>) {
+  /**
+   * S-2: OmniMind requires `x-admin-key` for the cross-user (`all=1`) summary.
+   * Pass `adminKey` to send it; omitted, the call is scoped to the API key only.
+   */
+  async getLlmUsageSummary(params?: Record<string, string>, options: { adminKey?: string } = {}) {
     const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/usage/llm/summary${qs}`);
+    const extra = options.adminKey ? { 'x-admin-key': options.adminKey } : undefined;
+    return this.request('GET', `/usage/llm/summary${qs}`, undefined, undefined, extra);
   }
 
   // Phase 6 — entity links (ProjectPersonLink / DecisionProjectLink / TaskDependency)

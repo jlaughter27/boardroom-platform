@@ -15,7 +15,7 @@ import type { OmniMindClient } from '../services/omnimind-client';
 import { toolRegistry } from '../tools';
 import { getContextRequest } from '../personas/context-strategy';
 import { logger } from '../lib/logger';
-import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 import {
   clusterByMajority, selectRebutters, buildRebuttalUserMessage, buildDisagreementLedger,
@@ -74,6 +74,13 @@ interface Participant {
   name: string;
   isCustom: boolean;
 }
+
+/**
+ * R-B-04 — CEO synthesis output budget. Sonnet 5.5 with adaptive thinking
+ * spends part of `max_tokens` on reasoning; the 2000 in PERSONA_CONFIGS.ceo
+ * (sized for the pre-thinking prompt) truncated the SynthesisReport JSON.
+ */
+export const CEO_MAX_OUTPUT_TOKENS = 4000;
 
 export class CEOOrchestrator {
   private client: Anthropic;
@@ -409,7 +416,7 @@ export class CEOOrchestrator {
     try {
       const stream = await this.client.messages.stream({
         model,
-        max_tokens: PERSONA_CONFIGS.ceo.maxOutputTokens,
+        max_tokens: Math.max(PERSONA_CONFIGS.ceo.maxOutputTokens, CEO_MAX_OUTPUT_TOKENS),
         system: buildSystemBlocks({ coreContext, prompt, extra: [premortem] }),
         output_config: { effort: EFFORT.ceo },
         messages: [{ role: 'user', content }],
@@ -425,6 +432,7 @@ export class CEOOrchestrator {
       if (typeof (stream as { finalMessage?: unknown }).finalMessage === 'function') {
         const final = await stream.finalMessage();
         recordUsage({ purpose, model, usage: final.usage, durationMs: Date.now() - startedAt, sessionId: session.id, userId: session.userId });
+        assertNotTruncated(final); // R-B-03
       }
 
       const parsed = JSON.parse(stripJsonFences(fullText));
@@ -461,9 +469,10 @@ export class CEOOrchestrator {
     }, { signal });
     recordUsage({ purpose: 'questionnaire', model, usage: response.usage, durationMs: Date.now() - startedAt, sessionId: session.id, userId: session.userId });
 
-    const text = response.content[0];
-    if (!text || text.type !== 'text') throw new Error('Empty questionnaire response');
-    return QuestionnaireResponseSchema.parse(JSON.parse(stripJsonFences(text.text))) as QuestionnaireResponse;
+    const text = firstText(response); // R-B-03
+    if (text === null) throw new Error('Empty questionnaire response');
+    assertNotTruncated(response);
+    return QuestionnaireResponseSchema.parse(JSON.parse(stripJsonFences(text))) as QuestionnaireResponse;
   }
 
   async runDoer(session: SessionState, signal?: AbortSignal): Promise<unknown> {
@@ -486,8 +495,9 @@ export class CEOOrchestrator {
     }, { signal });
     recordUsage({ purpose: 'doer', model, usage: response.usage, durationMs: Date.now() - startedAt, sessionId: session.id, userId: session.userId });
 
-    const text = response.content[0];
-    if (!text || text.type !== 'text') throw new Error('Empty doer response');
-    return DoerTaskBreakdownSchema.parse(JSON.parse(stripJsonFences(text.text)));
+    const text = firstText(response); // R-B-03
+    if (text === null) throw new Error('Empty doer response');
+    assertNotTruncated(response);
+    return DoerTaskBreakdownSchema.parse(JSON.parse(stripJsonFences(text)));
   }
 }

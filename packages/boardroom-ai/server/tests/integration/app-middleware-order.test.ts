@@ -147,6 +147,56 @@ describe('production middleware order', () => {
     }
   });
 
+  // ---- R-B-02 --------------------------------------------------------------
+  // Google redirects a real BROWSER to the callbacks, i.e. with an HTML Accept
+  // header. That is exactly what the SPA fallback predicate matches, so the
+  // callbacks must be registered ABOVE it or the token is never stored.
+  const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+  it.each([
+    '/calendar/callback?code=x&state=bogus',
+    '/integrations/gmail/callback?code=x&state=bogus',
+    '/api/calendar/callback?code=x&state=bogus',
+    '/api/integrations/gmail/callback?code=x&state=bogus',
+  ])('GET %s with a browser Accept header reaches the callback handler (400 invalid state), not index.html', async (p) => {
+    const res = await fetch(`${base}${p}`, { redirect: 'manual', headers: { Accept: BROWSER_ACCEPT } });
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain('Invalid or expired OAuth state');
+    expect(body).not.toContain('SPA');
+  });
+
+  it('GET /health with a browser Accept header is the JSON health payload, not the SPA', async () => {
+    const res = await fetch(`${base}/health`, { headers: { Accept: BROWSER_ACCEPT } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/application\/json/);
+    expect(await res.json()).toMatchObject({ service: 'boardroom-ai' });
+  });
+
+  it('client routes still fall back to index.html on a browser navigation (/graph, /integrations)', async () => {
+    for (const p of ['/graph', '/integrations']) {
+      const res = await fetch(`${base}${p}`, { headers: { Accept: BROWSER_ACCEPT } });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/text\/html/);
+      expect(await res.text()).toContain('SPA');
+    }
+  });
+
+  it('GET /api/graph with a bare */* Accept still reaches the API (401 JSON), not the SPA', async () => {
+    const res = await fetch(`${base}/api/graph`, { headers: { Accept: '*/*' } });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('content-type')).toMatch(/application\/json/);
+    expect(await res.json()).toMatchObject({ error: 'unauthorized' });
+  });
+
+  it('the auth wall still sits below the callbacks AND the SPA: a protected GET as browser nav → SPA, as fetch → 401', async () => {
+    const nav = await fetch(`${base}/sessions`, { headers: { Accept: BROWSER_ACCEPT } });
+    expect(nav.status).toBe(200);
+    expect(nav.headers.get('content-type')).toMatch(/text\/html/);
+    const api = await fetch(`${base}/api/sessions`, { headers: { Accept: 'application/json' } });
+    expect(api.status).toBe(401);
+  });
+
   // ---- B-116 ---------------------------------------------------------------
   it('a disallowed CORS origin gets no Allow-Origin header and no 500', async () => {
     const res = await fetch(`${base}/api/health`, { headers: { Origin: 'https://evil.example' } });

@@ -44,6 +44,38 @@ describe('sufficiency', () => {
       expect(result.canProceed).toBe(true);
     });
 
+    // R-B-03 — Sonnet 5.5 may put a `thinking` block before the text block.
+    it('reads the first TEXT block when the response leads with a thinking block', async () => {
+      const mockClient = {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            stop_reason: 'end_turn',
+            content: [
+              { type: 'thinking' as const, thinking: '' },
+              { type: 'text' as const, text: JSON.stringify({ score: 0.7, missingDimensions: [], suggestedQuestions: [], inferredIntent: 'Thinking first', canProceed: true }) },
+            ],
+          }),
+        },
+      };
+
+      const result = await checkSufficiency('Q', mockClient as any);
+      expect(result.score).toBe(0.7);
+      expect(result.inferredIntent).toBe('Thinking first');
+    });
+
+    it('rejects with a clear max_tokens error instead of a JSON parse error when truncated', async () => {
+      const mockClient = {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            stop_reason: 'max_tokens',
+            content: [{ type: 'text' as const, text: '{"score": 0.7, "missingDim' }],
+          }),
+        },
+      };
+
+      await expect(checkSufficiency('Q', mockClient as any)).rejects.toThrow('LLM output truncated (max_tokens)');
+    });
+
     it('handles empty or non-text response', async () => {
       const mockClient = {
         messages: {

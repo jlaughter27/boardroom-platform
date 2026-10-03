@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createAnthropicClient } from '../lib/anthropic-client';
 import type { AuthRequest } from '../middleware/auth';
 import { MODEL_IDS, ExtractedGoalsSchema, ExtractedProjectsSchema } from '@boardroom/shared';
-import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 import { loadSystemPrompt } from '../lib/prompt-loader';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
@@ -35,9 +35,10 @@ router.post('/extract-goals', llmRateLimiter, async (req: AuthRequest, res, next
     });
     recordUsage({ purpose: 'extraction:onboarding-goals', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId: req.auth!.userId });
 
-    const output = response.content[0];
-    if (output?.type === 'text') {
-      res.json(ExtractedGoalsSchema.parse(JSON.parse(stripJsonFences(output.text))));
+    const output = firstText(response); // R-B-03
+    if (output !== null) {
+      assertNotTruncated(response);
+      res.json(ExtractedGoalsSchema.parse(JSON.parse(stripJsonFences(output))));
     } else {
       res.json([]);
     }
@@ -67,9 +68,10 @@ router.post('/extract-projects', llmRateLimiter, async (req: AuthRequest, res, n
     });
     recordUsage({ purpose: 'extraction:onboarding-projects', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId: req.auth!.userId });
 
-    const output = response.content[0];
-    if (output?.type === 'text') {
-      res.json(ExtractedProjectsSchema.parse(JSON.parse(stripJsonFences(output.text))));
+    const output = firstText(response); // R-B-03
+    if (output !== null) {
+      assertNotTruncated(response);
+      res.json(ExtractedProjectsSchema.parse(JSON.parse(stripJsonFences(output))));
     } else {
       res.json([]);
     }

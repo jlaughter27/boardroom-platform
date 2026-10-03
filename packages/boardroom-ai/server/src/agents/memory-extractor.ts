@@ -3,7 +3,7 @@ import type { MemoryProposal, PersonaResponse, SynthesisReport } from '@boardroo
 import { MemoryProposalSchema } from '@boardroom/shared';
 import { MODEL_IDS, PERSONA_CONFIGS } from '@boardroom/shared';
 import { loadPrompt } from '../lib/prompt-loader';
-import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 import { z } from 'zod';
 
@@ -51,12 +51,15 @@ export async function extractMemories(
   }, { signal });
   recordUsage({ purpose: 'extraction', model, usage: response.usage, durationMs: Date.now() - startedAt, ...meta });
 
-  const text = response.content[0];
-  if (!text || text.type !== 'text') {
+  // R-B-03: first TEXT block (skips a leading `thinking` block); a max_tokens
+  // cut-off is reported as such instead of surfacing as a JSON parse error.
+  const text = firstText(response);
+  if (text === null) {
     return { proposals: [], proposalCount: 0, categories: { facts: 0, commitments: 0, personMentions: 0, profileObservations: 0 } };
   }
+  assertNotTruncated(response);
 
-  const rawProposals = JSON.parse(stripJsonFences(text.text));
+  const rawProposals = JSON.parse(stripJsonFences(text));
 
   // Validate each proposal
   const proposalArraySchema = z.array(MemoryProposalSchema);

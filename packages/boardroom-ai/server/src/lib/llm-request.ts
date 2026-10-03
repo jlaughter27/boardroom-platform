@@ -52,8 +52,26 @@ export function stripJsonFences(text: string): string {
   return text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 }
 
-/** First text block of a (non-streaming) response, or null. */
+/**
+ * First text block of a (non-streaming) response, or null.
+ *
+ * R-B-03: Sonnet 5.5 (adaptive thinking) may return a leading `thinking`
+ * block, so `response.content[0]` is NOT guaranteed to be the text. Every
+ * JSON-reading call site goes through this helper.
+ */
 export function firstText(response: { content: Array<{ type: string; text?: string }> }): string | null {
   const block = response.content.find(b => b.type === 'text');
   return block && typeof block.text === 'string' ? block.text : null;
+}
+
+export const TRUNCATED_OUTPUT_MESSAGE = 'LLM output truncated (max_tokens)';
+
+/**
+ * R-B-03: a response cut off by `max_tokens` is never valid JSON. Throw a
+ * clear error BEFORE JSON.parse so the failure reads as a budget problem,
+ * not a parser one. Works for both `messages.create()` results and the
+ * `finalMessage()` of a stream.
+ */
+export function assertNotTruncated(response: { stop_reason?: string | null }): void {
+  if (response.stop_reason === 'max_tokens') throw new Error(TRUNCATED_OUTPUT_MESSAGE);
 }

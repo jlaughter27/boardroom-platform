@@ -48,11 +48,12 @@ The middleware stack in `packages/boardroom-ai/server/src/index.ts` has a strict
 0. app.set('trust proxy', 1)  — before anything reads req.ip
 1. Global middleware (helmet, CORS, **Stripe webhook with express.raw()**, JSON parser, cookie parser)
 2. API prefix rewriting (/api/* → /*)
-3. Static file serving + SPA fallback (production only)
-4. Public routes (health, auth, OAuth callbacks as direct handlers)
-5. Auth wall (JWT middleware)
-6. Protected routes (sessions, settings, etc.)
-7. Error handler (must be last)
+3. Public BROWSER-NAVIGATED GETs: /health + both OAuth callbacks (direct handlers)
+4. Static file serving + SPA fallback (production only)
+5. Remaining public routes (auth — fetch-driven, JSON Accept)
+6. Auth wall (JWT middleware)
+7. Protected routes (sessions, settings, etc.)
+8. Error handler (must be last)
 ```
 
 The stack lives in `server/src/app.ts` (`createApp()`); `index.ts` only calls it and listens. `server/tests/integration/app-middleware-order.test.ts` boots the real factory with `NODE_ENV=production` — run it after touching any of this.
@@ -68,6 +69,8 @@ The stack lives in `server/src/app.ts` (`createApp()`); `index.ts` only calls it
 **Stripe webhook BEFORE `express.json()` and BEFORE the auth wall:** `stripe.webhooks.constructEvent` needs the raw bytes and Stripe sends no cookie. `app.post('/subscription/webhook', express.raw(...))` (and the `/api/...` spelling) is registered in step 1, before the JSON parser consumes the body and before step 5 would 401 it (B-103).
 
 **OAuth callbacks as direct handlers:** `app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback)` — not `app.get(path, router)`, which hands the router the unstripped URL and never matches (B-107).
+
+**OAuth callbacks (and /health) BEFORE the SPA fallback (step 3 above step 4):** Google redirects the user's *browser* to `/calendar/callback?code=…&state=…` with `Accept: text/html`. That is exactly what the SPA predicate matches (GET, not `/api/`, prefers HTML), so when the callbacks were registered *below* the `app.get('*')` fallback the handler never ran, the user saw the SPA shell, and the OAuth token was never stored (review finding R-B-02). Any public route a browser *navigates* to (not `fetch()`es) must be registered above the fallback; fetch-driven public routes (`/auth/*`) can stay below it because they send a JSON Accept. The auth wall stays below both. `app-middleware-order.test.ts` sends the callbacks with a real browser Accept header and asserts they reach the handler (400 invalid state), not index.html.
 
 **Cookie parser BEFORE auth middleware:** Auth reads JWT from `req.cookies.boardroom_token`. Without cookie parser running first, `req.cookies` is undefined.
 
@@ -172,8 +175,10 @@ Every Zod schema in `packages/shared/src/schemas/` has a corresponding TypeScrip
 | Dockerfile `pnpm deploy --legacy --prod` | Don't change flags |
 | Dockerfile `npm install -g prisma@6.19.3` | Don't upgrade without testing schema compat |
 | `docker-entrypoint.sh` extension order | Extensions before db push, always |
-| `app.ts` middleware stack (boardroom-ai) | Don't reorder blocks 0-7; run `app-middleware-order.test.ts` |
+| `app.ts` middleware stack (boardroom-ai) | Don't reorder blocks 0-8; run `app-middleware-order.test.ts` |
 | SPA fallback predicate | GET + `originalUrl` not `/api/*` + prefers HTML. No prefix list — never add one back |
+| Browser-navigated public GETs (`/health`, OAuth callbacks) | Must be registered ABOVE the SPA fallback (step 3), or Google's redirect gets index.html (R-B-02) |
+| `abortOnClose()` in `sessions.routes.ts` | Listens on `res.on('close')`, never `req.on('close')` — the request emits `close` as soon as express.json() drains the body (R-B-01) |
 | Cookie name `boardroom_token` | Grep all usages before changing |
 | `OMNIMIND_API_KEY` | Must match in both services |
 | Shared package `composite: true` | Required for project references |

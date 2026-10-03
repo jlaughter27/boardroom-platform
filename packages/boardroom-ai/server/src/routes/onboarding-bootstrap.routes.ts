@@ -16,7 +16,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createAnthropicClient } from '../lib/anthropic-client';
 import type { AuthRequest } from '../middleware/auth';
 import { MODEL_IDS, BootstrapExtractionSchema } from '@boardroom/shared';
-import { buildSystemBlocks, EFFORT } from '../lib/llm-request';
+import { buildSystemBlocks, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 import { loadSystemPrompt } from '../lib/prompt-loader';
 import { transcribeAudio } from '../services/transcription.service';
@@ -74,12 +74,15 @@ async function extractFromText(text: string, userId?: string): Promise<unknown> 
   });
   recordUsage({ purpose: 'extraction:onboarding-bootstrap', model, usage: response.usage, durationMs: Date.now() - startedAt, userId });
 
-  const output = response.content[0];
-  if (output?.type !== 'text') {
+  // R-B-03: Sonnet 5.5 may lead with a `thinking` block — read the first TEXT
+  // block, and fail clearly when the budget cut the JSON off.
+  const output = firstText(response);
+  if (output === null) {
     throw new Error('Claude returned no text content');
   }
+  assertNotTruncated(response);
 
-  const jsonStr = extractJsonBlock(output.text);
+  const jsonStr = extractJsonBlock(output);
   if (!jsonStr) {
     throw new Error('No JSON block found in extraction response');
   }

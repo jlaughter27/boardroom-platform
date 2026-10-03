@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createAnthropicClient } from '../lib/anthropic-client';
 import type { EmailSummary, EmailExtraction, EmailMemoryProposal } from '@boardroom/shared';
 import { MODEL_IDS, EmailMemoryProposalsSchema } from '@boardroom/shared';
-import { buildSystemBlocks, stripJsonFences, EFFORT } from '../lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 import { omnimindClient } from './omnimind-client';
 import { signState } from './google-calendar.service';
@@ -155,11 +155,12 @@ export async function extractMemoriesFromEmail(userId: string, emailId: string):
   });
   recordUsage({ purpose: 'extraction:email', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId });
 
-  const text = response.content[0];
+  const text = firstText(response); // R-B-03
   let proposals: EmailMemoryProposal[] = [];
-  if (text?.type === 'text') {
+  if (text !== null) {
+    assertNotTruncated(response);
     try {
-      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(stripJsonFences(text.text)));
+      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(stripJsonFences(text)));
     } catch { /* parse or validation error */ }
   }
 

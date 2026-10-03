@@ -6,7 +6,7 @@ import { MODEL_IDS } from '@boardroom/shared';
 import type { Response } from 'express';
 import type { AnthropicToolDef } from '../tools/tool-registry';
 import { sendSSE } from './streaming';
-import { buildSystemBlocks, stripJsonFences, EFFORT, type Effort } from '../lib/llm-request';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT, type Effort } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 
 /**
@@ -37,6 +37,16 @@ export interface AgentOptions {
   sessionId?: string;
   userId?: string;
 }
+
+/**
+ * R-B-04 — round-2 rebuttal output cap per model tier. Sonnet 5.5 with
+ * adaptive thinking spends part of `max_tokens` on reasoning, so the old flat
+ * 800 cap truncated its JSON; Haiku 4.5 (no thinking) keeps the tight budget.
+ */
+export const REBUTTAL_MAX_TOKENS: Readonly<Record<'haiku' | 'sonnet', number>> = {
+  haiku: 800,
+  sonnet: 2000,
+};
 
 export class Agent {
   constructor(
@@ -97,10 +107,13 @@ export class Agent {
     }, { signal });
     this.track(response.usage, startedAt);
 
-    const text = response.content[0];
-    if (!text || text.type !== 'text') throw new Error('Empty response from LLM');
+    // R-B-03: first TEXT block (a leading `thinking` block is skipped), and a
+    // max_tokens cut-off fails loudly before JSON.parse.
+    const text = firstText(response);
+    if (text === null) throw new Error('Empty response from LLM');
+    assertNotTruncated(response);
 
-    const parsed = JSON.parse(stripJsonFences(text.text));
+    const parsed = JSON.parse(stripJsonFences(text));
     return PersonaResponseSchema.parse(parsed) as PersonaResponse;
   }
 
@@ -137,6 +150,7 @@ export class Agent {
       if (typeof (stream as { finalMessage?: unknown }).finalMessage === 'function') {
         const final = await stream.finalMessage();
         this.track(final.usage, startedAt);
+        assertNotTruncated(final); // R-B-03
       }
 
       const parsed = JSON.parse(stripJsonFences(fullText));
@@ -183,13 +197,12 @@ export class Agent {
       );
 
       if (toolUseBlocks.length === 0) {
-        // No tool use — extract text response
-        const textBlock = response.content.find(
-          (b): b is Anthropic.TextBlock => b.type === 'text'
-        );
-        if (!textBlock) throw new Error('Empty response from LLM');
+        // No tool use — extract text response (R-B-03: first TEXT block, not [0])
+        const textBlock = firstText(response);
+        if (textBlock === null) throw new Error('Empty response from LLM');
+        assertNotTruncated(response);
 
-        const parsed = JSON.parse(stripJsonFences(textBlock.text));
+        const parsed = JSON.parse(stripJsonFences(textBlock));
         const validated = PersonaResponseSchema.parse(parsed) as PersonaResponse;
         return { response: validated, toolInvocations: allInvocations };
       }
@@ -235,14 +248,15 @@ export class Agent {
     const startedAt = Date.now();
     const response = await this.client.messages.create({
       ...this.baseParams(system),
-      max_tokens: Math.min(this.config.maxOutputTokens, 800),
+      max_tokens: Math.min(this.config.maxOutputTokens, REBUTTAL_MAX_TOKENS[this.config.model] ?? REBUTTAL_MAX_TOKENS.haiku),
       messages: [{ role: 'user', content: userMessage }],
     }, { signal });
     this.track(response.usage, startedAt, `rebuttal:${this.config.id}`);
 
-    const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (!text) throw new Error('Empty rebuttal response from LLM');
-    const parsed = RebuttalSchema.parse(JSON.parse(stripJsonFences(text.text)));
+    const text = firstText(response);
+    if (text === null) throw new Error('Empty rebuttal response from LLM');
+    assertNotTruncated(response); // R-B-03
+    const parsed = RebuttalSchema.parse(JSON.parse(stripJsonFences(text)));
     return { personaId: this.config.id, ...parsed };
   }
 

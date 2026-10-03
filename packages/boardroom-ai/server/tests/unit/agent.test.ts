@@ -73,10 +73,17 @@ describe('Agent', () => {
         output_config: { effort: 'low' },
         messages: [{
           role: 'user',
-          content: expect.stringContaining('Context') && expect.stringContaining('Question'),
+          content: expect.any(String),
         }],
       }, { signal: undefined }); // B-111: request options carry the client-disconnect AbortSignal
       const params = mockClient.messages.create.mock.calls[0][0];
+      // R-B-07b: `a && b` with two asymmetric matchers only ever asserted `b`
+      // (the first matcher is truthy). Assert each section on its own.
+      const userContent: string = params.messages[0].content;
+      expect(userContent).toContain('## Context');
+      expect(userContent).toContain('## Question');
+      expect(userContent).toContain('Previous hiring decision');
+      expect(userContent).toContain('Should we hire?');
       expect(params).not.toHaveProperty('temperature');
       expect(params).not.toHaveProperty('thinking');
       expect(params).not.toHaveProperty('tool_choice');
@@ -96,6 +103,34 @@ describe('Agent', () => {
       mockClient.messages.create.mockResolvedValue(mockResponse);
 
       await expect(agent.reason('Test question', [])).rejects.toThrow('Empty response from LLM');
+    });
+
+    // ---- R-B-03 --------------------------------------------------------------
+    const validPersonaJson = JSON.stringify({
+      personaId: 'optimist', situationReading: 'R', keyAssumptions: ['A'], analysis: 'An',
+      recommendation: 'Rec', uncertainties: ['U'], sourceMemoryIds: [], confidence: 0.5, dissentFlag: false,
+    });
+
+    it('reads the first TEXT block when Sonnet returns a leading `thinking` block (content[0] is not text)', async () => {
+      mockClient.messages.create.mockResolvedValue({
+        stop_reason: 'end_turn',
+        content: [
+          { type: 'thinking', thinking: '' },
+          { type: 'text', text: validPersonaJson },
+        ],
+      });
+
+      const result = await agent.reason('Q', []);
+      expect(result.recommendation).toBe('Rec');
+    });
+
+    it('throws "LLM output truncated (max_tokens)" instead of a JSON parse error when stop_reason is max_tokens', async () => {
+      mockClient.messages.create.mockResolvedValue({
+        stop_reason: 'max_tokens',
+        content: [{ type: 'text', text: '{"personaId":"optimist","situationReading":"cut' }],
+      });
+
+      await expect(agent.reason('Q', [])).rejects.toThrow('LLM output truncated (max_tokens)');
     });
 
     it('handles JSON parsing errors', async () => {
@@ -358,6 +393,39 @@ describe('Agent', () => {
       });
       const a = new Agent(mockConfig, mockClient as any, 'P');
       await expect(a.rebut('u', 'R')).rejects.toThrow();
+    });
+
+    // ---- R-B-04 — rebuttal max_tokens cap is per model tier -------------------
+    const validRebuttal = { content: [{ type: 'text', text: JSON.stringify({ stance: 'defend', reason: 'r', revisedConfidence: 0.6 }) }] };
+
+    it('rebut() caps Haiku at 800 output tokens', async () => {
+      mockClient.messages.create.mockResolvedValue(validRebuttal);
+      const a = new Agent({ ...mockConfig, model: 'haiku', maxOutputTokens: 1200 }, mockClient as any, 'P');
+      await a.rebut('u', 'R');
+      expect(mockClient.messages.create.mock.calls[0][0].max_tokens).toBe(800);
+    });
+
+    it('rebut() gives Sonnet (adaptive thinking) 2000 output tokens, bounded by the persona budget', async () => {
+      mockClient.messages.create.mockResolvedValue(validRebuttal);
+      const alt = new Agent({ ...mockConfig, id: 'alternate', model: 'sonnet', maxOutputTokens: 3000 }, mockClient as any, 'P');
+      await alt.rebut('u', 'R');
+      expect(mockClient.messages.create.mock.calls[0][0].max_tokens).toBe(2000);
+
+      mockClient.messages.create.mockClear();
+      mockClient.messages.create.mockResolvedValue(validRebuttal);
+      const small = new Agent({ ...mockConfig, id: 'custom_x' as any, model: 'sonnet', maxOutputTokens: 1500 }, mockClient as any, 'P');
+      await small.rebut('u', 'R');
+      expect(mockClient.messages.create.mock.calls[0][0].max_tokens).toBe(1500);
+    });
+
+    it('rebut() reads the first TEXT block past a leading thinking block (R-B-03)', async () => {
+      mockClient.messages.create.mockResolvedValue({
+        stop_reason: 'end_turn',
+        content: [{ type: 'thinking', thinking: '' }, ...validRebuttal.content],
+      });
+      const a = new Agent({ ...mockConfig, id: 'critic' }, mockClient as any, 'P');
+      const r = await a.rebut('u', 'R');
+      expect(r.stance).toBe('defend');
     });
   });
 });

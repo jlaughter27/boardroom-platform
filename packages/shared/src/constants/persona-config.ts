@@ -20,7 +20,9 @@ export const PERSONA_CONFIGS: Readonly<Record<BuiltInPersonaId, PersonaConfig>> 
   // enforced in the prompt text itself (see docs/prompts/*.system.md).
   optimist: { id: 'optimist', name: 'The Optimist', model: 'haiku', maxOutputTokens: 1200, systemPromptPath: 'docs/prompts/optimist.system.md' },
   critic: { id: 'critic', name: 'The Critic', model: 'haiku', maxOutputTokens: 1200, systemPromptPath: 'docs/prompts/critic.system.md' },
-  alternate: { id: 'alternate', name: 'The Alternate', model: 'sonnet', maxOutputTokens: 1500, systemPromptPath: 'docs/prompts/alternate.system.md' },
+  // R-B-04 (2026-10-03): Sonnet 5.5 adaptive thinking draws from max_tokens, so the
+  // one Sonnet persona needs headroom above its 1500-token prompt declaration.
+  alternate: { id: 'alternate', name: 'The Alternate', model: 'sonnet', maxOutputTokens: 3000, systemPromptPath: 'docs/prompts/alternate.system.md' },
   technician: { id: 'technician', name: 'The Technician', model: 'haiku', maxOutputTokens: 1200, systemPromptPath: 'docs/prompts/technician.system.md' },
   questionnaire: { id: 'questionnaire', name: 'The Questionnaire', model: 'haiku', maxOutputTokens: 1000, systemPromptPath: 'docs/prompts/questionnaire.system.md' },
   doer: { id: 'doer', name: 'The Doer', model: 'haiku', maxOutputTokens: 1500, systemPromptPath: 'docs/prompts/doer.system.md' },
