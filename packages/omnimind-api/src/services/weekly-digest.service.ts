@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '../lib/logger';
+import { getCommitmentNudges, renderCommitmentLines } from './commitment.service';
 
 export interface DigestStats {
   userId: string;
@@ -11,14 +12,18 @@ export interface DigestStats {
   tasksCompleted: number;
   topDomains: string[];
   highlights: string[];
+  /** Phase 6: "you promised X to Y" lines (due ≤3 days / overdue), SQL only. */
+  commitmentNudges: string[];
 }
 
 export async function buildWeeklyDigest(userId: string, weekStart: Date, weekEnd: Date, prisma: PrismaClient): Promise<DigestStats> {
   const [memoriesCreated, memoriesUpdated, decisionsLogged, tasksCompleted, domainCounts] = await Promise.all([
     prisma.memoryEntry.count({ where: { userId, createdAt: { gte: weekStart, lt: weekEnd }, deletedAt: null } }),
     prisma.memoryEntry.count({ where: { userId, updatedAt: { gte: weekStart, lt: weekEnd }, createdAt: { lt: weekStart }, deletedAt: null } }),
-    prisma.decision.count({ where: { createdAt: { gte: weekStart, lt: weekEnd } } }),
-    prisma.task.count({ where: { status: 'completed', updatedAt: { gte: weekStart, lt: weekEnd } } }),
+    // O-106: per-user digest must count THIS user's live rows only.
+    prisma.decision.count({ where: { userId, deletedAt: null, createdAt: { gte: weekStart, lt: weekEnd } } }),
+    prisma.task.count({ where: { userId, deletedAt: null, status: 'completed', updatedAt: { gte: weekStart, lt: weekEnd } } }),
+
     prisma.memoryEntry.groupBy({
       by: ['domain'],
       where: { userId, createdAt: { gte: weekStart, lt: weekEnd }, deletedAt: null },
@@ -30,13 +35,22 @@ export async function buildWeeklyDigest(userId: string, weekStart: Date, weekEnd
 
   const topDomains = domainCounts.map(d => d.domain);
 
+  // Phase 6: commitment nudges ride along in the digest email.
+  let commitmentNudges: string[] = [];
+  try {
+    commitmentNudges = renderCommitmentLines(await getCommitmentNudges(userId, prisma));
+  } catch (err) {
+    logger.warn('Digest: commitment nudges unavailable', { userId, error: (err as Error).message });
+  }
+
   const highlights: string[] = [];
   if (memoriesCreated > 0) highlights.push(`${memoriesCreated} new memor${memoriesCreated === 1 ? 'y' : 'ies'} captured`);
   if (decisionsLogged > 0) highlights.push(`${decisionsLogged} decision${decisionsLogged === 1 ? '' : 's'} logged`);
   if (tasksCompleted > 0) highlights.push(`${tasksCompleted} task${tasksCompleted === 1 ? '' : 's'} completed`);
   if (topDomains.length > 0) highlights.push(`Top domains: ${topDomains.join(', ')}`);
+  if (commitmentNudges.length > 0) highlights.push(`${commitmentNudges.length} commitment${commitmentNudges.length === 1 ? '' : 's'} due soon or overdue`);
 
-  return { userId, weekStart, weekEnd, memoriesCreated, memoriesUpdated, decisionsLogged, tasksCompleted, topDomains, highlights };
+  return { userId, weekStart, weekEnd, memoriesCreated, memoriesUpdated, decisionsLogged, tasksCompleted, topDomains, highlights, commitmentNudges };
 }
 
 export async function saveAndSendDigest(stats: DigestStats, prisma: PrismaClient): Promise<void> {
@@ -103,6 +117,9 @@ async function sendDigestEmail(stats: DigestStats, smtpHost: string): Promise<vo
       `Decisions logged: ${stats.decisionsLogged}`,
       `Tasks completed: ${stats.tasksCompleted}`,
       `Active domains: ${stats.topDomains.join(', ') || 'none'}`,
+      '',
+      'Commitments due soon / overdue:',
+      ...(stats.commitmentNudges.length ? stats.commitmentNudges.map(l => `  - ${l}`) : ['  (none)']),
     ].join('\n'),
   });
 }

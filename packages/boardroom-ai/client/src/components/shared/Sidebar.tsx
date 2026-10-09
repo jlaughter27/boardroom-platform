@@ -12,6 +12,8 @@ interface NavItemDef {
   to: string;
   label: string;
   icon: React.ReactNode;
+  /** Only shown to users with `isAdmin` (C-103). */
+  adminOnly?: boolean;
 }
 
 const primaryNav: NavItemDef[] = [
@@ -53,6 +55,21 @@ const primaryNav: NavItemDef[] = [
   },
 ];
 
+const graphNavItem: NavItemDef = {
+  to: '/graph',
+  label: 'Graph',
+  icon: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <circle cx="6" cy="6" r="2.2" />
+      <circle cx="18" cy="7" r="2.2" />
+      <circle cx="12" cy="17" r="2.2" />
+      <circle cx="19" cy="17" r="1.6" />
+      <path strokeLinecap="round" d="M7.8 7.2l2.9 7.6M15.9 8l-2.6 7.2M14.2 17h3.2" />
+    </svg>
+  ),
+};
+primaryNav.push(graphNavItem);
+
 const secondaryNav: NavItemDef[] = [
   {
     to: '/settings',
@@ -85,6 +102,7 @@ const secondaryNav: NavItemDef[] = [
   {
     to: '/admin',
     label: 'Admin',
+    adminOnly: true,
     icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -191,9 +209,11 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
           <div className="border-t border-white/10" />
         </div>
 
-        {secondaryNav.map((item) => (
-          <NavItem key={item.to} item={item} collapsed={collapsed} onNavigate={onNavigate} />
-        ))}
+        {secondaryNav
+          .filter((item) => !item.adminOnly || user?.isAdmin)
+          .map((item) => (
+            <NavItem key={item.to} item={item} collapsed={collapsed} onNavigate={onNavigate} />
+          ))}
       </nav>
 
       {/* Theme toggle */}

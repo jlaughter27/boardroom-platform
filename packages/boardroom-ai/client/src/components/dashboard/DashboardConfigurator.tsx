@@ -53,12 +53,16 @@ export function DashboardConfigurator({
     });
   }
 
+  // On failure useWidgetLayout has already reverted + toasted (C-117);
+  // we just keep the modal open so the user can retry.
   async function handleSave() {
     setSaving(true);
     try {
       const reindexed = draft.map((w, i) => ({ ...w, position: i }));
       await onSave(reindexed);
       onClose();
+    } catch {
+      /* reverted + toasted upstream */
     } finally {
       setSaving(false);
     }
@@ -69,6 +73,8 @@ export function DashboardConfigurator({
     try {
       await onReset();
       onClose();
+    } catch {
+      /* reverted + toasted upstream */
     } finally {
       setSaving(false);
     }

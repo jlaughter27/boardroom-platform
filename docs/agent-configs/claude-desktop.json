@@ -1,17 +1,21 @@
 {
-  "_comment": "Claude Desktop MCP configuration for josh-personal tenant. Merge into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS).",
+  "_comment": "Claude Desktop MCP configuration for josh-personal tenant. Merge into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS). OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
   "mcpServers": {
     "omnimind-personal": {
       "command": "node",
-      "args": ["/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"],
+      "args": [
+        "/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"
+      ],
       "env": {
         "OMNIMIND_MCP_AGENT_NAME": "claude-desktop-josh",
         "OMNIMIND_MCP_TENANT_ID": "josh-personal",
         "OMNIMIND_MCP_SCOPES": "memory:read,memory:write,context:write,preference:write,person:write",
         "OMNIMIND_MCP_SOURCE_WEIGHT": "0.85",
+        "OMNIMIND_MCP_AGENT_KEY": "REPLACE_WITH_AGENT_KEY_FROM_KEYGEN",
         "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
         "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
-        "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY"
+        "ANTHROPIC_API_KEY": "REPLACE_WITH_ANTHROPIC_KEY",
+        "OMNIMIND_MCP_USER_ID": "REPLACE_WITH_USER_ID_OPTIONAL"
       }
     }
   }

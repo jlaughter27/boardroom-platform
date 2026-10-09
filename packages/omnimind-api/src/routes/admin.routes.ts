@@ -2,28 +2,43 @@ import { Router, type IRouter, type Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
+import { HttpError } from '../middleware/error-handler';
 import { summarizeRecentSessions } from '../services/session-summarizer.service';
 
+// NOTE: this router is mounted behind `requireAdminKey` (F-104) in index.ts.
 const router: IRouter = Router();
+
+function wantsAllTenants(req: Request): boolean {
+  return (
+    typeof req.query.includeAllTenants === 'string' &&
+    req.query.includeAllTenants.toLowerCase() === 'true'
+  );
+}
 
 /**
  * Resolve the tenant filter for an admin route.
  *
- * Default: scope to `req.agentContext.tenantId` so an admin-token call from
+ * Default: scope to `req.agentContext.tenantId` so an admin call from
  * tenant A can't see tenant B's data unless explicitly requested.
  *
  * Override: pass `?includeAllTenants=true` to view across all tenants.
  *
- * Returns null when the caller has opted into cross-tenant view OR no agent
- * context is attached (e.g., legacy non-MCP admin caller).
+ * F-104 (2026-10-02): when NO agent context is attached (BoardRoom AI, curl)
+ * the query no longer silently defaults to all tenants. The caller must opt
+ * in explicitly with `?includeAllTenants=true`, otherwise 400.
+ *
+ * Returns null only for an explicit cross-tenant opt-in.
  */
 function resolveTenantFilter(req: Request): string | null {
-  const includeAllTenants =
-    typeof req.query.includeAllTenants === 'string' &&
-    req.query.includeAllTenants.toLowerCase() === 'true';
-  if (includeAllTenants) return null;
-  return req.agentContext?.tenantId ?? null;
+  if (wantsAllTenants(req)) return null;
+  const ctxTenant = req.agentContext?.tenantId;
+  if (ctxTenant) return ctxTenant;
+  throw new HttpError(400, {
+    code: 'tenant_scope_required',
+    message: 'No agent context on this request; pass ?includeAllTenants=true to run a cross-tenant admin query',
+  });
 }
+
 
 // GET /admin/stats — aggregate counts (tenant-scoped by default, ?includeAllTenants=true for global)
 router.get('/stats', async (req, res, next) => {
@@ -182,25 +197,47 @@ router.get('/memories', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /admin/contradictions — contradiction alerts across all users
+// GET /admin/contradictions — unresolved contradiction alerts.
+// F-210: ContradictionAlert is keyed by user, not tenant. Default to the
+// caller's user scope (x-user-id, or ?userId=); a cross-user listing requires
+// an explicit ?includeAllTenants=true opt-in.
 router.get('/contradictions', async (req, res, next) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string ?? '50', 10), 200);
-    const offset = parseInt(req.query.offset as string ?? '0', 10);
+    const limit = Math.min(parseInt(req.query.limit as string ?? '50', 10) || 50, 200);
+    const offset = parseInt(req.query.offset as string ?? '0', 10) || 0;
+
+    const headerUser = req.headers['x-user-id'];
+    const userId =
+      (typeof req.query.userId === 'string' && req.query.userId) ||
+      (typeof headerUser === 'string' && headerUser) ||
+      null;
+
+    let where: { resolvedAt: null; userId?: string };
+    if (userId) {
+      where = { resolvedAt: null, userId };
+    } else if (wantsAllTenants(req)) {
+      where = { resolvedAt: null };
+    } else {
+      throw new HttpError(400, {
+        code: 'user_scope_required',
+        message: 'Provide x-user-id (or ?userId=) to scope contradictions, or opt into ?includeAllTenants=true for all users',
+      });
+    }
 
     const [alerts, total] = await Promise.all([
       prisma.contradictionAlert.findMany({
-        where: { resolvedAt: null },
+        where,
         orderBy: { detectedAt: 'desc' },
         take: limit,
         skip: offset,
       }),
-      prisma.contradictionAlert.count({ where: { resolvedAt: null } }),
+      prisma.contradictionAlert.count({ where }),
     ]);
 
     res.json({ alerts, total, offset, limit });
   } catch (err) { next(err); }
 });
+
 
 // POST /admin/summarize — trigger session summarizer manually
 router.post('/summarize', async (_req, res, next) => {
@@ -288,13 +325,13 @@ router.post('/duplicates/merge', async (req, res, next) => {
       return;
     }
 
-    const callerTenant = req.agentContext?.tenantId ?? null;
+    // F-104: same opt-in rule as the read routes — no agent context means the
+    // caller must say ?includeAllTenants=true to touch rows outside a tenant.
+    const callerTenant = resolveTenantFilter(req);
 
-    // Verify the archive target belongs to the caller's tenant (when context is
-    // attached). If no agent context is present (legacy admin call), allow the
-    // operation but log it — that path is gated only by OMNIMIND_API_KEY.
     const targetWhere: Record<string, unknown> = { id: archiveId, userId, deletedAt: null };
     if (callerTenant) targetWhere.tenantId = callerTenant;
+
 
     const target = await prisma.memoryEntry.findFirst({ where: targetWhere });
     if (!target) {

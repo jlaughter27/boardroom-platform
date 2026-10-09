@@ -116,6 +116,44 @@ describe('memory-extractor', () => {
     }
   });
 
+  // ---- R-B-03 ----------------------------------------------------------------
+  it('reads the first TEXT block when Sonnet leads with a `thinking` block', async () => {
+    const client = {
+      messages: {
+        create: async () => ({
+          stop_reason: 'end_turn',
+          content: [
+            { type: 'thinking' as const, thinking: '' },
+            { type: 'text' as const, text: JSON.stringify([sampleProposal]) },
+          ],
+        }),
+      },
+    } as any;
+    const responses = new Map([['optimist', makePersonaResponse()]]);
+
+    const result = await extractMemories('What is our runway?', responses, null, client);
+
+    expect(result.proposalCount).toBe(1);
+    expect(result.proposals[0].title).toBe('Company runway is 8 months');
+  });
+
+  it('throws a clear error (not a JSON parse error) when the output was cut off by max_tokens', async () => {
+    const client = {
+      messages: {
+        create: async () => ({
+          stop_reason: 'max_tokens',
+          content: [
+            { type: 'thinking' as const, thinking: '' },
+            { type: 'text' as const, text: '[{"action":"ADD","title":"trunc' },
+          ],
+        }),
+      },
+    } as any;
+    const responses = new Map([['optimist', makePersonaResponse()]]);
+
+    await expect(extractMemories('Q', responses, null, client)).rejects.toThrow('LLM output truncated (max_tokens)');
+  });
+
   it('handles synthesis context when present', async () => {
     const client = makeMockClient([sampleProposal]);
     const responses = new Map([['optimist', makePersonaResponse()]]);

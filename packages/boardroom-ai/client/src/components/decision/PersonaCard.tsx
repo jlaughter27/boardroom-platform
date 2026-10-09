@@ -2,6 +2,7 @@ import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
+import type { Rebuttal } from '../../types/debate';
 import { Card, Badge, Progress } from '../ui';
 
 const PERSONA_COLORS: Record<string, string> = {
@@ -19,6 +20,44 @@ interface PersonaCardProps {
   response?: PersonaResponse;
   streamingText?: string;
   isStreaming: boolean;
+  /** Debate round 2: this persona is writing its rebuttal (`rebuttal_start`). */
+  isRebutting?: boolean;
+  /** Debate round 2: completed rebuttal (`rebuttal_complete`). */
+  rebuttal?: Rebuttal;
+}
+
+/** Inline debate outcome: Defended / Conceded badge, reason, and old → new recommendation. */
+function RebuttalBlock({ rebuttal, original }: { rebuttal: Rebuttal; original: PersonaResponse }) {
+  const defended = rebuttal.stance === 'defend';
+  const revised = rebuttal.revisedRecommendation?.trim();
+  const changed = !!revised && revised !== original.recommendation.trim();
+  return (
+    <div
+      className={`mt-3 rounded-md border p-3 text-sm ${defended ? 'border-info/30 bg-info-muted' : 'border-warning/30 bg-warning-muted'}`}
+      data-testid="rebuttal-block"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <Badge variant={defended ? 'info' : 'warning'}>{defended ? 'Defended' : 'Conceded'}</Badge>
+        <span className="text-xs text-muted-foreground">after hearing the other advisors</span>
+      </div>
+      <p className="text-muted-foreground leading-relaxed">{rebuttal.reason}</p>
+      {changed && revised && (
+        <div className="mt-2 space-y-1">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Revised recommendation</div>
+          <p className="text-muted-foreground line-through decoration-muted-foreground/60">{original.recommendation}</p>
+          <p className="text-foreground">{revised}</p>
+        </div>
+      )}
+      {typeof rebuttal.revisedConfidence === 'number' && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Confidence</span>
+          <span className="tabular-nums line-through decoration-muted-foreground/60">{Math.round(original.confidence * 100)}%</span>
+          <span aria-hidden>{'\u2192'}</span>
+          <span className="tabular-nums text-foreground">{Math.round(rebuttal.revisedConfidence * 100)}%</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CollapsibleSection({
@@ -58,7 +97,7 @@ function CollapsibleSection({
   );
 }
 
-export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming }: PersonaCardProps) {
+export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming, isRebutting, rebuttal }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
   const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
 
@@ -111,6 +150,17 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
             {response.dissentFlag && <Badge variant="warning">DISSENTS</Badge>}
+            {isRebutting && !rebuttal && (
+              <Badge variant="info">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse mr-1.5" aria-hidden />
+                Rebutting…
+              </Badge>
+            )}
+            {rebuttal && !isRebutting && (
+              <Badge variant={rebuttal.stance === 'defend' ? 'info' : 'warning'}>
+                {rebuttal.stance === 'defend' ? 'Defended' : 'Conceded'}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -137,6 +187,8 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Recommendation</div>
           <p className="text-sm text-foreground">{response.recommendation}</p>
         </div>
+
+        {rebuttal && <RebuttalBlock rebuttal={rebuttal} original={response} />}
 
         {response.uncertainties.length > 0 && (
           <CollapsibleSection title="Uncertainties">

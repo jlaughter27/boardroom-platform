@@ -1,8 +1,12 @@
 import { z } from 'zod';
+import { McpProjectStatusOutputSchema, McpProjectSummaryOutputSchema } from '@boardroom/shared';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
+import { parseInput } from '../lib/validate';
+import { TASK_TAG } from './task.tool';
 import type { OmniMindClient } from '../lib/client';
-import type { AgentContext } from '../types';
+import { READ_ONLY_ANNOTATIONS } from '../types';
+import type { AgentContext, McpTool } from '../types';
 
 const ProjectStatusInput = z.object({
   projectName: z.string().min(1),
@@ -14,19 +18,28 @@ const ProjectSummaryInput = z.object({
   userId: z.string(),
 });
 
+export function projectTag(projectRef: string): string {
+  return `project:${projectRef}`;
+}
+
 export function projectStatusTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'project_status',
+    title: 'Project status',
     description: 'Get the current status of a project.',
     inputSchema: ProjectStatusInput,
+    outputSchema: McpProjectStatusOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       // WS-6 F-103 — read-only tool requires read scope, not write.
       requireScope(ctx, 'memory:read');
-      const input = ProjectStatusInput.parse(raw);
+      const input = parseInput(ProjectStatusInput, raw);
 
       return withAudit(client, ctx, 'project_status', input, async () => {
+        // Substring match on the project name itself (the old `project <name>`
+        // literal almost never occurs in stored text).
         const results = await client.searchMemories({
-          query: `project ${input.projectName}`,
+          query: input.projectName,
           tenantId: ctx.tenantId,
           userId: input.userId,
           limit: 5,
@@ -38,29 +51,33 @@ export function projectStatusTool(client: OmniMindClient, ctx: AgentContext) {
         };
       });
     },
-  };
+  } satisfies McpTool;
 }
 
 export function projectSummaryTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'project_summary',
+    title: 'Project summary',
     description: 'Retrieve a summary of all memories and tasks related to a project.',
     inputSchema: ProjectSummaryInput,
+    outputSchema: McpProjectSummaryOutputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       // WS-6 F-103 — read-only tool requires read scope, not write.
       requireScope(ctx, 'memory:read');
-      const input = ProjectSummaryInput.parse(raw);
+      const input = parseInput(ProjectSummaryInput, raw);
 
       return withAudit(client, ctx, 'project_summary', input, async () => {
         const [memories, tasks] = await Promise.all([
           client.searchMemories({
-            query: `project ${input.projectName}`,
+            query: input.projectName,
             tenantId: ctx.tenantId,
             userId: input.userId,
             limit: 10,
           }),
+          // M-102: task_upsert tags tasks `task` + `project:<ref>` — query by tags.
           client.searchMemories({
-            query: `project:${input.projectName} task`,
+            tags: [TASK_TAG, projectTag(input.projectName)],
             tenantId: ctx.tenantId,
             userId: input.userId,
             limit: 20,
@@ -76,5 +93,5 @@ export function projectSummaryTool(client: OmniMindClient, ctx: AgentContext) {
         };
       });
     },
-  };
+  } satisfies McpTool;
 }

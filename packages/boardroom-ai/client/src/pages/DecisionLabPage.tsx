@@ -6,6 +6,7 @@ import * as api from '../lib/api';
 import type { UserMode, SessionSummary } from '@boardroom/shared';
 import { PageWrapper, Card, Button, Badge, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
+import { CalibrationPanel } from '../components/decision/CalibrationPanel';
 import { staggerContainer, staggerItem } from '../lib/motion';
 
 const MODE_LABELS: Record<UserMode, string> = {
@@ -15,6 +16,7 @@ const MODE_LABELS: Record<UserMode, string> = {
   'clarify': 'Clarify',
   'review': 'Review',
   'quick-take': 'Quick Take',
+  'premortem': 'Pre-mortem',
 };
 
 const MODE_VARIANT: Record<string, 'accent' | 'warning' | 'info' | 'success' | 'default'> = {
@@ -24,6 +26,7 @@ const MODE_VARIANT: Record<string, 'accent' | 'warning' | 'info' | 'success' | '
   clarify: 'success',
   review: 'default',
   'quick-take': 'default',
+  premortem: 'warning',
 };
 
 const FILTER_TABS = [
@@ -33,6 +36,7 @@ const FILTER_TABS = [
   { value: 'plan', label: 'Plan' },
   { value: 'clarify', label: 'Clarify' },
   { value: 'review', label: 'Review' },
+  { value: 'premortem', label: 'Pre-mortem' },
 ];
 
 type SortKey = 'newest' | 'oldest';
@@ -115,6 +119,11 @@ export default function DecisionLabPage() {
             onDismiss={() => setError(null)}
           />
         )}
+
+        {/* Calibration (Phase 6) — gated until enough reviewed decisions exist */}
+        <div className="mb-6">
+          <CalibrationPanel />
+        </div>
 
         {/* Filter/sort bar */}
         {!isLoading && sessions.length > 0 && (

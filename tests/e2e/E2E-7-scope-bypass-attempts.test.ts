@@ -13,6 +13,10 @@
  *   `memory:read`. Pre-WS-6 these tools required write scopes, which forced
  *   privilege creep on read-only agents.
  *
+ *   Phase 6 adds three tools: `memory_reflect` and `memory_consolidate`
+ *   (both `memory:write` → denied here) and `graph_neighborhood`
+ *   (`memory:read` → permitted).
+ *
  * Scope wildcard test (`memory:*` granting `memory:read`) is in the unit tests
  * for `namespace.ts` — this E2E focuses on the cross-seam tool-side enforcement.
  */
@@ -154,6 +158,25 @@ describe('E2E-7 / D17: read-only agent cannot invoke write tools, can invoke rea
     expect(result.isError).toBe(true);
   });
 
+  it('memory_reflect is denied (Phase 6, requires memory:write)', async () => {
+    const result = await mcp.callToolRaw('memory_reflect', {
+      entityType: 'project',
+      entityId: 'any-project',
+      userId: TEST_USER_ID,
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.parsed ?? result.content)).toMatch(/SCOPE_DENIED|memory:write/i);
+  });
+
+  it('memory_consolidate is denied even as a dry run (Phase 6, requires memory:write)', async () => {
+    const result = await mcp.callToolRaw('memory_consolidate', {
+      userId: TEST_USER_ID,
+      dryRun: true,
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.parsed ?? result.content)).toMatch(/SCOPE_DENIED|memory:write/i);
+  });
+
   // -------- read tools MUST be allowed --------
   //
   // Pre-WS-6 these tools required write scopes (F-103). The fix changed them
@@ -198,5 +221,19 @@ describe('E2E-7 / D17: read-only agent cannot invoke write tools, can invoke rea
       userId: TEST_USER_ID,
     });
     expect(result.isError).toBe(false);
+  });
+
+  it('graph_neighborhood is permitted with only memory:read (Phase 6)', async () => {
+    // Scope check runs before the HTTP call, so a VALIDATION_ERROR / HTTP
+    // failure would surface as isError with a non-scope payload — assert on
+    // the payload, not just the flag, so a 404 from a not-yet-deployed
+    // /graph/backlinks route is distinguishable from a scope denial.
+    const result = await mcp.callToolRaw('graph_neighborhood', {
+      nodeId: 'project:does-not-exist',
+      hops: 1,
+      userId: TEST_USER_ID,
+    });
+    const text = JSON.stringify(result.parsed ?? result.content);
+    expect(text).not.toMatch(/SCOPE_DENIED/);
   });
 });

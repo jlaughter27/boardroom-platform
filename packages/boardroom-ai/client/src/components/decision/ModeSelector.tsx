@@ -1,22 +1,26 @@
 import { motion } from 'motion/react';
-import { MODE_CONFIGS } from '@boardroom/shared';
-import type { UserMode } from '@boardroom/shared';
-import { Card } from '../ui';
+import { CLIENT_MODE_LIST, type ClientUserMode } from '../../types/debate';
 
-const MODE_ICONS: Record<UserMode, string> = {
+const MODE_ICONS: Record<ClientUserMode, string> = {
   'decide': '\u2696\uFE0F',
   'stress-test': '\uD83D\uDD0D',
   'plan': '\uD83D\uDCCB',
   'clarify': '\uD83D\uDCA1',
   'review': '\uD83D\uDD04',
   'quick-take': '\u26A1',
+  'premortem': '\uD83E\uDEA6',
 };
 
-const MODES = Object.values(MODE_CONFIGS);
+/** Helper copy shown under the label; falls back to the shared description. */
+const MODE_HELPER: Partial<Record<ClientUserMode, string>> = {
+  premortem: 'Assume it failed. Find out why.',
+};
+
+const MODES = CLIENT_MODE_LIST;
 
 interface ModeSelectorProps {
-  selectedMode: UserMode;
-  onSelect: (mode: UserMode) => void;
+  selectedMode: ClientUserMode;
+  onSelect: (mode: ClientUserMode) => void;
 }
 
 export function ModeSelector({ selectedMode, onSelect }: ModeSelectorProps) {
@@ -42,10 +46,10 @@ export function ModeSelector({ selectedMode, onSelect }: ModeSelectorProps) {
                 transition={{ type: 'spring', stiffness: 500, damping: 30 }}
               />
             )}
-            <span className="text-2xl flex-shrink-0 mt-0.5">{MODE_ICONS[config.id]}</span>
+            <span className="text-2xl flex-shrink-0 mt-0.5">{MODE_ICONS[config.id] ?? '\u2022'}</span>
             <div className="min-w-0">
               <div className="font-medium text-foreground text-sm">{config.label}</div>
-              <div className="text-muted-foreground text-xs mt-0.5">{config.description}</div>
+              <div className="text-muted-foreground text-xs mt-0.5">{MODE_HELPER[config.id] ?? config.description}</div>
               <div className="text-muted-foreground text-xs mt-1">
                 {config.personas.length > 0
                   ? `${config.personas.length} personas`

@@ -30,6 +30,22 @@ describe('OmniMindClient', () => {
     expect(opts.headers['x-user-id']).toBe('user-123');
   });
 
+  // S-2 — admin-only cross-user usage summary
+  it('getLlmUsageSummary forwards all=1 and sends x-admin-key only when an adminKey is given', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve({ totalCostUsd: 0 }) });
+
+    await client.getLlmUsageSummary({ all: '1', days: '7' }, { adminKey: 'adm-secret' });
+    let [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toBe('http://test:3333/usage/llm/summary?all=1&days=7');
+    expect(opts.headers['x-admin-key']).toBe('adm-secret');
+    expect(opts.headers['x-api-key']).toBe('test-key'); // extra headers never displace the auth header
+
+    await client.getLlmUsageSummary({ days: '7' });
+    [url, opts] = fetchSpy.mock.calls[1];
+    expect(url).toBe('http://test:3333/usage/llm/summary?days=7');
+    expect(opts.headers['x-admin-key']).toBeUndefined();
+  });
+
   it('omits x-user-id when userId is not provided', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

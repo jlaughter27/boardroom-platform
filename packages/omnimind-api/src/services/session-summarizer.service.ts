@@ -1,7 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
+import { MODEL_IDS } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 import { createMemory } from './memory.service';
+import { createMessage, extractText, hasAnthropicKey } from '../lib/anthropic';
 
 // Sessions with a gap > 30 min between tool calls are considered separate sessions
 const SESSION_GAP_MS = 30 * 60 * 1000;
@@ -9,6 +10,35 @@ const SESSION_GAP_MS = 30 * 60 * 1000;
 const MIN_CALLS_FOR_SUMMARY = 3;
 // How far back to look for unsummarized audit entries
 const LOOKBACK_MS = 15 * 60 * 1000;
+
+// O-107: tenants without an owner user are logged once, then skipped quietly.
+const ownerWarned = new Set<string>();
+
+export function __resetOwnerWarningsForTest(): void {
+  ownerWarned.clear();
+}
+
+/**
+ * O-107: resolve the real User that owns a tenant. Summaries used to be
+ * written under the synthetic id "mcp:<tenant>", which user-validator rejects
+ * on every read path — the rows were orphaned and still consumed budget.
+ */
+export async function resolveTenantOwner(tenantId: string, prisma: PrismaClient): Promise<string | null> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { ownerUserId: true },
+  });
+  const ownerUserId = tenant?.ownerUserId ?? null;
+  if (!ownerUserId && !ownerWarned.has(tenantId)) {
+    ownerWarned.add(tenantId);
+    logger.warn('[session-summarizer] tenant has no owner_user_id — skipping session summaries for it', {
+      tenantId,
+      fix: `UPDATE tenants SET owner_user_id = '<user cuid>' WHERE id = '${tenantId}'`,
+    });
+  }
+  return ownerUserId;
+}
+
 
 interface AuditEntry {
   id: string;
@@ -76,14 +106,11 @@ function groupIntoSessions(entries: AuditEntry[]): Session[] {
   return sessions;
 }
 
-async function buildSummary(session: Session): Promise<string | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+async function buildSummary(session: Session, ownerUserId: string | null): Promise<string | null> {
+  if (!hasAnthropicKey()) {
     logger.warn('[session-summarizer] ANTHROPIC_API_KEY not set — skipping LLM summary');
     return null;
   }
-
-  const client = new Anthropic({ apiKey });
 
   const toolLog = session.entries
     .map(e => {
@@ -109,17 +136,15 @@ Write a single concise paragraph (2-4 sentences) summarizing:
 Be specific about content, not just tool names. No preamble.`;
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    // Phase 6: shared client, MODEL_IDS.haiku (no thinking), explicit effort, usage recorded.
+    const response = await createMessage({
+      model: MODEL_IDS.haiku,
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
-    });
+      output_config: { effort: 'low' },
+    }, { purpose: 'session-summarizer', userId: ownerUserId, tenantId: session.tenantId });
 
-    return response.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as { type: 'text'; text: string }).text)
-      .join('')
-      .trim();
+    return extractText(response);
   } catch (err) {
     logger.error('[session-summarizer] Haiku summarization failed', { error: (err as Error).message });
     return null;
@@ -161,17 +186,19 @@ export async function summarizeRecentSessions(prisma: PrismaClient): Promise<voi
       continue;
     }
 
-    const summary = await buildSummary(session);
-    if (!summary) continue;
+    // O-107: resolve the tenant's owner BEFORE spending a Haiku call.
+    const ownerUserId = await resolveTenantOwner(session.tenantId, prisma);
+    if (!ownerUserId) continue;
 
-    // Use a synthetic userId based on tenantId (no real user in MCP sessions)
-    const syntheticUserId = `mcp:${session.tenantId}`;
+    const summary = await buildSummary(session, ownerUserId);
+    if (!summary) continue;
 
     try {
       // Synthesize agent context from session metadata so the summary row
       // is attributed to the originating agent + tenant, not left blank.
       await createMemory(
-        syntheticUserId,
+        ownerUserId,
+
         {
           title: `Session summary — ${session.agentId} — ${session.startedAt.toISOString().slice(0, 16)}`,
           content: summary,

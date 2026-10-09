@@ -1,9 +1,13 @@
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../lib/anthropic-client';
 import type { EmailSummary, EmailExtraction, EmailMemoryProposal } from '@boardroom/shared';
-import { MODEL_MAP, EmailMemoryProposalsSchema } from '@boardroom/shared';
+import { MODEL_IDS, EmailMemoryProposalsSchema } from '@boardroom/shared';
+import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
+import { recordUsage } from '../lib/llm-usage';
 import { omnimindClient } from './omnimind-client';
 import { signState } from './google-calendar.service';
+import { loadSystemPrompt } from '../lib/prompt-loader';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -136,29 +140,27 @@ export async function extractMemoriesFromEmail(userId: string, emailId: string):
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
-  const { readFileSync } = await import('fs');
-  const { resolve } = await import('path');
-  let systemPrompt: string;
-  try {
-    systemPrompt = readFileSync(resolve(__dirname, '../../../../../docs/prompts/email-extractor.system.md'), 'utf-8');
-  } catch {
-    systemPrompt = 'Extract important information from this email. Return JSON array of memory proposals.';
-  }
+  // B-109: prompts live in docs/prompts and load via prompt-loader (rule 5).
+  // No inline fallback — a missing prompt file must fail loudly.
+  const systemPrompt = loadSystemPrompt('email-extractor');
 
-  const client = new Anthropic({ apiKey });
+  const client = createAnthropicClient(apiKey);
+  const startedAt = Date.now();
   const response = await client.messages.create({
-    model: MODEL_MAP.haiku,
+    model: MODEL_IDS.haiku,
     max_tokens: 1000,
-    system: systemPrompt,
+    system: buildSystemBlocks({ prompt: systemPrompt }),
+    output_config: { effort: EFFORT.extractor },
     messages: [{ role: 'user', content: `Subject: ${subject}\nFrom: ${from}\nDate: ${dateStr}\n\n${body}` }],
   });
+  recordUsage({ purpose: 'extraction:email', model: MODEL_IDS.haiku, usage: response.usage, durationMs: Date.now() - startedAt, userId });
 
-  const text = response.content[0];
+  const text = firstText(response); // R-B-03
   let proposals: EmailMemoryProposal[] = [];
-  if (text?.type === 'text') {
+  if (text !== null) {
+    assertNotTruncated(response);
     try {
-      const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(jsonStr));
+      proposals = EmailMemoryProposalsSchema.parse(JSON.parse(stripJsonFences(text)));
     } catch { /* parse or validation error */ }
   }
 

@@ -1,4 +1,6 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import type { ReflectableEntityType } from '@boardroom/shared';
+import { tryDecryptMemory, normalizeDomain } from '../lib/memory-crypto';
 
 export async function createDecision(
   userId: string,
@@ -6,13 +8,20 @@ export async function createDecision(
   prisma: PrismaClient
 ) {
   // Extract assumptions to create separately if provided
-  const { assumptions, options, ...rest } = data;
+  const { assumptions, options, personaForecasts, ...rest } = data;
 
   const createData: any = {
     ...rest,
     userId,
     options: (options ?? []) as Prisma.InputJsonValue,
   };
+  if (personaForecasts !== undefined) {
+    createData.personaForecasts = personaForecasts as Prisma.InputJsonValue;
+  }
+  // Phase 6: `decidedAt` defaults to now when a path is chosen at create time.
+  if (createData.chosenPath && createData.decidedAt == null) {
+    createData.decidedAt = new Date();
+  }
 
   if (assumptions) {
     createData.assumptions = {
@@ -86,6 +95,13 @@ export async function updateDecision(
   if (updateData.options) {
     updateData.options = updateData.options as Prisma.InputJsonValue;
   }
+  if (updateData.personaForecasts !== undefined) {
+    updateData.personaForecasts = updateData.personaForecasts as Prisma.InputJsonValue;
+  }
+  // Phase 6: first time a path is chosen → stamp decidedAt (unless provided).
+  if (updateData.chosenPath && !existing.decidedAt && updateData.decidedAt == null) {
+    updateData.decidedAt = new Date();
+  }
 
   const decision = await prisma.decision.update({
     where: { id },
@@ -97,4 +113,117 @@ export async function updateDecision(
   });
 
   return decision;
+}
+
+// ── Phase 6 — "what changed since last time" (GET /decisions/changes) ──
+
+export interface ParsedEntityRef { entityType: ReflectableEntityType; entityId: string }
+
+/** `goal:abc` → { entityType:'goal', entityId:'abc' }; null when malformed. */
+export function parseEntityRef(raw: string): ParsedEntityRef | null {
+  const idx = raw.indexOf(':');
+  if (idx <= 0) return null;
+  const entityType = raw.slice(0, idx);
+  const entityId = raw.slice(idx + 1);
+  if (!entityId) return null;
+  if (entityType !== 'goal' && entityType !== 'project' && entityType !== 'person') return null;
+  return { entityType, entityId };
+}
+
+/**
+ * Projects reachable from an entity: the project itself, projects linked to a
+ * goal, or projects a person is assigned to. Used to scope decisions +
+ * commitments via link tables.
+ */
+async function relatedProjectIds(userId: string, ref: ParsedEntityRef, prisma: PrismaClient): Promise<string[]> {
+  if (ref.entityType === 'project') return [ref.entityId];
+  if (ref.entityType === 'goal') {
+    const links = await prisma.goalProjectLink.findMany({ where: { goalId: ref.entityId, project: { userId, deletedAt: null } }, select: { projectId: true } });
+    return links.map(l => l.projectId);
+  }
+  const links = await prisma.projectPersonLink.findMany({ where: { personId: ref.entityId, project: { userId, deletedAt: null } }, select: { projectId: true } });
+  return links.map(l => l.projectId);
+}
+
+/**
+ * Tenant whose agents may read ministry plaintext. Everyone else sees the
+ * at-rest placeholder for ministry-domain rows (data sovereignty, O-111).
+ */
+const MINISTRY_TENANT_ID = process.env.OMNIMIND_MINISTRY_TENANT_ID ?? 'tgfc-ministry';
+
+export interface EntityChangesOptions {
+  /** R-O-04: agent tenant — memories are scoped to it when present. */
+  tenantId?: string;
+}
+
+export async function getEntityChanges(
+  userId: string,
+  ref: ParsedEntityRef,
+  since: Date,
+  prisma: PrismaClient,
+  opts: EntityChangesOptions = {},
+) {
+  const tenantId = opts.tenantId;
+  const projectIds = await relatedProjectIds(userId, ref, prisma);
+
+  const [memoryLinks, decisions, commitments, capsule] = await Promise.all([
+    prisma.memoryEntityLink.findMany({ where: { entityType: ref.entityType, entityId: ref.entityId }, select: { memoryId: true } }),
+    projectIds.length
+      ? prisma.decision.findMany({
+          where: {
+            userId, deletedAt: null,
+            projectLinks: { some: { projectId: { in: projectIds } } },
+            OR: [{ createdAt: { gte: since } }, { updatedAt: { gte: since } }, { decidedAt: { gte: since } }],
+          },
+          include: { assumptions: true },
+          orderBy: { updatedAt: 'desc' },
+          take: 50,
+        })
+      : Promise.resolve([]),
+    prisma.commitment.findMany({
+      where: {
+        userId, deletedAt: null,
+        OR: [
+          ...(projectIds.length ? [{ linkedProjectId: { in: projectIds } }] : []),
+          ...(ref.entityType === 'person' ? [{ stakeholderId: ref.entityId }] : []),
+        ],
+        AND: [{ OR: [{ createdAt: { gte: since } }, { completedAt: { gte: since } }] }],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }).then(rows => rows), // OR:[] would match nothing → fine for goal with no projects
+    prisma.contextCapsule.findUnique({ where: { userId_entityType_entityId: { userId, entityType: ref.entityType, entityId: ref.entityId } } }),
+  ]);
+
+  const memoryIds = memoryLinks.map(l => l.memoryId);
+  const memoryRows = memoryIds.length
+    ? await prisma.memoryEntry.findMany({
+        where: {
+          id: { in: memoryIds }, userId, deletedAt: null,
+          // R-O-04: an agent in tenant A must not see tenant B's memories via a shared entity.
+          ...(tenantId ? { tenantId } : {}),
+          OR: [{ createdAt: { gte: since } }, { invalidAt: { gte: since } }],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      })
+    : [];
+
+  // Decrypt ministry rows (placeholder → plaintext); drop undecryptable ones;
+  // never ship ciphertext over the wire. R-O-04: an agent caller outside the
+  // ministry tenant gets the placeholder, never the plaintext.
+  const mayDecryptMinistry = !tenantId || tenantId === MINISTRY_TENANT_ID;
+  const memories = memoryRows
+    .map(m => (mayDecryptMinistry || normalizeDomain(m.domain) !== 'ministry' ? tryDecryptMemory(m) : m))
+    .filter((m): m is NonNullable<typeof m> => m !== null)
+    .map(({ encryptedContent: _enc, ...rest }) => rest);
+
+  return {
+    since: since.toISOString(),
+    memories,
+    decisions,
+    // A commitment OR with zero branches matches nothing in Prisma — guard explicitly.
+    commitments: projectIds.length === 0 && ref.entityType !== 'person' ? [] : commitments,
+    capsule,
+  };
 }

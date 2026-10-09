@@ -14,9 +14,12 @@ pnpm --filter @boardroom/omnimind-mcp build
 
 # Run built-in smoke test (spawns stdio server, lists tools, verifies count)
 node packages/omnimind-mcp/dist/index.js smoke
+
+# Also execute status_get + memory_search for real (read-only) against the configured API:
+OMNIMIND_MCP_SMOKE_USER_ID=<user id> node packages/omnimind-mcp/dist/index.js smoke
 ```
 
-Expected: `smoke OK — 15 tools registered`
+Expected: `smoke OK — 18 tools, 3 prompts, 4 resource templates registered` (or `..., 3 tools executed` with `OMNIMIND_MCP_SMOKE_USER_ID`: `status_get`, `memory_search`, then `graph_neighborhood` on the first memory the search returned — set `OMNIMIND_MCP_SMOKE_NODE_ID=<type>:<refId>` to pick the node yourself). Tier 1 also fails if any tool is missing `annotations` or `outputSchema`.
 
 ---
 
@@ -49,7 +52,20 @@ export ANTHROPIC_API_KEY=<anthropic-key>
 
 **Test 4 — status_get**
 1. Call `status_get`
-2. Expected: JSON with `decisions`, `tasks`, `blockers`, `commitments` keys — no error
+2. Expected: JSON with `snapshot`, `counts` and `commitmentsDueSoon: { dueSoon, overdue }` keys — no error. Clients that support structured output see the same object as `structuredContent`.
+
+**Test 4b — pagination + idempotency (Phase 6)**
+1. Call `task_list` with `limit: 2`. Expected: ≤2 tasks and a `nextCursor` string when more exist; call again with `cursor: <nextCursor>` → the next page, `nextCursor: null` on the last one.
+2. Call `decision_log` twice with the same `idempotencyKey: "smoke-<date>"`. Expected: identical `id` both times (second call is a replay, not a new row).
+
+**Test 4c — new tools (Phase 6)**
+1. `graph_neighborhood` with `nodeId: "memory:<id from Test 1>"`, `hops: 1`. Expected: `{ nodes: [...], edges: [...], truncated: false }`.
+2. `memory_consolidate` with defaults (`dryRun: true`). Expected: `{ dryRun: true, scanned, pairs: [...], applied: 0 }`. Do **not** run `dryRun: false` against production during the smoke pass.
+3. `memory_reflect` with `entityType: "project"`, `entityId: <a real project id>`. Expected: `{ capsule: { summary, openRisks, ... } }`.
+
+**Test 4d — resources + prompts (Phase 6)**
+1. With `OMNIMIND_MCP_USER_ID` set, read `omnimind://josh-business/status`. Expected: the `status_get` JSON. Read `omnimind://josh-personal/status` from the same server → refused (`TENANT_MISMATCH`).
+2. Get prompt `session_start`. Expected: text telling the agent to run `status_get` then `memory_search`.
 
 **Test 5 — scope denial (simulate)**
 Temporarily change `OMNIMIND_MCP_SCOPES` to `memory:read` (read-only).
@@ -127,32 +143,57 @@ export OLLAMA_URL=http://localhost:11434
 
 ## Tier 6 — HTTP transport (chatgpt-desktop-josh)
 
+The HTTP transport is **stateful Streamable HTTP**: `initialize` returns an
+`mcp-session-id` header, every later request must carry it, and `DELETE` ends
+the session. The server refuses to start without `OMNIMIND_MCP_API_KEY`.
+
 Start HTTP server in one terminal:
 ```bash
 OMNIMIND_MCP_AGENT_NAME=chatgpt-desktop-josh \
 OMNIMIND_MCP_TENANT_ID=josh-personal \
 OMNIMIND_MCP_SCOPES=memory:read \
 OMNIMIND_MCP_SOURCE_WEIGHT=0.6 \
-OMNIMIND_MCP_API_KEY=<mcp-api-key> \
+OMNIMIND_MCP_AGENT_KEY=<omk_ key from keygen> \
+OMNIMIND_MCP_API_KEY=<inbound mcp bearer token> \
+OMNIMIND_MCP_ALLOWED_HOSTS=127.0.0.1:3334,localhost:3334 \
 OMNIMIND_API_URL=https://omnimind-api-production.up.railway.app \
 OMNIMIND_API_KEY=<service-key> \
 node packages/omnimind-mcp/dist/index.js http
 ```
 
-**Test 11 — HTTP auth check**
+**Test 11 — Health + fail-closed auth**
 ```bash
-# Should fail (no key)
-curl -s http://localhost:3334 | jq .
-# Expected: {"error":"Unauthorized"}
+# Health needs no key
+curl -s http://localhost:3334/health | jq .
+# Expected: {"status":"ok","uptime":<s>,"sessions":0,"agent":"chatgpt-desktop-josh","tenant":"josh-personal"}
 
-# Should succeed (correct key)
-curl -s -H "x-mcp-api-key: <mcp-api-key>" http://localhost:3334 | jq .
+# Should fail (no key)
+curl -s -i -X POST http://localhost:3334/ -H 'content-type: application/json' -d '{}' | head -1
+# Expected: HTTP/1.1 401 Unauthorized
+
+# Should fail (missing OMNIMIND_MCP_API_KEY at startup)
+OMNIMIND_MCP_API_KEY= node packages/omnimind-mcp/dist/index.js http
+# Expected: exits 1 with "OMNIMIND_MCP_API_KEY is required in HTTP mode"
+```
+
+**Test 11b — Session handshake (correct key, Bearer or x-mcp-api-key)**
+```bash
+curl -s -i -X POST http://localhost:3334/ \
+  -H "Authorization: Bearer <mcp-api-key>" \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+# Expected: 200 with an `mcp-session-id: <uuid>` response header.
+# Reuse that header on tools/list; a POST without it → 400, unknown id → 404,
+# body > 1 MiB → 413, foreign Host header → 403.
 ```
 
 **Test 12 — HTTP read-only**
-1. Connect ChatGPT Desktop to `http://localhost:3334`
+1. Connect ChatGPT Desktop to `http://localhost:3334` with `Authorization: Bearer <mcp-api-key>`
 2. Verify `memory_search` works
 3. Verify `memory_write` returns `SCOPE_DENIED`
+
+The automated equivalent lives in `packages/omnimind-mcp/tests/http.transport.test.ts`
+(initialize → initialized → tools/list over HTTP with the SDK client, 18 tools, plus prompts/list and resources/templates/list).
 
 ---
 
@@ -173,7 +214,7 @@ Expected: Every tool call from the tests above appears with agentId, toolName, a
 
 ## Phase 2 Gate Criteria
 
-- [ ] Tier 1: smoke test passes (15 tools)
+- [ ] Tier 1: smoke test passes (18 tools, 3 prompts, 4 resource templates)
 - [ ] Tier 2: claude-code-josh round trip, dedup, scope denial all pass
 - [ ] Tier 3: claude-desktop-josh personal tenant isolated
 - [ ] Tier 4: ministry writes route to Ollama; refused when Ollama down

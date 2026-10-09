@@ -1,13 +1,36 @@
 import type { PrismaClient } from '@prisma/client';
 import type { PersonaId } from '@boardroom/shared';
+import { estimateTokens, MemoryClass } from '@boardroom/shared';
 import { structuredFilter } from '../retrieval/structured-filter';
 import { fulltextSearch } from '../retrieval/fulltext-search';
 import { trigramSearch } from '../retrieval/trigram-search';
 import { semanticSearch } from '../retrieval/semantic-search';
 import { rankAndDeduplicate } from '../retrieval/ranker';
-import { packageForPersona, type ContextPackage } from '../retrieval/context-packager';
+import { packageForPersona, personaLimits, type RetrievalContextPackage } from '../retrieval/context-packager';
 import { generateEmbeddingWithRetry as generateEmbedding } from './embedding.service';
 import type { ScoredResult } from '../retrieval/structured-filter';
+import type { RetrievalLayer } from '../retrieval/forgetting-curve';
+import { getCommitmentNudges, renderCommitmentLines } from './commitment.service';
+import { logger } from '../lib/logger';
+
+/** Phase 6: at most this many entity capsules are injected per persona call. */
+export const MAX_CAPSULES_PER_CALL = 3;
+/** R-O-06: prepended items (capsules, commitments) may never squeeze the ranked list below this. */
+export const MIN_RANKED_ITEMS = 3;
+/** R-O-06: per-capsule text caps so three capsules cannot eat the whole token budget. */
+export const CAPSULE_SUMMARY_MAX_CHARS = 600;
+export const CAPSULE_LIST_MAX_ENTRIES = 3;
+const CAPSULE_LIST_ENTRY_MAX_CHARS = 160;
+
+/** Normalise a caller-supplied memoryClass; unknown values are ignored (logged), never 422. */
+export function normalizeMemoryClass(raw?: string | null): MemoryClass | undefined {
+  if (!raw) return undefined;
+  const upper = raw.trim().toUpperCase();
+  if ((Object.values(MemoryClass) as string[]).includes(upper)) return upper as MemoryClass;
+  logger.warn('[context] ignoring unknown memoryClass', { memoryClass: raw });
+  return undefined;
+}
+
 
 export async function assembleContextForPersona(
   userId: string,
@@ -21,19 +44,39 @@ export async function assembleContextForPersona(
     tenantId?: string;
     /** Admin escape hatch — skip tenant filter entirely. */
     includeAllTenants?: boolean;
+    /** Phase 6: temporal validity — retrieve what was believed at this instant. */
+    asOf?: Date;
+    /** Phase 6 (Critic): lift the forgetting-curve cutoff in all four layers. */
+    includeArchived?: boolean;
+    /** Phase 6 (Critic): restrict memory layers to one MemoryClass, e.g. 'DECISION'. */
+    memoryClass?: string;
   }
-): Promise<ContextPackage> {
+): Promise<RetrievalContextPackage> {
   const includeEntities = options?.includeEntities ?? ['memories', 'people', 'goals', 'projects', 'decisions'];
+  const asOf = options?.asOf;
+  const includeArchived = options?.includeArchived ?? false;
+  const memoryClass = normalizeMemoryClass(options?.memoryClass);
+
 
   // Generate query embedding for semantic search
   const queryEmbedding = await generateEmbedding(query);
 
   // Retrieval layers default to tenant-scoped. If neither tenantId nor
   // includeAllTenants is provided, they return 0 results (safe default).
+  // F-204: layers that throw degrade to [] but report here so the package
+  // can be flagged `degraded` instead of silently looking like "no matches".
+  const degradedLayers: RetrievalLayer[] = [];
   const retrievalScope = {
     tenantId: options?.tenantId,
     includeAllTenants: options?.includeAllTenants,
+    asOf,
+    includeArchived,
+    memoryClass,
+    onLayerError: (layer: RetrievalLayer) => {
+      if (!degradedLayers.includes(layer)) degradedLayers.push(layer);
+    },
   };
+
 
   // Run all retrieval layers in parallel
   const [structured, fts, trigram, semantic] = await Promise.all([
@@ -177,9 +220,111 @@ export async function assembleContextForPersona(
   // Merge with entity results
   const allResults = [...rankedMemories, ...entityResults];
 
-  // Package for the specific persona
-  return packageForPersona(allResults, persona, totalCandidates, layersUsed);
+  // Phase 6: entity capsules (≤3) for the goals/projects/people this question
+  // touches, injected right after the core block (which BoardRoom prepends as
+  // a cached system block) — i.e. at the top of the retrieved items.
+  const capsuleItems = await loadCapsuleItems(userId, entityResults, prisma);
+
+  // Phase 6: the Doer gets "Open commitments" lines (SQL only) prepended.
+  const commitmentItems = persona === 'doer' ? await loadDoerCommitmentItems(userId, prisma) : [];
+
+  // R-O-06 (CLAUDE.md rule 7): prepended items count against the persona's
+  // maxItems and token budget. Reserve their slots/tokens BEFORE packaging the
+  // ranked results, keeping at least MIN_RANKED_ITEMS slots for retrieval and
+  // dropping trailing prepended items that would not fit the budget at all.
+  const limits = personaLimits(persona);
+  const callerMax = options?.maxItems && options.maxItems > 0 ? Math.min(options.maxItems, limits.maxItems) : limits.maxItems;
+  const prepended: PackagedItem[] = [];
+  let prependedTokens = 0;
+  for (const item of [...commitmentItems, ...capsuleItems]) {
+    const t = estimateTokens(item.content);
+    const slotsLeft = callerMax - prepended.length - MIN_RANKED_ITEMS;
+    if (slotsLeft <= 0 || prependedTokens + t > limits.tokenBudget) {
+      logger.info('[context] dropping prepended item — persona budget exhausted', { persona, id: item.id });
+      continue;
+    }
+    prepended.push(item);
+    prependedTokens += t;
+  }
+
+  const pkg = packageForPersona(allResults, persona, totalCandidates, layersUsed, {
+    degradedLayers,
+    maxItems: Math.max(MIN_RANKED_ITEMS, callerMax - prepended.length),
+    tokenBudget: Math.max(0, limits.tokenBudget - prependedTokens),
+  });
+  if (prepended.length === 0) return pkg;
+  return {
+    ...pkg,
+    items: [...prepended, ...pkg.items],
+    tokenEstimate: pkg.tokenEstimate + prependedTokens,
+  };
 }
+
+const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+const clipList = (xs: string[]): string[] => xs.slice(0, CAPSULE_LIST_MAX_ENTRIES).map(x => clip(x, CAPSULE_LIST_ENTRY_MAX_CHARS));
+
+type PackagedItem = RetrievalContextPackage['items'][number];
+
+/**
+ * Capsules for entities linked to the question: the goal/project/person
+ * entity rows the title match surfaced. Capped at MAX_CAPSULES_PER_CALL,
+ * freshest first. Stale capsules (past `staleAfter`) are still used but
+ * flagged in `whyIncluded` so the persona can discount them.
+ */
+async function loadCapsuleItems(userId: string, entityResults: ScoredResult[], prisma: PrismaClient): Promise<PackagedItem[]> {
+  const refs = entityResults
+    .filter(r => r.type === 'goal' || r.type === 'project' || r.type === 'person')
+    .map(r => ({ entityType: r.type, entityId: r.id }));
+  if (refs.length === 0) return [];
+  try {
+    const capsules = await prisma.contextCapsule.findMany({
+      where: { userId, OR: refs },
+      orderBy: { generatedAt: 'desc' },
+      take: MAX_CAPSULES_PER_CALL,
+    });
+    const now = Date.now();
+    return capsules.map(c => {
+      const stale = c.staleAfter.getTime() < now;
+      // R-O-06: bounded text — summary ≤600 chars, ≤3 entries per list.
+      const parts = [`Capsule (${c.entityType}) — ${clip(c.summary, CAPSULE_SUMMARY_MAX_CHARS)}`];
+      if (c.openRisks.length) parts.push(`Open risks: ${clipList(c.openRisks).join('; ')}`);
+      if (c.unresolvedQuestions.length) parts.push(`Unresolved: ${clipList(c.unresolvedQuestions).join('; ')}`);
+      if (c.recentChanges.length) parts.push(`Recent changes: ${clipList(c.recentChanges).join('; ')}`);
+      if (c.activeStakeholders.length) parts.push(`Stakeholders: ${clipList(c.activeStakeholders).join(', ')}`);
+      return {
+        type: c.entityType as PackagedItem['type'],
+        id: c.entityId,
+        content: parts.join('\n'),
+        relevanceScore: 0.95,
+        source: 'structured' as const,
+        whyIncluded: `Reflection capsule v${c.version} for linked ${c.entityType}${stale ? ' (stale — regenerate)' : ''}`,
+      };
+    });
+  } catch (err) {
+    logger.warn('[context] capsule lookup failed — continuing without capsules', { error: (err as Error).message });
+    return [];
+  }
+}
+
+async function loadDoerCommitmentItems(userId: string, prisma: PrismaClient): Promise<PackagedItem[]> {
+  try {
+    const nudges = await getCommitmentNudges(userId, prisma);
+    const lines = renderCommitmentLines(nudges);
+    if (lines.length === 0) return [];
+    return [{
+      type: 'decision',
+      id: `commitments:${userId}`,
+      content: `Open commitments:\n${lines.join('\n')}`,
+      relevanceScore: 1.0,
+      source: 'structured',
+      whyIncluded: 'Open commitments due within 3 days or overdue (Doer context)',
+    }];
+  } catch (err) {
+    logger.warn('[context] commitment nudges lookup failed — continuing', { error: (err as Error).message });
+    return [];
+  }
+}
+
 
 /**
  * WS-3: Increment `recall_count` and refresh `last_accessed_at` for every

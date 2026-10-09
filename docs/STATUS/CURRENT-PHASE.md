@@ -1,10 +1,58 @@
 # Current Phase
 
-**Phase in flight:** ✅ **Phase 5.5 — Post-Hermes Remediation — COMPLETE**
-**Last update:** 2026-05-15
-**Updated by:** Claude (orchestrator-fix session — Fix-Everything Plan execution)
+**Phase in flight:** ✅ **Phase 6 build — implemented and independently reviewed (pending deploy + operator checklist)**
+**Last update:** 2026-10-02
+**Updated by:** Claude (audit + remediation session, branch `claude/amazing-mccarthy-grvem2`)
 
-**Next phase (not yet started):** Phase 6 — 30-day dogfooding window. Key triggers to revisit: ministry domain re-enable (Ollama + encryption), bitemporal validity windows, Letta-style core memory tier, multi-user (Postgres RLS).
+**Next phase (not yet started):** Phase 6 — 30-day dogfooding window. **Do not start Phase 6 until the operator checklist in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` ("Post-audit operator checklist") is done** — O-103 (decay) and M-102 (tag queries) would otherwise have made the dogfooding window measure bugs, not the architecture.
+
+---
+
+## ✅ Phase 6 build — all 8 research moves implemented (2026-10-02)
+
+Source: `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md`. Built by six parallel lanes against `docs/contracts/PHASE-6-CONTRACTS.md`; 6 commits (`d12181d`…HEAD). Final state after the 2026-10-03 review (`docs/audits/REVIEW-2026-10-03.md`, 42 findings fixed): typecheck 5/5, **1,481 tests passing** (138 mcp · 135 shared · 261 server · 92 client · 810 omnimind · 45 eval), client build green, client↔server route seam check clean, frozen install clean, no high advisories.
+
+| # | Move | Status |
+|---|---|---|
+| 1 | Prompt-cache core context + Sonnet 5.5 | ✅ cached system blocks, `MODEL_IDS`, Haiku guard, usage rows |
+| 2 | Decision loop (forecast → review → calibration) | ✅ decide route + commit card, review recap, calibration panel |
+| 3 | Labeled retrieval eval in CI | ✅ 114 gold queries, recall@k/MRR/nDCG, pgvector CI job |
+| 4 | Debate protocol + disagreement ledger | ✅ rebuttals, ledger, dropped considerations, pre-mortem mode |
+| 5 | Per-entity reflection (capsules) | ✅ nightly job + on-demand reflect, injected ≤3 |
+| 6 | Private networking + backups + restore drill | ✅ `::` bind, docs, `services/backup/` (needs Railway deploy) |
+| 7 | Knowledge graph extras | ✅ backlinks, unlinked mentions, link editors, duplicates |
+| 8 | MCP conformance | ✅ 18 annotated tools, structured output, pagination, idempotency, resources, prompts |
+
+**Operator checklist additions (on top of the Phase 5.7 list in `docs/03-operations/DEPLOYMENT-RUNBOOK.md`):**
+1. Deploy `services/backup/` as a Railway cron service with the R2 vars; run the first restore drill and log it in `BACKUP-DRILLS.md`.
+2. Optional but recommended: set `OTEL_EXPORTER_OTLP_ENDPOINT` (+ headers) on both services; pick one backend.
+3. Switch `OMNIMIND_API_URL` to `http://omnimind-api.railway.internal:3333` after confirming OmniMind binds `::` on the new image.
+4. Add `OMNIMIND_MCP_USER_ID` to MCP agent configs so resources can read.
+5. First `retrieval-eval` CI run passed (2026-10-03: for-persona recall@10 0.520 / MRR 0.440 vs gates 0.5 / 0.35; weakest slice `update` at 0.27). Thresholds ratchet upward only, after three green runs on `main`.
+6. Enable branch protection on `verify`, `docker`, `retrieval-eval`.
+
+**Design calls made (revisit if wrong):** memo-accepted memories use `sourceType AGENT_EXTRACTED` (enum has no CORTEX); reflection skips ministry memories; `GET /usage/llm/summary` is user-scoped unless `?all=1`; Haiku personas get no `output_config` (API rejects effort on Haiku 4.5); pre-mortem assumptions keep `{assumption, reviewAt, confidence}`; decide route is not LLM-rate-limited; `NODE_ENV=ci` in the eval job.
+
+---
+
+## ✅ Phase 5.7 — Audit remediation (2026-10-02)
+
+Audit: `docs/audits/AUDIT-2026-10-02.md` (5 CRITICAL / 16 HIGH / 33 MEDIUM / 28 LOW). All code-addressable findings fixed in 9 commits on the branch; full suite green (896 tests, 10 skipped: 8 DB-gated integration, 2 MCP mock TODOs). CI workflow added.
+
+**Still requires a human:** secret rotation (R-103), `OMNIMIND_ADMIN_KEY` / `ADMIN_EMAILS` / `tenants.owner_user_id` / MCP agent keys on Railway, Stripe webhook URL, and the optional git-history scrub. See the runbook checklist.
+
+**Design calls made during remediation (revisit if wrong):**
+- Onboarding (`/onboarding-bootstrap`) is NOT subscription-gated (precedes checkout); it is LLM-rate-limited.
+- `cancelAtPeriodEnd` is derived (`canceledAt && status != CANCELED`), not a column.
+- Upstream OmniMind 401 still surfaces as 502 from BoardRoom (it is the service key failing, not the user).
+- `POST /mcp/agents` is admin-gated; keygen sends `x-admin-key`.
+- `x-agent-key` verification is opt-in via `OMNIMIND_REQUIRE_AGENT_KEY`.
+
+---
+
+## (previous) Phase 5.5 — Post-Hermes Remediation — COMPLETE (2026-05-15)
+
+Next-phase triggers noted then: ministry domain re-enable (Ollama + encryption), bitemporal validity windows, Letta-style core memory tier, multi-user (Postgres RLS).
 
 ---
 

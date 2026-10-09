@@ -10,7 +10,8 @@ export type WidgetType =
   | 'outcome_reviews'
   | 'cognitive_load'
   | 'quick_take'
-  | 'relationship_map';
+  | 'relationship_map'
+  | 'commitment_nudges';
 
 export interface WidgetConfig {
   id: string;
@@ -31,10 +32,11 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: 'w1', type: 'cognitive_load', position: 0, size: 'full', visible: true, settings: {} },
   { id: 'w2', type: 'proactive_questions', position: 1, size: 'full', visible: true, settings: {} },
   { id: 'w3', type: 'outcome_reviews', position: 2, size: 'full', visible: true, settings: {} },
-  { id: 'w4', type: 'calendar_strip', position: 3, size: 'full', visible: true, settings: {} },
-  { id: 'w5', type: 'weekly_memo', position: 4, size: 'medium', visible: true, settings: {} },
-  { id: 'w6', type: 'cortex_insights', position: 5, size: 'medium', visible: true, settings: {} },
-  { id: 'w7', type: 'goal_hierarchy', position: 6, size: 'full', visible: true, settings: {} },
+  { id: 'w8', type: 'commitment_nudges', position: 3, size: 'full', visible: true, settings: {} },
+  { id: 'w4', type: 'calendar_strip', position: 4, size: 'full', visible: true, settings: {} },
+  { id: 'w5', type: 'weekly_memo', position: 5, size: 'medium', visible: true, settings: {} },
+  { id: 'w6', type: 'cortex_insights', position: 6, size: 'medium', visible: true, settings: {} },
+  { id: 'w7', type: 'goal_hierarchy', position: 7, size: 'full', visible: true, settings: {} },
 ];
 
 export const WIDGET_LABELS: Record<WidgetType, string> = {
@@ -48,4 +50,5 @@ export const WIDGET_LABELS: Record<WidgetType, string> = {
   cognitive_load: 'Cognitive Load',
   quick_take: 'Quick Take',
   relationship_map: 'Relationship Map',
+  commitment_nudges: 'Commitment Nudges',
 };

@@ -1,9 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { PrismaClient } from '@prisma/client';
-import { SimulationLLMResponseSchema } from '@boardroom/shared';
+import { SimulationLLMResponseSchema, MODEL_IDS } from '@boardroom/shared';
 import { logger } from '../lib/logger';
-
-const MODEL = 'claude-sonnet-4-6-20250514';
+import { loadSystemPrompt } from '../lib/prompt-loader';
+import { createMessage, extractText, parseJsonFromText, hasAnthropicKey } from '../lib/anthropic';
 
 export async function runSimulation(
   userId: string,
@@ -11,8 +10,7 @@ export async function runSimulation(
   sessionQuestion: string,
   prisma: PrismaClient
 ) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  if (!hasAnthropicKey()) throw new Error('ANTHROPIC_API_KEY not set');
 
   // Gather user's current state
   const [goals, projects, tasks, people, recentDecisions] = await Promise.all([
@@ -42,29 +40,26 @@ ${people.map(p => `- ${p.name}${p.role ? ` (${p.role})` : ''}`).join('\n') || 'N
 ## Past Decision Outcomes
 ${recentDecisions.map(d => `- "${d.title}": ${d.outcome} (${d.outcomeRating}/5)`).join('\n') || 'None'}`;
 
-  const client = new Anthropic({ apiKey });
-  // Load simulation prompt
-  const { readFileSync } = await import('fs');
-  const { resolve } = await import('path');
-  const promptPath = resolve(__dirname, '../../../../docs/prompts/cortex-simulation.system.md');
+  // Prompt via the shared loader (walks up to docs/prompts in dev + Docker).
   let systemPrompt: string;
   try {
-    systemPrompt = readFileSync(promptPath, 'utf-8');
+    systemPrompt = loadSystemPrompt('cortex-simulation');
   } catch {
     systemPrompt = 'You are a decision simulation engine. Return structured JSON with resourceImpact, timelineImpact, stakeholderImpact, and overallRisk.';
   }
 
   logger.info('Running simulation', { userId, chosenPath: chosenPath.slice(0, 100) });
 
-  const response = await client.messages.create({
-    model: MODEL,
+  // Phase 6: shared client, MODEL_IDS, explicit effort, usage recorded.
+  const response = await createMessage({
+    model: MODEL_IDS.sonnet,
     max_tokens: 2000,
-    system: systemPrompt,
+    system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: context }],
-  });
+    output_config: { effort: 'medium' },
+  }, { purpose: 'cortex-simulation', userId });
 
-  const text = response.content[0];
-  if (!text || text.type !== 'text') throw new Error('Empty simulation response');
-  const jsonStr = text.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return SimulationLLMResponseSchema.parse(JSON.parse(jsonStr));
+  const text = extractText(response);
+  if (!text) throw new Error('Empty simulation response');
+  return SimulationLLMResponseSchema.parse(parseJsonFromText(text));
 }

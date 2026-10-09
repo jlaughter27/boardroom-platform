@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useAuthStore } from '../stores/auth.store';
 import { getUserProfile, updateUserProfile } from '../lib/api';
@@ -24,6 +25,8 @@ export default function SettingsPage() {
   usePageTitle('Settings');
   const { user, logout } = useAuthStore();
   const addToast = useToastStore((s) => s.addToast);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,6 +65,15 @@ export default function SettingsPage() {
     }
     load();
   }, []);
+
+  // Deep links like /settings#settings-subscription (TrialBanner, 402 upgrade CTA)
+  // land before the sections render, so scroll once loading finishes.
+  useEffect(() => {
+    if (loading || !location.hash) return;
+    const id = location.hash.replace(/^#settings-/, '').replace(/^#/, '');
+    setActiveSection(id);
+    document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth' });
+  }, [loading, location.hash]);
 
   async function saveProfile() {
     setProfileSaving(true);
@@ -234,7 +246,7 @@ export default function SettingsPage() {
           <Card id="settings-integrations" className="p-6">
             <h2 className="text-lg font-medium text-foreground mb-2">Integrations</h2>
             <p className="text-sm text-muted-foreground mb-3">Manage connected tools and services.</p>
-            <Button variant="secondary" onClick={() => window.location.href = '/integrations'}>
+            <Button variant="secondary" onClick={() => navigate('/integrations')}>
               Manage Integrations
             </Button>
           </Card>

@@ -41,6 +41,35 @@
   --color-info: #1d4ed8;
   --color-info-muted: rgba(29, 78, 216, 0.1);
 
+  /*
+   * Entity colors — knowledge graph + entity badges (Light).
+   * Six categorical hues validated as a set for normal vision (worst pair
+   * ΔE 16.3) on this surface; decisions use an ink/contrast slot and
+   * memories are the neutral base layer. Each type also carries a distinct
+   * shape in the graph, so identity is never color-alone.
+   */
+  --color-entity-goal: #b5890a;
+  --color-entity-project: #2a78d6;
+  --color-entity-task: #1baf7a;
+  --color-entity-person: #c9407a;
+  --color-entity-decision: #111111;
+  --color-entity-commitment: #4a3aa7;
+  --color-entity-memory: #8a887e;
+  --graph-surface: #fafaf6;
+  --graph-edge: rgba(26, 26, 22, 0.14);
+  --graph-edge-strong: rgba(26, 26, 22, 0.55);
+  --graph-label: #1a1a16;
+  --graph-label-halo: rgba(250, 250, 246, 0.85);
+
+  /* Persona colors — one hue per advisor (same values both themes; tailwind `persona.*`). */
+  --color-persona-optimist: #22c55e;
+  --color-persona-critic: #ef4444;
+  --color-persona-alternate: #a855f7;
+  --color-persona-technician: #3b82f6;
+  --color-persona-questionnaire: #eab308;
+  --color-persona-doer: #f97316;
+  --color-persona-ceo: #06b6d4;
+
   /* Shadows (Light) */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
@@ -130,6 +159,29 @@
   /* Semantic colors (Section 2.3 — Dark) */
   --color-success: #34d399;
   --color-success-muted: rgba(52, 211, 153, 0.12);
+
+  /* Entity colors (Dark) — stepped for the dark surface, worst pair ΔE 17.9 */
+  --color-entity-goal: #c98500;
+  --color-entity-project: #2f7fd9;
+  --color-entity-task: #199e70;
+  --color-entity-person: #d55181;
+  --color-entity-decision: #f0f0f0;
+  --color-entity-commitment: #b48cff;
+  --color-entity-memory: #6f6e66;
+  --graph-surface: #111110;
+  --graph-edge: rgba(232, 232, 226, 0.12);
+  --graph-edge-strong: rgba(232, 232, 226, 0.6);
+  --graph-label: #e8e8e2;
+  --graph-label-halo: rgba(17, 17, 16, 0.85);
+
+  /* Persona colors (Dark) — unchanged hues; defined per theme so a future re-step is one edit. */
+  --color-persona-optimist: #22c55e;
+  --color-persona-critic: #ef4444;
+  --color-persona-alternate: #a855f7;
+  --color-persona-technician: #3b82f6;
+  --color-persona-questionnaire: #eab308;
+  --color-persona-doer: #f97316;
+  --color-persona-ceo: #06b6d4;
   --color-warning: #fb923c;
   --color-warning-muted: rgba(251, 146, 60, 0.12);
   --color-danger: #f87171;

@@ -4,17 +4,22 @@ import type { CalendarEvent, CalendarSyncStatus } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
 
 const STATE_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret';
+// B-118 — OAuth state carries a timestamp + random nonce and is HMAC-signed.
+// Rejected when older than STATE_MAX_AGE_MS (10 minutes).
+export const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
-export function signState(userId: string, provider: string): string {
-  const payload = `${provider}:${userId}`;
+export function signState(userId: string, provider: string, now: number = Date.now()): string {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const payload = `${provider}:${userId}:${now}:${nonce}`;
   const hmac = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
   return `${payload}:${hmac}`;
 }
 
-export function verifyState(state: string | undefined, provider: string): string | null {
+export function verifyState(state: string | undefined, provider: string, now: number = Date.now()): string | null {
   if (!state) return null;
   const parts = state.split(':');
-  if (parts.length < 3) return null;
+  // provider : userId : issuedAt : nonce : hmac  (userId itself never contains ':')
+  if (parts.length < 5) return null;
   const hmac = parts.pop()!;
   const payload = parts.join(':');
   const expected = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
@@ -22,7 +27,13 @@ export function verifyState(state: string | undefined, provider: string): string
   const expectedBuf = Buffer.from(expected);
   if (hmacBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(hmacBuf, expectedBuf)) return null;
   if (!payload.startsWith(`${provider}:`)) return null;
-  return payload.slice(provider.length + 1);
+  const nonce = parts.pop()!;
+  const issuedAtRaw = parts.pop()!;
+  const issuedAt = Number(issuedAtRaw);
+  if (!nonce || !Number.isFinite(issuedAt)) return null;
+  if (now - issuedAt > STATE_MAX_AGE_MS || issuedAt - now > 60_000) return null; // expired (or clock skew > 1 min)
+  const userId = parts.slice(1).join(':');
+  return userId || null;
 }
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;

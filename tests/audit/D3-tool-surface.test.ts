@@ -1,7 +1,8 @@
 /**
  * D3 — Tool Surface Audit Test
  *
- * Verifies all 15 MCP tools are registered, scope enforcement works,
+ * Verifies all 18 MCP tools are registered (Phase 6: +memory_reflect,
+ * memory_consolidate, graph_neighborhood), scope enforcement works,
  * and audit logging is wired on every call.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -17,6 +18,12 @@ vi.mock('../../packages/omnimind-mcp/src/lib/client', () => ({
     createMemory: vi.fn().mockResolvedValue({ id: 'mem-1', title: 't', content: 'c', domain: 'd', tags: [], importance: 0.5, sourceType: 'MCP_AGENT', tenantId: 'josh-business', createdAt: '', updatedAt: '' }),
     updateMemory: vi.fn().mockResolvedValue({ id: 'mem-1', title: 't', content: 'updated', domain: 'd', tags: [], importance: 0.5, sourceType: 'MCP_AGENT', tenantId: 'josh-business', createdAt: '', updatedAt: '' }),
     getMemory: vi.fn().mockResolvedValue(null),
+    searchHybrid: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    searchSimilar: vi.fn().mockResolvedValue([]),
+    getCommitmentNudges: vi.fn().mockResolvedValue({ dueSoon: [], overdue: [] }),
+    getBacklinks: vi.fn().mockResolvedValue({ node: null, backlinks: [] }),
+    reflect: vi.fn().mockResolvedValue({ id: 'cap', entityType: 'goal', entityId: 'g', summary: 's' }),
+    recordLlmUsage: vi.fn().mockResolvedValue(undefined),
     logAudit: vi.fn().mockResolvedValue(undefined),
     registerAgent: vi.fn().mockResolvedValue(undefined),
     setAgentHeaders: vi.fn(),
@@ -58,20 +65,34 @@ const EXPECTED_TOOLS = [
   'commitment_log',
   'commitment_list',
   'status_get',
+  // Phase 6
+  'memory_reflect',
+  'memory_consolidate',
+  'graph_neighborhood',
 ];
+const TOOL_COUNT = 18;
 
 describe('D3 — Tool Surface', () => {
-  it('server registers exactly 15 tools', () => {
-    const { server } = createMcpServer({
+  it('server registers exactly 18 tools, each with annotations + outputSchema', () => {
+    const { server, tools } = createMcpServer({
       agentId: 'test', agentName: 'test', tenantId: 'josh-business', scopes: ['*'], sourceWeight: 1.0,
     });
-    // The MCP server registers tools internally — verify all 15 are importable
-    expect(EXPECTED_TOOLS).toHaveLength(15);
+    expect(server).toBeDefined();
+    expect(EXPECTED_TOOLS).toHaveLength(TOOL_COUNT);
+    expect(tools.map(t => t.name).sort()).toEqual([...EXPECTED_TOOLS].sort());
+    for (const t of tools) {
+      expect(t.annotations.openWorldHint, t.name).toBe(false);
+      expect(t.outputSchema, t.name).toBeDefined();
+    }
+    const readOnly = tools.filter(t => t.annotations.readOnlyHint).map(t => t.name).sort();
+    expect(readOnly).toEqual(['commitment_list', 'graph_neighborhood', 'memory_search', 'person_get', 'project_status', 'project_summary', 'status_get', 'task_list', 'task_status']);
+    expect(tools.filter(t => t.annotations.destructiveHint).map(t => t.name).sort()).toEqual(['memory_consolidate', 'memory_supersede']);
   });
 
-  it('all 15 expected tool names are covered in the codebase', async () => {
+  it('all 18 expected tool names are covered in the codebase', async () => {
     // Import tool constructors directly to verify they exist
-    const { memoryWriteTool, memorySearchTool, memorySupersedeT } = await import('../../packages/omnimind-mcp/src/tools/memory.tool');
+    const { memoryWriteTool, memorySearchTool, memorySupersedeT, memoryReflectTool, memoryConsolidateTool } = await import('../../packages/omnimind-mcp/src/tools/memory.tool');
+    const { graphNeighborhoodTool } = await import('../../packages/omnimind-mcp/src/tools/graph.tool');
     const { decisionLogTool } = await import('../../packages/omnimind-mcp/src/tools/decision.tool');
     const { taskUpsertTool, taskStatusTool, taskListTool, taskCompleteTool, taskBlockTool } = await import('../../packages/omnimind-mcp/src/tools/task.tool');
     const { projectStatusTool, projectSummaryTool } = await import('../../packages/omnimind-mcp/src/tools/project.tool');
@@ -98,12 +119,15 @@ describe('D3 — Tool Surface', () => {
       commitmentLogTool(mockClient, ctx).name,
       commitmentListTool(mockClient, ctx).name,
       statusGetTool(mockClient, ctx).name,
+      memoryReflectTool(mockClient, ctx).name,
+      memoryConsolidateTool(mockClient, ctx).name,
+      graphNeighborhoodTool(mockClient, ctx).name,
     ];
 
     for (const expected of EXPECTED_TOOLS) {
       expect(toolNames).toContain(expected);
     }
-    expect(toolNames).toHaveLength(15);
+    expect(toolNames).toHaveLength(TOOL_COUNT);
   });
 
   it('scope enforcement: read-only agent cannot call memory_write', async () => {

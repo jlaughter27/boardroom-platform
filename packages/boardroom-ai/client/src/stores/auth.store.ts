@@ -7,10 +7,10 @@ import { useNotificationStore } from './notification.store';
 import { useUIStore } from './ui.store';
 import { useSessionStore } from './session.store';
 
-import type { AuthUser } from '@boardroom/shared';
+import type { ClientAuthUser } from '../lib/api';
 
 interface AuthState {
-  user: AuthUser | null;
+  user: ClientAuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;

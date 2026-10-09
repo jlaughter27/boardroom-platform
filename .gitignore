@@ -17,3 +17,7 @@ packages/omnimind-api/prisma/migrations/*_migration.sql
 .env.production
 .env.local
 .env.staging
+
+# eval outputs (CI uploads them as artifacts)
+eval/results/*
+!eval/results/.gitkeep

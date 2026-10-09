@@ -42,9 +42,53 @@ export const MemorySchema = z.object({
   createdAt: z.coerce.date().describe('Creation timestamp'),
   updatedAt: z.coerce.date().describe('Last update timestamp'),
   lastAccessedAt: z.coerce.date().nullable().describe('Last access timestamp'),
+  // ── Multi-agent / tenant / encryption columns (optional, see memory.types.ts) ──
+  agentId: z.string().optional().describe('Agent that wrote this row'),
+  tenantId: z.string().optional().describe('Tenant namespace'),
+  deletedAt: z.coerce.date().nullable().optional().describe('Soft-delete timestamp'),
+  recallCount: z.number().int().min(0).optional().describe('Successful-retrieval counter'),
+  embeddingModel: z.string().optional().describe('Embedding model used for this row'),
+  encryptionKeyId: z.string().nullable().optional().describe('At-rest encryption key id'),
+  encryptionAlgorithm: z.string().nullable().optional().describe('At-rest encryption algorithm'),
 });
 
 export type MemoryInput = z.infer<typeof MemorySchema>;
+
+// ── Memory API Record Schema (JSON wire form, ISO date strings) ──
+
+export const MemoryApiRecordSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  title: z.string(),
+  content: z.string(),
+  domain: z.string(),
+  sector: z.string(),
+  tags: z.array(z.string()),
+  memoryClass: MemoryClassSchema,
+  importance: z.number().min(0).max(1),
+  confidence: ConfidenceSchema,
+  status: MemoryStatusSchema,
+  validAt: z.string(),
+  invalidAt: z.string().nullable(),
+  supersededBy: z.string().nullable(),
+  sourceType: SourceTypeSchema,
+  sourceRef: z.string().nullable(),
+  sourceWeight: z.number(),
+  version: z.number().int(),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  lastAccessedAt: z.string().nullable(),
+  agentId: z.string().optional(),
+  tenantId: z.string().optional(),
+  deletedAt: z.string().nullable().optional(),
+  recallCount: z.number().int().min(0).optional(),
+  embeddingModel: z.string().optional(),
+  encryptionKeyId: z.string().nullable().optional(),
+  encryptionAlgorithm: z.string().nullable().optional(),
+});
+
+export type MemoryApiRecordInput = z.infer<typeof MemoryApiRecordSchema>;
 
 // ── Create Memory Request Schema ──
 

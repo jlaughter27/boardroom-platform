@@ -35,6 +35,11 @@ interface MemoryState {
   reset: () => void;
 }
 
+// Monotonic request sequence (C-113). Each `search` bumps it; any response
+// (search or loadMore) whose sequence is no longer current is dropped so a
+// slow stale response cannot overwrite a newer result set or its offset.
+let requestSeq = 0;
+
 export const useMemoryStore = create<MemoryState>((set, get) => ({
   memories: [],
   selectedMemory: null,
@@ -48,13 +53,15 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   search: async (overrideFilters) => {
     const filters = overrideFilters ?? get().filters;
-    set({ isLoading: true, offset: 0, error: null });
+    const seq = ++requestSeq;
+    set({ isLoading: true, offset: 0, error: null, filters });
     try {
       const res = await api.listMemories({
         ...filters,
         limit: PAGE_SIZE,
         offset: 0,
       });
+      if (seq !== requestSeq) return; // stale
       set({
         memories: res.items,
         total: res.total,
@@ -62,15 +69,17 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         filters,
       });
     } catch (err) {
+      if (seq !== requestSeq) return; // stale
       set({ error: (err as Error).message });
     } finally {
-      set({ isLoading: false });
+      if (seq === requestSeq) set({ isLoading: false });
     }
   },
 
   loadMore: async () => {
-    const { filters, offset, total, memories, isLoading } = get();
+    const { filters, offset, total, isLoading } = get();
     if (isLoading || offset >= total) return;
+    const seq = requestSeq;
     set({ isLoading: true });
     try {
       const res = await api.listMemories({
@@ -78,15 +87,17 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         limit: PAGE_SIZE,
         offset,
       });
-      set({
-        memories: [...memories, ...res.items],
+      if (seq !== requestSeq) return; // a newer search replaced this result set
+      set((state) => ({
+        memories: [...state.memories, ...res.items],
         total: res.total,
         offset: offset + res.items.length,
-      });
+      }));
     } catch (err) {
+      if (seq !== requestSeq) return;
       set({ error: (err as Error).message });
     } finally {
-      set({ isLoading: false });
+      if (seq === requestSeq) set({ isLoading: false });
     }
   },
 

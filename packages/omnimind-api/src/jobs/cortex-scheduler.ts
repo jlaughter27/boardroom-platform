@@ -5,14 +5,21 @@ import { CORTEX_CONFIG } from '@boardroom/shared';
 import { generateWeeklyMemo } from '../services/cortex-memo.service';
 import { detectPatterns } from '../services/cortex-patterns.service';
 import { scanContradictions } from '../services/cortex-contradictions.service';
+import { createJobGuard } from './job-guard';
 
 let memoJob: ScheduledTask | null = null;
 let patternJob: ScheduledTask | null = null;
 let contradictionJob: ScheduledTask | null = null;
 
+// O-109: one overlap guard per cron so a slow Sonnet pass can never run
+// concurrently with the next tick of the same job.
+const memoGuard = createJobGuard('cortex-memo');
+const patternGuard = createJobGuard('cortex-patterns');
+const contradictionGuard = createJobGuard('cortex-contradictions');
+
 export function startCortexScheduler(): void {
   // Weekly memo — Sunday 6 PM
-  memoJob = schedule(CORTEX_CONFIG.memoSchedule, async () => {
+  memoJob = schedule(CORTEX_CONFIG.memoSchedule, () => memoGuard.run(async () => {
     logger.info('Running weekly memo generation...');
     try {
       const users = await prisma.user.findMany({ select: { id: true } });
@@ -27,10 +34,10 @@ export function startCortexScheduler(): void {
     } catch (err) {
       logger.error('Memo scheduler error', { error: (err as Error).message });
     }
-  });
+  }));
 
   // Pattern scan — Monday 3 AM
-  patternJob = schedule(CORTEX_CONFIG.patternScanSchedule, async () => {
+  patternJob = schedule(CORTEX_CONFIG.patternScanSchedule, () => patternGuard.run(async () => {
     logger.info('Running pattern detection scan...');
     try {
       const users = await prisma.user.findMany({ select: { id: true } });
@@ -45,10 +52,10 @@ export function startCortexScheduler(): void {
     } catch (err) {
       logger.error('Pattern scheduler error', { error: (err as Error).message });
     }
-  });
+  }));
 
   // Contradiction scan — Monday 4 AM
-  contradictionJob = schedule(CORTEX_CONFIG.contradictionScanSchedule, async () => {
+  contradictionJob = schedule(CORTEX_CONFIG.contradictionScanSchedule, () => contradictionGuard.run(async () => {
     logger.info('Running contradiction detection scan...');
     try {
       const users = await prisma.user.findMany({ select: { id: true } });
@@ -63,7 +70,7 @@ export function startCortexScheduler(): void {
     } catch (err) {
       logger.error('Contradiction scheduler error', { error: (err as Error).message });
     }
-  });
+  }));
 
   logger.info('Cortex scheduler started', {
     memoSchedule: CORTEX_CONFIG.memoSchedule,
@@ -76,5 +83,8 @@ export function stopCortexScheduler(): void {
   memoJob?.stop();
   patternJob?.stop();
   contradictionJob?.stop();
+  memoJob = null;
+  patternJob = null;
+  contradictionJob = null;
   logger.info('Cortex scheduler stopped');
 }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { validateBody } from '../middleware/validate';
 import * as userProfileService from '../services/user-profile.service';
+import { invalidateCoreContext } from '../services/core-context.service';
 
 const RiskProfileSchema = z.object({
   financial: z.number().min(0).max(1),
@@ -44,6 +45,8 @@ router.patch('/', validateBody(UpdateProfileSchema), async (req, res, next) => {
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
     const profile = await userProfileService.updateProfile(userId, req.body, prisma);
+    // Phase 6: profile summary is part of the cached core block.
+    invalidateCoreContext(userId);
     res.json(profile);
   } catch (err) { next(err); }
 });

@@ -10,7 +10,7 @@
 //
 // Users who want to fill out the 5-step wizard manually can skip.
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type JSX } from 'react';
 import { BOOTSTRAP_STEP_COPY, MEGA_PROMPT } from '../bootstrap-content';
 import { VoiceRecorder } from '../VoiceRecorder';
 import { Button } from '../../ui';

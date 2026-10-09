@@ -11,6 +11,13 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages/shared/ packages/shared/
 COPY packages/omnimind-api/ packages/omnimind-api/
+COPY docs/prompts/ docs/prompts/
+COPY scripts/check-prompts-integrity.sh scripts/check-prompts-integrity.sh
+
+# Fail fast if the runtime prompt count drops accidentally during a build.
+# OmniMind's prompt-loader reads reflection / cortex / simulation prompts from
+# docs/prompts at runtime (R-D-01) — the same guard boardroom-ai's image runs.
+RUN sh scripts/check-prompts-integrity.sh
 
 # Generate Prisma client BEFORE TypeScript build (needs the generated types)
 RUN cd packages/omnimind-api && pnpm exec prisma generate
@@ -68,6 +75,10 @@ COPY --from=builder /app/packages/omnimind-api/package.json ./package.json
 COPY --from=builder /app/packages/omnimind-api/docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
+# Runtime system prompts (src/lib/prompt-loader.ts honours PROMPTS_DIR first).
+COPY --from=builder /app/docs/prompts/ ./docs/prompts/
+
 ENV NODE_ENV=production
+ENV PROMPTS_DIR=/app/docs/prompts
 EXPOSE 3333
 CMD ["./docker-entrypoint.sh"]

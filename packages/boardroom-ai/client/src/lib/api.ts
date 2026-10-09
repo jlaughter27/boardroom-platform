@@ -17,11 +17,13 @@ import type {
   EmailExtraction,
   EmailMemoryProposal,
   CreateMemoryResponse,
-  UserMode,
   AuthUser,
   SessionSummary,
   SubscriptionData,
+  KnowledgeGraph,
+  KnowledgeGraphQuery,
 } from '@boardroom/shared';
+import type { ClientUserMode } from '../types/debate';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -62,6 +64,7 @@ async function request<T>(
       body && typeof body === 'object' && 'message' in body
         ? (body as { message: string }).message
         : `Request failed: ${res.status}`;
+    if (res.status === 401) handleUnauthorized(path);
     throw new ApiError(msg, res.status, body);
   }
 
@@ -69,6 +72,22 @@ async function request<T>(
   if (res.status === 204) return undefined as T;
 
   return res.json() as Promise<T>;
+}
+
+/**
+ * A 401 on any non-auth endpoint means the JWT cookie expired or was revoked.
+ * Drop the client-side session so ProtectedRoute redirects to /login instead of
+ * leaving the user "authenticated" with every call failing (audit C-112).
+ * The auth store is imported lazily to avoid a static import cycle
+ * (auth.store → api → auth.store).
+ */
+function handleUnauthorized(path: string): void {
+  if (path.startsWith('/auth/')) return;
+  void import('../stores/auth.store').then(({ useAuthStore }) => {
+    if (useAuthStore.getState().isAuthenticated) {
+      useAuthStore.setState({ user: null, isAuthenticated: false, isLoading: false });
+    }
+  }).catch(() => { /* store unavailable (tests) */ });
 }
 
 // ---------------------------------------------------------------------------
@@ -90,10 +109,18 @@ export async function* streamSSE(
   });
 
   if (!response.ok) {
-    throw new ApiError(
-      `SSE request failed: ${response.status}`,
-      response.status,
-    );
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      /* empty */
+    }
+    const msg =
+      body && typeof body === 'object' && 'message' in body
+        ? (body as { message: string }).message
+        : `SSE request failed: ${response.status}`;
+    if (response.status === 401) handleUnauthorized(url.replace(/^\/api/, ''));
+    throw new ApiError(msg, response.status, body);
   }
 
   const reader = response.body!.getReader();
@@ -147,8 +174,11 @@ export function logout() {
   return request<{ status: string }>('/auth/logout', { method: 'POST' });
 }
 
+/** Client-side auth user: server's `GET /auth/me` adds an `isAdmin` flag (C-103). */
+export type ClientAuthUser = AuthUser & { isAdmin?: boolean };
+
 export function getMe() {
-  return request<AuthUser>('/auth/me');
+  return request<ClientAuthUser>('/auth/me');
 }
 
 // ---------------------------------------------------------------------------
@@ -157,14 +187,14 @@ export function getMe() {
 
 interface CreateSessionRequest {
   question: string;
-  mode: UserMode;
+  mode: ClientUserMode;
   roomId?: string;
 }
 
 interface CreateSessionResponse {
   sessionId: string;
   question: string;
-  mode: UserMode;
+  mode: ClientUserMode;
   personasToFire: string[];
   includesCEO: boolean;
 }
@@ -172,10 +202,12 @@ interface CreateSessionResponse {
 interface SessionDetail {
   id: string;
   question: string;
-  mode: UserMode;
+  mode: ClientUserMode;
   personaResponses: Record<string, unknown>;
   ceoSynthesis: unknown | null;
   sufficiencyScore: unknown | null;
+  /** Phase 6 — set once `POST /sessions/:id/decide` has created a Decision. */
+  decisionId?: string | null;
   createdAt: string;
 }
 
@@ -200,12 +232,12 @@ export function listSessions(limit = 20, offset = 0) {
 // SSE stream endpoints (POST — use streamSSE helper)
 // ---------------------------------------------------------------------------
 
-export function createDispatchStream(sessionId: string) {
-  return streamSSE(`/api/sessions/${sessionId}/dispatch`);
+export function createDispatchStream(sessionId: string, signal?: AbortSignal) {
+  return streamSSE(`/api/sessions/${sessionId}/dispatch`, 'POST', undefined, signal);
 }
 
-export function createSynthesisStream(sessionId: string) {
-  return streamSSE(`/api/sessions/${sessionId}/synthesize`);
+export function createSynthesisStream(sessionId: string, signal?: AbortSignal) {
+  return streamSSE(`/api/sessions/${sessionId}/synthesize`, 'POST', undefined, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,34 +252,8 @@ export function checkAmbiguity(sessionId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Export
-// ---------------------------------------------------------------------------
-
-interface SessionExport {
-  id: string;
-  question: string;
-  mode: UserMode;
-  personaResponses: Record<string, import('@boardroom/shared').PersonaResponse>;
-  synthesis: import('@boardroom/shared').SynthesisReport | null;
-  createdAt: string;
-}
-
-export function exportSession(sessionId: string, format: 'json' | 'pdf' = 'json') {
-  return request<SessionExport>(
-    `/sessions/${sessionId}/export?format=${format}`,
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Entity reads
 // ---------------------------------------------------------------------------
-
-interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  offset: number;
-  limit: number;
-}
 
 export async function getGoals(): Promise<Goal[]> {
   const res = await request<PaginatedResponse<Goal>>('/goals');
@@ -277,6 +283,24 @@ export async function getDecisions(): Promise<Decision[]> {
 export async function getCommitments(): Promise<Commitment[]> {
   const res = await request<PaginatedResponse<Commitment>>('/commitments');
   return res.items;
+}
+
+export interface UpdateCommitmentInput {
+  description?: string;
+  stakeholderId?: string | null;
+  deadline?: string | null;
+  status?: Commitment['status'] | `${Commitment['status']}`;
+  sourceSessionId?: string | null;
+  linkedProjectId?: string | null;
+  completedAt?: string | null;
+}
+
+/** `PATCH /commitments/:id` (mirrors shared `UpdateCommitmentRequestSchema`). */
+export function updateCommitment(id: string, input: UpdateCommitmentInput) {
+  return request<Commitment>(`/commitments/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 export function getUserProfile() {
@@ -457,6 +481,17 @@ export function getRelationshipGraph() {
   return request<{ nodes: Array<{ id: string; type: 'person' | 'project'; label: string; size: number; domain: string }>; edges: Array<{ source: string; target: string; weight: number; type: string }> }>(
     '/relationships/graph',
   );
+}
+
+/** Knowledge graph for the /graph page. Server caps memories (default 150, max 500). */
+export function getKnowledgeGraph(query: KnowledgeGraphQuery = {}) {
+  const qs = new URLSearchParams();
+  if (query.types?.length) qs.set('types', query.types.join(','));
+  if (query.domain) qs.set('domain', query.domain);
+  if (query.memoryLimit !== undefined) qs.set('memoryLimit', String(query.memoryLimit));
+  if (query.includeArchived) qs.set('includeArchived', 'true');
+  const s = qs.toString();
+  return request<KnowledgeGraph>(`/graph${s ? `?${s}` : ''}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -647,8 +682,22 @@ export function confirmGmailExtraction(proposals: EmailMemoryProposal[]) {
 // Subscription
 // ---------------------------------------------------------------------------
 
-export function getSubscription() {
-  return request<SubscriptionData | null>('/subscription');
+/**
+ * `GET /subscription` → `{ configured, subscription }` (C-104).
+ * `configured=false` means Stripe is not set up (dev mode);
+ * `configured=true && subscription=null` means the user has no subscription row.
+ */
+export interface SubscriptionStatusResponse {
+  configured: boolean;
+  subscription: SubscriptionData | null;
+}
+
+export async function getSubscription(): Promise<SubscriptionStatusResponse> {
+  const data = await request<SubscriptionStatusResponse | SubscriptionData | null>('/subscription');
+  // Legacy shape (pre-C-104 server): bare `null` meant "billing not configured".
+  if (data === null) return { configured: false, subscription: null };
+  if ('configured' in data) return data;
+  return { configured: true, subscription: data };
 }
 
 export function createCheckout() {
@@ -918,4 +967,209 @@ export function mergeAdminDuplicates(keepId: string, archiveId: string, userId: 
 
 export function triggerAdminDecay() {
   return request<{ status: string; decayed: number }>('/admin/decay/run', { method: 'POST' });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — decisions: commit, calibration, "what changed"
+// ---------------------------------------------------------------------------
+
+import type {
+  DecideSessionRequest,
+  GraphBacklinksResponse,
+  InteractiveWeeklyMemo,
+  PersonDuplicatePair,
+  UnlinkedMentionsResponse,
+} from '../types/debate';
+import type {
+  CalibrationReport,
+  CapsulesResponse,
+  CommitmentNudgesResponse,
+  CoreContextResponse,
+  EntityChangesResponse,
+  LlmUsageSummary,
+  MemoItemStateRequest,
+  ReflectableEntityType,
+  ReflectedContextCapsule,
+} from '@boardroom/shared';
+
+/** `POST /sessions/:id/decide` — commit the decision with forecast fields. Returns the created Decision. */
+export function commitDecision(sessionId: string, input: DecideSessionRequest) {
+  return request<Decision>(`/sessions/${encodeURIComponent(sessionId)}/decide`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `GET /decisions/calibration?successThreshold=4` */
+export function getCalibration(successThreshold?: number) {
+  const qs = successThreshold !== undefined ? `?successThreshold=${successThreshold}` : '';
+  return request<CalibrationReport>(`/decisions/calibration${qs}`);
+}
+
+/**
+ * `GET /decisions/changes?entityId=<type:id>&since=<ISO>` — memories /
+ * decisions / commitments created or invalidated since `since` for an entity.
+ */
+export function getDecisionChanges(entityId: string, since: Date | string) {
+  const qs = new URLSearchParams({
+    entityId,
+    since: since instanceof Date ? since.toISOString() : since,
+  });
+  return request<EntityChangesResponse>(`/decisions/changes?${qs.toString()}`);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — commitments nudges
+// ---------------------------------------------------------------------------
+
+/** `GET /commitments/nudges` → `{ dueSoon, overdue }` */
+export function getCommitmentNudges() {
+  return request<CommitmentNudgesResponse>('/commitments/nudges');
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — interactive weekly memo
+// ---------------------------------------------------------------------------
+
+/** `PATCH /cortex/memo/:id/items/:itemKey` body `{ state, until? }` → updated memo. */
+export function updateMemoItem(
+  memoId: string,
+  itemKey: string,
+  input: MemoItemStateRequest,
+) {
+  return request<InteractiveWeeklyMemo>(
+    `/cortex/memo/${encodeURIComponent(memoId)}/items/${encodeURIComponent(itemKey)}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — people duplicates
+// ---------------------------------------------------------------------------
+
+/** `GET /people/duplicates` → `{ pairs }` (pg_trgm similarity ≥ 0.6, no auto-merge). */
+export function getPeopleDuplicates() {
+  return request<{ pairs: PersonDuplicatePair[] }>('/people/duplicates');
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — graph extras + entity link editors
+// ---------------------------------------------------------------------------
+
+/** `GET /graph/backlinks/:nodeId` (`nodeId` = `type:refId`). */
+export function getGraphBacklinks(nodeId: string) {
+  return request<GraphBacklinksResponse>(`/graph/backlinks/${encodeURIComponent(nodeId)}`);
+}
+
+/** `GET /graph/unlinked-mentions?limit=50` */
+export function getUnlinkedMentions(limit = 50) {
+  return request<UnlinkedMentionsResponse>(`/graph/unlinked-mentions?limit=${limit}`);
+}
+
+/** `POST /graph/unlinked-mentions/link` body `{ memoryId, entityType, entityId }` → 201. */
+export function linkUnlinkedMention(input: { memoryId: string; entityType: string; entityId: string }) {
+  return request<MemoryEntityLink | void>('/graph/unlinked-mentions/link', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `POST /projects/:projectId/people/:personId` body `{ role? }` (ProjectPersonLink). */
+export function addProjectPerson(projectId: string, personId: string, role?: string) {
+  return request<unknown>(
+    `/projects/${encodeURIComponent(projectId)}/people/${encodeURIComponent(personId)}`,
+    { method: 'POST', body: JSON.stringify(role ? { role } : {}) },
+  );
+}
+
+export function removeProjectPerson(projectId: string, personId: string) {
+  return request<void>(
+    `/projects/${encodeURIComponent(projectId)}/people/${encodeURIComponent(personId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** `POST /projects/:projectId/decisions/:decisionId` (DecisionProjectLink). */
+export function linkProjectDecision(projectId: string, decisionId: string) {
+  return request<unknown>(
+    `/projects/${encodeURIComponent(projectId)}/decisions/${encodeURIComponent(decisionId)}`,
+    { method: 'POST' },
+  );
+}
+
+export function unlinkProjectDecision(projectId: string, decisionId: string) {
+  return request<void>(
+    `/projects/${encodeURIComponent(projectId)}/decisions/${encodeURIComponent(decisionId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** `POST /tasks/:taskId/depends-on/:otherTaskId` (TaskDependency: task depends on other). */
+export function addTaskDependency(taskId: string, otherTaskId: string) {
+  return request<unknown>(
+    `/tasks/${encodeURIComponent(taskId)}/depends-on/${encodeURIComponent(otherTaskId)}`,
+    { method: 'POST' },
+  );
+}
+
+export function removeTaskDependency(taskId: string, otherTaskId: string) {
+  return request<void>(
+    `/tasks/${encodeURIComponent(taskId)}/depends-on/${encodeURIComponent(otherTaskId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — LLM usage (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /usage/llm/summary?days=7&all=1` — admin-only. `all=1` asks for the
+ * workspace-wide summary explicitly rather than relying on the proxy omitting
+ * the user id (R-C-07).
+ */
+export function getLlmUsageSummary(days = 7) {
+  return request<LlmUsageSummary>(`/usage/llm/summary?days=${days}&all=1`);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — core context, reflection, capsules, hybrid search (thin proxies)
+// ---------------------------------------------------------------------------
+
+/** `GET /context/core` — deterministic core-context block for the current user. */
+export function getCoreContext() {
+  return request<CoreContextResponse>('/context/core');
+}
+
+/** `POST /context/reflect` body `{ entityType, entityId }` → regenerated capsule. */
+export function reflectEntity(entityType: ReflectableEntityType, entityId: string) {
+  return request<ReflectedContextCapsule>('/context/reflect', {
+    method: 'POST',
+    body: JSON.stringify({ entityType, entityId }),
+  });
+}
+
+/** `GET /context/capsules?entityIds=goal:x,project:y` → `{ items }` */
+export function getCapsules(entityIds: string[]) {
+  const qs = new URLSearchParams({ entityIds: entityIds.join(',') });
+  return request<CapsulesResponse>(`/context/capsules?${qs.toString()}`);
+}
+
+export interface HybridSearchParams {
+  query: string;
+  limit?: number;
+  domain?: string;
+  tags?: string[];
+  status?: string;
+  includeArchived?: boolean;
+  asOf?: string;
+  cursor?: string | null;
+}
+
+/** `POST /memories/search` — hybrid search (semantic + FTS + trigram) with cursor paging. */
+export function hybridSearchMemories(params: HybridSearchParams) {
+  return request<{ items: Array<import('@boardroom/shared').MemoryApiRecord & { score?: number }>; nextCursor: string | null }>(
+    '/memories/search',
+    { method: 'POST', body: JSON.stringify(params) },
+  );
 }

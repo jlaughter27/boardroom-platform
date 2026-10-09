@@ -2,8 +2,41 @@ import type { ScoredResult } from './structured-filter';
 import type { PersonaId, ContextPackage } from '@boardroom/shared';
 import { RETRIEVAL_CONFIG } from '@boardroom/shared';
 import { estimateTokens } from '@boardroom/shared';
+import type { RetrievalLayer } from './forgetting-curve';
 
 export type { ContextPackage };
+
+/**
+ * F-204: the packaged context carries a `degraded` flag when any retrieval
+ * layer errored (and returned []) so callers can tell "no matches" from
+ * "a layer is broken". Declared locally as an optional extension of the
+ * shared ContextPackage so it stays compatible whether or not the shared type
+ * grows the field.
+ */
+export interface RetrievalContextPackage extends ContextPackage {
+  retrievalMetadata: ContextPackage['retrievalMetadata'] & {
+    degraded?: boolean;
+    degradedLayers?: RetrievalLayer[];
+  };
+}
+
+export interface PackageOptions {
+  /** Layers that threw during retrieval (F-204). */
+  degradedLayers?: RetrievalLayer[];
+  /** R-O-06: cap on ranked items (callers reserve slots for prepended items). Never raises the persona default. */
+  maxItems?: number;
+  /** R-O-06: token budget for ranked items (callers subtract prepended tokens). Never raises the persona default. */
+  tokenBudget?: number;
+}
+
+/** Persona-level limits from RETRIEVAL_CONFIG (CLAUDE.md rule 7). */
+export function personaLimits(persona: PersonaId): { maxItems: number; tokenBudget: number } {
+  const isCEO = persona === 'ceo';
+  return {
+    maxItems: isCEO ? RETRIEVAL_CONFIG.maxItemsCEO : RETRIEVAL_CONFIG.maxItemsPerPersona,
+    tokenBudget: isCEO ? RETRIEVAL_CONFIG.tokenBudgetCEO : RETRIEVAL_CONFIG.tokenBudgetPerPersona,
+  };
+}
 
 const PERSONA_TAG_BOOSTS: Record<string, string[]> = {
   optimist: ['success', 'opportunity', 'resource', 'strength', 'win'],
@@ -21,11 +54,12 @@ export function packageForPersona(
   results: ScoredResult[],
   persona: PersonaId,
   totalCandidates: number,
-  layersUsed: string[]
-): ContextPackage {
-  const isCEO = persona === 'ceo';
-  const maxItems = isCEO ? RETRIEVAL_CONFIG.maxItemsCEO : RETRIEVAL_CONFIG.maxItemsPerPersona;
-  const tokenBudget = isCEO ? RETRIEVAL_CONFIG.tokenBudgetCEO : RETRIEVAL_CONFIG.tokenBudgetPerPersona;
+  layersUsed: string[],
+  options: PackageOptions = {}
+): RetrievalContextPackage {
+  const limits = personaLimits(persona);
+  const maxItems = Math.max(0, Math.min(limits.maxItems, options.maxItems ?? limits.maxItems));
+  const tokenBudget = Math.max(0, Math.min(limits.tokenBudget, options.tokenBudget ?? limits.tokenBudget));
 
   // Apply persona-specific tag boosts
   const boostTags = PERSONA_TAG_BOOSTS[persona] ?? [];
@@ -53,12 +87,15 @@ export function packageForPersona(
     totalTokens += itemTokens;
   }
 
+  const degradedLayers = options.degradedLayers ?? [];
+
   return {
     items: selected.map(({ tags, importance, lastAccessedAt, title, ...rest }) => rest),
     tokenEstimate: totalTokens,
     retrievalMetadata: {
       totalCandidates,
       layersUsed,
+      ...(degradedLayers.length > 0 ? { degraded: true, degradedLayers } : {}),
     },
   };
 }

@@ -20,7 +20,15 @@
 | `OMNIMIND_API_KEY` | Shared secret for service-to-service auth | Generate with `openssl rand -hex 32` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | console.anthropic.com |
 | `OPENAI_API_KEY` | OpenAI API key (embeddings only) | platform.openai.com |
-| `ENCRYPTION_KEY` | AES-256 key for OAuth token encryption | Generate with `openssl rand -hex 32` |
+| `ENCRYPTION_KEY` | AES-256-GCM key for OAuth tokens + ministry memories. **Must be exactly 64 hex chars; required in production (startup fails otherwise).** | `openssl rand -hex 32` |
+| `OMNIMIND_ADMIN_KEY` | Gates `/admin/*` and `POST /mcp/agents` via `x-admin-key`. Unset in prod → those routes return 503. | `openssl rand -hex 32` |
+| `OMNIMIND_REQUIRE_AGENT_KEY` | `true` → MCP callers must present a verified `x-agent-key` (default `false`, legacy header triple accepted) | optional |
+| `AGENT_RATE_AUDIT` / `AGENT_RATE_NON_AGENT_MULTIPLIER` / `IP_RATE_LIMIT_MULTIPLIER` | Rate-limit tuning (defaults 5000 / 5 / 5) | optional |
+| `SHUTDOWN_DEADLINE_MS` | Hard exit deadline for graceful shutdown (default 25000) | optional |
+| `EMBEDDING_PROVIDER` | `openai` (default) or `mock` (deterministic sha256 vectors — CI only, never prod) | Phase 6 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Tracing on when the endpoint is set; service name `omnimind-api`. See `OBSERVABILITY.md` | Phase 6, optional |
+| `REFLECTION_SCHEDULE` / `REFLECTION_THRESHOLD` | Nightly capsule reflection job (default `30 2 * * *`, threshold `0.8`) | Phase 6, optional |
+| `COMMITMENT_NUDGE_SCHEDULE` | Daily commitment nudges, SQL only (default `0 7 * * *`) | Phase 6, optional |
 | `PORT` | Injected by Railway automatically | Do not set manually |
 
 ### boardroom-ai
@@ -29,9 +37,25 @@
 |----------|-------------|--------|
 | `JWT_SECRET` | Secret for JWT signing | Generate with `openssl rand -hex 32` |
 | `OMNIMIND_API_KEY` | Must match omnimind-api's value exactly | Same value as above |
+| `ADMIN_EMAILS` | Comma-separated allowlist for `/admin` in BoardRoom. **Unset → `/admin` is 403 for everyone (fail-closed).** | e.g. `joshlaughter27@gmail.com` |
+| `LLM_RATE_LIMIT_PER_HOUR` / `LLM_RATE_LIMIT_WINDOW_MS` | Per-user token bucket on every LLM endpoint (defaults 60 / 1h) | optional |
 | `OMNIMIND_API_URL` | URL to reach OmniMind | `https://omnimind-api-production.up.railway.app` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | console.anthropic.com |
+| `OMNIMIND_API_URL` (private) | Preferred: `http://omnimind-api.railway.internal:3333` once OmniMind binds `::` — see `PRIVATE-NETWORKING.md` | Phase 6 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Tracing on when the endpoint is set; service name `boardroom-ai`; `traceparent` propagates to OmniMind | Phase 6, optional |
+| `DEBATE_ROUND2` / `MAX_REBUTTALS` | Round-2 defend/concede protocol (default `true` / `3`) | Phase 6, optional |
 | `PORT` | Injected by Railway automatically | Do not set manually |
+
+### backup (services/backup — Railway cron service)
+
+| Variable | Description | Source |
+|----------|-------------|--------|
+| `DATABASE_URL` | Source database | `${{Postgres.DATABASE_URL}}` |
+| `R2_BUCKET` / `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Cloudflare R2 destination + token | Cloudflare dashboard |
+| `BACKUP_RETAIN_DAYS` | Remote retention (default 30) | optional |
+| `BACKUP_ENCRYPT_KEY` | AES-256 passphrase for the dump file; keep next to `ENCRYPTION_KEY` | `openssl rand -base64 32` |
+| `BACKUP_HEALTHCHECK_URL` | Dead-man ping on success | optional |
+| `DRILL_DATABASE_URL` / `DRILL_API_HEALTH_URL` | Restore drill only (scratch DB) | see `BACKUPS.md` |
 
 ### Critical: OMNIMIND_API_URL
 
@@ -122,3 +146,17 @@ railway domain -s omnimind-api
 6. Check health: `curl https://boardroom-ai-production-1092.up.railway.app/health`
 7. Check health: `curl https://omnimind-api-production.up.railway.app/health`
 8. Both should return `{"status":"ok"}`
+
+---
+
+## Post-audit operator checklist (2026-10-02)
+
+Required before/at the first deploy of the remediation branch:
+
+1. **Rotate the five leaked secrets** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `JWT_SECRET`, `OMNIMIND_API_KEY`, `ENCRYPTION_KEY`) on Railway. They are recoverable from git history (`.env.deploy`, commit `0c3700a`). `ENCRYPTION_KEY` must now be 64 hex chars; rotating it makes previously encrypted OAuth tokens undecryptable (users re-connect Google) — there are no encrypted ministry rows yet (gate still on).
+2. Set `OMNIMIND_ADMIN_KEY` (omnimind-api) and `ADMIN_EMAILS` (boardroom-ai).
+3. `UPDATE tenants SET owner_user_id = '<your user cuid>' WHERE id IN ('josh-personal','josh-business','tgfc-ministry');` — session summaries are skipped (logged once per tenant) until this is set.
+4. For each MCP agent config, add `OMNIMIND_MCP_AGENT_KEY=<omk key from keygen>`; HTTP mode additionally needs `OMNIMIND_MCP_API_KEY` (now mandatory) and optionally `OMNIMIND_MCP_ALLOWED_HOSTS`.
+5. Point the Stripe webhook at `https://<boardroom-host>/subscription/webhook` (it now lives before the auth wall; signature verification is active).
+6. First boot runs `0_init` baseline resolution automatically on the existing DB (entrypoint detects fresh vs existing). Watch the deploy log for `Migrations deployed`.
+7. Optional one-off: rows whose importance already decayed before this fix keep their decayed value as `base_importance`; restore with `UPDATE memory_entries SET base_importance = 0.5 WHERE base_importance < 0.4 AND recall_count = 0;` if you want them back in persona retrieval.

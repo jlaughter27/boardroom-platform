@@ -19,7 +19,7 @@ export function useNotificationAggregator() {
         type: 'contradiction',
         title: 'Contradiction Detected',
         description: c.description,
-        severity: c.severity === 'HIGH' ? 'critical' : 'warning',
+        severity: c.severity === 'high' ? 'critical' : 'warning',
         actionUrl: '/',
         actionLabel: 'Review',
         entityId: c.id,
@@ -33,7 +33,7 @@ export function useNotificationAggregator() {
       addNotification({
         type: 'pattern',
         title: 'Thinking Pattern Found',
-        description: `${p.patternType}: ${p.description}`,
+        description: `${p.patternType}: ${p.pattern}`,
         severity: 'info',
         actionUrl: '/',
         actionLabel: 'View Details',
@@ -45,7 +45,7 @@ export function useNotificationAggregator() {
   // Latest memo → notification
   useEffect(() => {
     if (!latestMemo) return;
-    const memoDate = new Date(latestMemo.createdAt);
+    const memoDate = new Date(latestMemo.generatedAt);
     const today = new Date();
     const isToday =
       memoDate.getFullYear() === today.getFullYear() &&
