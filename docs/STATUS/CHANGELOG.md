@@ -6,6 +6,17 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-11 — Research — Universal memory MCP and graph UX landscape
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (reset from `main` after #20 merged) | **Status:** Pushed | **Report:** `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md` (+ five evidence notes under `docs/research/mcp-landscape-2026-10-11/notes/`)
+
+- five-researcher study: AI-memory MCP competitors (17 products), PKM tools with MCP + graph views, MCP spec 2026-07-28 + client support matrix, graph-visualization/search UX state of the art, read-only inventory of our own MCP + graph code
+- verdict: the data-model bundle (bi-temporal `asOf`, supersede-with-provenance, trigram hybrid retrieval, `Idempotency-Key`, per-agent scopes, decision/commitment/task entities, cortex artifacts, graph UI) is unmatched by any single product; the distribution layer (OAuth remote MCP, multi-user per URL) is commoditized and is where we are behind
+- blind spots recorded: spec 2026-07-28 deprecates DCR (Phase 10 assumes it) and removes sessions; no chat client subscribes to resource updates, so "stay up to date" must be turn-time tool calls, not push; HTTP MCP is single-identity per process; richest search (`POST /memories/search`) is not used by Memory Explorer / ⌘K / graph; graph render components have no tests
+- ranked roadmap in the report: do-now (OAuth with CIMD + DCR + static clients, public HTTPS install docs per client, ChatGPT `search`/`fetch` pair, freshness contract via `instructions`; ⌘K hybrid-search spotlight, local-graph default + edge-type filter + focus history, timeline scrubber, graph render tests), do-next, do-not
+
+---
+
 ## 2026-10-03 — Phase 6 — Independent pre-merge review: 42 findings, 42 fixed
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** 1,481 passing | **Report:** `docs/audits/REVIEW-2026-10-03.md`
