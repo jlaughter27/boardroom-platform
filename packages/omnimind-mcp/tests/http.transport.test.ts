@@ -3,7 +3,7 @@
  *
  * Boots the real server on an ephemeral port and drives it with the SDK's
  * own StreamableHTTPClientTransport + Client: initialize →
- * notifications/initialized → tools/list, asserting 18 tools. Also covers
+ * notifications/initialized → tools/list, asserting 20 tools. Also covers
  * fail-closed auth, /health, session routing, DELETE, 413 and host checks.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
@@ -29,8 +29,10 @@ const EXPECTED_TOOLS = [
   'commitment_log', 'commitment_list', 'status_get',
   // Phase 6
   'memory_reflect', 'memory_consolidate', 'graph_neighborhood',
+  // Front door — ChatGPT connector pair
+  'search', 'fetch',
 ].sort();
-const TOOL_COUNT = 18;
+const TOOL_COUNT = 20;
 
 let started: StartedHttpServer;
 let baseUrl: string;
@@ -92,7 +94,7 @@ describe('config / auth helpers', () => {
 });
 
 describe('Streamable HTTP end-to-end (M-101)', () => {
-  it('initialize → initialized → tools/list over HTTP returns all 18 tools (with annotations + outputSchema)', async () => {
+  it('initialize → initialized → tools/list over HTTP returns all 20 tools (with annotations + outputSchema)', async () => {
     const { client, transport, connect } = connectClient();
     await connect();
     expect(transport.sessionId).toBeTruthy();

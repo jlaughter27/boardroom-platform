@@ -12,7 +12,8 @@
 - **Scope rules (verified agents, 2026-10-03)**: `GET`/`HEAD` on `/memories`, `/context`, `/decisions`, `/tasks`, `/commitments`, `/projects`, `/people`, `/goals`, `/graph`, `/cortex`, `/usage` → `memory:read`. The POST reads `POST /memories/search`, `POST /memories/search-similar`, `POST /memories/validate`, `POST /context/for-persona` → `memory:read` (and are billed against the agent's `read` rate bucket). Writes: `/decisions` → `decision:write`, `/tasks` → `task:write`, `/commitments` → `commitment:write`, `/projects` → `project:write`; `/memories` (+ links), `/people`, `/goals`, `POST /context/reflect`, `/graph` link writers, `/cortex` scans/patches/generate/simulate, `POST /usage/llm` → `memory:write`. Missing scope → `403 insufficient_scope { required, agentId }`. Wildcards: `*`, `<prefix>:*`.
 - **Tenant scoping**: when agent context is present, reads are scoped to its tenant. `?tenantId=` that disagrees → `403`. Cross-tenant views require `x-admin-key` + `?includeAllTenants=true`.
 - **Admin**: `/admin/*` and `POST /mcp/agents` require `x-admin-key` matching `OMNIMIND_ADMIN_KEY` (timing-safe). Unset in production → `503 admin_disabled`. `GET /usage/llm/summary?all=1` is gated by the same header (→ `403 admin_required`, see below).
-- **Idempotency scope**: `Idempotency-Key` replay is scoped to `agent:<agentId>:user:<x-user-id>` for a verified agent and `user:<x-user-id>` otherwise (BoardRoom and unverified legacy agents).
+- **Delegated identity (per-user MCP, 2026-10-18)**: a verified agent whose row holds the gateway-only scope `mcp:delegate` may add `x-mcp-principal: token:<mcpTokenId>` or `oauth:<mcpOauthIdentityId>`. The request then runs AS that principal: `agentId = row.agentName`, `tenantId`, `sourceWeight` and `scopes = principal.scopes ∩ (gateway.scopes − mcp:delegate)` come from the McpToken / McpOauthIdentity row, and the context carries `delegated: true, userId: row.userId`. Unknown / revoked / expired / malformed principal → `401 principal_invalid { reason }`. `x-mcp-principal` from any caller that is not a verified `mcp:delegate` agent → `403 delegation_not_allowed`. A delegated request may only act for its own user: a `?userId=`, `body.userId` or `x-user-id` that differs → `403 user_mismatch { field }`; when none is supplied on `/memories`, `/context`, `/decisions`, `/tasks`, `/goals`, `/projects`, `/people`, `/commitments`, `/graph`, `/mcp/audit` the principal's userId is injected (query, body for POST/PATCH/PUT, and the `x-user-id` header). `mcp:delegate` is never grantable to a token and `*` does not imply it. See **MCP** below.
+- **Idempotency scope**: `Idempotency-Key` replay is scoped to `agent:<agentId>:user:<x-user-id>` for a verified agent and `user:<x-user-id>` otherwise (BoardRoom and unverified legacy agents). For a delegated request `<agentId>` is the principal's `agentName`, so two users behind one gateway never share a replay namespace; the agent rate-limit buckets are keyed the same way (per principal, not per gateway).
 - **Rate limits**: per-user, per-agent and audit buckets; callers without an identity header are keyed by IP (never skipped).
 - **Content-Type**: `application/json` for all request/response bodies
 - **Timestamps**: ISO 8601 strings in JSON. Parsed to `Date` internally.
@@ -826,6 +827,101 @@ Response 200: MemoryEntityLink[]
 ### DELETE /memories/:id/links/:linkId
 Remove a link.
 Response 200: { status: "deleted" }
+
+---
+
+## MCP (agent identity, per-user tokens, delegation)
+
+All routes below sit under `/mcp` and take the usual `x-api-key`. Added 2026-10-18 (Lane A1) so one MCP gateway URL can serve many users; the gateway (omnimind-mcp) is a registered Agent with the `mcp:delegate` scope.
+
+**Shapes** (`@boardroom/shared`: `mcp-token.types.ts` / `mcp-token.schema.ts`, wire = ISO strings):
+
+```typescript
+MCP_SCOPES = ['memory:read','memory:write','decision:write','task:write','commitment:write','project:write','code:write']
+// gateway-only, never grantable to a token/identity: 'mcp:delegate'
+
+McpTokenRecord = { id, userId, tenantId, name, agentName, prefix, scopes: McpScope[], sourceWeight,
+                   createdAt, lastUsedAt: string|null, expiresAt: string|null, revokedAt: string|null }
+// never the hash. agentName = `mcp-token:<slug(name)>-<last 6 chars of id>`; prefix = first 12 chars of the raw token.
+
+McpPrincipal = { kind: 'token'|'oauth', id /* row id */, userId, tenantId, agentName, scopes: McpScope[],
+                 sourceWeight, name?: string /* tokens */, expiresAt?: string /* tokens with expiry */ }
+// oauth agentName = `oauth:<clientId or issuer host>`
+```
+
+Raw token format: `omt_` + 32 random bytes base64url (47 chars). Stored as `sha256(raw)` (`mcp_tokens.token_hash`, unique) — the raw value is returned exactly once by `POST /mcp/tokens`. Revocation sets `revokedAt` (never deletes). `lastUsedAt` is touched at most once per 5 minutes per row.
+
+Validation failures on these routes are `400 validation_failed { details }` (same as the other `/mcp` routes).
+
+### Headers & scopes (additions to the auth table)
+
+| Header / scope | Who sends it | Meaning |
+|---|---|---|
+| `x-agent-key: omk_…` | gateway | existing verified agent identity |
+| `x-mcp-principal: token:<id>` \| `oauth:<id>` | gateway only (`mcp:delegate`) | act as that McpToken / McpOauthIdentity; else `403 delegation_not_allowed` |
+| scope `mcp:delegate` | Agent row (keygen) | may present `x-mcp-principal`, call `POST /mcp/tokens/introspect` and `POST /mcp/identities/resolve`. Gateway-only: rejected by the token scope schema; `*` does not imply it; removed from the delegated context's scope list |
+
+With `x-mcp-principal` the legacy triple (`x-agent-id` / `x-tenant-id` / `x-source-weight`) may name either the gateway or the principal; anything else is `403 agent_header_mismatch`. The gateway's own `lastSeenAt` is still touched. Principal rows are cached in memory for 60 s (keyed by the header value, evicted on revoke; expiry is always evaluated at request time).
+
+### POST /mcp/tokens
+
+Body `{ userId, tenantId, name: 1–60, scopes: McpScope[] (non-empty, no repeats), sourceWeight?: 0–2 (default 1), expiresInDays?: 1–365 }`.
+
+- `tenantId` must be owned by the user (`tenants.owner_user_id = userId`) → else `403 tenant_not_owned`
+- max 25 active (not revoked, not expired) tokens per user → `409 token_limit`
+- `201 { token: 'omt_…', record: McpTokenRecord }`
+
+### GET /mcp/tokens?userId=
+
+`200 { tokens: McpTokenRecord[] }` newest first; tokens revoked more than 30 days ago are omitted. Missing `userId` → `400`.
+
+### GET /mcp/tokens/options?userId=
+
+`200 { tenants: [{ id, name }] /* owned by the user */, scopes: [{ id: McpScope, description, write: boolean }] }`.
+
+### DELETE /mcp/tokens/:id?userId=
+
+`204` (sets `revokedAt`, idempotent, evicts the delegation cache). `404 not_found` when no token with that id belongs to the user. Missing `userId` → `400`.
+
+### POST /mcp/tokens/introspect  (gateway only)
+
+Caller must be a verified `x-agent-key` agent with `mcp:delegate` and must not itself be delegated → else `403 gateway_scope_required { required: 'mcp:delegate' }`.
+
+Body `{ token }` → `200 { active: true, principal: McpPrincipal }` or `200 { active: false, reason: 'invalid' | 'expired' | 'revoked' }`. Lookup is by `sha256(token)` on the unique index.
+
+### POST /mcp/identities/resolve  (gateway only, same auth)
+
+Body `{ issuer, subject, email?, emailVerified?: boolean, clientId? }`.
+
+- an `McpOauthIdentity` row exists for `(issuer, subject)` and is not revoked → `200 { active: true, principal }`
+- else if `emailVerified === true` and a `User` with that email exists and owns exactly one tenant → auto-create the identity with `scopes: ['memory:read']` (read-only), `agentName: oauth:<clientId or issuer host>`, `sourceWeight: 1` → `200 { active: true, principal }`
+- else (including a revoked link, which is never re-created automatically) → `200 { active: false, reason: 'unlinked' }`
+
+### GET /mcp/audit/stats?tool=&sinceHours=24
+
+`200 { tool: string|null, sinceHours, count, p50Ms, p95Ms, errorRate /* 0..1 */ }` computed in memory (nearest-rank percentiles) over the newest ≤10 000 `McpAuditLog` rows in the window (`durationMs`, `errorMessage`). `tool` omitted → all tools (`tool: null`). `sinceHours` 1–2160, default 24. Zeros when the window is empty.
+
+Tenant: with agent context the caller's tenant (a different `?tenantId=` → `403 tenant_mismatch` unless admin); without agent context an optional `?tenantId=` filter, otherwise the aggregate spans all tenants (numbers only, nothing row-level).
+
+### Delegated request flow (summary)
+
+```
+gateway ──POST /mcp/tokens/introspect {token}──▶ { active, principal }
+gateway ──GET /memories  x-agent-key: omk_gw  x-mcp-principal: token:<principal.id>──▶
+          agent-context: ctx = { agentId: principal.agentName, tenantId, sourceWeight,
+                                 scopes: ∩, verified: true, delegated: true, userId }
+          delegated-user-isolation: x-user-id/query/body userId pinned to ctx.userId (403 user_mismatch)
+          scope-enforcer / agent-rate-limiter / idempotency: keyed by principal.agentName
+          POST /mcp/audit must carry agentId = principal.agentName, tenantId = principal.tenantId
+```
+
+### Existing `/mcp` routes (unchanged)
+
+`POST /mcp/audit`, `GET /mcp/audit`, `POST /mcp/agents` (admin), `GET /mcp/agents` — see Global Conventions for tenant scoping. A delegated principal writing `POST /mcp/audit` is held to its own `agentName`/`tenantId` (`403 audit_identity_mismatch`).
+
+### Admin: tenant ownership
+
+`GET /admin/tenants` → `{ tenants: [{ id, name, ownerUserId }] }` and `PATCH /admin/tenants/:id` body `{ ownerUserId }` → `200 { id, name, ownerUserId }` (`404 not_found` / `404 user_not_found`, `400 validation_failed`). Both behind `x-admin-key` like the rest of `/admin/*`. Ownership is what gates `POST /mcp/tokens` and OAuth auto-link.
 
 ---
 

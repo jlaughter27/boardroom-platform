@@ -1,0 +1,109 @@
+import { describe, it, expect } from 'vitest';
+import {
+  MCP_CLIENTS,
+  buildSnippet,
+  cursorDeeplink,
+  inferClientFromName,
+  type McpClientId,
+} from '../../../src/components/settings/mcp-snippets';
+import { readWriteScopes, describeCreateError } from '../../../src/components/settings/McpTokenCreateForm';
+import { ApiError } from '../../../src/lib/api';
+
+const input = { mcpUrl: 'https://mcp.example/mcp', token: 'omt_abc_secret' };
+
+describe('buildSnippet', () => {
+  it('every client snippet carries the URL and the bearer token at least once', () => {
+    for (const { id } of MCP_CLIENTS) {
+      const s = buildSnippet(id, input);
+      const all = [...s.blocks.map((b) => b.code), ...s.steps, ...s.notes].join('\n');
+      expect(all, id).toContain('https://mcp.example/mcp');
+      expect(all, id).toContain('Bearer omt_abc_secret');
+    }
+  });
+
+  it('Claude Code is a single `claude mcp add --transport http` command', () => {
+    const s = buildSnippet('claude-code', input);
+    expect(s.blocks).toHaveLength(1);
+    expect(s.blocks[0].code).toBe('claude mcp add --transport http omnimind https://mcp.example/mcp --header "Authorization: Bearer omt_abc_secret"');
+  });
+
+  it('Cursor emits valid .cursor/mcp.json plus a deeplink whose config decodes to the same server', () => {
+    const s = buildSnippet('cursor', input);
+    const parsed = JSON.parse(s.blocks[0].code);
+    expect(parsed).toEqual({ mcpServers: { omnimind: { url: input.mcpUrl, headers: { Authorization: 'Bearer omt_abc_secret' } } } });
+    const link = s.blocks[1].code;
+    expect(link.startsWith('cursor://anysphere.cursor-deeplink/mcp/install?name=omnimind&config=')).toBe(true);
+    const config = JSON.parse(atob(decodeURIComponent(link.split('config=')[1])));
+    expect(config).toEqual({ url: input.mcpUrl, headers: { Authorization: 'Bearer omt_abc_secret' } });
+    expect(cursorDeeplink(input.mcpUrl, input.token)).toBe(link);
+  });
+
+  it.each<[McpClientId, string, string]>([
+    ['windsurf', 'mcpServers.omnimind.serverUrl', 'https://mcp.example/mcp'],
+    ['gemini-cli', 'mcpServers.omnimind.httpUrl', 'https://mcp.example/mcp'],
+    ['vscode-copilot', 'servers.omnimind.type', 'http'],
+    ['zed', 'context_servers.omnimind.url', 'https://mcp.example/mcp'],
+  ])('%s JSON block has %s = %s', (id, path, expected) => {
+    const s = buildSnippet(id, input);
+    const obj = JSON.parse(s.blocks[0].code);
+    const value = path.split('.').reduce<unknown>((acc, k) => (acc as Record<string, unknown>)[k], obj);
+    expect(value).toBe(expected);
+    expect(s.blocks[0].code).toContain('"Authorization": "Bearer omt_abc_secret"');
+  });
+
+  it('ChatGPT explains OAuth availability from connect-info and mentions search/fetch', () => {
+    const off = buildSnippet('chatgpt', { ...input, oauthEnabled: false });
+    expect(off.notes.join(' ')).toMatch(/OAuth is not enabled/);
+    expect(off.notes.join(' ')).toMatch(/`search` and `fetch`/);
+    const on = buildSnippet('chatgpt', { ...input, oauthEnabled: true });
+    expect(on.notes.join(' ')).toMatch(/choose OAuth instead/);
+  });
+
+  it('unknown ids fall back to the generic Streamable HTTP snippet', () => {
+    const s = buildSnippet('nope' as McpClientId, input);
+    expect(s.clientId).toBe('other');
+    expect(s.blocks.some((b) => b.code.startsWith('curl'))).toBe(true);
+  });
+});
+
+describe('inferClientFromName', () => {
+  it.each<[string, McpClientId | null]>([
+    ['Claude Code', 'claude-code'],
+    ['Claude Desktop (work mac)', 'claude-desktop'],
+    ['Claude.ai', 'claude-ai'],
+    ['my cursor token', 'cursor'],
+    ['VS Code Copilot', 'vscode-copilot'],
+    ['Gemini CLI', 'gemini-cli'],
+    ['ChatGPT', 'chatgpt'],
+    ['Windsurf', 'windsurf'],
+    ['Zed', 'zed'],
+    ['laptop', null],
+  ])('%s → %s', (name, expected) => {
+    expect(inferClientFromName(name)).toBe(expected);
+  });
+});
+
+describe('readWriteScopes', () => {
+  it('is memory:read plus every non-admin write scope, de-duplicated', () => {
+    const scopes = readWriteScopes({
+      tenants: [],
+      scopes: [
+        { id: 'memory:read', description: '', write: false },
+        { id: 'memory:write', description: '', write: true },
+        { id: 'task:write', description: '', write: true },
+        { id: 'admin:write', description: '', write: true },
+        { id: 'memory:read', description: 'dupe', write: false },
+      ],
+    });
+    expect(scopes).toEqual(['memory:read', 'memory:write', 'task:write']);
+  });
+});
+
+describe('describeCreateError', () => {
+  it('maps the upstream codes to founder-readable copy', () => {
+    expect(describeCreateError(new ApiError('x', 403, { error: 'tenant_not_owned' }))).toMatch(/not the owner/);
+    expect(describeCreateError(new ApiError('x', 409, { error: 'token_limit' }))).toMatch(/token limit/i);
+    expect(describeCreateError(new ApiError('bad name', 422, { error: 'validation_failed' }))).toBe('bad name');
+    expect(describeCreateError(new Error('boom'))).toBe('boom');
+  });
+});

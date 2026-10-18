@@ -1,10 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MemoryClass, MemoryStatus } from '@boardroom/shared';
 import { useMemoryStore } from '../../stores/memory.store';
 import { useDebounce } from '../../hooks/useDebounce';
+import { formatAsOf } from '../graph/graph-search';
+import { cn } from '../../lib/cn';
+
+const MAX_TAG_CHIPS = 14;
+
+/** Tags present in the current result set, most frequent first (selected tags always included). */
+export function collectTagChips(memories: ReadonlyArray<{ tags?: string[] }>, selected: readonly string[] = [], max = MAX_TAG_CHIPS): string[] {
+  const freq = new Map<string, number>();
+  for (const m of memories) for (const t of m.tags ?? []) if (t) freq.set(t, (freq.get(t) ?? 0) + 1);
+  const sorted = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
+  const out: string[] = [...selected];
+  for (const t of sorted) {
+    if (out.length >= max) break;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
 
 export function MemorySearch() {
-  const { filters, setFilters, search } = useMemoryStore();
+  const { filters, setFilters, search, memories, engine, hybridActive } = useMemoryStore();
   const [query, setQuery] = useState(filters.q ?? '');
   const debouncedQuery = useDebounce(query, 300);
   // Domain is free text too — debounce it like `q` instead of firing per keystroke (C-113)
@@ -23,6 +40,16 @@ export function MemorySearch() {
     }
   }, [debouncedDomain]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const selectedTags = filters.tags ?? [];
+  const tagChips = useMemo(() => collectTagChips(memories, selectedTags), [memories, selectedTags]);
+  const asOfLabel = formatAsOf(filters.asOf);
+  const hybridEligible = engine === 'hybrid';
+
+  function toggleTag(tag: string) {
+    const next = selectedTags.includes(tag) ? selectedTags.filter((t) => t !== tag) : [...selectedTags, tag];
+    setFilters({ tags: next.length ? next : undefined });
+  }
+
   function clearAll() {
     setQuery('');
     setDomain('');
@@ -32,7 +59,7 @@ export function MemorySearch() {
   }
 
   const selectClass =
-    'bg-card border border-borderrounded px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40';
+    'bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40';
 
   return (
     <div className="space-y-3">
@@ -55,9 +82,15 @@ export function MemorySearch() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search memories..."
-          className="w-full bg-card border border-borderrounded-lg pl-10 pr-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+          placeholder={hybridEligible ? 'Search memories (semantic + full-text + fuzzy)…' : 'Search memories...'}
+          aria-label="Search memories"
+          className="w-full bg-card border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
         />
+        {hybridActive && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] text-foreground" title="Results come from hybrid search">
+            hybrid
+          </span>
+        )}
       </div>
 
       {/* Filter row */}
@@ -67,6 +100,7 @@ export function MemorySearch() {
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
           placeholder="Domain"
+          aria-label="Domain"
           className={`${selectClass} w-28`}
         />
 
@@ -75,6 +109,7 @@ export function MemorySearch() {
           onChange={(e) =>
             setFilters({ memoryClass: e.target.value || undefined })
           }
+          aria-label="Memory class"
           className={selectClass}
         >
           <option value="">All Classes</option>
@@ -88,6 +123,7 @@ export function MemorySearch() {
         <select
           value={filters.status ?? ''}
           onChange={(e) => setFilters({ status: e.target.value || undefined })}
+          aria-label="Status"
           className={selectClass}
         >
           <option value="">All Statuses</option>
@@ -101,6 +137,7 @@ export function MemorySearch() {
         <select
           value={filters.sortBy ?? 'createdAt'}
           onChange={(e) => setFilters({ sortBy: e.target.value })}
+          aria-label="Sort by"
           className={selectClass}
         >
           <option value="createdAt">Created</option>
@@ -116,10 +153,41 @@ export function MemorySearch() {
                 filters.sortOrder === 'asc' ? 'desc' : 'asc',
             })
           }
-          className="bg-card border border-borderrounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors"
+          className="bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors"
           title={`Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
         >
-          {filters.sortOrder === 'asc' ? '\u2191 Asc' : '\u2193 Desc'}
+          {filters.sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
+        </button>
+
+        {/* As-of date (hybrid search time travel) */}
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Only memories that were valid on this day (hybrid search)">
+          <span>As of</span>
+          <input
+            type="date"
+            value={filters.asOf ?? ''}
+            onChange={(e) => setFilters({ asOf: e.target.value || undefined })}
+            aria-label="As of date"
+            className={`${selectClass} py-1`}
+          />
+        </label>
+        {asOfLabel && (
+          <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-foreground" data-testid="memory-asof-chip">
+            {asOfLabel}
+            <button type="button" onClick={() => setFilters({ asOf: undefined })} aria-label="Clear as-of date" className="text-muted-foreground hover:text-foreground">×</button>
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setFilters({ includeArchived: filters.includeArchived ? undefined : true })}
+          aria-pressed={!!filters.includeArchived}
+          className={cn(
+            'rounded border px-2 py-1.5 text-sm transition-colors',
+            filters.includeArchived ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
+          )}
+          title="Include archived memories (hybrid search)"
+        >
+          Include archived
         </button>
 
         <button
@@ -130,6 +198,34 @@ export function MemorySearch() {
           Clear Filters
         </button>
       </div>
+
+      {/* Tag chips — multi-select over tags present in the results */}
+      {tagChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by tag">
+          {tagChips.map((tag) => {
+            const on = selectedTags.includes(tag);
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTag(tag)}
+                aria-pressed={on}
+                className={cn(
+                  'h-6 rounded-full border px-2 text-[11px] transition-colors',
+                  on ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
+                )}
+              >
+                #{tag}
+              </button>
+            );
+          })}
+          {selectedTags.length > 0 && (
+            <button type="button" onClick={() => setFilters({ tags: undefined })} className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+              clear tags
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

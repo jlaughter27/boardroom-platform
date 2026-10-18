@@ -177,7 +177,7 @@ boardroom-platform/
 ├── scripts/                        # Deploy checks, backups, seeding
 ├── turbo.json                      # Build pipeline config
 ├── docker-compose.yml              # Local dev: postgres + both services
-└── .env.example                    # 21 env vars documented
+└── .env.example                    # 71 env vars documented (incl. OMNIMIND_MCP_* front door)
 ```
 
 ---
@@ -435,7 +435,7 @@ Post-implementation review:
 |-------|--------|-------|
 | 0 — Foundation | ✅ Complete | Prisma schema (34 models), CRUD, validation, retrieval, Docker, agent runtime |
 | 1 — Multi-Persona | ✅ Complete | 7 personas, dispatch, streaming, synthesis, extraction, eval |
-| 2 — Cortex Intelligence | ✅ Complete | Pattern detection (cron Mon 3am), weekly memos (cron Sun 6pm), contradiction alerts (cron Tue 9pm), simulation. Routes + services + prompts + UI all wired. |
+| 2 — Cortex Intelligence | ✅ Complete | Pattern detection (cron Mon 03:00), weekly memos (cron Sun 18:00), contradiction alerts (cron Mon 04:00), simulation — schedules are `CORTEX_CONFIG` in `shared/constants/cortex-config.ts`, server local time. Routes + services + prompts + UI all wired. |
 | 3 — Integrations | ✅ Partial | Google Calendar, Gmail, Stripe billing, custom personas — routes + services exist and are mounted |
 | 4+ — Collaboration | 📋 Future | Multi-user rooms (stub: `// app.use('/rooms', roomsRouter)` in index.ts), scaling |
 
@@ -461,11 +461,13 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 5. Subscription middleware fails open when OmniMind is unreachable.
 6. No monitoring/alerting beyond health checks. Correlation IDs (`x-request-id`) ARE propagated across the seam since 2026-04-15 — log aggregation can join on them.
 7. Single Railway instance per service (no horizontal scaling).
-8. Agent identity verification (`x-agent-key`) is opt-in (`OMNIMIND_REQUIRE_AGENT_KEY=false` by default); the legacy unverified header triple still works for solo mode.
+8. Agent identity verification (`x-agent-key`) is opt-in (`OMNIMIND_REQUIRE_AGENT_KEY=false` by default); the legacy unverified header triple still works for solo mode. **Should be set to `true` once the hosted MCP gateway (`omnimind-mcp-gateway`, scope `mcp:delegate`) is the only MCP writer** — delegated identity already requires a verified agent key, so the unverified fast-path then protects nothing and only lets a spoofed `x-agent-id` bypass scope enforcement.
 9. Ministry domain remains gated (`MINISTRY_DEFERRED` 503); the encryption-at-rest write path is wired and unit-tested behind the gate.
 10. `includeEntities: commitments|tasks` is accepted by `/context/for-persona` but those tables are not yet searched by the assembler (`ScoredResult.type` has no task/commitment member).
 11. The retrieval-eval CI job's first real run (PR #20, 2026-10-03, mock embeddings) passed with a thin margin on the gated leg: for-persona recall@10 0.520 vs gate 0.5, MRR 0.440 vs 0.35; `/memories/search` recall@10 0.535, MRR 0.549; the `update` slice is the weakest (recall@10 0.27). The run is deterministic (hash-seeded vectors), so the margin is stable, not flaky. Thresholds ratchet upward only after three green runs on `main` per `docs/runbooks/retrieval-eval.md`.
 12. Reflection and commitment-nudge jobs, OTel export, private networking and the backup service all need Railway env/config (see the runbook checklist).
+13. **No push-based freshness for MCP clients.** MCP's `notifications/resources/updated` / `list_changed` exist but no shipping chat client (Claude.ai, ChatGPT, Cursor, …) turns them into an assistant turn or auto-reads resources, so "all platforms stay up to date" means **turn-time reads**: the server's `instructions` and the `session_start` prompt tell hosts to call `status_get` / `memory_search` at the start of relevant turns, and a write from any client is visible to every other client on its next turn, not before. Phase 12 (outbox/webhooks) pushes to agents and UIs we control, not to third-party chat clients. See `docs/runbooks/omnimind-mcp.md` §8.
+14. **OAuth is resource-server only.** The MCP service validates JWTs from the single configured issuer (`OMNIMIND_MCP_OAUTH_ISSUER` / `_JWKS_URL` / `_AUDIENCE`, RFC 9728 PRM at `/.well-known/oauth-protected-resource`, RFC 8707 audience binding) and auto-links the user by verified e-mail; there is **no built-in authorization server**, no consent-time scope picker, and client registration (CIMD, which Claude prefers; DCR, deprecated in MCP spec 2026-07-28 but still used by Cursor/Gemini CLI/Copilot Studio; static clients) is entirely the issuer's job (ADR-014 spike). Per-user `omt_` tokens from BoardRoom Settings are the primary credential; the PRM document is served only when an issuer is configured. ChatGPT workspaces that allow only OAuth connectors need this path (header auth is rejected there).
 
 ## Resilience layer (omnimind-client.ts)
 
@@ -484,31 +486,38 @@ Configured via env vars (all optional with sensible defaults):
 
 ## Memory Layer (OmniMind-MCP)
 
-`packages/omnimind-mcp` is the MCP server that gives external agents structured access to the OmniMind memory store. It is **not** part of the BoardRoom AI service — it's a separate process connecting directly to OmniMind API via HTTP.
+`packages/omnimind-mcp` is the MCP server that gives external agents structured access to the OmniMind memory store. It is **not** part of the BoardRoom AI service — it's a separate process (third Railway service, `packages/omnimind-mcp/Dockerfile`, CI `docker` matrix) connecting directly to OmniMind API via HTTP.
 
 **Full protocol:** `docs/MEMORY-PROTOCOL.md`  
-**Agent configs:** `docs/agent-configs/`  
+**Operator runbook (deploy → token → per-client install → verify):** `docs/runbooks/omnimind-mcp.md`  
+**Agent configs:** `docs/agent-configs/` (hosted + legacy stdio for Claude.ai/Desktop, Claude Code, ChatGPT, Cursor, Windsurf, Gemini CLI, VS Code/Copilot, Zed)  
 **Smoke tests:** `docs/agent-configs/SMOKE-TESTS.md`  
 **Keygen:** `docs/agent-configs/keygen-commands.sh`
 
 ### MCP Architecture
 
 ```
-External agents (Claude Desktop, Claude Code, Cursor, ChatGPT)
-    ↓ MCP (stdio or HTTP on port 3334)
-omnimind-mcp server (packages/omnimind-mcp)
-    ↓ HTTP (OMNIMIND_API_KEY)
-OmniMind API (port 3333)
+External clients (Claude.ai / Desktop, Claude Code, ChatGPT, Cursor, Windsurf, Gemini CLI, VS Code, Zed)
+    ↓ Streamable HTTP to https://<mcp-host>/mcp — Authorization: Bearer omt_<per-user token>  (or an OAuth JWT; stdio for local runs)
+omnimind-mcp server (Railway service `omnimind-mcp`, port = PORT/3334, binds `::`)
+    ↓ credential → principal once per session, as the gateway (x-agent-key, scope mcp:delegate):
+    ↓   omt_ → POST /mcp/tokens/introspect · JWT (jose: iss/aud/exp) → POST /mcp/identities/resolve
+    ↓ then every call: x-api-key + x-agent-key + x-mcp-principal: token:<id>|oauth:<id>
+OmniMind API (port 3333, private network) — agentId = principal.agentName, scopes = token ∩ (gateway − mcp:delegate)
     ↓ Prisma
 PostgreSQL
 ```
 
-### 18 Available Tools (annotated, structured output, cursor pagination, `idempotencyKey` on writes — see `docs/MEMORY-PROTOCOL.md`)
+One hosted URL serves every user and client; the process identity is the **gateway** agent (its scopes are the *ceiling* for every token, so it carries `mcp:delegate` + all six grantable scopes) and each session is re-attributed to the token's principal (`mcp-token:<slug>-<id>` is what lands in `agent_id`). A personal instance can still run single-identity (legacy static bearer `OMNIMIND_MCP_API_KEY`, or stdio with an `omk_` agent key).
+
+### 20 Available Tools (annotated, structured output, cursor pagination, `idempotencyKey` on writes — see `docs/MEMORY-PROTOCOL.md`)
 
 | Tool | Scope Required | Purpose |
 |------|---------------|---------|
-| `memory_write` | `memory:write` | Write content — fact extractor runs automatically |
+| `memory_write` | `memory:write` | Write content — fact extractor runs automatically (`OMNIMIND_MCP_WRITE_EXTRACT=async` defers it) |
 | `memory_search` | `memory:read` | Hybrid search (semantic + FTS + trigram) |
+| `search` | `memory:read` | ChatGPT-shaped read-only wrapper over `memory_search` (`readOnlyHint: true`; Deep Research path) |
+| `fetch` | `memory:read` | ChatGPT-shaped read-only by-id read of one memory (`readOnlyHint: true`) |
 | `memory_supersede` | `memory:write` | Replace an existing memory by ID |
 | `decision_log` | `decision:write` | Log a resolved decision with rationale |
 | `task_upsert` | `task:write` | Create or update a task |
@@ -529,22 +538,47 @@ PostgreSQL
 ### Running MCP
 
 ```bash
-# Stdio (default — for Claude Desktop / Claude Code)
+# Hosted HTTP gateway (what Railway runs — packages/omnimind-mcp/Dockerfile, CMD node dist/index.js http).
+# Clients authenticate with per-user omt_ tokens minted in BoardRoom → Settings → Connected AI tools.
+PORT=3334 \
+OMNIMIND_API_URL=http://omnimind-api.railway.internal:3333 \
+OMNIMIND_API_KEY=<service key> \
+OMNIMIND_MCP_AGENT_NAME=omnimind-mcp-gateway \
+OMNIMIND_MCP_TENANT_ID=josh-business \
+OMNIMIND_MCP_SCOPES=mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write \
+OMNIMIND_MCP_AGENT_KEY=<omk_ key of the gateway agent, same scope list> \
+OMNIMIND_MCP_TOKEN_AUTH=true \
+OMNIMIND_MCP_ALLOWED_HOSTS=omnimind-mcp-production.up.railway.app \
+OMNIMIND_MCP_PUBLIC_URL=https://omnimind-mcp-production.up.railway.app/mcp \
+OMNIMIND_MCP_APP_URL=https://boardroom-ai-production-1092.up.railway.app \
+ANTHROPIC_API_KEY=<key> \
+node packages/omnimind-mcp/dist/index.js http
+# Optional OAuth resource-server mode: OMNIMIND_MCP_OAUTH_ISSUER / _JWKS_URL / _AUDIENCE (audience == PUBLIC_URL).
+# Legacy single-user HTTP: OMNIMIND_MCP_TOKEN_AUTH=false + OMNIMIND_MCP_API_KEY=<one static inbound bearer>.
+
+# Connect a client (same URL + header for Cursor, Windsurf, Gemini CLI, VS Code, Zed, Claude.ai connector):
+claude mcp add --transport http omnimind https://omnimind-mcp-production.up.railway.app/mcp \
+  --header "Authorization: Bearer omt_…"
+
+# Stdio (local checkout, single identity — Claude Desktop / Claude Code without the hosted URL)
 OMNIMIND_MCP_AGENT_NAME=claude-code-josh \
 OMNIMIND_MCP_TENANT_ID=josh-business \
 OMNIMIND_MCP_SCOPES="memory:read,memory:write,decision:write,task:write,project:write,commitment:write,code:write" \
 OMNIMIND_MCP_SOURCE_WEIGHT=1.0 \
+OMNIMIND_MCP_AGENT_KEY=<omk_ key from keygen> \
 OMNIMIND_API_URL=https://omnimind-api-production.up.railway.app \
 OMNIMIND_API_KEY=<key> \
 node packages/omnimind-mcp/dist/index.js
 
-# HTTP (port 3334 — for ChatGPT or any HTTP MCP client)
-node packages/omnimind-mcp/dist/index.js http
-
-# Smoke test
+# Smoke test (registration: 20 tools, 3 prompts, 4 resource templates)
 node packages/omnimind-mcp/dist/index.js smoke
 
-# Generate new agent key (run once, store in 1Password)
+# memory_write latency bench: N in-process writes (stdio/gateway env + --user) and the server-side p95 from
+# GET /mcp/audit/stats; warns above 20 s → set OMNIMIND_MCP_WRITE_EXTRACT=async. Target p95 < 10 s.
+node packages/omnimind-mcp/dist/index.js bench --n 10 --user <user id>
+
+# Generate an agent key (run once, store in 1Password).
+# Gateway: --agent omnimind-mcp-gateway --scopes "mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write"  (the ceiling for every token)
 node packages/omnimind-mcp/dist/index.js keygen --agent <name> --tenant <id> --scopes '<list>' --source-weight <float>
 ```
 
@@ -570,4 +604,4 @@ The system is only useful if it's used. Inconsistent use = stale data = broken t
 | `josh-business` | Business strategy, projects, technical architecture |
 | `tgfc-ministry` | Ministry projects, pastoral data (local embeddings only) |
 
-Cross-tenant reads are not possible from MCP tools. Each agent operates in exactly one tenant.
+Cross-tenant reads are not possible from MCP tools. Each agent key and each personal `omt_` token is bound to exactly one tenant; on the hosted gateway the tenant comes from the token, not from the process env.

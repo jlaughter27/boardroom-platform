@@ -33,6 +33,9 @@ const OUTPUT_SAFE_KEYS = new Set([
   // Structural only: the nested entity is reduced to id / title / name like any
   // other object; descriptions, notes and capsule prose are still dropped.
   'goal', 'person',
+  // Front door — connector `search` / `fetch`: result ids, titles and urls
+  // only (`text` is the memory body and is dropped; `provenance` is constant).
+  'results', 'url', 'metadata',
 ]);
 
 /**

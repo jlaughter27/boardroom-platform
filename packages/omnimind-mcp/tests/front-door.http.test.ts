@@ -1,0 +1,378 @@
+/**
+ * Front door — the HTTP transport as a multi-user endpoint, end to end:
+ * a fake OmniMind API (introspection, identity resolution, memory search,
+ * audit) and a fake OAuth issuer (discovery + JWKS) on loopback, the real
+ * MCP HTTP server in front of them, and the SDK client driving it.
+ *
+ * Covers: PRM endpoint present / absent, 401 header shapes, static key,
+ * omt_ tokens, JWTs via discovery, session ↔ principal binding, delegated
+ * headers on outbound calls, userId defaulting, 503 on upstream outage.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'http';
+import { SignJWT, exportJWK, generateKeyPair, type JWK } from 'jose';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { startHttpServer, createHttpApp, resolveHttpConfig, type StartedHttpServer } from '../src/transports/http';
+import { OmniMindClient } from '../src/lib/client';
+import { PRM_PATH, MCP_SCOPES } from '../src/lib/principal';
+import type { AgentContext } from '../src/types';
+
+const STATIC_KEY = 'legacy-static-key';
+const GATEWAY_KEY = 'omk_gateway';
+const PUBLIC_URL = 'https://mcp.example.test/mcp';
+
+const staticCtx: AgentContext = { agentId: 'env-agent', agentName: 'env-agent', tenantId: 'josh-business', scopes: ['memory:read'], sourceWeight: 1.0 };
+const alice = { kind: 'token', id: 'tok_alice', userId: 'user-alice', tenantId: 'josh-business', agentName: 'claude-ai-alice', scopes: ['memory:read', 'memory:write'], sourceWeight: 0.8 };
+const bob = { kind: 'token', id: 'tok_bob', userId: 'user-bob', tenantId: 'josh-personal', agentName: 'cursor-bob', scopes: ['memory:read'], sourceWeight: 1 };
+const carol = { kind: 'oauth', id: 'oid_carol', userId: 'user-carol', tenantId: 'josh-business', agentName: 'chatgpt-carol', scopes: ['*'], sourceWeight: 1 };
+
+interface Seen { method: string; path: string; headers: Record<string, string | string[] | undefined>; body: unknown }
+const seen: Seen[] = [];
+let introspections = 0;
+
+function listen(server: Server): Promise<number> {
+  return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)));
+}
+
+function readJson(req: IncomingMessage): Promise<unknown> {
+  return new Promise(resolve => {
+    const chunks: Buffer[] = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => { const raw = Buffer.concat(chunks).toString(); resolve(raw ? JSON.parse(raw) : undefined); });
+  });
+}
+
+function json(res: ServerResponse, status: number, body: unknown) {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+// ── fake OmniMind API ──
+const api = createServer(async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://x');
+  const body = await readJson(req);
+  seen.push({ method: req.method ?? '', path: url.pathname, headers: req.headers, body });
+  if (req.headers['x-api-key'] !== 'svc-key') return json(res, 401, { error: 'bad api key' });
+  if (url.pathname === '/mcp/tokens/introspect') {
+    introspections++;
+    if (req.headers['x-agent-key'] !== GATEWAY_KEY) return json(res, 403, { error: 'gateway key required' });
+    const token = (body as { token: string }).token;
+    if (token === 'omt_alice') return json(res, 200, { active: true, principal: alice });
+    if (token === 'omt_bob') return json(res, 200, { active: true, principal: bob });
+    if (token === 'omt_expired') return json(res, 200, { active: false, reason: 'expired' });
+    if (token === 'omt_outage') return json(res, 500, { error: 'db down' });
+    return json(res, 200, { active: false, reason: 'invalid' });
+  }
+  if (url.pathname === '/mcp/identities/resolve') {
+    const claims = body as { subject: string };
+    return json(res, 200, claims.subject === 'sub-carol' ? { active: true, principal: carol } : { active: false, reason: 'unlinked' });
+  }
+  if (url.pathname === '/memories/search') return json(res, 200, { items: [{ id: 'm1', title: 'Railway decision', content: 'Chose Railway', domain: 'business', tags: ['decision'] }], nextCursor: null });
+  if (url.pathname.startsWith('/memories/')) return json(res, 200, { id: 'm1', title: 'Railway decision', content: 'Chose Railway', domain: 'business', tags: ['decision'], createdAt: '2026-10-01T00:00:00Z', validAt: '2026-10-01T00:00:00Z', invalidAt: null, status: 'CONFIRMED', sourceType: 'MCP_AGENT', agentId: 'claude-code-josh' });
+  if (url.pathname === '/memories' && req.method === 'POST') return json(res, 200, { id: 'new-1', status: 'created' });
+  if (url.pathname === '/mcp/audit') return json(res, 200, { ok: true });
+  if (url.pathname === '/mcp/audit/stats') return json(res, 200, { tool: url.searchParams.get('tool'), sinceHours: Number(url.searchParams.get('sinceHours')), count: 12, p50Ms: 900, p95Ms: 4100, errorRate: 0 });
+  return json(res, 404, { error: 'not found' });
+});
+
+// ── fake OAuth issuer ──
+let issuer = '';
+let jwk: JWK;
+let signingKey: CryptoKey;
+const authServer = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/.well-known/openid-configuration') return json(res, 200, { issuer, jwks_uri: `${issuer}/jwks` });
+  if (url.pathname === '/jwks') return json(res, 200, { keys: [jwk] });
+  return json(res, 404, {});
+});
+
+async function mintJwt(opts: { aud?: string; sub?: string; expInS?: number; scope?: string } = {}) {
+  const nowS = Math.floor(Date.now() / 1000);
+  return new SignJWT({ email: 'carol@example.test', email_verified: true, azp: 'chatgpt', ...(opts.scope ? { scope: opts.scope } : {}) })
+    .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
+    .setIssuer(issuer)
+    .setAudience(opts.aud ?? PUBLIC_URL)
+    .setSubject(opts.sub ?? 'sub-carol')
+    .setIssuedAt(nowS)
+    .setExpirationTime(nowS + (opts.expInS ?? 300))
+    .sign(signingKey);
+}
+
+let apiUrl = '';
+let mcp: StartedHttpServer;
+let staticOnly: StartedHttpServer;
+
+function raw(port: number, opts: { method: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port, method: opts.method, path: opts.path, headers: opts.headers }, res => {
+      const chunks: Buffer[] = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString(), headers: res.headers }));
+    });
+    req.on('error', reject);
+    if (opts.body) req.write(opts.body);
+    req.end();
+  });
+}
+
+const INIT = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'x', version: '0' } } });
+const LIST = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+const mcpHeaders = (bearer?: string, extra: Record<string, string> = {}) => ({
+  'content-type': 'application/json', accept: 'application/json, text/event-stream',
+  ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...extra,
+});
+
+function connect(bearer: string, port = mcp.port) {
+  const client = new Client({ name: 'front-door-test', version: '0' });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/`), { requestInit: { headers: { Authorization: `Bearer ${bearer}` } } });
+  return { client, transport, connect: () => client.connect(transport) };
+}
+
+function lastCall(path: string): Seen {
+  const hit = [...seen].reverse().find(s => s.path === path);
+  if (!hit) throw new Error(`fake API never saw ${path}`);
+  return hit;
+}
+
+beforeAll(async () => {
+  const pair = await generateKeyPair('RS256');
+  signingKey = pair.privateKey as CryptoKey;
+  jwk = { ...(await exportJWK(pair.publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
+  const [apiPort, authPort] = await Promise.all([listen(api), listen(authServer)]);
+  apiUrl = `http://127.0.0.1:${apiPort}`;
+  issuer = `http://127.0.0.1:${authPort}`;
+  const createClientFn = () => new OmniMindClient({ baseUrl: apiUrl, apiKey: 'svc-key', agentKey: GATEWAY_KEY });
+  mcp = await startHttpServer(0, {
+    apiKey: STATIC_KEY,
+    agentCtx: staticCtx,
+    auth: { tokenAuth: true, oauth: { issuer, audience: PUBLIC_URL }, publicUrl: PUBLIC_URL, agentKey: GATEWAY_KEY },
+    createClientFn,
+    log: () => {},
+  });
+  staticOnly = await startHttpServer(0, { apiKey: STATIC_KEY, agentCtx: staticCtx, createClientFn, log: () => {} });
+});
+
+afterAll(async () => {
+  await mcp.close();
+  await staticOnly.close();
+  await new Promise(r => api.close(r));
+  await new Promise(r => authServer.close(r));
+});
+
+describe('configuration', () => {
+  it('createHttpApp refuses a config with no auth mode; resolveHttpConfig accepts token-only and OAuth env', () => {
+    expect(() => createHttpApp({ log: () => {} })).toThrow(/at least one inbound auth mode/);
+    const tokenOnly = resolveHttpConfig({ OMNIMIND_MCP_TOKEN_AUTH: 'true', OMNIMIND_MCP_AGENT_KEY: 'omk_x' } as NodeJS.ProcessEnv);
+    expect(tokenOnly.apiKey).toBeUndefined();
+    expect(tokenOnly.auth).toEqual({ tokenAuth: true, agentKey: 'omk_x' });
+    expect(() => resolveHttpConfig({ OMNIMIND_MCP_TOKEN_AUTH: 'true' } as NodeJS.ProcessEnv)).toThrow(/OMNIMIND_MCP_AGENT_KEY/);
+    const withOauth = resolveHttpConfig({ OMNIMIND_MCP_OAUTH_ISSUER: 'https://a.test', OMNIMIND_MCP_PUBLIC_URL: PUBLIC_URL, OMNIMIND_MCP_AGENT_KEY: 'omk_x' } as NodeJS.ProcessEnv);
+    expect(withOauth.auth.oauth).toEqual({ issuer: 'https://a.test', audience: PUBLIC_URL });
+  });
+});
+
+describe('RFC 9728 protected resource metadata', () => {
+  it('is served (unauthenticated) at both well-known paths when OAuth is configured', async () => {
+    for (const path of [PRM_PATH, `${PRM_PATH}/mcp`]) {
+      const res = await raw(mcp.port, { method: 'GET', path });
+      expect(res.status, path).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({
+        resource: PUBLIC_URL,
+        authorization_servers: [issuer],
+        scopes_supported: [...MCP_SCOPES],
+        bearer_methods_supported: ['header'],
+        resource_documentation: expect.stringMatching(/^https:\/\//),
+      });
+    }
+  });
+
+  it('is 404 on a server without OAuth, and /health stays minimal on both', async () => {
+    expect((await raw(staticOnly.port, { method: 'GET', path: PRM_PATH })).status).toBe(404);
+    for (const s of [mcp, staticOnly]) {
+      const health = JSON.parse((await raw(s.port, { method: 'GET', path: '/health' })).body);
+      expect(Object.keys(health).sort()).toEqual(['sessions', 'status', 'uptime']);
+    }
+  });
+});
+
+describe('401 contract', () => {
+  it('no credential → no error=, resource_metadata only when OAuth is configured', async () => {
+    const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(), body: INIT });
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toBe(`Bearer realm="omnimind-mcp", resource_metadata="https://mcp.example.test${PRM_PATH}"`);
+    const legacy = await raw(staticOnly.port, { method: 'POST', path: '/', headers: mcpHeaders(), body: INIT });
+    expect(legacy.status).toBe(401);
+    expect(legacy.headers['www-authenticate']).toBe('Bearer realm="omnimind-mcp"');
+  });
+
+  it('bad / expired / unknown credentials → error="invalid_token"; the raw token never appears in the body', async () => {
+    for (const bearer of ['wrong-key', 'omt_nope', 'omt_expired', 'a.b.c']) {
+      const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(bearer), body: INIT });
+      expect(res.status, bearer).toBe(401);
+      expect(res.headers['www-authenticate'], bearer).toBe(`Bearer realm="omnimind-mcp", error="invalid_token", resource_metadata="https://mcp.example.test${PRM_PATH}"`);
+      expect(res.body).not.toContain(bearer);
+    }
+    const legacy = await raw(staticOnly.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_alice'), body: INIT });
+    expect(legacy.status).toBe(401); // token auth is not enabled there
+    expect(legacy.headers['www-authenticate']).toBe('Bearer realm="omnimind-mcp", error="invalid_token"');
+  });
+
+  it('introspection outage → 503 (retryable), no WWW-Authenticate, not cached', async () => {
+    const before = introspections;
+    const r1 = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_outage'), body: INIT });
+    const r2 = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_outage'), body: INIT });
+    expect([r1.status, r2.status]).toEqual([503, 503]);
+    expect(r1.headers['www-authenticate']).toBeUndefined();
+    expect(JSON.parse(r1.body)).toEqual({ error: 'auth_unavailable', message: 'token introspection unavailable' });
+    expect(introspections - before).toBe(2);
+  });
+});
+
+describe('omt_ token principals', () => {
+  it('opens a session, lists 20 tools, and outbound calls carry delegation headers only', async () => {
+    const before = introspections;
+    const { client, transport, connect: go } = connect('omt_alice');
+    await go();
+    const sid = transport.sessionId as string;
+    expect(mcp.app.sessions.get(sid)?.principalKey).toBe('token:tok_alice');
+    const { tools } = await client.listTools();
+    expect(tools).toHaveLength(20);
+    // One introspection for the whole handshake + list (cached under the token digest).
+    expect(introspections - before).toBe(1);
+
+    // userId is omitted: the principal's user is injected.
+    const res = await client.callTool({ name: 'memory_search', arguments: { query: 'railway' } });
+    expect(res.isError).toBeFalsy();
+    expect((res.structuredContent as { provenance: unknown }).provenance).toEqual({ source: 'omnimind', trust: 'data' });
+    const call = lastCall('/memories/search');
+    expect(call.headers['x-mcp-principal']).toBe('token:tok_alice');
+    expect(call.headers['x-agent-key']).toBe(GATEWAY_KEY);
+    expect(call.headers['x-api-key']).toBe('svc-key');
+    expect(call.headers['x-user-id']).toBe('user-alice');
+    expect(call.headers).not.toHaveProperty('x-agent-id');
+    expect(call.headers).not.toHaveProperty('x-tenant-id');
+    expect(call.headers).not.toHaveProperty('x-source-weight');
+
+    // The audit row is attributed to the principal's agent / tenant.
+    await new Promise(r => setTimeout(r, 20));
+    const audit = lastCall('/mcp/audit');
+    expect(audit.body).toMatchObject({ agentId: 'claude-ai-alice', tenantId: 'josh-business', toolName: 'memory_search' });
+    expect(audit.headers['x-mcp-principal']).toBe('token:tok_alice');
+
+    // A conflicting explicit userId can never widen access.
+    const conflict = await client.callTool({ name: 'memory_search', arguments: { query: 'railway', userId: 'user-bob' } });
+    expect(conflict.isError).toBe(true);
+    expect((conflict.content as Array<{ text: string }>)[0].text).toContain('VALIDATION_ERROR');
+
+    // Scopes come from the principal row: alice may write, bob (below) may not.
+    const write = await client.callTool({ name: 'memory_write', arguments: { content: 'x', skipExtraction: true } });
+    expect(write.isError).toBeFalsy();
+    expect(lastCall('/memories').headers['x-mcp-principal']).toBe('token:tok_alice');
+
+    // DELETE closes the session and its client.
+    const sessionClient = mcp.app.sessions.get(sid)?.client as OmniMindClient;
+    await transport.terminateSession();
+    expect(mcp.app.sessions.has(sid)).toBe(false);
+    expect(sessionClient.isClosed).toBe(true);
+    await client.close();
+  });
+
+  it('binds the session to its principal: another token or the static key → 404, never a leak', async () => {
+    const { transport, connect: go, client } = connect('omt_alice');
+    await go();
+    const sid = transport.sessionId as string;
+    for (const other of ['omt_bob', STATIC_KEY]) {
+      const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(other, { 'mcp-session-id': sid }), body: LIST });
+      expect(res.status, other).toBe(404);
+      const get = await raw(mcp.port, { method: 'GET', path: '/', headers: { authorization: `Bearer ${other}`, accept: 'text/event-stream', 'mcp-session-id': sid } });
+      expect(get.status, other).toBe(404);
+      const del = await raw(mcp.port, { method: 'DELETE', path: '/', headers: { authorization: `Bearer ${other}`, 'mcp-session-id': sid } });
+      expect(del.status, other).toBe(404);
+    }
+    expect(mcp.app.sessions.has(sid)).toBe(true); // the foreign DELETE did nothing
+    const own = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_alice', { 'mcp-session-id': sid }), body: LIST });
+    expect(own.status).toBe(200);
+    await client.close();
+  });
+
+  it('a read-only token is SCOPE_DENIED on writes; per-principal sessions do not share identity', async () => {
+    const a = connect('omt_alice');
+    const b = connect('omt_bob');
+    await Promise.all([a.connect(), b.connect()]);
+    const denied = await b.client.callTool({ name: 'memory_write', arguments: { content: 'x', skipExtraction: true } });
+    expect(denied.isError).toBe(true);
+    expect((denied.content as Array<{ text: string }>)[0].text).toContain('SCOPE_DENIED');
+    await b.client.callTool({ name: 'memory_search', arguments: { query: 'q' } });
+    expect(lastCall('/memories/search').headers['x-mcp-principal']).toBe('token:tok_bob');
+    expect(lastCall('/memories/search').headers['x-user-id']).toBe('user-bob');
+    await a.client.callTool({ name: 'memory_search', arguments: { query: 'q' } });
+    expect(lastCall('/memories/search').headers['x-mcp-principal']).toBe('token:tok_alice');
+    await Promise.all([a.client.close(), b.client.close()]);
+  });
+});
+
+describe('legacy static key keeps its identity headers', () => {
+  it('sends x-agent-id / x-tenant-id / x-source-weight and no x-mcp-principal', async () => {
+    const { client, transport, connect: go } = connect(STATIC_KEY);
+    await go();
+    expect(mcp.app.sessions.get(transport.sessionId as string)?.principalKey).toBe('static:env');
+    const res = await client.callTool({ name: 'memory_search', arguments: { query: 'q', userId: 'user-x' } });
+    expect(res.isError).toBeFalsy();
+    const call = lastCall('/memories/search');
+    expect(call.headers['x-agent-id']).toBe('env-agent');
+    expect(call.headers['x-tenant-id']).toBe('josh-business');
+    expect(call.headers['x-source-weight']).toBe('1');
+    expect(call.headers['x-user-id']).toBe('user-x');
+    expect(call.headers).not.toHaveProperty('x-mcp-principal');
+    await client.close();
+  });
+});
+
+describe('OAuth access tokens (issuer discovery + JWKS over loopback)', () => {
+  it('verifies the JWT, resolves the identity and delegates as oauth:<id>', async () => {
+    const { client, transport, connect: go } = connect(await mintJwt());
+    await go();
+    expect(mcp.app.sessions.get(transport.sessionId as string)?.principalKey).toBe('oauth:oid_carol');
+    const resolve = lastCall('/mcp/identities/resolve');
+    expect(resolve.body).toEqual({ issuer, subject: 'sub-carol', email: 'carol@example.test', emailVerified: true, clientId: 'chatgpt' });
+    expect(resolve.headers['x-agent-key']).toBe(GATEWAY_KEY);
+    const res = await client.callTool({ name: 'search', arguments: { query: 'railway' } });
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toEqual({
+      results: [{ id: 'm1', title: 'Railway decision', url: 'omnimind://josh-business/memory/m1' }],
+      provenance: { source: 'omnimind', trust: 'data' },
+    });
+    expect(JSON.parse((res.content as Array<{ text: string }>)[0].text).results).toEqual((res.structuredContent as { results: unknown }).results);
+    const call = lastCall('/memories/search');
+    expect(call.headers['x-mcp-principal']).toBe('oauth:oid_carol');
+    expect(call.headers['x-user-id']).toBe('user-carol');
+    expect(call.headers).not.toHaveProperty('x-agent-id');
+    await client.close();
+  });
+
+  it('scope claim narrows a wildcard principal', async () => {
+    const { client, connect: go } = connect(await mintJwt({ scope: 'memory:read' }));
+    await go();
+    const denied = await client.callTool({ name: 'memory_write', arguments: { content: 'x', skipExtraction: true } });
+    expect(denied.isError).toBe(true);
+    expect((denied.content as Array<{ text: string }>)[0].text).toContain('SCOPE_DENIED');
+    const ok = await client.callTool({ name: 'fetch', arguments: { id: 'm1' } });
+    expect(ok.isError).toBeFalsy();
+    expect(ok.structuredContent).toMatchObject({ id: 'm1', text: 'Chose Railway', metadata: { domain: 'business', status: 'CONFIRMED', agentId: 'claude-code-josh' } });
+    await client.close();
+  });
+
+  it('audience mismatch, expiry and an unlinked subject are all 401 invalid_token', async () => {
+    for (const [label, token] of [
+      ['aud', await mintJwt({ aud: 'https://someone-else.example.test/mcp' })],
+      ['exp', await mintJwt({ expInS: -120 })],
+      ['unlinked', await mintJwt({ sub: 'sub-stranger' })],
+    ] as const) {
+      const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(token), body: INIT });
+      expect(res.status, label).toBe(401);
+      expect(res.headers['www-authenticate'], label).toContain('error="invalid_token"');
+      expect(res.body, label).not.toContain(token.slice(0, 40));
+    }
+  });
+});

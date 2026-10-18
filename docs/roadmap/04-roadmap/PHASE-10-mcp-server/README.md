@@ -7,6 +7,20 @@
 
 ---
 
+> **Naming reconciliation (2026-10-18).** This README pre-dates the standalone `packages/omnimind-mcp` package and is partially superseded by what shipped (see `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md`, blind spot 1, and `docs/MEMORY-PROTOCOL.md`):
+>
+> | Roadmap name below | Shipped name (authoritative) |
+> |---|---|
+> | `searchMemories` | `memory_search` (hybrid, cursor, `asOf`) — plus ChatGPT's read-only `search` / `fetch` pair |
+> | `createMemory` | `memory_write` (Haiku fact extraction, `idempotencyKey`) |
+> | `getEntity` | `person_get`, `project_status` / `project_summary`, `task_status`; `omnimind://{tenant}/goal/{id}`, `/person/{id}` resources |
+> | `findRelatedEntities` | `graph_neighborhood` (BFS over backlinks, ≤2 hops, 60 nodes); `omnimind://{tenant}/graph/{nodeId}` |
+> | `getDecisionContext` | `decision_log` + `status_get` (decision read-back lives in `status_get`/`project_summary`) |
+> | `memory://{id}`, `decision://{id}`, `entity://{type}/{id}`, `persona://{name}` | `omnimind://{tenant}/status`, `/goal/{id}`, `/person/{id}`, `/graph/{nodeId}` — tenant-pinned; no persona resources |
+> | `/mcp` on omnimind-api | Separate service `packages/omnimind-mcp` (Railway `omnimind-mcp`, `packages/omnimind-mcp/Dockerfile`) at `https://<mcp-host>/mcp`, plus `/.well-known/oauth-protected-resource` (OAuth mode only) and `/health` |
+>
+> The shipped names win; do not rename them back. Also superseded: **Dynamic Client Registration as the long pole.** MCP spec 2026-07-28 deprecates RFC 7591 DCR in favour of **Client ID Metadata Documents (CIMD)**, which Claude.ai / Claude Code prefer; DCR is still used by Cursor, Gemini CLI and Copilot Studio, and static clients are the third path. The server ships as an OAuth **resource server** only (RFC 9728 PRM + JWT validation against a configured issuer, RFC 8707 audience binding, auto-link by verified e-mail) alongside per-user `omt_` bearer tokens minted in BoardRoom; registration paths are the issuer's concern (ADR-014 provider spike must require CIMD + DCR + static). Task 10.9 (resource-update notifications as the freshness mechanism) is demoted: no chat client wakes on them — see the freshness contract in `docs/runbooks/omnimind-mcp.md` §8. Remaining from this phase: tenant-isolation eval, issuer selection, Connector Directory submission.
+
 ## What this is
 
 Expose OmniMind's memory + decision + persona surface as a **production MCP server** at `https://omnimind-api-production.up.railway.app/mcp`, conforming to MCP spec revision **2025-06-18**.

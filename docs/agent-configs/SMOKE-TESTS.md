@@ -2,7 +2,7 @@
 
 Manual verification checklist. Run after keygen, before declaring Phase 2 complete.
 
-**Prerequisites:** All 6 agent keys generated and placed in their respective configs. OmniMind API live.
+**Prerequisites:** All 7 agent keys generated (6 legacy agents + the `omnimind-mcp-gateway` with scope `mcp:delegate`) and placed in their respective configs. OmniMind API live. For the hosted path (Tier 8) the MCP Railway service is deployed per `docs/runbooks/omnimind-mcp.md` §1–4.
 
 ---
 
@@ -19,7 +19,7 @@ node packages/omnimind-mcp/dist/index.js smoke
 OMNIMIND_MCP_SMOKE_USER_ID=<user id> node packages/omnimind-mcp/dist/index.js smoke
 ```
 
-Expected: `smoke OK — 18 tools, 3 prompts, 4 resource templates registered` (or `..., 3 tools executed` with `OMNIMIND_MCP_SMOKE_USER_ID`: `status_get`, `memory_search`, then `graph_neighborhood` on the first memory the search returned — set `OMNIMIND_MCP_SMOKE_NODE_ID=<type>:<refId>` to pick the node yourself). Tier 1 also fails if any tool is missing `annotations` or `outputSchema`.
+Expected: `smoke OK — 20 tools, 3 prompts, 4 resource templates registered` (or `..., 3 tools executed` with `OMNIMIND_MCP_SMOKE_USER_ID`: `status_get`, `memory_search`, then `graph_neighborhood` on the first memory the search returned — set `OMNIMIND_MCP_SMOKE_NODE_ID=<type>:<refId>` to pick the node yourself). Tier 1 also fails if any tool is missing `annotations` or `outputSchema`.
 
 ---
 
@@ -165,7 +165,9 @@ node packages/omnimind-mcp/dist/index.js http
 ```bash
 # Health needs no key
 curl -s http://localhost:3334/health | jq .
-# Expected: {"status":"ok","uptime":<s>,"sessions":0,"agent":"chatgpt-desktop-josh","tenant":"josh-personal"}
+# Expected: {"status":"ok","uptime":<s>,"sessions":0} — exactly three keys. The agent name
+# and tenant were removed from this unauthenticated endpoint (R-M-05); read them from the
+# startup log. A payload with "agent"/"tenant" means an old build.
 
 # Should fail (no key)
 curl -s -i -X POST http://localhost:3334/ -H 'content-type: application/json' -d '{}' | head -1
@@ -193,7 +195,17 @@ curl -s -i -X POST http://localhost:3334/ \
 3. Verify `memory_write` returns `SCOPE_DENIED`
 
 The automated equivalent lives in `packages/omnimind-mcp/tests/http.transport.test.ts`
-(initialize → initialized → tools/list over HTTP with the SDK client, 18 tools, plus prompts/list and resources/templates/list).
+(initialize → initialized → tools/list over HTTP with the SDK client, 20 tools, plus prompts/list and resources/templates/list).
+
+---
+
+## Tier 6b — HTTP server exits when no inbound auth is configured
+
+```bash
+OMNIMIND_MCP_API_KEY= OMNIMIND_MCP_TOKEN_AUTH=false node packages/omnimind-mcp/dist/index.js http
+# Expected: exits 1 — never starts an open endpoint. With OMNIMIND_MCP_TOKEN_AUTH=true the
+# static bearer becomes optional (per-user omt_ tokens are the credential instead).
+```
 
 ---
 
@@ -212,15 +224,46 @@ Expected: Every tool call from the tests above appears with agentId, toolName, a
 
 ---
 
+## Tier 8 — Hosted gateway (per-user tokens, Railway)
+
+Run against the deployed service (`https://<mcp-host>`), token from BoardRoom → Settings → Connected AI tools.
+
+**Test 13 — Discovery + fail-closed**
+```bash
+curl -s https://<mcp-host>/health | jq .                                  # {status, uptime, sessions}
+curl -s -i https://<mcp-host>/.well-known/oauth-protected-resource | head -1  # 200 + resource == OMNIMIND_MCP_PUBLIC_URL in OAuth mode; 404 in token-only mode
+curl -s -i -X POST https://<mcp-host>/mcp -H 'content-type: application/json' -d '{}' | head -3
+# Expected: 401 with WWW-Authenticate: Bearer … . A 403 here means OMNIMIND_MCP_ALLOWED_HOSTS is wrong.
+```
+
+**Test 14 — Token round trip + principal attribution**
+1. `initialize` with `Authorization: Bearer omt_…` (curl in runbook §7b). Expected: 200, `mcp-session-id`, `instructions` present, `tools/list` → 20 tools incl. `search` and `fetch` with `readOnlyHint: true`.
+2. Call `memory_write` with a read-only token → `SCOPE_DENIED` tool result. With a write token → `created: [<id>]`.
+3. `GET /mcp/audit?limit=5` on OmniMind: the row's `agentId` is the token's `agentName` (`mcp-token:<slug>-<6 chars>`), the tenant/user are the token's — the gateway's name appears nowhere.
+4. Revoke the token in Settings; a new `initialize` → 401 within 60 s (positive resolutions are cached that long).
+5. Negative control: a gateway whose agent row holds only `mcp:delegate` makes every tool, reads included, return `SCOPE_DENIED` — effective scopes are `token ∩ (gateway − mcp:delegate)`.
+
+**Test 15 — Two users, one URL**
+Two tokens for two BoardRoom users (or two tenants). `memory_write` from A, `memory_search` from B for the same text → empty. Same search from A → hit. (This is the property the single-identity transport could not provide.)
+
+**Test 16 — Bench**
+`node packages/omnimind-mcp/dist/index.js bench --n 10 --user <id>` (in-process `memory_write` with the stdio/gateway env; also reports server-side p95 from `GET /mcp/audit/stats`) → `memory_write` p95 < 10 s, and no `recommendAsync` warning (fires above 20 s). Time `status_get` in Test 14 over the public URL → p95 < 1.5 s. Above ~20 s set `OMNIMIND_MCP_WRITE_EXTRACT=async` and re-run.
+
+**Test 17 — One real client per family**
+Claude.ai connector (`claude-ai-connector.md`), Claude Code (`claude mcp add …`), Cursor (`cursor.json`), ChatGPT (OAuth mode only). Each: list tools, `status_get`, a `memory_search`. ChatGPT: a plain "search OmniMind for …" must route to `search` then `fetch` without a confirmation prompt.
+
+---
+
 ## Phase 2 Gate Criteria
 
-- [ ] Tier 1: smoke test passes (18 tools, 3 prompts, 4 resource templates)
+- [ ] Tier 1: smoke test passes (20 tools, 3 prompts, 4 resource templates)
 - [ ] Tier 2: claude-code-josh round trip, dedup, scope denial all pass
 - [ ] Tier 3: claude-desktop-josh personal tenant isolated
 - [ ] Tier 4: ministry writes route to Ollama; refused when Ollama down
 - [ ] Tier 5: cursor-josh read-only enforced
 - [ ] Tier 6: HTTP transport auth works; chatgpt read-only enforced
 - [ ] Tier 7: all tool calls appear in audit log
+- [ ] Tier 8: hosted gateway — 401 without token (PRM served when OAuth is on), token round trip, per-token attribution in audit, revocation → 401 within 60 s, scope-ceiling negative control, bench within targets
 - [ ] Cross-agent: memory written by claude-code-josh is readable by cursor-josh (same tenant)
 
 All boxes checked = Phase 2 complete. Start dogfooding for 1 week before Phase 3.

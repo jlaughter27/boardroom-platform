@@ -167,6 +167,34 @@ Every Zod schema in `packages/shared/src/schemas/` has a corresponding TypeScrip
 - All IDs are `string`
 - All timestamps are `Date`
 
+## 8. OmniMind-MCP HTTP Transport (`packages/omnimind-mcp/src/transports/http.ts`)
+
+The hosted MCP service is a third Railway service built from `packages/omnimind-mcp/Dockerfile` (same shared-first / tsbuildinfo / `pnpm deploy --legacy` rules as §1, minus Prisma and prompts). Its HTTP layer has four traps that look like outages but are configuration.
+
+### Allowed hosts (DNS-rebinding guard) — `403 Invalid Host header`
+
+The SDK transport is created with `enableDnsRebindingProtection: true` and an exact-match `allowedHosts` list. Default = loopback only (`127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`). Behind Railway's proxy clients send the bare public host (no port), so `OMNIMIND_MCP_ALLOWED_HOSTS` must contain it exactly (`omnimind-mcp-production.up.railway.app`, plus any custom domain). **`GET /health` is answered before the guard**, so the Railway health check stays green while every MCP call is refused — a green deploy with a 403 from every client is this, nothing else. The startup log prints `allowedHosts: …`; `(default — loopback only)` on a hosted instance is the bug. The list is captured per session at `initialize`, so changing the variable needs a redeploy.
+
+### Sessions are in-process — one replica only
+
+Sessions live in a `Map` keyed by `mcp-session-id`. `initialize` on instance A and `tools/list` on instance B yields `404 Session not found`, which clients mis-report as an SSE/405 failure. `railway.toml` pins `numReplicas = 1`; do not raise it until sessions are externalized (research roadmap item 13). Idle sessions are swept after `OMNIMIND_MCP_SESSION_IDLE_MS` (30 min default) and the 100-session cap evicts the least-recently-seen — both are logged, neither is an error.
+
+### Principal binding — the gateway's scopes are a ceiling, attribution is per token
+
+With `OMNIMIND_MCP_TOKEN_AUTH=true` (or an OAuth issuer) the process identity (`OMNIMIND_MCP_AGENT_NAME` / `_TENANT_ID` / `_SCOPES`) is the **gateway**. The credential is resolved once per session as the gateway (`omt_` → `POST /mcp/tokens/introspect`, JWT → `POST /mcp/identities/resolve`; results cached 60 s positive / 10 s negative) and every call then carries `x-mcp-principal: token:<id>|oauth:<id>`, which OmniMind honours only from a **verified** `x-agent-key` whose agent row holds `mcp:delegate` (`agent-context.ts` path 4). Consequences:
+
+- **Effective scopes = `principal.scopes ∩ (gateway.scopes − mcp:delegate)`** (`intersectDelegatedScopes`). A gateway holding only `mcp:delegate` makes *every* token `SCOPE_DENIED` on *every* tool, reads included. The gateway must hold `mcp:delegate` plus all six grantable scopes (or `*`), and `OMNIMIND_MCP_SCOPES` must match the agent row.
+- **`agentId` becomes the principal's `agentName`** (`mcp-token:<slug>-<6 chars>` / `oauth:<client>`): writes, audit rows, rate buckets and the idempotency scope (`agent:mcp-token:…:user:<uid>`) are per token. The gateway's name appears nowhere in the data; grep audit by `agent_id LIKE 'mcp-token:%'`.
+- A missing/rotated `OMNIMIND_MCP_AGENT_KEY` makes the server **refuse to start** in token/OAuth mode; a key whose agent lacks `mcp:delegate` turns every call into `403 delegation_not_allowed` even though the token is valid.
+- `delegated-user-isolation.ts` pins `x-user-id` to the principal's user; a tool argument naming another user is refused.
+- Token minting is gated by `tenants.owner_user_id` — unset owners mean "No tenant is assigned to your account yet" in Settings and `403` from `POST /mcp/tokens`.
+
+Legacy static-bearer mode (`OMNIMIND_MCP_API_KEY`) still binds every caller to the one process identity — never expose it on a shared URL. The server exits 1 when none of static bearer / token auth / OAuth issuer is configured; keep it that way.
+
+### PRM path, `/mcp` path and 401 shape
+
+The MCP endpoint is **`https://<mcp-host>/mcp`** — that is what `OMNIMIND_MCP_PUBLIC_URL` holds, what BoardRoom's snippets (`mcp-snippets.ts`) render and what `docs/agent-configs/*` say; `/health` and `/.well-known/*` are the only non-MCP paths. Change the path and all four must move together. `/.well-known/oauth-protected-resource` (and `…/oauth-protected-resource/mcp` for path-scoped clients) is served unauthenticated at the **origin** (RFC 9728 — clients derive it from the URL) **only when an OAuth issuer is configured**; token-only deployments answer 404 there, which is correct, not a bug. `resource` in that document and the expected `aud` are both `OMNIMIND_MCP_PUBLIC_URL` unless `OMNIMIND_MCP_OAUTH_AUDIENCE` overrides — keep them equal on both sides or every OAuth token fails audience binding. Unauthenticated MCP requests answer `401` with `WWW-Authenticate: Bearer realm="omnimind-mcp"[, error="invalid_token"][, resource_metadata="…"]`; a `403` or `400` there breaks OAuth discovery in Claude.ai and ChatGPT (a 403 means the allowed-hosts guard fired first).
+
 ## Quick Reference: What NOT to Touch
 
 | File/Area | Rule |
@@ -182,3 +210,9 @@ Every Zod schema in `packages/shared/src/schemas/` has a corresponding TypeScrip
 | Cookie name `boardroom_token` | Grep all usages before changing |
 | `OMNIMIND_API_KEY` | Must match in both services |
 | Shared package `composite: true` | Required for project references |
+| `OMNIMIND_MCP_ALLOWED_HOSTS` (omnimind-mcp) | Exact bare public host; `/health` passes regardless, so a green deploy can still 403 every client |
+| `packages/omnimind-mcp/railway.toml` `numReplicas = 1` | Sessions are in-process; a second replica = `404 Session not found` |
+| Gateway agent scopes (`OMNIMIND_MCP_SCOPES` = agent row) | Must be `mcp:delegate` + all six grantable scopes; effective scopes are `token ∩ gateway`, so `mcp:delegate` alone denies everything |
+| `OMNIMIND_MCP_AGENT_KEY` | Token/OAuth mode refuses to start without it; delegation refused unless the agent holds `mcp:delegate` |
+| `OMNIMIND_MCP_PUBLIC_URL` = `https://<host>/mcp` | PRM `resource`, default audience, snippet URL — one value, three consumers (MCP service, BoardRoom, docs) |
+| `/.well-known/oauth-protected-resource` + 401 `WWW-Authenticate` | OAuth discovery for Claude.ai / ChatGPT; served only with an issuer configured |

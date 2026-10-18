@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KnowledgeGraphNode, KnowledgeGraphNodeType } from '@boardroom/shared';
+import type { KnowledgeGraphEdgeType, KnowledgeGraphNode, KnowledgeGraphNodeType } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
 import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR, type NodeShape } from './graph-theme';
+import { EDGE_TYPES, EDGE_TYPE_LABEL } from './graph-filters';
 
 export interface GraphFilters {
   types: Set<KnowledgeGraphNodeType>;
+  /** Edge types kept; edges of other types (and nodes they alone connected) are dropped */
+  edgeTypes: Set<KnowledgeGraphEdgeType>;
   domain: string | 'all';
   showOrphans: boolean;
   showLabels: boolean;
-  /** 0 = whole graph; 1..3 = local graph around the selected node */
+  /** 0 = whole graph; 1..3 = local graph around the selected node (default 2 — local-first) */
   depth: 0 | 1 | 2 | 3;
 }
 
@@ -16,11 +19,15 @@ interface Props {
   filters: GraphFilters;
   onChange(next: GraphFilters): void;
   counts: Record<KnowledgeGraphNodeType, number>;
+  /** Edges per type in the loaded graph (for the chips) */
+  edgeCounts?: Partial<Record<KnowledgeGraphEdgeType, number>>;
   domains: string[];
   nodes: KnowledgeGraphNode[];
   hasSelection: boolean;
   onPick(id: string): void;
   onFit(): void;
+  /** Open the ⌘K palette in "Search memory" mode (spotlight). */
+  onSpotlight?(): void;
   searchRef?: React.RefObject<HTMLInputElement | null>;
 }
 
@@ -47,10 +54,11 @@ export function ShapeGlyph({ shape, color, size = 12 }: { shape: NodeShape; colo
   return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">{el}</svg>;
 }
 
-export function GraphControls({ filters, onChange, counts, domains, nodes, hasSelection, onPick, onFit, searchRef }: Props) {
+export function GraphControls({ filters, onChange, counts, edgeCounts, domains, nodes, hasSelection, onPick, onFit, onSpotlight, searchRef }: Props) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [showEdgeTypes, setShowEdgeTypes] = useState(false);
   const localRef = useRef<HTMLInputElement>(null);
   const inputRef = (searchRef as React.RefObject<HTMLInputElement>) ?? localRef;
 
@@ -75,6 +83,15 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
     onChange({ ...filters, types: next });
   };
 
+  const toggleEdgeType = (t: KnowledgeGraphEdgeType) => {
+    const next = new Set(filters.edgeTypes);
+    if (next.has(t)) { if (next.size > 1) next.delete(t); } else next.add(t);
+    onChange({ ...filters, edgeTypes: next });
+  };
+
+  const edgeFilterActive = EDGE_TYPES.some((t) => !filters.edgeTypes.has(t));
+  const isLocal = filters.depth > 0;
+
   const pick = (n: KnowledgeGraphNode) => { onPick(n.id); setQ(''); setOpen(false); inputRef.current?.blur(); };
 
   return (
@@ -98,7 +115,7 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
               else if (e.key === 'Enter' && results[active]) { e.preventDefault(); pick(results[active]); }
               else if (e.key === 'Escape') { setQ(''); setOpen(false); inputRef.current?.blur(); }
             }}
-            placeholder="Search nodes…  ( / )"
+            placeholder="Find a node…"
             autoComplete="off"
             className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             aria-label="Search graph nodes"
@@ -127,6 +144,17 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
           )}
         </div>
 
+        {onSpotlight && (
+          <button
+            type="button"
+            onClick={onSpotlight}
+            className="h-9 rounded-md border border-border bg-card px-3 text-sm text-muted-foreground hover:text-foreground"
+            title="Search memory with hybrid search and light up the hits ( / )"
+          >
+            Search memory <kbd className="ml-1 rounded bg-muted px-1 font-mono text-[10px]">/</kbd>
+          </button>
+        )}
+
         {/* Domain */}
         <select
           id="graph-domain"
@@ -139,23 +167,45 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
           {domains.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
 
-        {/* Local graph depth */}
-        <label className={cn('flex h-9 items-center gap-2 rounded-md border border-border bg-card px-2.5 text-xs text-muted-foreground', !hasSelection && 'opacity-60')}>
-          <span className="whitespace-nowrap">Local graph</span>
-          <input
-            id="graph-depth"
-            type="range"
-            min={0}
-            max={3}
-            step={1}
-            value={filters.depth}
-            disabled={!hasSelection}
-            onChange={(e) => onChange({ ...filters, depth: Number(e.target.value) as GraphFilters['depth'] })}
-            className="w-20 accent-[var(--color-primary)]"
-            aria-label="Local graph depth (0 = whole graph)"
-          />
-          <span className="w-7 tabular-nums text-foreground">{filters.depth === 0 ? 'off' : `${filters.depth}°`}</span>
-        </label>
+        {/* Local ↔ Global */}
+        <div className="flex h-9 items-center overflow-hidden rounded-md border border-border bg-card text-xs" role="group" aria-label="Graph scope">
+          <button
+            type="button"
+            onClick={() => onChange({ ...filters, depth: filters.depth === 0 ? 2 : filters.depth })}
+            aria-pressed={isLocal}
+            className={cn('h-full px-2.5', isLocal ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:text-foreground')}
+            title="Local graph around the focused node"
+          >
+            Local
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...filters, depth: 0 })}
+            aria-pressed={!isLocal}
+            className={cn('h-full border-l border-border px-2.5', !isLocal ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:text-foreground')}
+            title="Whole graph"
+          >
+            Global
+          </button>
+          <label className={cn('flex h-full items-center gap-1.5 border-l border-border px-2 text-muted-foreground', !isLocal && 'opacity-60')}>
+            <input
+              id="graph-depth"
+              type="range"
+              min={1}
+              max={3}
+              step={1}
+              value={Math.max(1, filters.depth)}
+              disabled={!isLocal}
+              onChange={(e) => onChange({ ...filters, depth: Number(e.target.value) as GraphFilters['depth'] })}
+              className="w-14 accent-[var(--color-primary)]"
+              aria-label="Local graph depth"
+            />
+            <span className="w-5 tabular-nums text-foreground">{isLocal ? `${filters.depth}°` : '—'}</span>
+          </label>
+        </div>
+        {isLocal && !hasSelection && (
+          <span className="text-xs text-muted-foreground">Pick a node to focus · showing all</span>
+        )}
 
         {/* Toggles */}
         <button
@@ -174,6 +224,16 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
           title="Show nodes with no links"
         >
           Orphans
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowEdgeTypes((v) => !v)}
+          aria-pressed={showEdgeTypes}
+          aria-controls="graph-edge-types"
+          className={cn('h-9 rounded-md border px-3 text-sm', edgeFilterActive || showEdgeTypes ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground')}
+          title="Filter by link type"
+        >
+          Links{edgeFilterActive ? ` · ${filters.edgeTypes.size}/${EDGE_TYPES.length}` : ''}
         </button>
         <button type="button" onClick={onFit} className="h-9 rounded-md border border-border bg-card px-3 text-sm text-muted-foreground hover:text-foreground" title="Fit graph to view">
           Fit
@@ -194,7 +254,6 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
                 'flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors',
                 on ? 'border-border bg-card text-foreground' : 'border-transparent bg-muted text-muted-foreground line-through decoration-muted-foreground/60',
               )}
-              style={{ color: on ? undefined : undefined }}
             >
               <span style={{ color: `var(--color-entity-${t})`, opacity: on ? 1 : 0.4 }}>
                 <ShapeGlyph shape={TYPE_SHAPE[t]} color="currentColor" size={11} />
@@ -205,6 +264,39 @@ export function GraphControls({ filters, onChange, counts, domains, nodes, hasSe
           );
         })}
       </div>
+
+      {/* Edge-type chips (collapsed by default) */}
+      {showEdgeTypes && (
+        <div id="graph-edge-types" className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Link types">
+          {EDGE_TYPES.map((t) => {
+            const on = filters.edgeTypes.has(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => toggleEdgeType(t)}
+                aria-pressed={on}
+                className={cn(
+                  'flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors',
+                  on ? 'border-border bg-card text-foreground' : 'border-transparent bg-muted text-muted-foreground line-through decoration-muted-foreground/60',
+                )}
+              >
+                <span>{EDGE_TYPE_LABEL[t]}</span>
+                {edgeCounts && <span className="tabular-nums text-muted-foreground">{edgeCounts[t] ?? 0}</span>}
+              </button>
+            );
+          })}
+          {edgeFilterActive && (
+            <button
+              type="button"
+              onClick={() => onChange({ ...filters, edgeTypes: new Set(EDGE_TYPES) })}
+              className="h-7 px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              All links
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

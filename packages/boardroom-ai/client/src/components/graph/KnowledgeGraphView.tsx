@@ -5,6 +5,8 @@ import {
   TYPE_BASE_RADIUS, TYPE_SHAPE, drawShape, readGraphPalette, type GraphPalette,
 } from './graph-theme';
 import { createGraphStore, idOf, syncGraphData, type GraphViewLink, type GraphViewNode } from './graph-data';
+import { nodeAlpha, spotlightRing, type SpotlightState } from './graph-emphasis';
+import type { TimelineVisibility } from './graph-timeline';
 
 /**
  * Obsidian-style force graph on canvas.
@@ -20,13 +22,26 @@ import { createGraphStore, idOf, syncGraphData, type GraphViewLink, type GraphVi
  *  - reduced motion → the layout is computed off-screen, then shown at rest
  *  - node / link objects are stable per id (see graph-data.ts): selecting a
  *    node never relayouts; only a change in the visible id set re-heats
+ *  - spotlight (search hits) → score-scaled rings on hits, the rest dims or,
+ *    with "Filter to results", is not painted at all (no relayout either way)
+ *  - timeline → nodes outside the window fade or are not painted; edges
+ *    follow their endpoints; invalidated memories are drawn hollow
  */
 
 export type { GraphViewNode, GraphViewLink } from './graph-data';
+export type { SpotlightState } from './graph-emphasis';
+
+export interface TimelineOverlay {
+  nodeVisibility: ReadonlyMap<string, TimelineVisibility>;
+  edgeVisibility: ReadonlyMap<string, TimelineVisibility>;
+  hollow: ReadonlySet<string>;
+}
 
 export interface KnowledgeGraphViewHandle {
   focusNode(id: string, zoom?: number): void;
   zoomToFit(): void;
+  /** Fit the viewport to a subset of nodes (no-op when none of them is positioned yet). */
+  zoomToFitIds(ids: ReadonlySet<string>): void;
 }
 
 interface Props {
@@ -38,13 +53,17 @@ interface Props {
   showLabels: boolean;
   /** When set, node.depth drives the fade so rings farther from focus are dimmer. */
   depthById?: Map<string, number>;
+  /** Search hits to light up (see graph-emphasis.ts). */
+  spotlight?: SpotlightState | null;
+  /** Timeline window result (see graph-timeline.ts). */
+  timeline?: TimelineOverlay | null;
   className?: string;
 }
 
 const PENDING_FOCUS_TTL_MS = 5000;
 
 export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(function KnowledgeGraphView(
-  { nodes, edges, selectedId, onSelect, onHoverChange, showLabels, depthById, className },
+  { nodes, edges, selectedId, onSelect, onHoverChange, showLabels, depthById, spotlight = null, timeline = null, className },
   ref,
 ) {
   const fgRef = useRef<ForceGraphMethods<GraphViewNode, GraphViewLink> | undefined>(undefined);
@@ -53,7 +72,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
   const [palette, setPalette] = useState<GraphPalette>(() => readGraphPalette());
   const [hoverId, setHoverId] = useState<string | null>(null);
   const reducedMotion = useMemo(
-    () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+    () => typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false),
     [],
   );
 
@@ -98,6 +117,18 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
   // ── Imperative API ────────────────────────────────────────────────────────
   const zoomToFit = useCallback(() => fgRef.current?.zoomToFit(reducedMotion ? 0 : 500, 48), [reducedMotion]);
 
+  const zoomToFitIds = useCallback((ids: ReadonlySet<string>) => {
+    const fg = fgRef.current;
+    if (!fg || ids.size === 0) return;
+    let positioned = 0;
+    for (const id of ids) {
+      const n = storeRef.current.nodeMap.get(id);
+      if (n && n.x !== undefined && n.y !== undefined && !Number.isNaN(n.x)) positioned += 1;
+    }
+    if (positioned === 0) return;
+    fg.zoomToFit(reducedMotion ? 0 : 500, 64, (n: GraphViewNode) => ids.has(n.id));
+  }, [reducedMotion]);
+
   /**
    * Focus requested before the node existed / had a position — retried on the
    * next engine tick or stop, and dropped after PENDING_FOCUS_TTL_MS so a stale
@@ -127,7 +158,8 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
       pendingFocus.current = { id, zoom, at: Date.now() };
     },
     zoomToFit,
-  }), [tryFocus, zoomToFit]);
+    zoomToFitIds,
+  }), [tryFocus, zoomToFit, zoomToFitIds]);
 
   // Fit the viewport once per layout — i.e. once per change of the id set.
   const fitOnce = useRef(false);
@@ -142,23 +174,36 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
     return set;
   }, [focusId, neighbours]);
 
+  const spotlightActive = !!spotlight && spotlight.scores.size > 0;
+
   // ── Painters ──────────────────────────────────────────────────────────────
   const radiusOf = (n: GraphViewNode) =>
     TYPE_BASE_RADIUS[n.data.type] + Math.min(10, Math.sqrt(n.degree) * 1.6);
 
-  const nodeAlpha = (n: GraphViewNode): number => {
-    if (emphasis) return emphasis.has(n.id) ? 1 : 0.12;
-    if (n.depth !== undefined) return n.depth === 0 ? 1 : n.depth === 1 ? 0.9 : 0.55;
-    return n.data.type === 'memory' ? 0.75 : 1;
-  };
+  const alphaOf = useCallback((n: GraphViewNode): number => nodeAlpha({
+    id: n.id,
+    type: n.data.type,
+    depth: n.depth,
+    emphasis,
+    spotlight: spotlightActive ? spotlight : null,
+    timeline: timeline?.nodeVisibility.get(n.id),
+  }), [emphasis, spotlight, spotlightActive, timeline]);
+
+  const alphaOfId = useCallback((id: string): number => {
+    const n = storeRef.current.nodeMap.get(id);
+    return n ? alphaOf(n) : 1;
+  }, [alphaOf]);
 
   const paintNode = useCallback((node: GraphViewNode, ctx: CanvasRenderingContext2D, scale: number) => {
     if (node.x === undefined || node.y === undefined) return;
+    const alpha = alphaOf(node);
+    if (alpha <= 0) return; // hidden: not painted, not hit-testable
     const r = radiusOf(node);
     const color = palette.type[node.data.type];
-    const alpha = nodeAlpha(node);
     const isFocus = node.id === focusId;
     const isSelected = node.id === selectedId;
+    const hitScore = spotlightActive ? spotlight!.scores.get(node.id) : undefined;
+    const hollow = timeline?.hollow.has(node.id) ?? false;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -167,12 +212,23 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
       ctx.beginPath(); ctx.arc(0, 0, r + 4 / scale + 2, 0, Math.PI * 2);
       ctx.fillStyle = color; ctx.globalAlpha = alpha * 0.22; ctx.fill(); ctx.globalAlpha = alpha;
     }
-    drawShape(ctx, TYPE_SHAPE[node.data.type], r, color, isSelected ? palette.label : undefined);
+    if (hitScore !== undefined) {
+      // Spotlight ring, scaled by relevance score
+      const ring = spotlightRing(hitScore, spotlight!.max);
+      ctx.beginPath(); ctx.arc(0, 0, r + ring.radiusBonus / Math.max(0.5, scale) + 1.5, 0, Math.PI * 2);
+      ctx.lineWidth = ring.width / Math.max(0.5, scale);
+      ctx.strokeStyle = palette.label;
+      ctx.globalAlpha = alpha * ring.alpha;
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+    }
+    drawShape(ctx, TYPE_SHAPE[node.data.type], r, color, isSelected ? palette.label : undefined, hollow ? 'hollow' : 'fill');
     ctx.restore();
 
-    // Labels: hovered/selected/neighbour always; otherwise above a zoom threshold
+    // Labels: hovered/selected/neighbour/hit always; otherwise above a zoom threshold
     const wantLabel =
       (emphasis?.has(node.id) ?? false) ||
+      hitScore !== undefined ||
       (showLabels && (scale * r > 6.5 || (node.data.type !== 'memory' && scale > 1.6)));
     if (!wantLabel) return;
     const fontPx = Math.max(10, Math.min(14, 11 + node.degree * 0.2)) / scale;
@@ -190,29 +246,38 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
     ctx.fillStyle = palette.label;
     ctx.fillText(label, node.x, y);
     ctx.restore();
-  }, [palette, focusId, selectedId, emphasis, showLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [palette, focusId, selectedId, emphasis, showLabels, alphaOf, spotlight, spotlightActive, timeline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const paintPointerArea = useCallback((node: GraphViewNode, color: string, ctx: CanvasRenderingContext2D) => {
     if (node.x === undefined || node.y === undefined) return;
+    if (alphaOf(node) <= 0) return; // hidden nodes are not clickable
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(node.x, node.y, radiusOf(node) + 4, 0, Math.PI * 2); // hit target larger than the mark
     ctx.fill();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [alphaOf]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const linkColor = useCallback((l: GraphViewLink) => {
-    if (!emphasis) return palette.edge;
     const s = idOf(l.source); const t = idOf(l.target);
-    return s === focusId || t === focusId ? palette.edgeStrong : 'rgba(0,0,0,0)';
-  }, [emphasis, focusId, palette]);
+    const tv = timeline?.edgeVisibility.get(l.id);
+    if (tv === 'hidden') return 'rgba(0,0,0,0)';
+    if (spotlightActive && spotlight!.filter && (alphaOfId(s) <= 0 || alphaOfId(t) <= 0)) return 'rgba(0,0,0,0)';
+    if (emphasis) return s === focusId || t === focusId ? palette.edgeStrong : 'rgba(0,0,0,0)';
+    if (spotlightActive) {
+      const touchesHit = spotlight!.scores.has(s) || spotlight!.scores.has(t);
+      return touchesHit ? palette.edgeStrong : palette.edge;
+    }
+    return palette.edge;
+  }, [emphasis, focusId, palette, spotlight, spotlightActive, timeline, alphaOfId]);
 
   const linkWidth = useCallback((l: GraphViewLink) => {
     const s = idOf(l.source); const t = idOf(l.target);
+    if (timeline?.edgeVisibility.get(l.id) === 'faded') return 0.4;
     return focusId && (s === focusId || t === focusId) ? 1.6 : l.data.type === 'memory_entity' ? 0.6 : 1;
-  }, [focusId]);
+  }, [focusId, timeline]);
 
   return (
-    <div ref={wrapRef} className={className} style={{ background: palette.surface }}>
+    <div ref={wrapRef} className={className} style={{ background: palette.surface }} data-testid="knowledge-graph-view">
       <ForceGraph2D<GraphViewNode, GraphViewLink>
         ref={fgRef}
         width={size.width}

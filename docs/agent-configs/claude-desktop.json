@@ -1,5 +1,11 @@
 {
-  "_comment": "Claude Desktop MCP configuration for josh-personal tenant. Merge into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS). OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
+  "_comment": "Claude Desktop → OmniMind. PREFERRED: Claude Desktop shares Claude.ai's connector list — add the hosted server once as a custom connector (see claude-ai-connector.md); no claude_desktop_config.json edit is needed. LEGACY (stdio): merge mcpServers.omnimind-personal into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS). It runs the server in-process as agent claude-desktop-josh (josh-personal, rw, sourceWeight 0.85). OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is optional: the user the omnimind:// resources read as; tools always take userId explicitly.",
+  "hosted_connector": {
+    "name": "OmniMind",
+    "url": "https://omnimind-mcp-production.up.railway.app/mcp",
+    "authorization_header": "Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_",
+    "scopes_recommended": "memory:read (add memory:write after a week of dogfooding)"
+  },
   "mcpServers": {
     "omnimind-personal": {
       "command": "node",

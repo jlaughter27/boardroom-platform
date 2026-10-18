@@ -692,6 +692,30 @@ export class OmniMindClient {
   async triggerAdminDecay() {
     return this.request('POST', '/admin/decay/run');
   }
+
+  // ---------------------------------------------------------------------------
+  // Lane C — personal MCP tokens (OmniMind /mcp/tokens, owned by Lane A1).
+  // userId travels BOTH as the `x-user-id` header and as the query/body field
+  // A1's contract reads; the route layer pins it to the JWT user.
+  // ---------------------------------------------------------------------------
+  async listMcpTokens(userId: string) {
+    const qs = new URLSearchParams({ userId }).toString();
+    return this.request<{ tokens: unknown[] }>('GET', `/mcp/tokens?${qs}`, userId);
+  }
+
+  async createMcpToken(userId: string, body: { userId: string; tenantId: string; name: string; scopes: string[]; sourceWeight?: number; expiresInDays?: number }) {
+    return this.request<{ token: string; record: unknown }>('POST', '/mcp/tokens', userId, { ...body, userId });
+  }
+
+  async revokeMcpToken(userId: string, tokenId: string) {
+    const qs = new URLSearchParams({ userId }).toString();
+    return this.request<void>('DELETE', `/mcp/tokens/${encodeURIComponent(tokenId)}?${qs}`, userId);
+  }
+
+  async getMcpTokenOptions(userId: string) {
+    const qs = new URLSearchParams({ userId }).toString();
+    return this.request<{ tenants: Array<{ id: string; name: string }>; scopes: Array<{ id: string; description: string; write: boolean }> }>('GET', `/mcp/tokens/options?${qs}`, userId);
+  }
 }
 
 // Singleton

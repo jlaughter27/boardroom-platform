@@ -68,6 +68,49 @@ services:
     depends_on:
       - omnimind-api
 
+  # OmniMind MCP server in Streamable HTTP mode (port 3334). Sends per-request
+  # identity to omnimind-api over the compose network; inbound auth is either
+  # the legacy static bearer (OMNIMIND_MCP_API_KEY) or per-user omt_ tokens
+  # (OMNIMIND_MCP_TOKEN_AUTH=true + a gateway agent key). See
+  # docs/runbooks/omnimind-mcp.md. Values come from .env (see .env.example).
+  omnimind-mcp:
+    build:
+      context: .
+      dockerfile: packages/omnimind-mcp/Dockerfile
+    ports:
+      - "3334:3334"
+    environment:
+      PORT: "3334"
+      OMNIMIND_API_URL: http://omnimind-api:3333
+      OMNIMIND_API_KEY: ${OMNIMIND_API_KEY:-dev-key-local-only}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Process identity (legacy static-bearer identity, and the gateway agent
+      # when token auth is on — its scopes are the ceiling for every token, so
+      # the default carries mcp:delegate + all grantable scopes).
+      OMNIMIND_MCP_AGENT_NAME: ${OMNIMIND_MCP_AGENT_NAME:-omnimind-mcp-gateway}
+      OMNIMIND_MCP_TENANT_ID: ${OMNIMIND_MCP_TENANT_ID:-josh-business}
+      OMNIMIND_MCP_SCOPES: ${OMNIMIND_MCP_SCOPES:-mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write}
+      OMNIMIND_MCP_SOURCE_WEIGHT: ${OMNIMIND_MCP_SOURCE_WEIGHT:-1.0}
+      OMNIMIND_MCP_AGENT_KEY: ${OMNIMIND_MCP_AGENT_KEY:-}
+      # Inbound auth. The server exits 1 when neither a static bearer nor token
+      # auth is configured — never runs open.
+      OMNIMIND_MCP_API_KEY: ${OMNIMIND_MCP_API_KEY:-dev-mcp-bearer-local-only}
+      OMNIMIND_MCP_TOKEN_AUTH: ${OMNIMIND_MCP_TOKEN_AUTH:-false}
+      # Exact Host headers accepted (DNS-rebinding guard). Add your LAN/public
+      # host here or MCP calls get 403 Invalid Host header (/health is exempt).
+      OMNIMIND_MCP_ALLOWED_HOSTS: ${OMNIMIND_MCP_ALLOWED_HOSTS:-127.0.0.1:3334,localhost:3334,omnimind-mcp:3334}
+      OMNIMIND_MCP_PUBLIC_URL: ${OMNIMIND_MCP_PUBLIC_URL:-http://localhost:3334/mcp}
+      OMNIMIND_MCP_APP_URL: ${OMNIMIND_MCP_APP_URL:-http://localhost:3001}
+      OMNIMIND_MCP_DOCS_URL: ${OMNIMIND_MCP_DOCS_URL:-}
+      OMNIMIND_MCP_WRITE_EXTRACT: ${OMNIMIND_MCP_WRITE_EXTRACT:-sync}
+      OMNIMIND_MCP_SESSION_IDLE_MS: ${OMNIMIND_MCP_SESSION_IDLE_MS:-1800000}
+      OMNIMIND_MCP_OAUTH_ISSUER: ${OMNIMIND_MCP_OAUTH_ISSUER:-}
+      OMNIMIND_MCP_OAUTH_JWKS_URL: ${OMNIMIND_MCP_OAUTH_JWKS_URL:-}
+      OMNIMIND_MCP_OAUTH_AUDIENCE: ${OMNIMIND_MCP_OAUTH_AUDIENCE:-}
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      - omnimind-api
+
 volumes:
   pgdata:
   redisdata:

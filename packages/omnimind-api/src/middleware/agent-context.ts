@@ -29,13 +29,30 @@
  * F-217 — `x-source-weight` must be a plain decimal in [0, 2]; anything else
  * (hex, exponent notation, out of range, NaN) is a 400, never clamped.
  *
+ * Lane A1 (2026-10-18) — DELEGATED identity (per-user MCP tokens / OAuth):
+ *
+ *   4. A VERIFIED agent whose row holds the `mcp:delegate` scope (an MCP
+ *      gateway) may add `x-mcp-principal: token:<tokenId>` or
+ *      `oauth:<identityId>`. The McpToken / McpOauthIdentity row is loaded
+ *      (60 s in-memory cache, evicted on revoke) and the context becomes that
+ *      principal: `agentId = row.agentName`, `tenantId = row.tenantId`,
+ *      `sourceWeight = row.sourceWeight`, `scopes = row.scopes ∩
+ *      (gateway.scopes − mcp:delegate)`, `verified: true, delegated: true,
+ *      userId: row.userId`. Revoked / expired / unknown principal → 401
+ *      `principal_invalid`. `x-mcp-principal` from anyone that is not a
+ *      verified `mcp:delegate` agent → 403 `delegation_not_allowed`.
+ *      `delegated-user-isolation.ts` (mounted right after this middleware)
+ *      pins the request's userId to the principal's user.
+ *
  * IMPORTANT: This middleware MUST be wired AFTER `apiKeyAuth` in `index.ts`.
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
+import { MCP_DELEGATE_SCOPE, MCP_PRINCIPAL_HEADER } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
+import { loadDelegatedPrincipal } from '../services/mcp-token.service';
 
 export interface AgentContext {
   agentId: string;
@@ -45,6 +62,14 @@ export interface AgentContext {
   scopes?: string[];
   /** true when identity was verified against agents.api_key_hash via x-agent-key. */
   verified?: boolean;
+  /**
+   * true when a gateway agent (scope `mcp:delegate`) is acting as a per-user
+   * principal via `x-mcp-principal`. `agentId` is then the principal's
+   * agentName, and `userId` the user it belongs to.
+   */
+  delegated?: boolean;
+  /** The delegated principal's user. Only present when `delegated` is true. */
+  userId?: string;
 }
 
 // TypeScript declaration merging — extend Express.Request with `agentContext`.
@@ -104,6 +129,23 @@ function requireAgentKey(): boolean {
   return (process.env.OMNIMIND_REQUIRE_AGENT_KEY ?? '').trim().toLowerCase() === 'true';
 }
 
+/**
+ * Lane A1: scopes the delegated context may use — every principal scope that
+ * the gateway itself holds, once `mcp:delegate` is removed from the gateway's
+ * list. `*` / `<prefix>:*` on the gateway side are honoured; the result is
+ * always a flat list of concrete scopes.
+ */
+export function intersectDelegatedScopes(principalScopes: readonly string[], gatewayScopes: readonly string[]): string[] {
+  const gateway = gatewayScopes.filter(s => s !== MCP_DELEGATE_SCOPE);
+  const hasGatewayScope = (required: string): boolean => {
+    if (gateway.includes('*')) return true;
+    if (gateway.includes(required)) return true;
+    const [prefix] = required.split(':');
+    return gateway.includes(`${prefix}:*`);
+  };
+  return principalScopes.filter(s => s !== MCP_DELEGATE_SCOPE && hasGatewayScope(s));
+}
+
 function touchLastSeen(agentRowId: string): void {
   const now = Date.now();
   const last = lastSeenTouchedAt.get(agentRowId) ?? 0;
@@ -137,6 +179,7 @@ export async function agentContextMiddleware(
     }
     const headerSourceWeight = parsedWeight.value;
     const agentKey = readHeader(req, 'x-agent-key');
+    const principalRef = readHeader(req, MCP_PRINCIPAL_HEADER);
 
     // ── Path 1: verified identity via x-agent-key ────────────────────────
     if (agentKey) {
@@ -157,10 +200,53 @@ export async function agentContextMiddleware(
         return;
       }
 
+      // ── Path 4: delegated principal (Lane A1) ──────────────────────────
+      let delegated: { agentId: string; tenantId: string; sourceWeight: number; scopes: string[]; userId: string; rowId: string } | null = null;
+      if (principalRef) {
+        if (!agent.scopes.includes(MCP_DELEGATE_SCOPE)) {
+          logger.warn('agent-context: x-mcp-principal from an agent without mcp:delegate', { agent: agent.name, path: req.path });
+          res.status(403).json({
+            error: 'delegation_not_allowed',
+            message: `Agent '${agent.name}' does not hold the '${MCP_DELEGATE_SCOPE}' scope and may not present x-mcp-principal`,
+          });
+          return;
+        }
+        let loaded: Awaited<ReturnType<typeof loadDelegatedPrincipal>>;
+        try {
+          loaded = await loadDelegatedPrincipal(principalRef);
+        } catch (err) {
+          logger.error('agent-context: principal lookup failed', { err: (err as Error).message });
+          res.status(503).json({ error: 'agent_lookup_failed', message: 'Delegated principal could not be verified' });
+          return;
+        }
+        if (!loaded.ok) {
+          logger.warn('agent-context: x-mcp-principal refused', { agent: agent.name, reason: loaded.reason, path: req.path });
+          res.status(401).json({
+            error: 'principal_invalid',
+            message: `x-mcp-principal is ${loaded.reason === 'not_found' ? 'unknown' : loaded.reason}`,
+            reason: loaded.reason,
+          });
+          return;
+        }
+        delegated = {
+          agentId: loaded.principal.agentName,
+          tenantId: loaded.principal.tenantId,
+          sourceWeight: loaded.principal.sourceWeight,
+          scopes: intersectDelegatedScopes(loaded.principal.scopes, agent.scopes),
+          userId: loaded.principal.userId,
+          rowId: loaded.principal.id,
+        };
+      }
+
+      // Legacy headers must agree with the registered agent — or, when
+      // delegating, with the principal the gateway is acting as.
       const mismatches: string[] = [];
-      if (headerAgentId && headerAgentId !== agent.name && headerAgentId !== agent.id) mismatches.push('x-agent-id');
-      if (headerTenantId && headerTenantId !== agent.tenantId) mismatches.push('x-tenant-id');
-      if (headerSourceWeight !== null && headerSourceWeight !== agent.sourceWeight) mismatches.push('x-source-weight');
+      const agentIdOk = (v: string) => v === agent.name || v === agent.id || (delegated !== null && (v === delegated.agentId || v === delegated.rowId));
+      const tenantOk = (v: string) => v === agent.tenantId || (delegated !== null && v === delegated.tenantId);
+      const weightOk = (v: number) => v === agent.sourceWeight || (delegated !== null && v === delegated.sourceWeight);
+      if (headerAgentId && !agentIdOk(headerAgentId)) mismatches.push('x-agent-id');
+      if (headerTenantId && !tenantOk(headerTenantId)) mismatches.push('x-tenant-id');
+      if (headerSourceWeight !== null && !weightOk(headerSourceWeight)) mismatches.push('x-source-weight');
       if (mismatches.length > 0) {
         logger.warn('agent-context: headers disagree with registered agent', {
           agent: agent.name,
@@ -177,15 +263,37 @@ export async function agentContextMiddleware(
         return;
       }
 
-      req.agentContext = {
-        agentId: agent.name,
-        tenantId: agent.tenantId,
-        sourceWeight: agent.sourceWeight,
-        scopes: agent.scopes,
-        verified: true,
-      };
+      if (delegated) {
+        req.agentContext = {
+          agentId: delegated.agentId,
+          tenantId: delegated.tenantId,
+          sourceWeight: delegated.sourceWeight,
+          scopes: delegated.scopes,
+          verified: true,
+          delegated: true,
+          userId: delegated.userId,
+        };
+      } else {
+        req.agentContext = {
+          agentId: agent.name,
+          tenantId: agent.tenantId,
+          sourceWeight: agent.sourceWeight,
+          scopes: agent.scopes,
+          verified: true,
+        };
+      }
       touchLastSeen(agent.id);
       next();
+      return;
+    }
+
+    // Lane A1: nobody but a verified mcp:delegate gateway may present a principal.
+    if (principalRef) {
+      logger.warn('agent-context: x-mcp-principal without a verified x-agent-key', { headerAgentId, path: req.path, ip: req.ip });
+      res.status(403).json({
+        error: 'delegation_not_allowed',
+        message: 'x-mcp-principal requires a verified x-agent-key whose agent holds the mcp:delegate scope',
+      });
       return;
     }
 

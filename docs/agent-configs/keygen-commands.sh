@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keygen commands for all 6 MCP agents.
+# Keygen commands for all 7 MCP agents (6 legacy per-client agents + the hosted gateway).
 # Run these ONCE against a live OmniMind API.
 # Keys are printed to stdout — copy immediately to 1Password.
 # After running, keys cannot be retrieved again (only the hash is stored).
@@ -71,4 +71,20 @@ node "$DIST" keygen \
   --source-weight 0.8
 
 echo ""
-echo "=== Done. Put each key in OMNIMIND_MCP_AGENT_KEY of the matching agent-configs/*.json env. ==="
+echo "--- omnimind-mcp-gateway (hosted HTTP service, delegates to per-user tokens) ---"
+# Every hosted session is re-attributed to the omt_/OAuth principal it carries
+# (x-mcp-principal), which OmniMind only honours from a verified agent holding
+# mcp:delegate. The gateway's scopes are the CEILING for every token
+# (effective = token.scopes ∩ gateway.scopes−mcp:delegate), so it must carry
+# mcp:delegate PLUS every grantable scope — a gateway with only mcp:delegate
+# makes every token SCOPE_DENIED. Set the key as OMNIMIND_MCP_AGENT_KEY on the
+# Railway omnimind-mcp service and OMNIMIND_MCP_SCOPES to the same list
+# (docs/runbooks/omnimind-mcp.md §2).
+node "$DIST" keygen \
+  --agent omnimind-mcp-gateway \
+  --tenant josh-business \
+  --scopes "mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write" \
+  --source-weight 1.0
+
+echo ""
+echo "=== Done. Put each key in OMNIMIND_MCP_AGENT_KEY of the matching agent-configs/*.json env (gateway: Railway variable). ==="

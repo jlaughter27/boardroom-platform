@@ -1,15 +1,13 @@
 {
-  "_comment": "ChatGPT Desktop MCP configuration for josh-personal tenant. chatgpt-desktop-josh is read-only (memory:read, sourceWeight=0.6). ChatGPT Desktop uses the stateful Streamable HTTP transport rather than stdio. Start the HTTP server first: node dist/index.js http. OMNIMIND_MCP_API_KEY is the INBOUND bearer token (required; the server refuses to start without it) and must equal the Authorization header below. OMNIMIND_MCP_AGENT_KEY is the omk_ key from keygen for chatgpt-desktop-josh (outbound x-agent-key to OmniMind). OMNIMIND_MCP_ALLOWED_HOSTS lists the exact Host header values accepted (DNS-rebinding protection). OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
-  "mcpServers": {
-    "omnimind": {
-      "type": "http",
-      "url": "http://localhost:3334",
-      "headers": {
-        "Authorization": "Bearer REPLACE_WITH_MCP_API_KEY"
-      }
-    }
+  "_comment": "ChatGPT (Developer mode connector) → hosted OmniMind MCP. Steps: ChatGPT → Settings → Connectors → Advanced → enable Developer mode → Create → name OmniMind, URL below. Authentication: choose 'Custom header' / API key if your workspace offers it and paste `Authorization: Bearer omt_…` (token from BoardRoom Settings → Connected AI tools); if the workspace only allows OAuth connectors, header auth is rejected and the hosted server must run in OAuth resource-server mode (OMNIMIND_MCP_OAUTH_ISSUER / _JWKS_URL / _AUDIENCE — docs/runbooks/omnimind-mcp.md §6). ChatGPT uses the read-only `search` and `fetch` tools (readOnlyHint: true, no confirmation prompt). The `_local_http_server` block is the LEGACY single-user path: a self-run HTTP server with one static inbound bearer (OMNIMIND_MCP_API_KEY) and the process identity chatgpt-desktop-josh (read-only, sourceWeight 0.6); it only works with clients that can send a header, so for ChatGPT itself use the hosted OAuth path.",
+  "hosted_connector": {
+    "name": "OmniMind",
+    "url": "https://omnimind-mcp-production.up.railway.app/mcp",
+    "authentication": "Custom header `Authorization: Bearer omt_…` where offered; otherwise OAuth (server needs OMNIMIND_MCP_OAUTH_ISSUER)",
+    "tools_used": ["search", "fetch"],
+    "scopes_recommended": "memory:read"
   },
-  "_http_server_startup": {
+  "_local_http_server": {
     "command": "node",
     "args": [
       "/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js",
@@ -21,12 +19,17 @@
       "OMNIMIND_MCP_SCOPES": "memory:read",
       "OMNIMIND_MCP_SOURCE_WEIGHT": "0.6",
       "OMNIMIND_MCP_AGENT_KEY": "REPLACE_WITH_AGENT_KEY_FROM_KEYGEN",
-      "OMNIMIND_MCP_API_KEY": "REPLACE_WITH_MCP_API_KEY",
+      "OMNIMIND_MCP_API_KEY": "REPLACE_WITH_STATIC_INBOUND_BEARER",
+      "OMNIMIND_MCP_TOKEN_AUTH": "false",
       "OMNIMIND_MCP_ALLOWED_HOSTS": "127.0.0.1:3334,localhost:3334",
+      "OMNIMIND_MCP_PUBLIC_URL": "http://localhost:3334/mcp",
       "OMNIMIND_API_URL": "https://omnimind-api-production.up.railway.app",
       "OMNIMIND_API_KEY": "REPLACE_WITH_SERVICE_API_KEY",
       "OMNIMIND_MCP_USER_ID": "REPLACE_WITH_USER_ID_OPTIONAL"
+    },
+    "client_headers": {
+      "Authorization": "Bearer REPLACE_WITH_STATIC_INBOUND_BEARER"
     }
   },
-  "_health_check": "curl -s http://localhost:3334/health  (no auth; returns {status, uptime, sessions, agent, tenant})"
+  "_health_check": "curl -s https://omnimind-mcp-production.up.railway.app/health  (no auth; returns exactly {status, uptime, sessions} — agent/tenant are deliberately not exposed)"
 }

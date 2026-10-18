@@ -21,3 +21,4 @@ export * from './context.schema';
 export * from './user-profile.schema';
 export * from './graph.schema';
 export * from './mcp.schema';
+export * from './mcp-token.schema';

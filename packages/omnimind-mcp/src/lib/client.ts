@@ -27,6 +27,58 @@ export interface AgentHeaders {
 }
 
 /**
+ * Front door — identity of a delegated caller (`omt_` token or OAuth identity)
+ * resolved by the HTTP transport. Sent as `x-mcp-principal: <kind>:<id>`
+ * together with the gateway's `x-agent-key`; the API derives agent / tenant /
+ * source weight / user from the principal row, so the three legacy identity
+ * headers are suppressed for such a client.
+ */
+export interface DelegatedPrincipalRef {
+  kind: 'token' | 'oauth';
+  id: string;
+}
+
+/** `POST /mcp/tokens/introspect` / `POST /mcp/identities/resolve` success payload (the principal row). */
+export interface McpPrincipalWire {
+  kind: 'token' | 'oauth';
+  id: string;
+  userId: string;
+  tenantId: string;
+  agentName: string;
+  scopes: string[];
+  sourceWeight: number;
+  name?: string;
+  expiresAt?: string;
+}
+
+export type IntrospectResult =
+  | { active: true; principal: McpPrincipalWire }
+  | { active: false; reason: 'invalid' | 'expired' | 'revoked' };
+
+export type ResolveIdentityResult =
+  | { active: true; principal: McpPrincipalWire }
+  | { active: false; reason: 'unlinked' };
+
+/** Claims the gateway forwards to `POST /mcp/identities/resolve` after verifying an OAuth access token. */
+export interface IdentityClaims {
+  issuer: string;
+  subject: string;
+  email?: string;
+  emailVerified?: boolean;
+  clientId?: string;
+}
+
+/** `GET /mcp/audit/stats` — server-side latency / error rate for one tool. */
+export interface AuditStats {
+  tool: string;
+  sinceHours: number;
+  count: number;
+  p50Ms: number;
+  p95Ms: number;
+  errorRate: number;
+}
+
+/**
  * Parameters for `GET /memories`. Semantics (memory.service.ts searchMemories):
  *   - `query`  → `q`: case-insensitive SUBSTRING match on title OR content.
  *   - `tags`   → `tags`: comma-joined; Prisma `hasEvery` (every tag must be present).
@@ -203,6 +255,8 @@ export class OmniMindClient {
   private readonly agentKey: string | undefined;
   private readonly timeoutMs: number;
   private agentHeaders: AgentHeaders | null = null;
+  private delegated: DelegatedPrincipalRef | null = null;
+  private closed = false;
 
   constructor(config: OmniMindClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -221,7 +275,46 @@ export class OmniMindClient {
     this.agentHeaders = { ...headers, sourceWeight: assertSourceWeight(headers.sourceWeight) };
   }
 
+  /**
+   * Front door — bind this client to a delegated principal instead of a static
+   * agent identity. Every subsequent request carries `x-agent-key` (the
+   * gateway's own key — required) and `x-mcp-principal: <kind>:<id>`, and the
+   * three legacy identity headers are never sent even if `setAgentHeaders`
+   * was called earlier. One client per MCP session; see `close()`.
+   */
+  setDelegatedPrincipal(principal: DelegatedPrincipalRef): void {
+    if (!this.agentKey) {
+      throw new Error('OMNIMIND_MCP_AGENT_KEY (the gateway agent key with scope mcp:delegate) is required to act for a delegated principal');
+    }
+    if (!principal.id || (principal.kind !== 'token' && principal.kind !== 'oauth')) {
+      throw new Error('setDelegatedPrincipal: kind must be token|oauth and id must be non-empty');
+    }
+    this.delegated = { kind: principal.kind, id: principal.id };
+    this.agentHeaders = null;
+  }
+
+  /** `kind:id` of the bound delegated principal, or undefined for a static-identity client. */
+  get delegatedPrincipalKey(): string | undefined {
+    return this.delegated ? `${this.delegated.kind}:${this.delegated.id}` : undefined;
+  }
+
+  /**
+   * Mark the client closed: later requests reject instead of acting for a
+   * session that no longer exists. No sockets are held per instance (undici's
+   * global pool is shared), so this is identity hygiene, not resource cleanup.
+   */
+  close(): void {
+    this.closed = true;
+    this.delegated = null;
+    this.agentHeaders = null;
+  }
+
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
   private async request<T>(method: string, path: string, body?: unknown, userId?: string, extraHeaders?: Record<string, string>): Promise<T> {
+    if (this.closed) throw new Error(`OmniMind ${method} ${path} refused: client closed (session ended)`);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -237,7 +330,11 @@ export class OmniMindClient {
       // reads these to populate req.agentContext, which flows into every
       // memory write. Without these, agent_id ends up NULL and tenant_id
       // falls back to the schema default. (Hermes bugs #1, #2, #3, #5.)
-      if (this.agentHeaders) {
+      if (this.delegated) {
+        // Delegated call: the API resolves agent / tenant / weight / user from
+        // the principal row. The legacy triple is deliberately absent.
+        headers['x-mcp-principal'] = `${this.delegated.kind}:${this.delegated.id}`;
+      } else if (this.agentHeaders) {
         headers['x-agent-id'] = this.agentHeaders.agentId;
         headers['x-tenant-id'] = this.agentHeaders.tenantId;
         headers['x-source-weight'] = String(this.agentHeaders.sourceWeight);
@@ -385,6 +482,26 @@ export class OmniMindClient {
       params.userId
     );
     return result.memories ?? [];
+  }
+
+  /**
+   * Front door — `POST /mcp/tokens/introspect`. Called by the gateway-level
+   * client (static identity, `x-agent-key` with `mcp:delegate`), never by a
+   * per-session delegated client. The raw token travels only in the body.
+   */
+  async introspectToken(token: string): Promise<IntrospectResult> {
+    return this.request<IntrospectResult>('POST', '/mcp/tokens/introspect', { token });
+  }
+
+  /** Front door — `POST /mcp/identities/resolve`: verified OAuth claims → linked principal (or `unlinked`). */
+  async resolveIdentity(claims: IdentityClaims): Promise<ResolveIdentityResult> {
+    return this.request<ResolveIdentityResult>('POST', '/mcp/identities/resolve', claims);
+  }
+
+  /** `GET /mcp/audit/stats?tool=…&sinceHours=…` — used by the `bench` subcommand. */
+  async getAuditStats(params: { tool: string; sinceHours?: number }): Promise<AuditStats> {
+    const qs = new URLSearchParams({ tool: params.tool, sinceHours: String(params.sinceHours ?? 24) });
+    return this.request<AuditStats>('GET', `/mcp/audit/stats?${qs}`);
   }
 
   async logAudit(entry: {

@@ -3,8 +3,17 @@
  * (F-203), body cap / crash isolation / DNS-rebinding protection (M-105),
  * and a real GET /health (runbook).
  *
- * One `StreamableHTTPServerTransport` + `McpServer` pair per MCP session,
- * keyed by the `mcp-session-id` header the SDK issues on `initialize`.
+ * One `StreamableHTTPServerTransport` + `McpServer` + `OmniMindClient` triple
+ * per MCP session, keyed by the `mcp-session-id` header the SDK issues on
+ * `initialize`.
+ *
+ * Front door (Phase 10): every request's bearer credential is resolved to a
+ * principal by `lib/principal.ts` — the legacy static key, an `omt_` token
+ * (introspected) or an OAuth access token (JWT verified, identity resolved).
+ * A session is bound to the principal that opened it; a request on that
+ * session with any other principal is answered 404 as if the session did not
+ * exist. RFC 9728 Protected Resource Metadata is served at
+ * `/.well-known/oauth-protected-resource[/mcp]` when OAuth is configured.
  *
  * Session lifecycle (R-M-04): every request on a session bumps `lastSeenAt`;
  * a sweeper closes sessions idle longer than `OMNIMIND_MCP_SESSION_IDLE_MS`
@@ -16,8 +25,22 @@ import { createHash, randomUUID, timingSafeEqual } from 'crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { JWTVerifyGetKey } from 'jose';
 import { createMcpServer } from '../server';
 import { resolveAgentFromEnv } from '../lib/auth';
+import { createOmniMindClient } from '../lib/client';
+import type { OmniMindClient } from '../lib/client';
+import {
+  buildProtectedResourceMetadata,
+  buildWwwAuthenticate,
+  createPrincipalResolver,
+  describeAuthModes,
+  hasAnyAuthMode,
+  isProtectedResourceMetadataPath,
+  resolvePrincipalAuthConfig,
+  PRM_PATH,
+} from '../lib/principal';
+import type { PrincipalAuthConfig, PrincipalResolver } from '../lib/principal';
 import type { AgentContext } from '../types';
 
 export const DEFAULT_PORT = 3334;
@@ -33,6 +56,10 @@ export interface Session {
   createdAt: number;
   /** Last request routed to this session (ms epoch); drives idle eviction. */
   lastSeenAt: number;
+  /** `kind:id` of the principal that opened the session; every later request must present the same one. */
+  principalKey: string;
+  /** Per-session OmniMind client (delegated or static identity); closed with the session. */
+  client?: OmniMindClient;
 }
 
 /** R-M-04 — idle timeout from env; invalid / non-positive values fall back to the default. */
@@ -44,14 +71,22 @@ export function resolveSessionIdleMs(env: NodeJS.ProcessEnv = process.env): numb
 }
 
 export interface HttpTransportOptions {
-  /** Inbound bearer / x-mcp-api-key. Required — HTTP mode refuses to start without it. */
-  apiKey: string;
+  /** Legacy inbound bearer / x-mcp-api-key (static principal). Optional once `auth` enables tokens or OAuth. */
+  apiKey?: string;
+  /** Front-door auth config (token introspection / OAuth / public URL). `staticApiKey` here is equivalent to `apiKey`. */
+  auth?: Partial<PrincipalAuthConfig>;
   /** Exact `Host` header values accepted (DNS-rebinding protection). */
   allowedHosts?: string[];
-  /** Pre-resolved agent context (defaults to env). */
+  /** Pre-resolved agent context for the static key (defaults to env; only read when a static key is configured). */
   agentCtx?: AgentContext;
-  /** Factory for the per-session McpServer (defaults to createMcpServer). */
-  createServerFn?: (ctx: AgentContext) => { server: McpServer; agentCtx: AgentContext };
+  /** Factory for the per-session McpServer (defaults to createMcpServer bound to the per-session client). */
+  createServerFn?: (ctx: AgentContext, client: OmniMindClient) => { server: McpServer; agentCtx: AgentContext };
+  /** Factory for per-session OmniMind clients (defaults to env). One client per session, closed with it. */
+  createClientFn?: () => OmniMindClient;
+  /** Gateway-level client used for introspection / identity resolution (defaults to `createClientFn()`). */
+  gatewayClient?: Pick<OmniMindClient, 'introspectToken' | 'resolveIdentity'>;
+  /** JWKS override for OAuth verification (tests). */
+  jwks?: JWTVerifyGetKey;
   log?: (line: string) => void;
   /** Max live sessions before the least-recently-seen one is evicted (default MAX_SESSIONS). */
   maxSessions?: number;
@@ -62,27 +97,31 @@ export interface HttpTransportOptions {
 }
 
 export interface HttpConfig {
-  apiKey: string;
+  /** The legacy static key, when configured. */
+  apiKey: string | undefined;
+  auth: PrincipalAuthConfig;
   allowedHosts: string[] | undefined;
 }
 
 /**
- * F-203 — Resolve HTTP-mode config from env. Throws when `OMNIMIND_MCP_API_KEY`
- * is unset: the old transport silently ran open.
+ * F-203 — Resolve HTTP-mode config from env. Throws when no inbound auth is
+ * configured (static key, token auth or OAuth): the old transport silently ran open.
  */
 export function resolveHttpConfig(env: NodeJS.ProcessEnv = process.env): HttpConfig {
-  const apiKey = env.OMNIMIND_MCP_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error(
-      'OMNIMIND_MCP_API_KEY is required in HTTP mode (it is the inbound bearer token clients must present). ' +
-        'Refusing to start an unauthenticated MCP endpoint.'
-    );
-  }
+  const auth = resolvePrincipalAuthConfig(env);
   const hostsRaw = env.OMNIMIND_MCP_ALLOWED_HOSTS?.trim();
   const allowedHosts = hostsRaw
     ? hostsRaw.split(',').map(h => h.trim()).filter(Boolean)
     : undefined; // undefined → derived from the bound port at listen time
-  return { apiKey, allowedHosts };
+  return { apiKey: auth.staticApiKey, auth, allowedHosts };
+}
+
+function mergeAuth(opts: Pick<HttpTransportOptions, 'apiKey' | 'auth'>): PrincipalAuthConfig {
+  return {
+    tokenAuth: false,
+    ...opts.auth,
+    ...(opts.apiKey ? { staticApiKey: opts.apiKey } : {}),
+  };
 }
 
 export function defaultAllowedHosts(port: number): string[] {
@@ -109,9 +148,9 @@ export function extractPresentedKey(req: IncomingMessage): string | undefined {
   return undefined;
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(res: ServerResponse, status: number, body: unknown, extraHeaders?: Record<string, string>): void {
   if (res.headersSent) return;
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.writeHead(status, { 'Content-Type': 'application/json', ...extraHeaders });
   res.end(JSON.stringify(body));
 }
 
@@ -154,17 +193,28 @@ export interface HttpApp {
   allowedHosts: () => string[];
   /** Close every session idle longer than `sessionIdleMs`; returns the ids closed. Runs on a timer; exposed for tests. */
   sweepIdle: (now?: number) => Promise<string[]>;
+  /** The effective inbound-auth configuration (secrets included — never log it whole). */
+  authConfig: PrincipalAuthConfig;
+  /** The principal resolver (tests inspect its cache). */
+  resolver: PrincipalResolver;
   close: () => Promise<void>;
 }
 
 export function createHttpApp(opts: HttpTransportOptions): HttpApp {
-  if (!opts.apiKey) throw new Error('createHttpApp: apiKey is required');
+  const authConfig = mergeAuth(opts);
+  if (!hasAnyAuthMode(authConfig)) {
+    throw new Error('createHttpApp: at least one inbound auth mode is required (apiKey, auth.tokenAuth or auth.oauth)');
+  }
   const log = opts.log ?? ((line: string) => console.log(line));
   const sessions = new Map<string, Session>();
   const startedAt = Date.now();
   let boundPort: number | undefined;
-  const agentCtx = opts.agentCtx ?? resolveAgentFromEnv();
-  const makeServer = opts.createServerFn ?? ((ctx: AgentContext) => createMcpServer(ctx));
+  // The env identity is only needed (and only read — it exits on missing vars) for the static key.
+  const staticAgentCtx = authConfig.staticApiKey ? (opts.agentCtx ?? resolveAgentFromEnv()) : undefined;
+  const createClient = opts.createClientFn ?? (() => createOmniMindClient());
+  const gateway = authConfig.tokenAuth || authConfig.oauth ? (opts.gatewayClient ?? createClient()) : undefined;
+  const resolver = createPrincipalResolver(authConfig, { staticAgentCtx, gateway, jwks: opts.jwks, log });
+  const makeServer = opts.createServerFn ?? ((ctx: AgentContext, client: OmniMindClient) => createMcpServer(ctx, { client }));
   const maxSessions = opts.maxSessions ?? MAX_SESSIONS;
   const sessionIdleMs = opts.sessionIdleMs ?? resolveSessionIdleMs();
   const sweepIntervalMs = opts.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
@@ -177,6 +227,7 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
     const session = sessions.get(sid);
     if (!session) return;
     sessions.delete(sid);
+    session.client?.close();
     log(`[omnimind-mcp] session ${reason} ${sid} (${sessions.size} active)`);
     await session.transport.close().catch(() => undefined);
   }
@@ -199,29 +250,49 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
   const sweeper = setInterval(() => { void sweepIdle(); }, sweepIntervalMs);
   sweeper.unref?.();
 
-  async function createSession(): Promise<Session> {
-    const { server } = makeServer(agentCtx);
+  /** Drop a session the transport reported closed and release its client. */
+  function forget(sid: string, reason: string): void {
+    const session = sessions.get(sid);
+    if (!session) return;
+    sessions.delete(sid);
+    session.client?.close();
+    log(`[omnimind-mcp] session ${reason} ${sid} (${sessions.size} active)`);
+  }
+
+  async function createSession(agentCtx: AgentContext, principalKey: string): Promise<Session> {
+    const client = createClient();
+    let server: McpServer;
+    try {
+      ({ server } = makeServer(agentCtx, client));
+    } catch (err) {
+      client.close();
+      throw err;
+    }
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       enableDnsRebindingProtection: true,
       allowedHosts: allowedHosts(),
       onsessioninitialized: (sid: string) => {
         const now = Date.now();
-        sessions.set(sid, { transport, server, createdAt: now, lastSeenAt: now });
+        sessions.set(sid, { transport, server, client, principalKey, createdAt: now, lastSeenAt: now });
         log(`[omnimind-mcp] session opened ${sid} (${sessions.size} active)`);
       },
-      onsessionclosed: (sid: string) => {
-        sessions.delete(sid);
-        log(`[omnimind-mcp] session closed ${sid} (${sessions.size} active)`);
-      },
+      onsessionclosed: (sid: string) => forget(sid, 'closed'),
     });
     transport.onclose = () => {
       const sid = transport.sessionId;
-      if (sid && sessions.delete(sid)) log(`[omnimind-mcp] session dropped ${sid} (${sessions.size} active)`);
+      if (sid) forget(sid, 'dropped');
+      else client.close(); // never initialized
     };
     await server.connect(transport);
     const now = Date.now();
-    return { transport, server, createdAt: now, lastSeenAt: now };
+    return { transport, server, client, principalKey, createdAt: now, lastSeenAt: now };
+  }
+
+  /** Session lookup that never distinguishes "unknown id" from "someone else's session". */
+  function boundSession(sessionId: string, principalKey: string): Session | undefined {
+    const session = sessions.get(sessionId);
+    return session && session.principalKey === principalKey ? session : undefined;
   }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -239,11 +310,30 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
       return;
     }
 
-    if (!keysMatch(extractPresentedKey(req), opts.apiKey)) {
-      res.setHeader('WWW-Authenticate', 'Bearer realm="omnimind-mcp"');
-      sendJson(res, 401, { error: 'Unauthorized' });
+    if (isProtectedResourceMetadataPath(url.pathname) && (method === 'GET' || method === 'HEAD')) {
+      // RFC 9728 — public by design; 404 when OAuth is not configured so a
+      // header-token-only deployment advertises nothing.
+      const prm = buildProtectedResourceMetadata(authConfig);
+      if (!prm) {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
+      sendJson(res, 200, prm, { 'Cache-Control': 'public, max-age=300' });
       return;
     }
+
+    const presented = extractPresentedKey(req);
+    const resolution = await resolver.resolve(presented);
+    if (!resolution.ok) {
+      if (resolution.status === 503) {
+        sendJson(res, 503, { error: 'auth_unavailable', message: resolution.reason }, { 'Retry-After': '5' });
+        return;
+      }
+      res.setHeader('WWW-Authenticate', buildWwwAuthenticate(authConfig, presented !== undefined));
+      sendJson(res, 401, { error: 'Unauthorized', ...(presented !== undefined ? { reason: resolution.reason } : {}) });
+      return;
+    }
+    const { key: principalKey, agentCtx } = resolution;
 
     const sidHeader = req.headers[SESSION_HEADER];
     const sessionId = typeof sidHeader === 'string' ? sidHeader : undefined;
@@ -269,7 +359,7 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
       }
 
       if (sessionId) {
-        const session = sessions.get(sessionId);
+        const session = boundSession(sessionId, principalKey);
         if (!session) {
           rpcError(res, 404, -32001, 'Session not found');
           return;
@@ -283,7 +373,7 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
         // R-M-04 — at the cap, make room by dropping the least-recently-seen
         // session (an abandoned client) rather than refusing the live one.
         while (sessions.size >= maxSessions) await evictLeastRecentlySeen();
-        const session = await createSession();
+        const session = await createSession(agentCtx, principalKey);
         await session.transport.handleRequest(req, res, body);
         return;
       }
@@ -297,7 +387,7 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
         rpcError(res, 400, -32000, `Bad Request: ${SESSION_HEADER} header required`);
         return;
       }
-      const session = sessions.get(sessionId);
+      const session = boundSession(sessionId, principalKey);
       if (!session) {
         rpcError(res, 404, -32001, 'Session not found');
         return;
@@ -328,10 +418,11 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
     clearInterval(sweeper);
     const open = Array.from(sessions.values());
     sessions.clear();
+    for (const s of open) s.client?.close();
     await Promise.all(open.map(s => s.transport.close().catch(() => undefined)));
   }
 
-  return { handler, sessions, setPort: p => { boundPort = p; }, allowedHosts, sweepIdle, close };
+  return { handler, sessions, setPort: p => { boundPort = p; }, allowedHosts, sweepIdle, authConfig, resolver, close };
 }
 
 let processHandlersInstalled = false;
@@ -356,8 +447,8 @@ export interface StartedHttpServer {
 
 /**
  * Start the HTTP transport. With no `opts`, config comes from env and a
- * missing `OMNIMIND_MCP_API_KEY` exits the process with code 1. Tests pass
- * `opts` explicitly and `port = 0` for an ephemeral port.
+ * missing inbound-auth configuration exits the process with code 1. Tests
+ * pass `opts` explicitly and `port = 0` for an ephemeral port.
  */
 export async function startHttpServer(
   port = DEFAULT_PORT,
@@ -365,13 +456,15 @@ export async function startHttpServer(
 ): Promise<StartedHttpServer> {
   let config: HttpConfig;
   try {
-    config = opts?.apiKey ? { apiKey: opts.apiKey, allowedHosts: opts.allowedHosts } : resolveHttpConfig();
+    config = opts?.apiKey || opts?.auth
+      ? { apiKey: opts.apiKey, auth: mergeAuth(opts), allowedHosts: opts.allowedHosts }
+      : resolveHttpConfig();
   } catch (err) {
     console.error(`[omnimind-mcp] ${(err as Error).message}`);
     process.exit(1);
   }
 
-  const app = createHttpApp({ ...opts, apiKey: config.apiKey, allowedHosts: opts?.allowedHosts ?? config.allowedHosts });
+  const app = createHttpApp({ ...opts, apiKey: config.apiKey, auth: config.auth, allowedHosts: opts?.allowedHosts ?? config.allowedHosts });
   installProcessHandlers();
 
   const httpServer = createServer((req, res) => { void app.handler(req, res); });
@@ -394,6 +487,12 @@ export async function startHttpServer(
 
   const log = opts?.log ?? ((line: string) => console.log(line));
   log(`[omnimind-mcp] HTTP transport started on port ${boundPort} (stateful Streamable HTTP, health: GET /health)`);
+  log(`[omnimind-mcp] inbound auth: ${describeAuthModes(config.auth).join('; ')}`);
+  if (config.auth.oauth) {
+    log(`[omnimind-mcp] protected resource metadata: GET ${PRM_PATH} (resource ${config.auth.publicUrl})`);
+  } else if (config.auth.tokenAuth && !config.auth.publicUrl) {
+    log('[omnimind-mcp] hint: set OMNIMIND_MCP_PUBLIC_URL to the URL clients connect to (it becomes the RFC 8707 audience once OMNIMIND_MCP_OAUTH_ISSUER is set).');
+  }
   // R-M-07 — the DNS-rebinding guard refuses any other Host with 403, which
   // is confusing behind a proxy / Railway domain. Say what is accepted.
   const hosts = app.allowedHosts();

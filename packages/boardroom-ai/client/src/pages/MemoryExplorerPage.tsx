@@ -12,9 +12,12 @@ import { slideIn } from '../lib/motion';
 
 export default function MemoryExplorerPage() {
   usePageTitle('Memory Explorer');
-  const { selectedMemory, clearSelection, search, memories, error, clearError } = useMemoryStore();
+  const { selectedMemory, clearSelection, search, memories, error, clearError, hybridActive, filters } = useMemoryStore();
 
   useEffect(() => {
+    // The explorer answers queries with hybrid search (semantic + FTS + trigram,
+    // `asOf`, tags, archived); the list endpoint still serves empty queries.
+    useMemoryStore.getState().setEngine('hybrid');
     if (memories.length === 0) {
       search();
     }
@@ -23,7 +26,14 @@ export default function MemoryExplorerPage() {
   return (
     <PageWrapper>
       <div className="p-6 h-full flex flex-col min-h-0">
-        <h1 className="text-2xl font-semibold text-foreground mb-4">Memory Explorer</h1>
+        <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="text-2xl font-semibold text-foreground">Memory Explorer</h1>
+          {hybridActive && filters.q && (
+            <p className="text-xs text-muted-foreground" data-testid="hybrid-caption">
+              Hybrid search for “{filters.q}” · semantic + full-text + fuzzy, ranked by relevance
+            </p>
+          )}
+        </div>
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
 

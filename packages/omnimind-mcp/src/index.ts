@@ -6,6 +6,8 @@ if (mode === 'keygen') {
   import('./keygen').then(m => m.runKeygen());
 } else if (mode === 'smoke') {
   import('./smoke').then(m => m.runSmoke());
+} else if (mode === 'bench') {
+  import('./bench').then(m => m.runBenchCli());
 } else if (mode === 'http') {
   const port = parseInt(process.env.PORT ?? '3334', 10);
   import('./transports/http').then(m => m.startHttpServer(port));

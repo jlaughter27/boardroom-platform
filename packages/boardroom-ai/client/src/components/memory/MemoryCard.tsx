@@ -7,6 +7,14 @@ interface MemoryCardProps {
   memory: Memory;
   isSelected: boolean;
   onClick: () => void;
+  /** Hybrid-search relevance (0..1) when the result came from `POST /memories/search` */
+  score?: number;
+  /** Retrieval layers that matched, when the server reports them */
+  layers?: string[];
+}
+
+function formatScore(score: number): string {
+  return score <= 1 ? `${Math.round(score * 100)}%` : score.toFixed(2);
 }
 
 const statusColors: Record<string, string> = {
@@ -46,7 +54,7 @@ function relativeTime(date: Date | string): string {
   return `${months}mo ago`;
 }
 
-export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
+export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick, score, layers }: MemoryCardProps) {
   const statusColor = statusColors[memory.status] ?? 'bg-muted text-muted-foreground border-border';
   const classColor = classColors[memory.memoryClass] ?? 'bg-muted text-muted-foreground border-border';
   const confColor = confidenceColors[memory.confidence] ?? 'text-muted-foreground';
@@ -69,9 +77,17 @@ export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick
           : 'border-border bg-card hover:bg-card hover:border-border'
       )}
     >
-      <h3 className="text-sm font-semibold text-foreground truncate">
-        {memory.title}
-      </h3>
+      <div className="flex items-start gap-2">
+        <h3 className="min-w-0 flex-1 text-sm font-semibold text-foreground truncate">
+          {memory.title}
+        </h3>
+        {typeof score === 'number' && Number.isFinite(score) && (
+          <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground" title="Hybrid search relevance">
+            {layers && layers.length > 0 && <span data-testid="memory-layers">{layers.join(' · ')}</span>}
+            <span className="rounded border border-primary/40 bg-primary/10 px-1 tabular-nums text-foreground" data-testid="memory-score">{formatScore(score)}</span>
+          </span>
+        )}
+      </div>
 
       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{preview}</p>
 

@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
+import { AdminTenantOwnerUpdateRequestSchema } from '@boardroom/shared';
 import { HttpError } from '../middleware/error-handler';
 import { summarizeRecentSessions } from '../services/session-summarizer.service';
 
@@ -347,6 +348,48 @@ router.post('/duplicates/merge', async (req, res, next) => {
 
     logger.info('[admin] Duplicate merge: archived older memory', { keepId, archiveId, tenantId: callerTenant });
     res.json({ status: 'ok', kept: keepId, archived: archiveId });
+  } catch (err) { next(err); }
+});
+
+// Lane A1 (2026-10-18): tenant ownership is what gates MCP token minting
+// (`tenants.owner_user_id = userId`). This is the only write path for it.
+
+// GET /admin/tenants — list tenants with their owner (admin key only)
+router.get('/tenants', async (_req, res, next) => {
+  try {
+    const tenants = await prisma.tenant.findMany({
+      select: { id: true, name: true, ownerUserId: true },
+      orderBy: { id: 'asc' },
+    });
+    res.json({ tenants });
+  } catch (err) { next(err); }
+});
+
+// PATCH /admin/tenants/:id — set the owning user
+router.patch('/tenants/:id', async (req, res, next) => {
+  try {
+    const parsed = AdminTenantOwnerUpdateRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'validation_failed', details: parsed.error.flatten() });
+      return;
+    }
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!tenant) {
+      res.status(404).json({ error: 'not_found', message: `Tenant '${req.params.id}' not found` });
+      return;
+    }
+    const user = await prisma.user.findUnique({ where: { id: parsed.data.ownerUserId }, select: { id: true } });
+    if (!user) {
+      res.status(404).json({ error: 'user_not_found', message: `User '${parsed.data.ownerUserId}' not found` });
+      return;
+    }
+    const updated = await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { ownerUserId: user.id },
+      select: { id: true, name: true, ownerUserId: true },
+    });
+    logger.info('[admin] Tenant owner set', { tenantId: updated.id, ownerUserId: updated.ownerUserId });
+    res.json(updated);
   } catch (err) { next(err); }
 });
 

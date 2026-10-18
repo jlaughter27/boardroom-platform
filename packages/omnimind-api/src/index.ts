@@ -10,6 +10,7 @@ import { logger } from './lib/logger';
 import { apiKeyAuth } from './middleware/auth';
 import { agentContextMiddleware } from './middleware/agent-context';
 import { agentScopeEnforcer } from './middleware/scope-enforcer';
+import { delegatedUserIsolation } from './middleware/delegated-user-isolation';
 import { rateLimiter, stopRateLimiterCleanup } from './middleware/rate-limiter';
 import { agentRateLimiter, stopAgentRateLimiterCleanup } from './middleware/agent-rate-limiter';
 import { requireAdminKey } from './middleware/admin-auth';
@@ -66,6 +67,9 @@ app.use(apiKeyAuth);
 // agent-context MUST follow apiKeyAuth: it resolves x-agent-key against the
 // agents table and attaches req.agentContext (M-103).
 app.use(agentContextMiddleware);
+// Lane A1: a delegated (per-user MCP) context is pinned to its user BEFORE
+// any route reads userId — mounted right after agent-context by contract.
+app.use(delegatedUserIsolation);
 // Scope enforcement needs the verified context from the line above.
 app.use(agentScopeEnforcer);
 app.use(rateLimiter);

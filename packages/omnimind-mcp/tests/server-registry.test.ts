@@ -1,6 +1,6 @@
 /**
  * Phase 6 — spec conformance of the registered surface, driven through the
- * SDK's own in-memory transport: 18 tools with annotations + outputSchema,
+ * SDK's own in-memory transport: 20 tools with annotations + outputSchema,
  * structuredContent on success, isError on typed failures, 4 resource
  * templates with tenant pinning, 3 prompts encoding the dogfooding rules.
  */
@@ -29,7 +29,7 @@ const mockClient = {
 vi.mock('../src/lib/client', () => ({ createOmniMindClient: () => mockClient }));
 vi.mock('../src/lib/fact-extractor', () => ({ extractAndDedup: vi.fn().mockResolvedValue([]) }));
 
-const READ_TOOLS = ['memory_search', 'task_status', 'task_list', 'project_status', 'project_summary', 'person_get', 'commitment_list', 'status_get', 'graph_neighborhood'];
+const READ_TOOLS = ['memory_search', 'task_status', 'task_list', 'project_status', 'project_summary', 'person_get', 'commitment_list', 'status_get', 'graph_neighborhood', 'search', 'fetch'];
 const DESTRUCTIVE_TOOLS = ['memory_supersede', 'memory_consolidate'];
 const ALL_TOOLS = [
   'memory_write', 'memory_search', 'memory_supersede', 'decision_log',
@@ -37,6 +37,8 @@ const ALL_TOOLS = [
   'project_status', 'project_summary', 'person_get',
   'commitment_log', 'commitment_list', 'status_get',
   'memory_reflect', 'memory_consolidate', 'graph_neighborhood',
+  // Front door — ChatGPT connector pair
+  'search', 'fetch',
 ].sort();
 
 async function connect(ctx: AgentContext) {
@@ -55,7 +57,7 @@ describe('tool registry (registerTool)', () => {
   let client: Client;
   beforeAll(async () => { client = await connect(fullCtx); });
 
-  it('registers exactly 18 tools, each with title, annotations and outputSchema', async () => {
+  it('registers exactly 20 tools, each with title, annotations and outputSchema', async () => {
     const { tools } = await client.listTools();
     expect(tools.map(t => t.name).sort()).toEqual(ALL_TOOLS);
     for (const t of tools) {
@@ -68,7 +70,7 @@ describe('tool registry (registerTool)', () => {
     }
   });
 
-  it('annotation matrix: 9 read-only tools, destructive only for memory_supersede + memory_consolidate', async () => {
+  it('annotation matrix: 11 read-only tools, destructive only for memory_supersede + memory_consolidate', async () => {
     const { tools } = await client.listTools();
     const readOnly = tools.filter(t => t.annotations?.readOnlyHint).map(t => t.name).sort();
     expect(readOnly).toEqual([...READ_TOOLS].sort());

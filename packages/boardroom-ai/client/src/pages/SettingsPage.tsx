@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { getUserProfile, updateUserProfile } from '../lib/api';
 import { CalendarSettings } from '../components/settings/CalendarSettings';
 import { SubscriptionSettings } from '../components/settings/SubscriptionSettings';
+import { ConnectedToolsPanel } from '../components/settings/ConnectedToolsPanel';
 import { PageWrapper, Card, Button, Input, Badge, Skeleton, useToastStore } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { UserProfile, RiskProfile } from '@boardroom/shared';
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: 'profile', label: 'Profile' },
   { id: 'preferences', label: 'Preferences' },
   { id: 'integrations', label: 'Integrations' },
+  { id: 'connected-tools', label: 'Connected AI tools' },
   { id: 'subscription', label: 'Subscription' },
   { id: 'account', label: 'Account' },
 ];
@@ -250,6 +252,11 @@ export default function SettingsPage() {
               Manage Integrations
             </Button>
           </Card>
+
+          {/* Connected AI tools — personal MCP tokens (Lane C) */}
+          <div id="settings-connected-tools">
+            <ConnectedToolsPanel />
+          </div>
 
           {/* Subscription */}
           <div id="settings-subscription">

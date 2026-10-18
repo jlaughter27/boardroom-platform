@@ -1,0 +1,12 @@
+{
+  "_comment": "Gemini CLI → hosted OmniMind MCP. Either run `gemini mcp add --transport http omnimind https://omnimind-mcp-production.up.railway.app/mcp --header \"Authorization: Bearer omt_…\"` or merge mcpServers below into ~/.gemini/settings.json (user) or .gemini/settings.json (project). Use `httpUrl` (Streamable HTTP) — never `url`, which selects the legacy SSE transport the server does not serve. Token: BoardRoom Settings → Connected AI tools. Put 'Call OmniMind status_get at the start of planning turns; log decisions with decision_log' in GEMINI.md for the freshness contract (docs/runbooks/omnimind-mcp.md §8).",
+  "mcpServers": {
+    "omnimind": {
+      "httpUrl": "https://omnimind-mcp-production.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"
+      },
+      "timeout": 60000
+    }
+  }
+}

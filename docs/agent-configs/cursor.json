@@ -1,7 +1,13 @@
 {
-  "_comment": "Cursor MCP configuration for josh-business tenant. cursor-josh is read-only (memory:read only, sourceWeight=0.7). Add to Cursor settings under MCP Servers. OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
+  "_comment": "Cursor → OmniMind. PREFERRED: ~/.cursor/mcp.json (global) or .cursor/mcp.json (project) with mcpServers.omnimind — hosted Streamable HTTP + personal omt_ token from BoardRoom Settings → Connected AI tools. One-click alternative: cursor://anysphere.cursor-deeplink/mcp/install?name=omnimind&config=<base64 of the inner {url, headers} object> (the Settings page renders this link). LEGACY (stdio): mcpServers.omnimind-local runs the server in-process as agent cursor-josh (josh-business, read-only, sourceWeight 0.7) with an omk_ agent key from keygen. Add a .cursor/rules entry 'Start with status_get; log decisions with decision_log' so agent mode honours the freshness contract (docs/runbooks/omnimind-mcp.md §8).",
   "mcpServers": {
     "omnimind": {
+      "url": "https://omnimind-mcp-production.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"
+      }
+    },
+    "omnimind-local": {
       "command": "node",
       "args": [
         "/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"

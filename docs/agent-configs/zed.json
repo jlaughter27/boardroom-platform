@@ -1,0 +1,21 @@
+{
+  "_comment": "Zed → hosted OmniMind MCP. Merge `context_servers` into Zed's settings.json (Zed → Settings → Open Settings). Zed sends the static Authorization header on every request and does not surface MCP elicitation, so destructive tools (memory_supersede, memory_consolidate with dryRun=false) rely on their server-side confirm/dryRun arguments — prefer a read-mostly token here. Token: BoardRoom Settings → Connected AI tools. Put 'Start with status_get; log decisions with decision_log' in the assistant's default prompt for the freshness contract (docs/runbooks/omnimind-mcp.md §8).",
+  "context_servers": {
+    "omnimind": {
+      "source": "custom",
+      "url": "https://omnimind-mcp-production.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"
+      }
+    }
+  },
+  "_if_your_zed_build_only_supports_stdio_servers": {
+    "context_servers": {
+      "omnimind": {
+        "source": "custom",
+        "command": "npx",
+        "args": ["-y", "mcp-remote", "https://omnimind-mcp-production.up.railway.app/mcp", "--header", "Authorization:Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"]
+      }
+    }
+  }
+}

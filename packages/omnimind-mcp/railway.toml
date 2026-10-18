@@ -1,0 +1,16 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# GET /health is unauthenticated and bypasses the DNS-rebinding guard, so the
+# Railway probe passes regardless of OMNIMIND_MCP_ALLOWED_HOSTS.
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+# MCP sessions live in process memory (keyed by mcp-session-id). A second
+# replica would split initialize / follow-up requests across instances and
+# clients would see 404 Session not found. Keep 1 until sessions are
+# externalized (research roadmap item 13).
+numReplicas = 1

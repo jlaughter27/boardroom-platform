@@ -34,6 +34,33 @@ export const IDEMPOTENT_WRITE_ANNOTATIONS: McpToolAnnotations = { readOnlyHint: 
 /** Write that invalidates / replaces existing content. */
 export const DESTRUCTIVE_WRITE_ANNOTATIONS: McpToolAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 
+/**
+ * Front door (Phase 10) — a caller identity resolved by the HTTP transport from
+ * a bearer credential that is NOT the legacy static key: an `omt_…` personal
+ * token (`kind: 'token'`) or an OAuth access token mapped to a linked identity
+ * (`kind: 'oauth'`). Mirrors OmniMind's `McpPrincipal` wire shape. The MCP
+ * never sends `x-agent-id` / `x-tenant-id` / `x-source-weight` for such a
+ * principal — it sends `x-mcp-principal: <kind>:<id>` plus the gateway's own
+ * `x-agent-key`, and the API derives everything else from the principal row.
+ */
+export interface McpPrincipal {
+  kind: 'token' | 'oauth';
+  id: string;
+  userId: string;
+  tenantId: string;
+  agentName: string;
+  scopes: string[];
+  sourceWeight: number;
+  name?: string;
+  /** ISO timestamp; absent for non-expiring tokens. */
+  expiresAt?: string;
+}
+
+/** `kind:id` — the value sent as `x-mcp-principal` and used to bind an MCP session to its caller. */
+export function principalKeyOf(p: Pick<McpPrincipal, 'kind' | 'id'>): string {
+  return `${p.kind}:${p.id}`;
+}
+
 export interface AgentContext {
   agentId: string;
   agentName: string;
@@ -45,8 +72,17 @@ export interface AgentContext {
    * `OMNIMIND_MCP_USER_ID`). Tools always take `userId` explicitly; resources
    * have no argument channel, so they need a bound user. Optional: when unset,
    * resource reads return a typed `NO_USER_BOUND` error payload.
+   *
+   * For a delegated principal (token / OAuth) this is the principal's user and
+   * tool calls default to it when `userId` is omitted.
    */
   defaultUserId?: string;
+  /**
+   * Set only for delegated callers resolved by the HTTP front door. When
+   * present the OmniMind client emits delegation headers instead of the three
+   * legacy identity headers (see `OmniMindClient.setDelegatedPrincipal`).
+   */
+  principal?: McpPrincipal;
 }
 
 export interface FactWithAction {
@@ -62,6 +98,8 @@ export interface MemoryWriteSuccess {
   created: string[];
   updated: string[];
   skipped: number;
+  /** `'async'` when the prose was stored as one row and fact extraction runs after the response (`OMNIMIND_MCP_WRITE_EXTRACT=async`). */
+  extraction?: 'sync' | 'async';
 }
 
 /**

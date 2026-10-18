@@ -17,10 +17,11 @@ function SkeletonCard() {
 }
 
 export function MemoryList() {
-  const { memories, selectedMemory, isLoading, total, offset, select, loadMore } =
+  const { memories, selectedMemory, isLoading, total, offset, select, loadMore, hybridActive, nextCursor, scores, layers } =
     useMemoryStore();
 
-  const hasMore = offset < total;
+  // Hybrid results are cursor-paged (no total); list results are offset-paged.
+  const hasMore = hybridActive ? !!nextCursor : offset < total;
 
   if (!isLoading && memories.length === 0) {
     return (
@@ -54,6 +55,8 @@ export function MemoryList() {
           memory={memory}
           isSelected={selectedMemory?.id === memory.id}
           onClick={() => select(memory.id)}
+          score={hybridActive ? scores[memory.id] : undefined}
+          layers={hybridActive ? layers[memory.id] : undefined}
         />
       ))}
 
@@ -71,13 +74,15 @@ export function MemoryList() {
           onClick={loadMore}
           className="w-full py-2 text-sm text-info hover:text-foreground transition-colors"
         >
-          Load more ({total - offset} remaining)
+          {hybridActive ? 'Load more results' : `Load more (${total - offset} remaining)`}
         </button>
       )}
 
       {!hasMore && memories.length > 0 && (
         <p className="text-center text-xs text-muted-foreground py-2">
-          {total} {total === 1 ? 'memory' : 'memories'} total
+          {hybridActive
+            ? `${memories.length} ${memories.length === 1 ? 'hit' : 'hits'} · hybrid search`
+            : `${total} ${total === 1 ? 'memory' : 'memories'} total`}
         </p>
       )}
     </div>

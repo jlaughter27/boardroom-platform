@@ -25,6 +25,7 @@ import { customPersonasRouter } from './routes/custom-personas.routes';
 import { integrationsRouter, gmailCallback } from './routes/integrations.routes';
 import { adminRouter } from './routes/admin.routes';
 import { usageRouter } from './routes/usage.routes';
+import { mcpTokensRouter } from './routes/mcp-tokens.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { llmRateLimiter } from './middleware/llm-rate-limiter';
 import { logger } from './lib/logger';
@@ -156,6 +157,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   app.use('/integrations', integrationsRouter); // extract/confirm routes gate themselves (B-110)
   app.use('/admin', requireAdmin, adminRouter); // B-101
   app.use('/usage', requireAdmin, usageRouter); // Phase 6 — LLM cost summary (admin-only)
+  app.use('/mcp/tokens', requireSubscription, mcpTokensRouter); // Lane C — personal MCP tokens (Settings → Connected AI tools)
   // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
   // ---------------------------------------------------------------------------

@@ -1,9 +1,18 @@
-import { Router, type IRouter, type Request } from 'express';
+import { Router, type IRouter, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
+import {
+  MCP_DELEGATE_SCOPE,
+  McpAuditStatsQuerySchema,
+  McpIdentityResolveRequestSchema,
+  McpTokenCreateRequestSchema,
+  McpTokenIntrospectRequestSchema,
+  McpTokenListQuerySchema,
+} from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
 import { HttpError } from '../middleware/error-handler';
 import { requireAdminKey, isAdminRequest } from '../middleware/admin-auth';
+import * as mcpTokens from '../services/mcp-token.service';
 
 const router: IRouter = Router();
 
@@ -181,6 +190,128 @@ router.get('/agents', async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
     });
     res.json({ agents, count: agents.length });
+  } catch (err) { next(err); }
+});
+
+// ============================================================================
+// Lane A1 (2026-10-18): per-user MCP tokens + OAuth identity resolution
+// ============================================================================
+
+/**
+ * Gateway auth for introspect / resolve: the caller must be a VERIFIED agent
+ * (x-agent-key) whose own row holds `mcp:delegate`, and must not itself be a
+ * delegated context (a token can never introspect other tokens). The literal
+ * scope is required — `*` does not imply it, so pre-existing wildcard agents
+ * do not silently become gateways.
+ */
+function requireDelegateGateway(req: Request, res: Response, next: NextFunction): void {
+  const ctx = req.agentContext;
+  if (!ctx?.verified || ctx.delegated || !ctx.scopes?.includes(MCP_DELEGATE_SCOPE)) {
+    logger.warn('mcp: gateway-only route refused', {
+      path: req.path,
+      agentId: ctx?.agentId ?? null,
+      verified: ctx?.verified ?? false,
+      delegated: ctx?.delegated ?? false,
+    });
+    res.status(403).json({
+      error: 'gateway_scope_required',
+      message: `This route requires a verified x-agent-key whose agent holds the '${MCP_DELEGATE_SCOPE}' scope`,
+      required: MCP_DELEGATE_SCOPE,
+    });
+    return;
+  }
+  next();
+}
+
+function validationFailed(res: Response, error: z.ZodError): void {
+  res.status(400).json({ error: 'validation_failed', details: error.flatten() });
+}
+
+// POST /mcp/tokens — mint a per-user token (raw value returned once)
+router.post('/tokens', async (req, res, next) => {
+  try {
+    const parsed = McpTokenCreateRequestSchema.safeParse(req.body);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    const result = await mcpTokens.createMcpToken(parsed.data);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+});
+
+// GET /mcp/tokens/options?userId= — tenants the user owns + grantable scopes
+// (declared before GET /tokens/:anything so the literal segment wins)
+router.get('/tokens/options', async (req, res, next) => {
+  try {
+    const parsed = McpTokenListQuerySchema.safeParse(req.query);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    res.json(await mcpTokens.getMcpTokenOptions(parsed.data.userId));
+  } catch (err) { next(err); }
+});
+
+// GET /mcp/tokens?userId= — newest first; revoked > 30 days ago are hidden
+router.get('/tokens', async (req, res, next) => {
+  try {
+    const parsed = McpTokenListQuerySchema.safeParse(req.query);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    res.json({ tokens: await mcpTokens.listMcpTokens(parsed.data.userId) });
+  } catch (err) { next(err); }
+});
+
+// POST /mcp/tokens/introspect — gateway only
+router.post('/tokens/introspect', requireDelegateGateway, async (req, res, next) => {
+  try {
+    const parsed = McpTokenIntrospectRequestSchema.safeParse(req.body);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    res.json(await mcpTokens.introspectMcpToken(parsed.data.token));
+  } catch (err) { next(err); }
+});
+
+// DELETE /mcp/tokens/:id?userId= — revoke (204); 404 when not that user's
+router.delete('/tokens/:id', async (req, res, next) => {
+  try {
+    const parsed = McpTokenListQuerySchema.safeParse(req.query);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    const ok = await mcpTokens.revokeMcpToken(req.params.id, parsed.data.userId);
+    if (!ok) {
+      res.status(404).json({ error: 'not_found', message: 'Token not found' });
+      return;
+    }
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// POST /mcp/identities/resolve — gateway only
+router.post('/identities/resolve', requireDelegateGateway, async (req, res, next) => {
+  try {
+    const parsed = McpIdentityResolveRequestSchema.safeParse(req.body);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    res.json(await mcpTokens.resolveMcpIdentity(parsed.data));
+  } catch (err) { next(err); }
+});
+
+// GET /mcp/audit/stats?tool=&sinceHours=24 — latency percentiles + error rate.
+// Tenant: agent context → its tenant (a disagreeing ?tenantId= is 403, same
+// rule as GET /mcp/audit); no agent context → optional ?tenantId=, otherwise
+// the aggregate spans all tenants (numbers only, nothing row-level).
+router.get('/audit/stats', async (req, res, next) => {
+  try {
+    const parsed = McpAuditStatsQuerySchema.safeParse(req.query);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    const ctxTenant = req.agentContext?.tenantId;
+    let tenantId: string | undefined = parsed.data.tenantId;
+    if (ctxTenant) {
+      if (tenantId && tenantId !== ctxTenant && !isAdminRequest(req)) {
+        throw new HttpError(403, {
+          code: 'tenant_mismatch',
+          message: `tenantId '${tenantId}' does not match the caller's tenant`,
+        });
+      }
+      tenantId = tenantId ?? ctxTenant;
+    }
+    res.json(await mcpTokens.getMcpAuditStats({
+      tool: parsed.data.tool,
+      sinceHours: parsed.data.sinceHours,
+      tenantId,
+    }));
   } catch (err) { next(err); }
 });
 

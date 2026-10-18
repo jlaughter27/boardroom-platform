@@ -8,7 +8,10 @@
 |---------|-------------|------------|--------------|
 | BoardRoom AI | boardroom-ai | `https://boardroom-ai-production-1092.up.railway.app` | — |
 | OmniMind API | omnimind-api | `https://omnimind-api-production.up.railway.app` | `omnimind-api.railway.internal` |
+| OmniMind MCP | omnimind-mcp | `https://omnimind-mcp-production.up.railway.app/mcp` (public — external MCP clients connect here; `/health` for probes) | `omnimind-mcp.railway.internal` (unused; nothing inside Railway calls it) |
 | PostgreSQL | (Railway plugin) | — | `postgres.railway.internal:5432` |
+
+The MCP service is built from `packages/omnimind-mcp/Dockerfile` (no Prisma, no prompts, no bash; `CMD node dist/index.js http`), calls omnimind-api over the private network and serves one hosted Streamable HTTP endpoint for every user and client. Full operator path: `docs/runbooks/omnimind-mcp.md`.
 
 ## Environment Variables
 
@@ -44,7 +47,28 @@
 | `OMNIMIND_API_URL` (private) | Preferred: `http://omnimind-api.railway.internal:3333` once OmniMind binds `::` — see `PRIVATE-NETWORKING.md` | Phase 6 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Tracing on when the endpoint is set; service name `boardroom-ai`; `traceparent` propagates to OmniMind | Phase 6, optional |
 | `DEBATE_ROUND2` / `MAX_REBUTTALS` | Round-2 defend/concede protocol (default `true` / `3`) | Phase 6, optional |
+| `OMNIMIND_MCP_PUBLIC_URL` / `APP_PUBLIC_URL` | Hosted MCP endpoint (`https://<mcp-host>/mcp`, same value as the MCP service) and BoardRoom's own public origin, served by `GET /api/mcp/tokens/connect-info` and rendered into Settings → Connected AI tools snippets | MCP front door |
 | `PORT` | Injected by Railway automatically | Do not set manually |
+
+### omnimind-mcp
+
+| Variable | Description | Source |
+|----------|-------------|--------|
+| `OMNIMIND_API_URL` | `http://omnimind-api.railway.internal:3333` (private, http) | see `PRIVATE-NETWORKING.md` |
+| `OMNIMIND_API_KEY` | Must match omnimind-api's value exactly | Same value as above |
+| `OMNIMIND_MCP_AGENT_NAME` / `OMNIMIND_MCP_TENANT_ID` / `OMNIMIND_MCP_SCOPES` | Gateway agent identity: `omnimind-mcp-gateway` / `josh-business` / `mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write` — the scopes are the **ceiling** for every token (`token ∩ gateway`); `mcp:delegate` alone denies everything | runbook §2 |
+| `OMNIMIND_MCP_AGENT_KEY` | `omk_…` of the gateway agent (keygen with the same scope list); server refuses to start in token/OAuth mode without it | runbook §2 |
+| `OMNIMIND_MCP_TOKEN_AUTH` | `true` — accept per-user `omt_` tokens via `POST /mcp/tokens/introspect` | runbook §1 |
+| `OMNIMIND_MCP_API_KEY` | Legacy static bearer; **leave unset** on the hosted gateway | — |
+| `OMNIMIND_MCP_ALLOWED_HOSTS` | Exact bare public host, e.g. `omnimind-mcp-production.up.railway.app` (+ custom domain) | runbook §1 |
+| `OMNIMIND_MCP_PUBLIC_URL` | `https://omnimind-mcp-production.up.railway.app/mcp` — PRM `resource`, default audience, snippet URL; must equal BoardRoom's value | runbook §1 |
+| `OMNIMIND_MCP_APP_URL` | BoardRoom public URL (`search`/`fetch` result links; where to mint a token) | — |
+| `OMNIMIND_MCP_DOCS_URL` | PRM `resource_documentation` override | optional |
+| `OMNIMIND_MCP_OAUTH_ISSUER` / `OMNIMIND_MCP_OAUTH_JWKS_URL` / `OMNIMIND_MCP_OAUTH_AUDIENCE` | OAuth resource-server mode (JWKS discovered when unset; audience defaults to `PUBLIC_URL`); PRM is 404 without an issuer | runbook §6, optional |
+| `OMNIMIND_MCP_WRITE_EXTRACT` | `sync` (default) or `async` when `memory_write` p95 > ~20 s | runbook §7c, optional |
+| `OMNIMIND_MCP_SESSION_IDLE_MS` | Idle session timeout (default 1800000) | optional |
+| `ANTHROPIC_API_KEY` | Haiku fact extraction in `memory_write` | console.anthropic.com |
+| `PORT` | Injected by Railway automatically (server listens on `::`) | Do not set manually |
 
 ### backup (services/backup — Railway cron service)
 
@@ -63,7 +87,7 @@ Currently uses the **public** domain. For lower latency, switch to Railway's pri
 
 ## Docker Build Architecture
 
-Both services use multi-stage Docker builds with `pnpm deploy --legacy` for production node_modules.
+All three services use multi-stage Docker builds with `pnpm deploy --legacy` for production node_modules. CI's `docker` matrix builds `boardroom-ai`, `omnimind-api` and `omnimind-mcp` from the repo root with `packages/<service>/Dockerfile`.
 
 ### Build sequence (both services):
 1. Install ALL deps (including devDeps) in builder stage
@@ -79,6 +103,12 @@ Both services use multi-stage Docker builds with `pnpm deploy --legacy` for prod
 - Generated `.prisma` client copied from pnpm store to stable path
 - `npm install -g prisma@6.19.3` in runner for migrations at startup
 - `docker-entrypoint.sh` runs extensions + `prisma db push` + starts server
+
+### omnimind-mcp differences:
+- No Prisma, no `docs/prompts`, no entrypoint script — `CMD ["node","dist/index.js","http"]`
+- `tests/` is excluded by its tsconfig, so copying the package in does not compile vitest suites
+- Docker `HEALTHCHECK` probes `GET /health` on loopback (compose only; Railway uses `railway.toml`)
+- `jose` (OAuth JWT validation) is a runtime dependency — the lockfile must carry it or `--frozen-lockfile` fails
 
 ## Railway CLI Commands
 
@@ -146,6 +176,21 @@ railway domain -s omnimind-api
 6. Check health: `curl https://boardroom-ai-production-1092.up.railway.app/health`
 7. Check health: `curl https://omnimind-api-production.up.railway.app/health`
 8. Both should return `{"status":"ok"}`
+9. If the MCP service changed: `curl https://omnimind-mcp-production.up.railway.app/health` → `{"status":"ok","uptime":…,"sessions":…}` and the checklist below
+
+## MCP live checklist
+
+The step-by-step is `docs/runbooks/omnimind-mcp.md` (sections 1–8). Tick these before telling anyone to connect a client:
+
+1. Lockfile carries `jose`; CI `docker (omnimind-mcp)` is green.
+2. Railway service `omnimind-mcp` exists, builder Dockerfile, public domain generated, variables per the table above; deploy log shows `allowedHosts: <public host>` (not `loopback only`).
+3. Gateway agent created: `keygen --agent omnimind-mcp-gateway --scopes "mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write"` (the ceiling — `mcp:delegate` alone denies every tool); key set as `OMNIMIND_MCP_AGENT_KEY`, `OMNIMIND_MCP_SCOPES` set to the same list; `GET /mcp/agents` lists it.
+4. Tenant owners set: `PATCH /admin/tenants/:id {ownerUserId}` with `x-admin-key` (`GET /admin/tenants` to verify) — token minting is refused for tenants the user does not own.
+5. `curl /health` → three keys; `POST /mcp` without a token → 401 with `WWW-Authenticate` (403 = allowed hosts wrong); in OAuth mode `curl /.well-known/oauth-protected-resource` → `resource` equals `OMNIMIND_MCP_PUBLIC_URL` (404 in token-only mode is expected).
+6. Personal token minted in BoardRoom Settings → Connected AI tools; `initialize` + `tools/list` with it → 20 tools; audit rows carry `agentId` = the token's `mcp-token:<slug>-<id>` name; revoke → 401 within 60 s.
+7. `node dist/index.js bench --n 10 --user <id>` (in-process `memory_write` + server-side p95 from `/mcp/audit/stats`): p95 < 10 s; the tool warns above 20 s → set `OMNIMIND_MCP_WRITE_EXTRACT=async`. Time `status_get` over the public URL: p95 < 1.5 s.
+8. One real client per family connected (Claude.ai connector, Claude Code, Cursor; ChatGPT only once OAuth issuer vars are set).
+9. After the gateway is the only MCP writer: `OMNIMIND_REQUIRE_AGENT_KEY=true` on omnimind-api.
 
 ---
 
@@ -156,7 +201,7 @@ Required before/at the first deploy of the remediation branch:
 1. **Rotate the five leaked secrets** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `JWT_SECRET`, `OMNIMIND_API_KEY`, `ENCRYPTION_KEY`) on Railway. They are recoverable from git history (`.env.deploy`, commit `0c3700a`). `ENCRYPTION_KEY` must now be 64 hex chars; rotating it makes previously encrypted OAuth tokens undecryptable (users re-connect Google) — there are no encrypted ministry rows yet (gate still on).
 2. Set `OMNIMIND_ADMIN_KEY` (omnimind-api) and `ADMIN_EMAILS` (boardroom-ai).
 3. `UPDATE tenants SET owner_user_id = '<your user cuid>' WHERE id IN ('josh-personal','josh-business','tgfc-ministry');` — session summaries are skipped (logged once per tenant) until this is set.
-4. For each MCP agent config, add `OMNIMIND_MCP_AGENT_KEY=<omk key from keygen>`; HTTP mode additionally needs `OMNIMIND_MCP_API_KEY` (now mandatory) and optionally `OMNIMIND_MCP_ALLOWED_HOSTS`.
+4. For each legacy stdio MCP agent config, add `OMNIMIND_MCP_AGENT_KEY=<omk key from keygen>`. The hosted HTTP service instead uses the gateway agent key + `OMNIMIND_MCP_TOKEN_AUTH=true` + `OMNIMIND_MCP_ALLOWED_HOSTS=<public host>` (see "MCP live checklist"); the single static `OMNIMIND_MCP_API_KEY` is only for a personal self-run HTTP instance.
 5. Point the Stripe webhook at `https://<boardroom-host>/subscription/webhook` (it now lives before the auth wall; signature verification is active).
 6. First boot runs `0_init` baseline resolution automatically on the existing DB (entrypoint detects fresh vs existing). Watch the deploy log for `Migrations deployed`.
 7. Optional one-off: rows whose importance already decayed before this fix keep their decayed value as `base_importance`; restore with `UPDATE memory_entries SET base_importance = 0.5 WHERE base_importance < 0.4 AND recall_count = 0;` if you want them back in persona retrieval.

@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCommandPaletteStore } from '../stores/commandPalette.store';
+import { useGraphStore } from '../stores/graph.store';
 import { useUIStore } from '../stores/ui.store';
 
 export interface ShortcutDef {
@@ -23,8 +24,16 @@ export function useKeyboardShortcuts() {
   const { toggle: togglePalette } = useCommandPaletteStore();
   const { openModal } = useUIStore();
 
+  /** \u2318\u21e7K \u2014 open the palette straight into "Search memory" (hybrid search + graph spotlight). */
+  const openMemorySearch = () => {
+    useGraphStore.getState().setPaletteMode('memory');
+    const palette = useCommandPaletteStore.getState();
+    if (!palette.open) palette.toggle();
+  };
+
   const shortcuts: ShortcutDef[] = [
     { key: 'k', meta: true, label: '\u2318K', description: 'Command palette', action: togglePalette },
+    { key: 'k', meta: true, shift: true, label: '\u2318\u21e7K', description: 'Search memory', action: openMemorySearch },
     { key: 'n', meta: true, label: '\u2318N', description: 'New Decision Session', action: () => navigate('/decisions/new') },
     { key: 'g', meta: true, shift: true, label: '\u2318\u21E7G', description: 'Go to Dashboard', action: () => navigate('/') },
     { key: 'm', meta: true, shift: true, label: '\u2318\u21E7M', description: 'Go to Memory', action: () => navigate('/memory') },
@@ -39,7 +48,7 @@ export function useKeyboardShortcuts() {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
         // Allow Escape and Cmd+K even in inputs
-        if (e.key !== 'Escape' && !(e.key === 'k' && (e.metaKey || e.ctrlKey))) return;
+        if (e.key !== 'Escape' && !(e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey))) return;
       }
 
       for (const s of shortcuts) {

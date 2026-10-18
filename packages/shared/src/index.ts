@@ -26,6 +26,7 @@ export * from './types/sse-events.types';
 export * from './types/context-capsule.types';
 export * from './types/context.types';
 export * from './types/utility.types';
+export * from './types/mcp-token.types';
 
 // Validation schemas
 export * from './validation';
