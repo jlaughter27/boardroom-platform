@@ -39,11 +39,21 @@ function arrange(tokens: McpTokenRecord[] = [], opts = options, info: typeof con
   else vi.mocked(api.getMcpConnectInfo).mockRejectedValue(new Error('nope'));
 }
 
+/**
+ * "New token" is rendered disabled while tokens/options/connect-info load, so a click
+ * straight after `findByRole` is a race on slow runners (CI saw the loading skeleton
+ * still mounted). Wait for the enabled state, then click, then wait for the form.
+ */
+async function clickNewToken() {
+  const btn = await screen.findByRole('button', { name: 'New token' });
+  await waitFor(() => expect(btn).toBeEnabled());
+  fireEvent.click(btn);
+  return screen.findByTestId('mcp-token-form');
+}
+
 async function openForm() {
   render(<ConnectedToolsPanel />);
-  const btn = await screen.findByRole('button', { name: 'New token' });
-  fireEvent.click(btn);
-  return screen.getByTestId('mcp-token-form');
+  return clickNewToken();
 }
 
 describe('<ConnectedToolsPanel />', () => {
@@ -210,7 +220,7 @@ describe('<ConnectedToolsPanel />', () => {
     render(<ConnectedToolsPanel />);
     expect(await screen.findByTestId('mcp-url-unset')).toHaveTextContent(/OMNIMIND_MCP_PUBLIC_URL/);
     expect(screen.queryByTestId('mcp-connect-info-failed')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'New token' }));
+    await clickNewToken();
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const created = await screen.findByTestId('mcp-token-created');
     expect(within(created).getByTestId('mcp-url-warning')).toHaveTextContent(/has not set/);
@@ -234,7 +244,7 @@ describe('<ConnectedToolsPanel />', () => {
     expect(note).toHaveTextContent(/Could not load the connection details \(nope\)/);
     expect(screen.queryByTestId('mcp-url-unset')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument(); // tokens + options loaded fine
-    fireEvent.click(screen.getByRole('button', { name: 'New token' }));
+    await clickNewToken();
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const created = await screen.findByTestId('mcp-token-created');
     expect(within(created).getByTestId('mcp-url-warning')).toHaveTextContent(/could not be loaded \(nope\)/);
@@ -273,11 +283,12 @@ describe('<ConnectedToolsPanel />', () => {
     (document as unknown as { execCommand: unknown }).execCommand = vi.fn(() => false);
     try {
       render(<ConnectedToolsPanel />);
-      fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+      await clickNewToken();
       fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
       const created = await screen.findByTestId('mcp-token-created');
       fireEvent.click(within(created).getByRole('button', { name: 'Copy Terminal' }));
-      expect(await within(created).findByRole('button', { name: 'Copy Terminal' })).toHaveTextContent('Copy failed');
+      const copyBtn = within(created).getByRole('button', { name: 'Copy Terminal' });
+      await waitFor(() => expect(copyBtn).toHaveTextContent('Copy failed'));
       expect(within(created).getByText(/Could not reach the clipboard/)).toBeInTheDocument();
       expect(within(created).getByText(/Copy failed — the value is selected/)).toBeInTheDocument();
     } finally {
@@ -290,7 +301,7 @@ describe('<ConnectedToolsPanel />', () => {
     vi.mocked(api.createMcpToken).mockRejectedValue(new api.ApiError('Request failed: 402', 402, { error: 'subscription_required', message: 'Please subscribe to continue' }));
     vi.mocked(api.revokeMcpToken).mockResolvedValue(undefined);
     render(<ConnectedToolsPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+    await clickNewToken();
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/subscription is not active/);
     expect(screen.getByRole('alert')).toHaveTextContent(/can still be revoked/);
@@ -306,7 +317,7 @@ describe('<ConnectedToolsPanel />', () => {
       error: 'validation_failed', details: [{ field: 'name', message: 'String must contain at most 60 character(s)' }],
     }));
     render(<ConnectedToolsPanel />);
-    fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+    await clickNewToken();
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Please check: Token name: String must contain at most 60 character(s).');
