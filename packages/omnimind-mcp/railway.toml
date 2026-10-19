@@ -1,6 +1,12 @@
+# Railway config-as-code for the omnimind-mcp service. The Docker build
+# context is the REPO ROOT (the Dockerfile COPYs package.json, pnpm-lock.yaml
+# and packages/shared from there), so in the Railway service settings:
+#   - Root Directory: / (the repository root, NOT packages/omnimind-mcp)
+#   - Config-as-code path: packages/omnimind-mcp/railway.toml
+# and dockerfilePath below is therefore repo-relative.
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "packages/omnimind-mcp/Dockerfile"
 
 [deploy]
 # GET /health is unauthenticated and bypasses the DNS-rebinding guard, so the

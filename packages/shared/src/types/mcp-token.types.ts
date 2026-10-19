@@ -49,6 +49,16 @@ export const MCP_DELEGATE_SCOPE = 'mcp:delegate' as const;
 
 export const MCP_GATEWAY_SCOPES = [MCP_DELEGATE_SCOPE] as const;
 
+/**
+ * Everything an MCP gateway Agent row may hold: every grantable principal
+ * scope plus `mcp:delegate`. The single list keygen, docs and the API cite —
+ * a delegated context can never exceed `MCP_SCOPES`, and the gateway never
+ * needs anything beyond this list.
+ */
+export const MCP_GATEWAY_CEILING_SCOPES = [...MCP_SCOPES, MCP_DELEGATE_SCOPE] as const;
+
+export type McpGatewayCeilingScope = (typeof MCP_GATEWAY_CEILING_SCOPES)[number];
+
 export interface McpScopeDescriptor {
   id: McpScope;
   description: string;
@@ -78,6 +88,11 @@ export const MCP_TOKEN_NAME_MAX_LENGTH = 60;
 export const MCP_TOKEN_MAX_ACTIVE_PER_USER = 25;
 export const MCP_TOKEN_EXPIRES_IN_DAYS_MIN = 1;
 export const MCP_TOKEN_EXPIRES_IN_DAYS_MAX = 365;
+/**
+ * Applied when `POST /mcp/tokens` omits `expiresInDays`. A non-expiring token
+ * must be asked for explicitly with `expiresInDays: null`.
+ */
+export const MCP_TOKEN_DEFAULT_EXPIRES_IN_DAYS = 365;
 /** `GET /mcp/tokens` hides tokens revoked longer ago than this. */
 export const MCP_TOKEN_REVOKED_LIST_WINDOW_DAYS = 30;
 export const MCP_SOURCE_WEIGHT_MIN = 0;
@@ -98,7 +113,7 @@ export interface McpTokenRecord {
   userId: string;
   tenantId: string;
   name: string;
-  /** `mcp-token:<slug(name)>-<6 chars of id>` — stamped as agentId on writes. */
+  /** `mcp-token:<slug(name)>-<last 8 chars of id>` — unique per row; stamped as agentId on writes. */
   agentName: string;
   /** First 12 characters of the raw token, for display. */
   prefix: string;
@@ -134,7 +149,11 @@ export interface McpTokenCreateRequest {
   name: string;
   scopes: McpScope[];
   sourceWeight?: number;
-  expiresInDays?: number;
+  /**
+   * Days until expiry (1–365). Omitted → `MCP_TOKEN_DEFAULT_EXPIRES_IN_DAYS`
+   * (365). `null` → the token never expires (an explicit choice).
+   */
+  expiresInDays?: number | null;
 }
 
 export interface McpTokenCreateResponse {
@@ -183,12 +202,47 @@ export interface McpIdentityResolveRequest {
   clientId?: string;
 }
 
+/**
+ * `unlinked`           — no (issuer, subject) link and auto-link did not apply
+ * `issuer_not_allowed` — the API's `MCP_OAUTH_ALLOWED_ISSUERS` list is set and
+ *                        does not contain this issuer (nothing is looked up)
+ */
+export type McpIdentityInactiveReason = 'unlinked' | 'issuer_not_allowed';
+
 export interface McpIdentityResolveInactive {
   active: false;
-  reason: 'unlinked';
+  reason: McpIdentityInactiveReason;
 }
 
 export type McpIdentityResolveResponse = McpPrincipalActive | McpIdentityResolveInactive;
+
+// ── OAuth identity administration (x-admin-key) ─────────────────────────────
+
+/** Public view of an `mcp_oauth_identities` row. */
+export interface McpOauthIdentityRecord {
+  id: string;
+  issuer: string;
+  subject: string;
+  userId: string;
+  tenantId: string;
+  /** `oauth:<clientId or issuer host>-<last 8 chars of id>` — unique per row. */
+  agentName: string;
+  scopes: McpScope[];
+  sourceWeight: number;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface McpIdentityListResponse {
+  identities: McpOauthIdentityRecord[];
+}
+
+/** `PATCH /mcp/identities/:id` — at least one field. `tenantId` must be owned by the identity's user. */
+export interface McpIdentityUpdateRequest {
+  tenantId?: string;
+  scopes?: McpScope[];
+}
 
 /** `GET /mcp/audit/stats` — latency + error profile of one tool (or all). */
 export interface McpAuditStats {

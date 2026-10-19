@@ -259,6 +259,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       total: 0,
       offset: 0,
       error: null,
+      engine: 'list', // the explorer opts back in on mount; nothing else should inherit hybrid mode
       scores: {},
       layers: {},
       nextCursor: null,

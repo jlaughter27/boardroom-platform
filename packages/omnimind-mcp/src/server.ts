@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { createOmniMindClient } from './lib/client';
+import { createOmniMindClient, OmniMindHttpError } from './lib/client';
 import type { OmniMindClient } from './lib/client';
 import { resolveAgentFromEnv } from './lib/auth';
 import { memoryWriteTool, memorySearchTool, memorySupersedeT, memoryReflectTool, memoryConsolidateTool } from './tools/memory.tool';
@@ -23,13 +23,21 @@ export interface BuildToolsOptions {
   appUrl?: string;
   /** `OMNIMIND_MCP_WRITE_EXTRACT` override for `memory_write`. */
   writeExtractMode?: WriteExtractMode;
+  /** M-2 — client for `memory_write`'s async extraction tail; outlives the session (HTTP front door). Identity is bound by `createMcpServer`. */
+  deferredClient?: OmniMindClient;
+  /** M-2 — receives each deferred-extraction promise so the HTTP app can drain them on shutdown. */
+  onDeferred?: (done: Promise<void>) => void;
 }
 
 /** Every tool this server registers, in registration order (18 Phase 6 tools + the `search` / `fetch` connector pair). */
 export function buildTools(client: ReturnType<typeof createOmniMindClient>, agentCtx: AgentContext, opts: BuildToolsOptions = {}): McpTool[] {
   const connector = { appUrl: opts.appUrl ?? resolveAppUrl() };
   return [
-    memoryWriteTool(client, agentCtx, opts.writeExtractMode ? { extractMode: opts.writeExtractMode } : {}),
+    memoryWriteTool(client, agentCtx, {
+      ...(opts.writeExtractMode ? { extractMode: opts.writeExtractMode } : {}),
+      ...(opts.deferredClient ? { deferredClient: opts.deferredClient } : {}),
+      ...(opts.onDeferred ? { onDeferred: opts.onDeferred } : {}),
+    }),
     memorySearchTool(client, agentCtx),
     memorySupersedeT(client, agentCtx),
     decisionLogTool(client, agentCtx),
@@ -131,8 +139,10 @@ export function createMcpServer(ctx?: AgentContext, opts: CreateMcpServerOptions
   // Bind caller identity to the client so every outbound HTTP request carries
   // either x-agent-id / x-tenant-id / x-source-weight (static identity; the
   // server-side middleware reads these to populate req.agentContext) or
-  // x-mcp-principal (delegated principal, resolved server-side).
+  // x-mcp-principal (delegated principal, resolved server-side). The deferred
+  // client (M-2) acts for the same caller after the session is gone.
   bindClientIdentity(client, agentCtx);
+  if (opts.deferredClient && opts.deferredClient !== client) bindClientIdentity(opts.deferredClient, agentCtx);
 
   const server = new McpServer(
     {
@@ -171,6 +181,12 @@ export function createMcpServer(ctx?: AgentContext, opts: CreateMcpServerOptions
         } catch (err) {
           if (err instanceof ScopeDeniedError) return errorResult('SCOPE_DENIED', (err as Error).message);
           if (err instanceof McpValidationError) return errorResult('VALIDATION_ERROR', (err as Error).message);
+          // L-6 — the API intersects delegated scopes with the gateway ceiling;
+          // its 403 insufficient_scope is the same typed refusal as a local
+          // requireScope() miss, not an opaque HTTP error string.
+          if (err instanceof OmniMindHttpError && err.isInsufficientScope) {
+            return errorResult('SCOPE_DENIED', `OmniMind refused ${tool.name}: insufficient_scope (the effective scopes for this principal are narrower than the tool requires)`);
+          }
           throw err;
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

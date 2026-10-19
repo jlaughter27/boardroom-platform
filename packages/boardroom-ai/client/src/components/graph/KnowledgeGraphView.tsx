@@ -7,6 +7,7 @@ import {
 import { createGraphStore, idOf, syncGraphData, type GraphViewLink, type GraphViewNode } from './graph-data';
 import { nodeAlpha, spotlightRing, type SpotlightState } from './graph-emphasis';
 import type { TimelineVisibility } from './graph-timeline';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /**
  * Obsidian-style force graph on canvas.
@@ -14,7 +15,10 @@ import type { TimelineVisibility } from './graph-timeline';
  * Interaction model (deliberately the same as Obsidian's graph view):
  *  - hover a node → it and its 1-hop neighbourhood stay vivid, everything
  *    else fades to ~12% alpha; labels for the neighbourhood appear
- *  - click → select (inspector opens); click background → clear
+ *  - click → SELECT (inspector opens, emphasis ring); click background → clear.
+ *    Selection never changes the visible id set, so it never relayouts.
+ *  - double-click → FOCUS (`onFocus`): the page re-roots the local graph there;
+ *    that is the only canvas gesture that may change the id set
  *  - drag → move a node (pinned while dragging, released after)
  *  - wheel / pinch → zoom; drag background → pan
  *  - node radius ∝ √degree, clamped; labels appear above a zoom threshold
@@ -22,6 +26,10 @@ import type { TimelineVisibility } from './graph-timeline';
  *  - reduced motion → the layout is computed off-screen, then shown at rest
  *  - node / link objects are stable per id (see graph-data.ts): selecting a
  *    node never relayouts; only a change in the visible id set re-heats
+ *  - viewport: the first layout (and any later id-set change) auto-fits, but
+ *    an explicit viewport intent — `focusNode` / `zoomToFitIds` within the last
+ *    INTENT_TTL_MS — wins over that fit and is re-applied once the simulation
+ *    settles, so centring on a node or fitting the hits survives a relayout
  *  - spotlight (search hits) → score-scaled rings on hits, the rest dims or,
  *    with "Filter to results", is not painted at all (no relayout either way)
  *  - timeline → nodes outside the window fade or are not painted; edges
@@ -48,7 +56,10 @@ interface Props {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
   selectedId: string | null;
+  /** Single click (select) — must not change the visible id set. */
   onSelect(id: string | null): void;
+  /** Double click (focus) — the page may re-root the local graph here. */
+  onFocus?(id: string): void;
   onHoverChange?(id: string | null): void;
   showLabels: boolean;
   /** When set, node.depth drives the fade so rings farther from focus are dimmer. */
@@ -61,9 +72,15 @@ interface Props {
 }
 
 const PENDING_FOCUS_TTL_MS = 5000;
+/** How long an explicit focus / fit-ids request outranks the automatic fit after a relayout. */
+export const INTENT_TTL_MS = 5000;
+
+type ViewportIntent =
+  | { kind: 'focus'; id: string; zoom: number; at: number }
+  | { kind: 'fit-ids'; ids: ReadonlySet<string>; at: number };
 
 export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(function KnowledgeGraphView(
-  { nodes, edges, selectedId, onSelect, onHoverChange, showLabels, depthById, spotlight = null, timeline = null, className },
+  { nodes, edges, selectedId, onSelect, onFocus, onHoverChange, showLabels, depthById, spotlight = null, timeline = null, className },
   ref,
 ) {
   const fgRef = useRef<ForceGraphMethods<GraphViewNode, GraphViewLink> | undefined>(undefined);
@@ -71,10 +88,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [palette, setPalette] = useState<GraphPalette>(() => readGraphPalette());
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const reducedMotion = useMemo(
-    () => typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false),
-    [],
-  );
+  const reducedMotion = useReducedMotion();
 
   // ── Size to container ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -114,20 +128,45 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
     fg.d3ReheatSimulation();
   }, [graphData, idsChanged]);
 
-  // ── Imperative API ────────────────────────────────────────────────────────
-  const zoomToFit = useCallback(() => fgRef.current?.zoomToFit(reducedMotion ? 0 : 500, 48), [reducedMotion]);
+  // ── Viewport intents ──────────────────────────────────────────────────────
+  // The last explicit request (focus a node / fit the hits). While it is fresh
+  // it is re-applied on engine stop instead of the automatic fit, and it is
+  // cleared by an explicit "Fit" (zoomToFit).
+  const lastIntent = useRef<ViewportIntent | null>(null);
+  const intentFresh = (i: ViewportIntent | null): i is ViewportIntent => !!i && Date.now() - i.at <= INTENT_TTL_MS;
 
-  const zoomToFitIds = useCallback((ids: ReadonlySet<string>) => {
+  // Fit the viewport once per layout — i.e. once per change of the id set.
+  const fitOnce = useRef(false);
+  useEffect(() => { if (idsChanged) fitOnce.current = false; }, [graphData, idsChanged]);
+
+  // ── Imperative API ────────────────────────────────────────────────────────
+  const fitAll = useCallback(() => fgRef.current?.zoomToFit(reducedMotion ? 0 : 500, 48), [reducedMotion]);
+
+  const zoomToFit = useCallback(() => {
+    lastIntent.current = null; // an explicit "fit everything" supersedes earlier intents
+    fitOnce.current = true;
+    fitAll();
+  }, [fitAll]);
+
+  const fitIds = useCallback((ids: ReadonlySet<string>): boolean => {
     const fg = fgRef.current;
-    if (!fg || ids.size === 0) return;
+    if (!fg || ids.size === 0) return false;
     let positioned = 0;
     for (const id of ids) {
       const n = storeRef.current.nodeMap.get(id);
       if (n && n.x !== undefined && n.y !== undefined && !Number.isNaN(n.x)) positioned += 1;
     }
-    if (positioned === 0) return;
+    if (positioned === 0) return false;
     fg.zoomToFit(reducedMotion ? 0 : 500, 64, (n: GraphViewNode) => ids.has(n.id));
+    return true;
   }, [reducedMotion]);
+
+  const zoomToFitIds = useCallback((ids: ReadonlySet<string>) => {
+    if (ids.size === 0) return;
+    lastIntent.current = { kind: 'fit-ids', ids, at: Date.now() };
+    fitOnce.current = true; // the one-time fit must not undo this
+    fitIds(ids);
+  }, [fitIds]);
 
   /**
    * Focus requested before the node existed / had a position — retried on the
@@ -154,16 +193,30 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
 
   useImperativeHandle(ref, () => ({
     focusNode(id, zoom = 2.2) {
+      const at = Date.now();
+      lastIntent.current = { kind: 'focus', id, zoom, at };
+      fitOnce.current = true; // the one-time fit must not undo the centring
       if (tryFocus(id, zoom)) { pendingFocus.current = null; return; }
-      pendingFocus.current = { id, zoom, at: Date.now() };
+      pendingFocus.current = { id, zoom, at };
     },
     zoomToFit,
     zoomToFitIds,
   }), [tryFocus, zoomToFit, zoomToFitIds]);
 
-  // Fit the viewport once per layout — i.e. once per change of the id set.
-  const fitOnce = useRef(false);
-  useEffect(() => { if (idsChanged) fitOnce.current = false; }, [graphData, idsChanged]);
+  const onEngineStop = useCallback(() => {
+    // 1. A pending focus (node had no position yet) wins over everything.
+    if (pendingFocus.current) { flushPendingFocus(); fitOnce.current = true; return; }
+    // 2. A fresh explicit intent is re-applied: positions moved during the relayout.
+    const intent = lastIntent.current;
+    if (intentFresh(intent)) {
+      fitOnce.current = true;
+      if (intent.kind === 'focus') tryFocus(intent.id, intent.zoom);
+      else fitIds(intent.ids);
+      return;
+    }
+    // 3. Otherwise fit the whole graph once per layout.
+    if (!fitOnce.current) { fitOnce.current = true; fitAll(); }
+  }, [flushPendingFocus, tryFocus, fitIds, fitAll]);
 
   // ── Emphasis set (hovered or selected + neighbours) ───────────────────────
   const focusId = hoverId ?? selectedId;
@@ -294,7 +347,12 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
         linkDirectionalParticles={0}
         enableNodeDrag
         onNodeHover={(n) => { const id = n ? n.id : null; setHoverId(id); onHoverChange?.(id); }}
-        onNodeClick={(n) => onSelect(n.id === selectedId ? null : n.id)}
+        onNodeClick={(n, ev) => {
+          // The second click of a double-click carries detail === 2: that is the
+          // explicit "focus here" gesture; a single click only selects.
+          if (onFocus && ((ev as MouseEvent | undefined)?.detail ?? 0) >= 2) { onFocus(n.id); return; }
+          onSelect(n.id === selectedId ? null : n.id);
+        }}
         onBackgroundClick={() => onSelect(null)}
         onNodeDragEnd={(n) => { n.fx = undefined; n.fy = undefined; }}
         warmupTicks={reducedMotion ? 300 : 0}
@@ -302,11 +360,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
         d3AlphaDecay={0.03}
         d3VelocityDecay={0.32}
         onEngineTick={flushPendingFocus}
-        onEngineStop={() => {
-          // A pending focus wins over the one-time fit (fitting would undo the centring).
-          if (pendingFocus.current) { flushPendingFocus(); fitOnce.current = true; return; }
-          if (!fitOnce.current) { fitOnce.current = true; zoomToFit(); }
-        }}
+        onEngineStop={onEngineStop}
         autoPauseRedraw={false}
         minZoom={0.15}
         maxZoom={8}

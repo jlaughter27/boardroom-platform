@@ -83,7 +83,7 @@ describe('NodeInspector', () => {
     const { onFocusLocal, onClose } = setup();
     expect(screen.getByRole('heading', { name: 'Pricing revamp' })).toBeInTheDocument();
     expect(screen.getByText('business')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Focus local graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Focus here' }));
     expect(onFocusLocal).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
     expect(onClose).toHaveBeenCalled();

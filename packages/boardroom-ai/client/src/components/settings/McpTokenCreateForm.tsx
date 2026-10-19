@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { McpScopesSchema, type McpScope } from '@boardroom/shared';
 import { Button, Input, Badge } from '../ui';
 import { ApiError, createMcpToken } from '../../lib/api';
 import type { McpConnectInfo, McpTokenCreateResponse, McpTokenOptions } from '../../lib/api';
@@ -13,25 +14,77 @@ const EXPIRY_OPTIONS: Array<{ value: Expiry; label: string }> = [
   { value: '30', label: '30 days' },
   { value: '90', label: '90 days' },
   { value: '365', label: '1 year' },
-  { value: 'never', label: 'Never expires' },
+  { value: 'never', label: 'Never (not recommended)' },
 ];
+/** Matches OmniMind's default when `expiresInDays` is omitted. */
+export const DEFAULT_EXPIRY: Expiry = '365';
 
-const READ_SCOPE = 'memory:read';
+const READ_SCOPE: McpScope = 'memory:read';
 
 /** Scopes for the "Read & write" preset: every non-admin write scope the catalog offers, plus memory:read. */
-export function readWriteScopes(options: McpTokenOptions): string[] {
+export function readWriteScopes(options: { scopes: ReadonlyArray<{ id: string; write: boolean; description?: string }>; tenants?: unknown }): string[] {
   const ids = options.scopes
     .filter((s) => s.write && !s.id.toLowerCase().startsWith('admin'))
     .map((s) => s.id);
   return Array.from(new Set([READ_SCOPE, ...ids]));
 }
 
+const FIELD_LABEL: Record<string, string> = {
+  name: 'Token name',
+  tenantId: 'Tenant',
+  scopes: 'Scopes',
+  expiresInDays: 'Expiry',
+  sourceWeight: 'Source weight',
+};
+
+function fieldLabel(path: string): string {
+  const root = path.split('.')[0];
+  return FIELD_LABEL[root] ?? root;
+}
+
+/**
+ * Turn a `validation_failed` body into one readable sentence. Handles both
+ * shapes that reach the browser: BoardRoom's `details: [{ field, message }]`
+ * and OmniMind's zod `flatten()` (`details: { formErrors, fieldErrors }`).
+ */
+export function describeValidationDetails(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const details = (body as { details?: unknown }).details;
+  const parts: string[] = [];
+  if (Array.isArray(details)) {
+    for (const d of details) {
+      if (d && typeof d === 'object') {
+        const { field, message } = d as { field?: unknown; message?: unknown };
+        const msg = typeof message === 'string' ? message : '';
+        if (typeof field === 'string' && field) parts.push(`${fieldLabel(field)}: ${msg || 'invalid'}`);
+        else if (msg) parts.push(msg);
+      } else if (typeof d === 'string') parts.push(d);
+    }
+  } else if (details && typeof details === 'object') {
+    const { formErrors, fieldErrors } = details as { formErrors?: unknown; fieldErrors?: unknown };
+    if (Array.isArray(formErrors)) parts.push(...formErrors.filter((e): e is string => typeof e === 'string'));
+    if (fieldErrors && typeof fieldErrors === 'object') {
+      for (const [k, v] of Object.entries(fieldErrors as Record<string, unknown>)) {
+        if (Array.isArray(v) && v.length) parts.push(`${fieldLabel(k)}: ${v.join(', ')}`);
+      }
+    }
+  }
+  return parts.length ? `Please check: ${parts.join('; ')}.` : null;
+}
+
 export function describeCreateError(err: unknown): string {
   if (err instanceof ApiError) {
-    const code = err.body && typeof err.body === 'object' && 'error' in err.body ? String((err.body as { error: unknown }).error) : '';
+    const body = err.body && typeof err.body === 'object' ? (err.body as { error?: unknown; message?: unknown }) : null;
+    const code = body && 'error' in body ? String(body.error) : '';
+    const upstreamMessage = body && typeof body.message === 'string' ? body.message : '';
     if (code === 'tenant_not_owned' || err.status === 403) return 'You are not the owner of that tenant, so a token cannot be issued for it.';
     if (code === 'token_limit' || err.status === 409) return 'You have reached the token limit. Revoke a token you no longer use, then try again.';
-    if (err.status === 422 || err.status === 400) return err.message || 'Some fields are invalid.';
+    if (code === 'subscription_required' || code === 'subscription_expired' || err.status === 402) {
+      return 'Your subscription is not active, so new tokens cannot be created. Existing tokens keep working and can still be revoked here.';
+    }
+    if (err.status === 422 || err.status === 400 || code === 'validation_failed') {
+      return describeValidationDetails(err.body) ?? (upstreamMessage || err.message || 'Some fields are invalid.');
+    }
     return err.message;
   }
   return err instanceof Error ? err.message : 'Could not create the token.';
@@ -40,6 +93,8 @@ export function describeCreateError(err: unknown): string {
 interface McpTokenCreateFormProps {
   options: McpTokenOptions;
   connectInfo: McpConnectInfo | null;
+  /** Set when /mcp/tokens/connect-info itself failed (distinct from "configured without a URL"). */
+  connectInfoError?: string | null;
   /** Fires as soon as OmniMind returns the record (so the list can refresh). */
   onCreated: (result: McpTokenCreateResponse) => void;
   /** Fires when the user dismisses the form or the one-time token view. */
@@ -48,21 +103,22 @@ interface McpTokenCreateFormProps {
 
 const selectClass = 'bg-card border border-border rounded-xl px-3 h-10 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-ring transition-all duration-fast w-full';
 
-export function McpTokenCreateForm({ options, connectInfo, onCreated, onDone }: McpTokenCreateFormProps) {
+export function McpTokenCreateForm({ options, connectInfo, connectInfoError = null, onCreated, onDone }: McpTokenCreateFormProps) {
   const [clientId, setClientId] = useState<McpClientId>('claude-code');
   const [name, setName] = useState(getClientMeta('claude-code').defaultName);
   const [nameTouched, setNameTouched] = useState(false);
   const [tenantId, setTenantId] = useState(options.tenants[0]?.id ?? '');
   const [preset, setPreset] = useState<AccessPreset>('read');
   const [customScopes, setCustomScopes] = useState<string[]>([READ_SCOPE]);
-  const [expiry, setExpiry] = useState<Expiry>('90');
+  const [expiry, setExpiry] = useState<Expiry>(DEFAULT_EXPIRY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<McpTokenCreateResponse | null>(null);
 
   const writeScopes = useMemo(() => readWriteScopes(options), [options]);
   const scopes = preset === 'read' ? [READ_SCOPE] : preset === 'write' ? writeScopes : customScopes;
-  const mcpUrl = connectInfo?.mcpUrl ?? MCP_URL_PLACEHOLDER;
+  const mcpUrl = connectInfo?.mcpUrl ?? null;
+  const urlMissing = !mcpUrl;
 
   function pickClient(next: McpClientId) {
     setClientId(next);
@@ -80,14 +136,20 @@ export function McpTokenCreateForm({ options, connectInfo, onCreated, onDone }: 
     if (!trimmed) { setError('Give the token a name.'); return; }
     if (!tenantId) { setError('Pick a tenant.'); return; }
     if (scopes.length === 0) { setError('Select at least one scope.'); return; }
+    // Validate against the shared contract before the request leaves the browser.
+    const parsedScopes = McpScopesSchema.safeParse(scopes);
+    if (!parsedScopes.success) {
+      setError(`Scopes: ${parsedScopes.error.issues.map((i) => i.message).join('; ')}.`);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const result = await createMcpToken({
         tenantId,
         name: trimmed,
-        scopes,
-        ...(expiry === 'never' ? {} : { expiresInDays: Number(expiry) }),
+        scopes: parsedScopes.data,
+        expiresInDays: expiry === 'never' ? null : Number(expiry),
       });
       setCreated(result);
       onCreated(result);
@@ -100,9 +162,8 @@ export function McpTokenCreateForm({ options, connectInfo, onCreated, onDone }: 
 
   if (created) {
     const snippet = buildSnippet(clientId, {
-      mcpUrl,
+      mcpUrl: mcpUrl ?? MCP_URL_PLACEHOLDER,
       token: created.token,
-      appUrl: connectInfo?.appUrl,
       oauthEnabled: connectInfo?.oauthEnabled,
     });
     return (
@@ -117,12 +178,14 @@ export function McpTokenCreateForm({ options, connectInfo, onCreated, onDone }: 
             <code className="font-mono">{created.record.agentName}</code>. If you lose it, revoke it and create a new one.
           </p>
         </div>
-        {!connectInfo?.mcpUrl && (
-          <p className="text-xs text-warning" role="note">
-            The server URL below is a placeholder: the operator has not set OMNIMIND_MCP_PUBLIC_URL on BoardRoom.
+        {urlMissing && (
+          <p className="text-xs text-warning" role="note" data-testid="mcp-url-warning">
+            {connectInfoError
+              ? <>The server URL could not be loaded ({connectInfoError}). The blocks below show a placeholder and cannot be copied; reload this page to try again, or ask your operator for the MCP URL.</>
+              : <>The server URL below is a placeholder: the operator has not set <code className="font-mono">OMNIMIND_MCP_PUBLIC_URL</code> on BoardRoom. Blocks that contain it cannot be copied until it is configured.</>}
           </p>
         )}
-        <McpSnippetView snippet={snippet} />
+        <McpSnippetView snippet={snippet} placeholderUrl={urlMissing} />
         <div className="flex justify-end">
           <Button type="button" variant="primary" onClick={onDone}>Done</Button>
         </div>

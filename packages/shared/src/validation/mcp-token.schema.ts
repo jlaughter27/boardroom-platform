@@ -75,7 +75,8 @@ export const McpTokenCreateRequestSchema = z.object({
   name: z.string().trim().min(MCP_TOKEN_NAME_MIN_LENGTH).max(MCP_TOKEN_NAME_MAX_LENGTH),
   scopes: McpScopesSchema,
   sourceWeight: McpSourceWeightSchema.optional(),
-  expiresInDays: z.number().int().min(MCP_TOKEN_EXPIRES_IN_DAYS_MIN).max(MCP_TOKEN_EXPIRES_IN_DAYS_MAX).optional(),
+  // omitted → default (365 days); null → never expires (explicit)
+  expiresInDays: z.number().int().min(MCP_TOKEN_EXPIRES_IN_DAYS_MIN).max(MCP_TOKEN_EXPIRES_IN_DAYS_MAX).nullable().optional(),
 });
 
 export const McpTokenCreateResponseSchema = z.object({
@@ -130,15 +131,48 @@ export const McpIdentityResolveRequestSchema = z.object({
   clientId: z.string().trim().min(1).max(256).optional(),
 });
 
+export const McpIdentityInactiveReasonSchema = z.enum(['unlinked', 'issuer_not_allowed']);
+
 export const McpIdentityResolveInactiveSchema = z.object({
   active: z.literal(false),
-  reason: z.literal('unlinked'),
+  reason: McpIdentityInactiveReasonSchema,
 });
 
 export const McpIdentityResolveResponseSchema = z.discriminatedUnion('active', [
   McpPrincipalActiveSchema,
   McpIdentityResolveInactiveSchema,
 ]);
+
+// ── OAuth identity administration ──
+
+export const McpOauthIdentityRecordSchema = z.object({
+  id: z.string().min(1),
+  issuer: z.string().min(1),
+  subject: z.string().min(1),
+  userId: z.string().min(1),
+  tenantId: z.string().min(1),
+  agentName: z.string().min(1),
+  scopes: z.array(McpScopeSchema),
+  sourceWeight: McpSourceWeightSchema,
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+});
+
+export const McpIdentityListQuerySchema = z.object({
+  userId: z.string().trim().min(1),
+});
+
+export const McpIdentityListResponseSchema = z.object({
+  identities: z.array(McpOauthIdentityRecordSchema),
+});
+
+export const McpIdentityUpdateRequestSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).optional(),
+    scopes: McpScopesSchema.optional(),
+  })
+  .refine(v => v.tenantId !== undefined || v.scopes !== undefined, { message: 'tenantId or scopes is required' });
 
 export const McpAuditStatsQuerySchema = z.object({
   tool: z.string().trim().min(1).max(100).optional(),
@@ -170,4 +204,5 @@ export const AdminTenantRecordSchema = z.object({
 
 export type McpTokenCreateRequestInput = z.input<typeof McpTokenCreateRequestSchema>;
 export type McpIdentityResolveRequestInput = z.input<typeof McpIdentityResolveRequestSchema>;
+export type McpIdentityUpdateRequestInput = z.input<typeof McpIdentityUpdateRequestSchema>;
 export type McpAuditStatsQueryInput = z.input<typeof McpAuditStatsQuerySchema>;

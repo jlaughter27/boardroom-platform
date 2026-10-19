@@ -3,16 +3,27 @@
  * against injected write / stats functions (no network).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { parseBenchArgs, percentile, summarize, runBench, BENCH_DEFAULT_N, BENCH_ASYNC_THRESHOLD_MS } from '../src/bench';
+import { parseBenchArgs, percentile, summarize, runBench, assertBenchConfirmed, BENCH_DEFAULT_N, BENCH_ASYNC_THRESHOLD_MS } from '../src/bench';
 
 describe('parseBenchArgs', () => {
-  it('defaults to --n 10, reads --user / env, validates ranges', () => {
-    expect(parseBenchArgs([], {} as NodeJS.ProcessEnv)).toEqual({ n: BENCH_DEFAULT_N, domain: 'general', sinceHours: 24 });
-    expect(parseBenchArgs(['--n', '3', '--user', 'u1', '--domain', 'code', '--since-hours', '6'], {} as NodeJS.ProcessEnv)).toEqual({ n: 3, userId: 'u1', domain: 'code', sinceHours: 6 });
+  it('defaults to --n 10 with cleanup on, reads --user / env, validates ranges', () => {
+    expect(parseBenchArgs([], {} as NodeJS.ProcessEnv)).toEqual({ n: BENCH_DEFAULT_N, domain: 'general', sinceHours: 24, cleanup: true, yes: false });
+    expect(parseBenchArgs(['--n', '3', '--user', 'u1', '--domain', 'code', '--since-hours', '6'], {} as NodeJS.ProcessEnv)).toEqual({ n: 3, userId: 'u1', domain: 'code', sinceHours: 6, cleanup: true, yes: false });
     expect(parseBenchArgs([], { OMNIMIND_MCP_USER_ID: 'env-user' } as NodeJS.ProcessEnv).userId).toBe('env-user');
     expect(() => parseBenchArgs(['--n', '0'], {} as NodeJS.ProcessEnv)).toThrow(/--n/);
     expect(() => parseBenchArgs(['--n', 'ten'], {} as NodeJS.ProcessEnv)).toThrow(/--n/);
     expect(() => parseBenchArgs(['--n', '201'], {} as NodeJS.ProcessEnv)).toThrow(/--n/);
+  });
+
+  it('L-9: --no-cleanup / --cleanup / --yes flags; confirmation is required outside development', () => {
+    expect(parseBenchArgs(['--no-cleanup'], {} as NodeJS.ProcessEnv)).toMatchObject({ cleanup: false, yes: false });
+    expect(parseBenchArgs(['--cleanup', '--yes'], {} as NodeJS.ProcessEnv)).toMatchObject({ cleanup: true, yes: true });
+    expect(parseBenchArgs(['-y'], {} as NodeJS.ProcessEnv).yes).toBe(true);
+    expect(() => parseBenchArgs(['--cleanup', '--no-cleanup'], {} as NodeJS.ProcessEnv)).toThrow(/mutually exclusive/);
+    expect(() => assertBenchConfirmed({ yes: false }, { NODE_ENV: 'production', OMNIMIND_API_URL: 'https://api.test' } as NodeJS.ProcessEnv)).toThrow(/pass --yes/);
+    expect(() => assertBenchConfirmed({ yes: false }, {} as NodeJS.ProcessEnv)).toThrow(/pass --yes/);
+    expect(() => assertBenchConfirmed({ yes: false }, { NODE_ENV: 'development' } as NodeJS.ProcessEnv)).not.toThrow();
+    expect(() => assertBenchConfirmed({ yes: true }, { NODE_ENV: 'production' } as NodeJS.ProcessEnv)).not.toThrow();
   });
 });
 
@@ -53,5 +64,21 @@ describe('runBench', () => {
     expect(report.serverError).toBe('404 not found');
     expect(report.recommendAsync).toBe(true);
     expect(lines.some(l => /OMNIMIND_MCP_WRITE_EXTRACT=async/.test(l))).toBe(true);
+  });
+
+  it('L-9: cleanup archives every row the run created / updated (default on); --no-cleanup keeps them', async () => {
+    const lines: string[] = [];
+    const write = vi.fn(async (i: number) => ({ ok: true, created: [`c${i}`], updated: i === 1 ? ['u1'] : [], skipped: 0 }));
+    const cleanup = vi.fn(async (id: string) => { if (id === 'u1') throw new Error('404'); });
+    const report = await runBench({ n: 3 }, { write, cleanup, now: () => 0, log: l => lines.push(l) });
+    expect(cleanup.mock.calls.map(c => c[0]).sort()).toEqual(['c0', 'c1', 'c2', 'u1']);
+    expect(report.cleanedUp).toEqual({ archived: 3, failed: 1 });
+    expect(lines.some(l => /cleanup: archived 3 bench row\(s\), 1 failed/.test(l))).toBe(true);
+
+    const keep = vi.fn(async () => undefined);
+    const kept = await runBench({ n: 2, cleanup: false }, { write, cleanup: keep, now: () => 0, log: l => lines.push(l) });
+    expect(keep).not.toHaveBeenCalled();
+    expect(kept.cleanedUp).toBeUndefined();
+    expect(lines.some(l => /cleanup skipped \(--no-cleanup\): 3 bench row/.test(l))).toBe(true); // c0, c1 + u1
   });
 });

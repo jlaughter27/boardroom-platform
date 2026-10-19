@@ -36,6 +36,8 @@ const OUTPUT_SAFE_KEYS = new Set([
   // Front door — connector `search` / `fetch`: result ids, titles and urls
   // only (`text` is the memory body and is dropped; `provenance` is constant).
   'results', 'url', 'metadata',
+  // Async `memory_write:extract` tail (L-8): which raw row, whether it was kept.
+  'rawId', 'rawRowKept',
 ]);
 
 /**

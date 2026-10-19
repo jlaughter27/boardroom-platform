@@ -54,6 +54,21 @@ describe('useGraphStore — spotlight', () => {
     expect(api.spotlightSearchMemories).toHaveBeenCalledTimes(1);
   });
 
+  it('runSearch("") invalidates an in-flight search so a stale response cannot resurrect hits under an empty query (M1)', async () => {
+    let resolve!: (v: unknown) => void;
+    vi.mocked(api.spotlightSearchMemories).mockReturnValue(new Promise((r) => { resolve = r; }) as never);
+    const p = useGraphStore.getState().runSearch('pricing'); // user types
+    await useGraphStore.getState().runSearch('');            // user clears the input before the response lands
+    expect(useGraphStore.getState().spotlight.active).toBe(false);
+    resolve({ items: [row('a', 0.5)], nextCursor: null });
+    await p;
+    const s = useGraphStore.getState().spotlight;
+    expect(s.query).toBe('');
+    expect(s.active).toBe(false);
+    expect(s.hits).toEqual([]);
+    expect(s.loading).toBe(false);
+  });
+
   it('records errors without losing the previous hits', async () => {
     vi.mocked(api.spotlightSearchMemories).mockResolvedValueOnce({ items: [row('a', 0.9)] as never, nextCursor: null });
     await useGraphStore.getState().runSearch('ok');

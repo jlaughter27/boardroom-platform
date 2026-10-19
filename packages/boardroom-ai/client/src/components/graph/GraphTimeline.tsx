@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeGraphNode } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
 import {
-  DAY_MS, formatDay, isFullWindow, playbackStep, stepWindow, timeExtent, weekHistogram,
+  DAY_MS, clampWindow, formatDay, isFullWindow, playbackStep, stepWindow, timeExtent, weekHistogram,
   type TimeWindow,
 } from './graph-timeline';
 
@@ -34,11 +34,23 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
 
-  const effective: TimeWindow | null = extent ? (win ?? { start: extent.min, end: extent.max }) : null;
+  // The window is always read clamped to the CURRENT extent: filters / local
+  // focus move the extent under a narrowed window, and an unclamped one would
+  // push the highlight outside the track and could hide every node.
+  const effective: TimeWindow | null = extent ? (win ? clampWindow(win, extent) : { start: extent.min, end: extent.max }) : null;
   const winRef = useRef(effective);
   winRef.current = effective;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  // Persist the clamp upstream whenever the extent (or an externally set
+  // window) leaves `win` out of range; a window that now spans the whole
+  // extent collapses to null (= no filter).
+  useEffect(() => {
+    if (!extent || !win) return;
+    const c = clampWindow(win, extent);
+    if (c.start !== win.start || c.end !== win.end) onChangeRef.current(isFullWindow(c, extent) ? null : c);
+  }, [extent, win]);
 
   // ── Playback loop ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -62,12 +74,17 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
   if (!extent || !effective) return null;
 
   const span = Math.max(1, extent.max - extent.min);
-  const full = isFullWindow(win, extent);
+  const full = isFullWindow(effective, extent);
   const maxCount = buckets.reduce((m, b) => Math.max(m, b.count), 0) || 1;
   const pct = (ms: number) => ((ms - extent.min) / span) * 100;
+  // The thumbs step a whole day from `min`, so `max` is only reachable when the
+  // span is a whole number of days. Let the slider run to the next day boundary
+  // and clamp the value back to the extent, so the newest node can be reached.
+  const rangeMax = extent.min + Math.ceil(span / DAY_MS) * DAY_MS;
 
-  const setStart = (v: number) => onChange({ start: Math.min(v, effective.end), end: effective.end });
-  const setEnd = (v: number) => onChange({ start: effective.start, end: Math.max(v, effective.start) });
+  const emit = (next: TimeWindow) => onChange(isFullWindow(next, extent) ? null : next);
+  const setStart = (v: number) => emit({ start: Math.max(extent.min, Math.min(v, effective.end)), end: effective.end });
+  const setEnd = (v: number) => emit({ start: effective.start, end: Math.min(extent.max, Math.max(v, effective.start)) });
 
   const togglePlay = () => {
     if (playing) { setPlaying(false); return; }
@@ -172,7 +189,7 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
             key={r.key}
             type="range"
             min={extent.min}
-            max={extent.max}
+            max={rangeMax}
             step={DAY_MS}
             value={r.value}
             disabled={single}

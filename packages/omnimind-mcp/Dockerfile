@@ -1,3 +1,10 @@
+# omnimind-mcp — build context is the REPO ROOT (the COPY paths below are
+# repo-relative: package.json, pnpm-lock.yaml, packages/shared, …), and the
+# Dockerfile path is packages/omnimind-mcp/Dockerfile. Local build:
+#   docker build -f packages/omnimind-mcp/Dockerfile -t omnimind-mcp .
+# On Railway: service root directory = repo root, config-as-code path =
+# packages/omnimind-mcp/railway.toml (which points dockerfilePath here).
+# The root .dockerignore keeps node_modules / dist / .git out of the context.
 FROM node:20-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate

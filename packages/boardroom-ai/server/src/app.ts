@@ -157,7 +157,10 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   app.use('/integrations', integrationsRouter); // extract/confirm routes gate themselves (B-110)
   app.use('/admin', requireAdmin, adminRouter); // B-101
   app.use('/usage', requireAdmin, usageRouter); // Phase 6 — LLM cost summary (admin-only)
-  app.use('/mcp/tokens', requireSubscription, mcpTokensRouter); // Lane C — personal MCP tokens (Settings → Connected AI tools)
+  // Lane C — personal MCP tokens (Settings → Connected AI tools). Auth wall only:
+  // the router gates POST (create) with requireSubscription itself, so a lapsed
+  // subscriber can still list and revoke the tokens they already issued.
+  app.use('/mcp/tokens', mcpTokensRouter);
   // app.use('/rooms', roomsRouter); // TODO: Phase 2
 
   // ---------------------------------------------------------------------------

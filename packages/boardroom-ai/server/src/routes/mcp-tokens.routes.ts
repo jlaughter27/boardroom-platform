@@ -7,73 +7,41 @@
 // Upstream 4xx (403 tenant_not_owned, 409 token_limit, 400 validation) flow
 // through `next(err)` into app.ts's error handler, which passes the status and
 // upstream body through unchanged (B-106) instead of collapsing them to 502.
+//
+// Gating: the router is mounted behind the auth wall only. Creating a token is
+// additionally gated by `requireSubscription`; listing, revoking, the scope
+// catalog and connect-info are not, so a lapsed subscriber can always see and
+// revoke the tokens they already issued.
 
 import { Router } from 'express';
 import type { IRouter } from 'express';
-import { z } from 'zod';
+import type { z } from 'zod';
+import { McpTokenCreateRequestSchema, type McpTokenCreateRequest } from '@boardroom/shared';
 import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
+import { requireSubscription } from '../middleware/subscription.middleware';
 import { omnimindClient } from '../services/omnimind-client';
 
-// TODO(A1): switch to @boardroom/shared once exported
-// (packages/shared/src/types/mcp-token.types.ts). Field names mirror A1's contract.
-export interface McpTokenRecord {
-  id: string;
-  userId: string;
-  tenantId: string;
-  name: string;
-  agentName: string;
-  prefix: string;
-  scopes: string[];
-  sourceWeight: number;
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt: string | null;
-  revokedAt: string | null;
-}
-
-export interface McpTokenCreateRequest {
-  userId: string;
-  tenantId: string;
-  name: string;
-  scopes: string[];
-  sourceWeight?: number;
-  expiresInDays?: number;
-}
-
-export interface McpTokenCreateResponse {
-  token: string;
-  record: McpTokenRecord;
-}
-
-export interface McpTokenListResponse {
-  tokens: McpTokenRecord[];
-}
-
-export interface McpTokenOptions {
-  tenants: Array<{ id: string; name: string }>;
-  scopes: Array<{ id: string; description: string; write: boolean }>;
-}
-
+/** What the install snippets need. BoardRoom-only shape (no upstream call). */
 export interface McpConnectInfo {
   /** Public Streamable-HTTP MCP endpoint, or null when OMNIMIND_MCP_PUBLIC_URL is unset. */
   mcpUrl: string | null;
-  appUrl: string;
+  /** Public URL of this app from APP_PUBLIC_URL, or null when unset. Never derived from the request. */
+  appUrl: string | null;
   oauthEnabled: boolean;
 }
 
 /**
- * Body accepted from the browser. `userId` is intentionally absent — Zod's
- * default object mode strips unknown keys, so a spoofed userId never survives
- * validation, and the handler pins the JWT user below.
+ * Body accepted from the browser: the shared create-request contract minus
+ * `userId`. Zod's default object mode strips unknown keys, so a spoofed userId
+ * never survives validation, and the handler pins the JWT user below.
+ *
+ * `expiresInDays: null` means "never expires"; an omitted value lets OmniMind
+ * apply its default (365 days). Both come straight from the shared schema.
  */
-export const McpTokenCreateBodySchema = z.object({
-  tenantId: z.string().min(1).max(200),
-  name: z.string().trim().min(1).max(60),
-  scopes: z.array(z.string().min(1).max(100)).min(1).max(50),
-  sourceWeight: z.number().min(0).max(2).optional(),
-  expiresInDays: z.number().int().min(1).max(365).optional(),
-});
+export const McpTokenCreateBodySchema = McpTokenCreateRequestSchema.omit({ userId: true });
+
+export type McpTokenCreateBody = z.infer<typeof McpTokenCreateBodySchema>;
 
 const router: IRouter = Router();
 
@@ -95,27 +63,28 @@ router.get('/options', async (req: AuthRequest, res, next) => {
 });
 
 // GET /mcp/tokens/connect-info — what the install snippets need. Read from
-// BoardRoom env only; no upstream call.
-router.get('/connect-info', (req: AuthRequest, res) => {
+// BoardRoom env only; no upstream call, nothing reflected from the request.
+router.get('/connect-info', (_req: AuthRequest, res) => {
   const mcpUrl = process.env.OMNIMIND_MCP_PUBLIC_URL?.trim() || null;
-  const appUrl = process.env.APP_PUBLIC_URL?.trim()
-    || `${req.protocol}://${req.get('host') ?? 'localhost'}`;
+  const appUrl = process.env.APP_PUBLIC_URL?.trim() || null;
   const oauthEnabled = Boolean(process.env.OMNIMIND_MCP_OAUTH_ISSUER?.trim());
   const body: McpConnectInfo = { mcpUrl, appUrl, oauthEnabled };
   res.json(body);
 });
 
-// POST /mcp/tokens — create. The raw token is returned exactly once.
-router.post('/', validateBody(McpTokenCreateBodySchema), async (req: AuthRequest, res, next) => {
+// POST /mcp/tokens — create. The raw token is returned exactly once. This is
+// the only subscription-gated route in the file.
+router.post('/', requireSubscription, validateBody(McpTokenCreateBodySchema), async (req: AuthRequest, res, next) => {
   try {
-    const body = req.body as z.infer<typeof McpTokenCreateBodySchema>;
+    const body = req.body as McpTokenCreateBody;
     const payload: McpTokenCreateRequest = { ...body, userId: req.auth!.userId };
     const data = await omnimindClient.createMcpToken(req.auth!.userId, payload);
     res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
-// DELETE /mcp/tokens/:id — revoke (soft; OmniMind stamps revokedAt).
+// DELETE /mcp/tokens/:id — revoke (soft; OmniMind stamps revokedAt). Never
+// subscription-gated: revoking must always work.
 router.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
     await omnimindClient.revokeMcpToken(req.auth!.userId, req.params.id);

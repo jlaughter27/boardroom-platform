@@ -49,6 +49,29 @@ export function goForward(h: FocusHistory): FocusHistory {
   return canGoForward(h) ? { ...h, index: h.index + 1 } : h;
 }
 
+/**
+ * Drop entries that no longer resolve (e.g. a node that left the graph after a
+ * refetch, or a 404'd lazy fetch). Consecutive duplicates created by the removal
+ * collapse to one; the index follows the current entry, or the nearest earlier
+ * survivor when the current one was dropped.
+ */
+export function pruneHistory(h: FocusHistory, keep: (id: string) => boolean): FocusHistory {
+  const entries: string[] = [];
+  let index = -1;
+  for (let i = 0; i < h.entries.length; i++) {
+    const id = h.entries[i];
+    if (!keep(id)) continue;
+    if (entries[entries.length - 1] === id) {
+      if (i === h.index) index = entries.length - 1;
+      continue;
+    }
+    entries.push(id);
+    if (i <= h.index) index = entries.length - 1;
+  }
+  if (entries.length === h.entries.length && index === h.index) return h;
+  return { entries, index: entries.length === 0 ? -1 : Math.max(0, Math.min(index, entries.length - 1)) };
+}
+
 /** The trail that leads to the current focus (oldest → current), at most `n` long. */
 export function breadcrumbs(h: FocusHistory, n = 5): string[] {
   if (h.index < 0) return [];

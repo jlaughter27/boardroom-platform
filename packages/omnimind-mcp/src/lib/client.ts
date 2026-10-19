@@ -57,7 +57,8 @@ export type IntrospectResult =
 
 export type ResolveIdentityResult =
   | { active: true; principal: McpPrincipalWire }
-  | { active: false; reason: 'unlinked' };
+  /** `issuer_not_allowed`: the API's issuer allow-list refused the token's `iss` (also a 401 at the front door). */
+  | { active: false; reason: 'unlinked' | 'issuer_not_allowed' };
 
 /** Claims the gateway forwards to `POST /mcp/identities/resolve` after verifying an OAuth access token. */
 export interface IdentityClaims {
@@ -249,6 +250,28 @@ function idempotencyHeaders(opts?: WriteOptions): Record<string, string> | undef
   return key ? { 'Idempotency-Key': key } : undefined;
 }
 
+/**
+ * A non-2xx answer from OmniMind. `status` lets callers tell a client-side
+ * refusal (4xx — the request itself was bad) from an outage (5xx / network),
+ * e.g. the front door maps introspection 4xx to `invalid_token` and only
+ * 5xx / network errors to `503 auth_unavailable`. The message keeps the
+ * historical `OmniMind <METHOD> <path> → <status>: <body>` shape.
+ */
+export class OmniMindHttpError extends Error {
+  readonly status: number;
+  readonly bodyText: string;
+  constructor(method: string, path: string, status: number, bodyText: string) {
+    super(`OmniMind ${method} ${path} → ${status}: ${bodyText}`);
+    this.name = 'OmniMindHttpError';
+    this.status = status;
+    this.bodyText = bodyText;
+  }
+  /** True for the API's `403 insufficient_scope` (delegated scopes narrower than the tool's requirement). */
+  get isInsufficientScope(): boolean {
+    return this.status === 403 && /insufficient_scope/.test(this.bodyText);
+  }
+}
+
 export class OmniMindClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
@@ -296,6 +319,19 @@ export class OmniMindClient {
   /** `kind:id` of the bound delegated principal, or undefined for a static-identity client. */
   get delegatedPrincipalKey(): string | undefined {
     return this.delegated ? `${this.delegated.kind}:${this.delegated.id}` : undefined;
+  }
+
+  /**
+   * Routes outside the API's delegated allow-list (`GET /mcp/audit/stats`,
+   * `POST /mcp/agents`, token introspection, identity resolution) are
+   * gateway / static-identity calls: the API answers 403
+   * `delegated_route_forbidden` for an `x-mcp-principal` caller, so refuse
+   * locally with a message that says which client to use.
+   */
+  private assertNotDelegated(route: string): void {
+    if (this.delegated) {
+      throw new Error(`OmniMind ${route} is a gateway-only route and cannot be called for a delegated principal (${this.delegatedPrincipalKey}); use the static / gateway client`);
+    }
   }
 
   /**
@@ -349,7 +385,7 @@ export class OmniMindClient {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`OmniMind ${method} ${path} → ${res.status}: ${text}`);
+        throw new OmniMindHttpError(method, path, res.status, text);
       }
 
       return res.json() as Promise<T>;
@@ -474,6 +510,11 @@ export class OmniMindClient {
     return this.request<MemoryRecord>('GET', `/memories/${encodeURIComponent(id)}`, undefined, userId);
   }
 
+  /** `DELETE /memories/:id` — soft delete: the row becomes `ARCHIVED` with `deletedAt` set (used by `bench --cleanup`). */
+  async archiveMemory(id: string, userId: string): Promise<void> {
+    await this.request<unknown>('DELETE', `/memories/${encodeURIComponent(id)}`, undefined, userId);
+  }
+
   async searchSimilar(params: SearchSimilarParams): Promise<SimilarMemoryRecord[]> {
     const result = await this.request<{ memories: SimilarMemoryRecord[] }>(
       'POST',
@@ -490,16 +531,19 @@ export class OmniMindClient {
    * per-session delegated client. The raw token travels only in the body.
    */
   async introspectToken(token: string): Promise<IntrospectResult> {
+    this.assertNotDelegated('POST /mcp/tokens/introspect');
     return this.request<IntrospectResult>('POST', '/mcp/tokens/introspect', { token });
   }
 
-  /** Front door — `POST /mcp/identities/resolve`: verified OAuth claims → linked principal (or `unlinked`). */
+  /** Front door — `POST /mcp/identities/resolve`: verified OAuth claims → linked principal (or `unlinked` / `issuer_not_allowed`). */
   async resolveIdentity(claims: IdentityClaims): Promise<ResolveIdentityResult> {
+    this.assertNotDelegated('POST /mcp/identities/resolve');
     return this.request<ResolveIdentityResult>('POST', '/mcp/identities/resolve', claims);
   }
 
-  /** `GET /mcp/audit/stats?tool=…&sinceHours=…` — used by the `bench` subcommand. */
+  /** `GET /mcp/audit/stats?tool=…&sinceHours=…` — used by the `bench` subcommand (static / gateway identity only). */
   async getAuditStats(params: { tool: string; sinceHours?: number }): Promise<AuditStats> {
+    this.assertNotDelegated('GET /mcp/audit/stats');
     const qs = new URLSearchParams({ tool: params.tool, sinceHours: String(params.sinceHours ?? 24) });
     return this.request<AuditStats>('GET', `/mcp/audit/stats?${qs}`);
   }
@@ -523,6 +567,7 @@ export class OmniMindClient {
     scopes: string[];
     sourceWeight: number;
   }): Promise<void> {
+    this.assertNotDelegated('POST /mcp/agents');
     // F-104: agent registration is admin-gated server-side (creates tenant/scope
     // identity). Send OMNIMIND_ADMIN_KEY as x-admin-key when available; in
     // production the API returns 503 admin_disabled until that key is set.
@@ -537,10 +582,51 @@ export class OmniMindClient {
   }
 }
 
-export function createOmniMindClient(env: NodeJS.ProcessEnv = process.env): OmniMindClient {
+/**
+ * Which `x-agent-key` a client sends. The two env vars mean different things
+ * once the HTTP front door delegates for other principals:
+ *
+ * - `OMNIMIND_MCP_AGENT_KEY` — the GATEWAY key (`mcp:delegate`): introspection,
+ *   identity resolution and every delegated (`x-mcp-principal`) call.
+ * - `OMNIMIND_MCP_STATIC_AGENT_KEY` — optional; the key of the agent row that
+ *   matches `OMNIMIND_MCP_AGENT_NAME` / `TENANT_ID` / `SOURCE_WEIGHT`, for a
+ *   legacy *verified* static-key deployment. Static sessions never send the
+ *   gateway key: the API would 403 `agent_header_mismatch` because the legacy
+ *   triple does not describe the gateway row.
+ *
+ * `single-agent` is the stdio / CLI process (one identity, no gateway): it
+ * keeps the historical behaviour — `OMNIMIND_MCP_STATIC_AGENT_KEY` when set,
+ * else `OMNIMIND_MCP_AGENT_KEY`, else unverified.
+ */
+export type AgentKeyRole = 'gateway' | 'static' | 'single-agent';
+
+export interface ResolvedAgentKey {
+  key: string | undefined;
+  /** Which env var supplied it (for the startup log); `none` → unverified header triple. */
+  source: 'OMNIMIND_MCP_AGENT_KEY' | 'OMNIMIND_MCP_STATIC_AGENT_KEY' | 'none';
+}
+
+export function resolveAgentKey(role: AgentKeyRole, env: NodeJS.ProcessEnv = process.env): ResolvedAgentKey {
+  const gateway = env.OMNIMIND_MCP_AGENT_KEY?.trim() || undefined;
+  const staticKey = env.OMNIMIND_MCP_STATIC_AGENT_KEY?.trim() || undefined;
+  if (role === 'gateway') return gateway ? { key: gateway, source: 'OMNIMIND_MCP_AGENT_KEY' } : { key: undefined, source: 'none' };
+  if (staticKey) return { key: staticKey, source: 'OMNIMIND_MCP_STATIC_AGENT_KEY' };
+  if (role === 'single-agent' && gateway) return { key: gateway, source: 'OMNIMIND_MCP_AGENT_KEY' };
+  return { key: undefined, source: 'none' };
+}
+
+export interface CreateOmniMindClientOptions {
+  /**
+   * Explicit `x-agent-key` (or `undefined` for none). When the property is
+   * absent the client resolves the `single-agent` role from env (stdio / CLI).
+   */
+  agentKey?: string;
+}
+
+export function createOmniMindClient(env: NodeJS.ProcessEnv = process.env, opts?: CreateOmniMindClientOptions): OmniMindClient {
   const baseUrl = env.OMNIMIND_API_URL;
   const apiKey = env.OMNIMIND_API_KEY;
-  const agentKey = env.OMNIMIND_MCP_AGENT_KEY?.trim() || undefined;
+  const agentKey = opts && 'agentKey' in opts ? opts.agentKey : resolveAgentKey('single-agent', env).key;
 
   if (!baseUrl) throw new Error('OMNIMIND_API_URL is required');
   if (!apiKey) throw new Error('OMNIMIND_API_KEY is required');

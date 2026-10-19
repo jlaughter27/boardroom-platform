@@ -11,6 +11,7 @@ vi.mock('../../../src/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn
 import { agentKeyFor, classifyOp } from '../../../src/middleware/agent-rate-limiter';
 import { resolveScope } from '../../../src/middleware/idempotency';
 import { requiredScopeFor, agentScopeEnforcer } from '../../../src/middleware/scope-enforcer';
+import { buildOauthAgentName } from '../../../src/services/mcp-token.service';
 import type { AgentContext } from '../../../src/middleware/agent-context';
 
 const USER = 'cuser00000000000000000001';
@@ -34,6 +35,16 @@ describe('agent-rate-limiter × delegation', () => {
     const a = { agentContext: delegated, headers: {} } as unknown as Request;
     const b = { agentContext: { ...delegated, agentId: 'mcp-token:other-000002' }, headers: {} } as unknown as Request;
     expect(agentKeyFor(a).key).not.toBe(agentKeyFor(b).key);
+  });
+
+  it('two OAuth identities behind ONE client (same clientId) get separate buckets (review A5)', () => {
+    const a = buildOauthAgentName('https://idp.example', 'claude-desktop', 'cidentAAAAAAAAAAAAAAAAAA1');
+    const b = buildOauthAgentName('https://idp.example', 'claude-desktop', 'cidentBBBBBBBBBBBBBBBBBB2');
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/^oauth:claude-desktop-[A-Za-z0-9_-]{8}$/);
+    const reqA = { agentContext: { ...delegated, agentId: a }, headers: {} } as unknown as Request;
+    const reqB = { agentContext: { ...delegated, agentId: b, userId: 'cuser00000000000000000002' }, headers: {} } as unknown as Request;
+    expect(agentKeyFor(reqA).key).not.toBe(agentKeyFor(reqB).key);
   });
 
   it('GET /mcp/audit/stats and GET /mcp/tokens are reads; POST /mcp/tokens is a write', () => {

@@ -31,6 +31,9 @@ model User {
   sessions        Session[]         @relation("SessionCreator")
   profile         UserProfile?
   decisionSessions DecisionSession[]
+  // Lane A1 hardening: per-user MCP credentials die with the user (cascade).
+  mcpTokens          McpToken[]
+  mcpOauthIdentities McpOauthIdentity[]
 
   @@map("users")
 }
@@ -845,7 +848,7 @@ model McpToken {
   userId       String    @map("user_id")
   tenantId     String    @map("tenant_id")
   name         String
-  /// `mcp-token:<slug(name)>-<6 chars of id>` — unique per row by construction.
+  /// `mcp-token:<slug(name)>-<last 8 chars of id>` — unique per row by construction.
   agentName    String    @unique @map("agent_name")
   /// First 12 chars of the raw `omt_` token, for display only.
   prefix       String
@@ -858,8 +861,9 @@ model McpToken {
   expiresAt    DateTime? @map("expires_at")
   revokedAt    DateTime? @map("revoked_at")
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
-  @@index([tokenHash])
   @@map("mcp_tokens")
 }
 
@@ -869,13 +873,16 @@ model McpOauthIdentity {
   subject      String
   userId       String    @map("user_id")
   tenantId     String    @map("tenant_id")
-  /// `oauth:<clientId or issuer host>` — stamped as agentId on writes.
-  agentName    String    @map("agent_name")
+  /// `oauth:<clientId or issuer host>-<last 8 chars of id>` — unique per row
+  /// (one rate bucket / audit agentId per identity, never per OAuth client).
+  agentName    String    @unique @map("agent_name")
   scopes       String[]
   sourceWeight Float     @default(1.0) @map("source_weight")
   createdAt    DateTime  @default(now()) @map("created_at")
   lastUsedAt   DateTime? @map("last_used_at")
   revokedAt    DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([issuer, subject])
   @@index([userId])

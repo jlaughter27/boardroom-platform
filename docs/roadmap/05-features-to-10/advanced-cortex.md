@@ -10,7 +10,7 @@ Cortex today is a foundation, not a finished product. The current cortex layer (
 
 - **Weekly memo** (Sun 6pm) — synthesizes the week's memories into a digest.
 - **Pattern detection** (Mon 3am) — finds recurring themes.
-- **Contradiction alerts** (Tue 9pm) — flags facts that disagree.
+- **Contradiction alerts** (Mon 4am) — flags facts that disagree.
 
 These are valuable, but they're **observational**. They tell the user what happened. They don't yet:
 

@@ -1,4 +1,10 @@
-import type { KnowledgeGraph } from '@boardroom/shared';
+import type {
+  KnowledgeGraph,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenListResponse,
+  McpTokenOptions,
+} from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -700,11 +706,11 @@ export class OmniMindClient {
   // ---------------------------------------------------------------------------
   async listMcpTokens(userId: string) {
     const qs = new URLSearchParams({ userId }).toString();
-    return this.request<{ tokens: unknown[] }>('GET', `/mcp/tokens?${qs}`, userId);
+    return this.request<McpTokenListResponse>('GET', `/mcp/tokens?${qs}`, userId);
   }
 
-  async createMcpToken(userId: string, body: { userId: string; tenantId: string; name: string; scopes: string[]; sourceWeight?: number; expiresInDays?: number }) {
-    return this.request<{ token: string; record: unknown }>('POST', '/mcp/tokens', userId, { ...body, userId });
+  async createMcpToken(userId: string, body: McpTokenCreateRequest) {
+    return this.request<McpTokenCreateResponse>('POST', '/mcp/tokens', userId, { ...body, userId });
   }
 
   async revokeMcpToken(userId: string, tokenId: string) {
@@ -714,7 +720,7 @@ export class OmniMindClient {
 
   async getMcpTokenOptions(userId: string) {
     const qs = new URLSearchParams({ userId }).toString();
-    return this.request<{ tenants: Array<{ id: string; name: string }>; scopes: Array<{ id: string; description: string; write: boolean }> }>('GET', `/mcp/tokens/options?${qs}`, userId);
+    return this.request<McpTokenOptions>('GET', `/mcp/tokens/options?${qs}`, userId);
   }
 }
 

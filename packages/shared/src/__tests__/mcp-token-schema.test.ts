@@ -5,17 +5,21 @@
 import { describe, it, expect } from 'vitest';
 import {
   MCP_DELEGATE_SCOPE,
+  MCP_GATEWAY_CEILING_SCOPES,
   MCP_GATEWAY_SCOPES,
   MCP_OAUTH_DEFAULT_SCOPES,
   MCP_PRINCIPAL_HEADER,
   MCP_SCOPE_DESCRIPTORS,
   MCP_SCOPES,
+  MCP_TOKEN_DEFAULT_EXPIRES_IN_DAYS,
   MCP_TOKEN_MAX_ACTIVE_PER_USER,
   MCP_TOKEN_PREFIX,
   McpAuditStatsQuerySchema,
   McpAuditStatsSchema,
   McpIdentityResolveRequestSchema,
   McpIdentityResolveResponseSchema,
+  McpIdentityUpdateRequestSchema,
+  McpOauthIdentityRecordSchema,
   McpPrincipalRefSchema,
   McpPrincipalSchema,
   McpScopeSchema,
@@ -24,6 +28,8 @@ import {
   McpTokenRecordSchema,
   type McpAuditStats,
   type McpIdentityResolveResponse,
+  type McpIdentityUpdateRequest,
+  type McpOauthIdentityRecord,
   type McpPrincipal,
   type McpTokenCreateRequest,
   type McpTokenIntrospectResponse,
@@ -44,6 +50,16 @@ describe('MCP scope vocabulary', () => {
     expect(MCP_PRINCIPAL_HEADER).toBe('x-mcp-principal');
   });
 
+  it('MCP_GATEWAY_CEILING_SCOPES is one list: every grantable scope (incl. code:write) + mcp:delegate, nothing else', () => {
+    expect([...MCP_GATEWAY_CEILING_SCOPES]).toEqual([...MCP_SCOPES, MCP_DELEGATE_SCOPE]);
+    expect(MCP_GATEWAY_CEILING_SCOPES as readonly string[]).toContain('code:write');
+    expect(MCP_GATEWAY_CEILING_SCOPES as readonly string[]).not.toContain('*');
+    // every ceiling scope except the delegate scope is grantable to a token
+    for (const s of MCP_GATEWAY_CEILING_SCOPES) {
+      expect(McpScopeSchema.safeParse(s).success).toBe(s !== MCP_DELEGATE_SCOPE);
+    }
+  });
+
   it('McpScopeSchema rejects wildcards and the delegate scope', () => {
     for (const s of MCP_SCOPES) expect(McpScopeSchema.safeParse(s).success).toBe(true);
     for (const bad of ['*', 'memory:*', 'mcp:delegate', 'admin', '']) expect(McpScopeSchema.safeParse(bad).success).toBe(false);
@@ -56,6 +72,18 @@ describe('McpTokenCreateRequestSchema', () => {
   it('accepts a minimal + a full request', () => {
     expect(McpTokenCreateRequestSchema.safeParse(ok).success).toBe(true);
     expect(McpTokenCreateRequestSchema.safeParse({ ...ok, sourceWeight: 2, expiresInDays: 365, scopes: [...MCP_SCOPES] }).success).toBe(true);
+  });
+
+  it('expiresInDays: omitted (→ server default 365) and explicit null (never) are both accepted', () => {
+    expect(MCP_TOKEN_DEFAULT_EXPIRES_IN_DAYS).toBe(365);
+    const omitted = McpTokenCreateRequestSchema.safeParse(ok);
+    expect(omitted.success).toBe(true);
+    if (omitted.success) expect(omitted.data.expiresInDays).toBeUndefined();
+    const never = McpTokenCreateRequestSchema.safeParse({ ...ok, expiresInDays: null });
+    expect(never.success).toBe(true);
+    if (never.success) expect(never.data.expiresInDays).toBeNull();
+    const typed: McpTokenCreateRequest = { ...ok, expiresInDays: null };
+    expect(McpTokenCreateRequestSchema.safeParse(typed).success).toBe(true);
   });
 
   it('rejects empty/duplicate scopes, long names, out-of-range weight/expiry', () => {
@@ -102,6 +130,30 @@ describe('record / principal / response schemas match the interfaces', () => {
     const unlinked: McpIdentityResolveResponse = { active: false, reason: 'unlinked' };
     expect(McpIdentityResolveResponseSchema.parse(unlinked)).toEqual(unlinked);
     expect(McpIdentityResolveResponseSchema.safeParse({ active: false, reason: 'expired' }).success).toBe(false);
+  });
+
+  it('resolve inactive reason is unlinked | issuer_not_allowed', () => {
+    const notAllowed: McpIdentityResolveResponse = { active: false, reason: 'issuer_not_allowed' };
+    expect(McpIdentityResolveResponseSchema.safeParse(notAllowed).success).toBe(true);
+    expect(McpIdentityResolveResponseSchema.safeParse({ active: false, reason: 'nope' }).success).toBe(false);
+  });
+
+  it('McpOauthIdentityRecordSchema matches the interface; McpIdentityUpdateRequestSchema needs tenantId or scopes', () => {
+    const rec: McpOauthIdentityRecord = {
+      id: 'cident1', issuer: 'https://idp.example', subject: 'sub', userId: 'u', tenantId: 't', agentName: 'oauth:claude-desktop-abcdefgh',
+      scopes: ['memory:read'], sourceWeight: 1, createdAt: '2026-10-18T00:00:00.000Z', lastUsedAt: null, revokedAt: null,
+    };
+    expect(McpOauthIdentityRecordSchema.safeParse(rec).success).toBe(true);
+    expect(McpOauthIdentityRecordSchema.safeParse({ ...rec, scopes: ['mcp:delegate'] }).success).toBe(false);
+
+    const both: McpIdentityUpdateRequest = { tenantId: 't2', scopes: ['memory:read', 'task:write'] };
+    expect(McpIdentityUpdateRequestSchema.safeParse(both).success).toBe(true);
+    expect(McpIdentityUpdateRequestSchema.safeParse({ tenantId: 't2' }).success).toBe(true);
+    expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: ['memory:read'] }).success).toBe(true);
+    expect(McpIdentityUpdateRequestSchema.safeParse({}).success).toBe(false);
+    expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: [] }).success).toBe(false);
+    expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: ['*'] }).success).toBe(false);
+    expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: ['mcp:delegate'] }).success).toBe(false);
   });
 
   it('McpIdentityResolveRequestSchema requires issuer + subject, validates email', () => {

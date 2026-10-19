@@ -6,6 +6,18 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-18/19 — Phase 7 — Universal memory MCP front door + searchable graph
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed (2 commits: build `7fce388`, review fixes) | **Tests:** 2,039 passing + 45 eval (was 1,481)
+
+- five lanes against one contract: OmniMind identity API (McpToken / McpOauthIdentity, introspect/resolve, delegated identity, admin tenant + identity routes, audit stats), MCP server front door (static / `omt_` / OAuth JWT principals, PRM, session binding, `search`/`fetch`, instructions, async extract, bench), BoardRoom "Connected AI tools" (tokens + per-client snippets), searchable graph (spotlight, local-first, edge filter, history, timeline, Memory Explorer filters, render tests), ops (Dockerfile, CI matrix, compose, `.dockerignore`, runbook, agent configs, drift fixes)
+- four adversarial reviews, all findings fixed: delegated principals moved from deny-lists to a route **allow-list** (closed `/auth/*` reach and self-minted write tokens); rejected `initialize` no longer leaks a server; deferred extraction survives session close; sessions bound to scope digest; failed-auth per-IP limiter; static sessions never carry the gateway key; stuck lazy-fetch and stale-spotlight bugs; select vs focus split (no relayout on click); runbook reordered so nothing is used before it exists and the false rotation claim removed
+- new env: `OMNIMIND_MCP_TOKEN_AUTH`, `OMNIMIND_MCP_PUBLIC_URL`, `OMNIMIND_MCP_OAUTH_*`, `OMNIMIND_MCP_APP_URL`, `OMNIMIND_MCP_WRITE_EXTRACT`, `OMNIMIND_MCP_STATIC_AGENT_KEY`, `OMNIMIND_MCP_TRUST_PROXY`, `MCP_OAUTH_ALLOWED_ISSUERS`, BoardRoom `OMNIMIND_MCP_PUBLIC_URL` / `APP_PUBLIC_URL`
+- pnpm override `proxy-addr >=2.0.8` (new critical advisory under express, also red on `main`)
+- not verified in the sandbox: first real `docker (omnimind-mcp)` CI build; live client dialogs (header-field availability); OAuth against a real issuer
+
+---
+
 ## 2026-10-11 — Research — Universal memory MCP and graph UX landscape
 
 **Branch:** `claude/amazing-mccarthy-grvem2` (reset from `main` after #20 merged) | **Status:** Pushed | **Report:** `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md` (+ five evidence notes under `docs/research/mcp-landscape-2026-10-11/notes/`)

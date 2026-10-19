@@ -25,6 +25,7 @@ import {
   MCP_OAUTH_DEFAULT_SCOPES,
   MCP_SCOPE_DESCRIPTORS,
   MCP_SCOPES,
+  MCP_TOKEN_DEFAULT_EXPIRES_IN_DAYS,
   MCP_TOKEN_DISPLAY_PREFIX_LENGTH,
   MCP_TOKEN_MAX_ACTIVE_PER_USER,
   MCP_TOKEN_PREFIX,
@@ -33,6 +34,8 @@ import {
   type McpAuditStats,
   type McpIdentityResolveRequest,
   type McpIdentityResolveResponse,
+  type McpIdentityUpdateRequest,
+  type McpOauthIdentityRecord,
   type McpPrincipal,
   type McpPrincipalKind,
   type McpScope,
@@ -50,6 +53,10 @@ import { HttpError } from '../middleware/error-handler';
 
 export const PRINCIPAL_CACHE_TTL_MS = 60 * 1000;
 const LAST_USED_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+/** Chars of the row id appended to an agentName (token and OAuth). ~48 bits. */
+export const AGENT_NAME_SUFFIX_LENGTH = 8;
+/** Optional comma-separated issuer allow-list for OAuth auto-link / resolve. */
+export const OAUTH_ALLOWED_ISSUERS_ENV = 'MCP_OAUTH_ALLOWED_ISSUERS';
 /** Upper bound on audit rows pulled into memory for percentile math. */
 export const AUDIT_STATS_MAX_ROWS = 10_000;
 
@@ -65,15 +72,19 @@ export function generateRawMcpToken(): string {
 }
 
 /**
- * cuid-shaped id (`c` + 24 base36 chars) generated client-side so the
- * agentName — which embeds 6 chars of the id — can be written in the same
- * INSERT. Shape matches user-validator's CUID_REGEX.
+ * Row id generated client-side so the agentName — which embeds the last
+ * `AGENT_NAME_SUFFIX_LENGTH` chars of the id — can be written in the same
+ * INSERT. `c` + 18 CSPRNG bytes as base64url (24 chars, 144 bits, no modulo
+ * bias). Matches the `x-mcp-principal` grammar `[A-Za-z0-9_-]{1,64}`; these
+ * ids are never validated as user CUIDs.
  */
 export function generateRowId(): string {
-  const bytes = randomBytes(24);
-  let out = 'c';
-  for (let i = 0; i < 24; i++) out += (bytes[i] % 36).toString(36);
-  return out;
+  return `c${randomBytes(18).toString('base64url')}`;
+}
+
+/** Prisma unique-constraint violation (duck-typed so mocked clients can raise it). */
+export function isUniqueViolation(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'P2002';
 }
 
 export function slugify(name: string): string {
@@ -88,10 +99,11 @@ export function slugify(name: string): string {
 }
 
 export function buildTokenAgentName(name: string, id: string): string {
-  return `mcp-token:${slugify(name)}-${id.slice(-6)}`;
+  return `mcp-token:${slugify(name)}-${id.slice(-AGENT_NAME_SUFFIX_LENGTH)}`;
 }
 
-export function buildOauthAgentName(issuer: string, clientId?: string): string {
+/** `oauth:<clientId or issuer host or raw issuer>` — the per-client part of an OAuth agentName. */
+export function oauthAgentNameBase(issuer: string, clientId?: string): string {
   if (clientId && clientId.trim().length > 0) return `oauth:${clientId.trim()}`;
   try {
     const host = new URL(issuer).host;
@@ -100,6 +112,40 @@ export function buildOauthAgentName(issuer: string, clientId?: string): string {
     // issuer is not a URL — fall through
   }
   return `oauth:${issuer.trim()}`;
+}
+
+/**
+ * Unique per identity: `oauth:<clientId or issuer host>-<last 8 chars of id>`.
+ * Review A5: two users behind one OAuth client used to collapse into one
+ * agentName → one rate bucket, indistinguishable audit rows.
+ */
+export function buildOauthAgentName(issuer: string, clientId: string | undefined, id: string): string {
+  return `${oauthAgentNameBase(issuer, clientId)}-${id.slice(-AGENT_NAME_SUFFIX_LENGTH)}`;
+}
+
+/** `lower(trim(email))` — the only form compared against `users.email` (which is matched case-insensitively). */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** Issuers compare trimmed and without a trailing slash (`https://idp/` ≡ `https://idp`). */
+export function normalizeIssuer(issuer: string): string {
+  return issuer.trim().replace(/\/+$/, '');
+}
+
+/**
+ * `MCP_OAUTH_ALLOWED_ISSUERS` → set of normalised issuers, or null when the
+ * variable is unset/blank (= any issuer the gateway verified is accepted).
+ */
+export function parseAllowedIssuers(raw: string | undefined): ReadonlySet<string> | null {
+  if (raw === undefined) return null;
+  const list = raw.split(',').map(normalizeIssuer).filter(v => v.length > 0);
+  return list.length > 0 ? new Set(list) : null;
+}
+
+export function isIssuerAllowed(issuer: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const allowed = parseAllowedIssuers(env[OAUTH_ALLOWED_ISSUERS_ENV]);
+  return allowed === null || allowed.has(normalizeIssuer(issuer));
 }
 
 const KNOWN_SCOPES: ReadonlySet<string> = new Set<string>(MCP_SCOPES);
@@ -149,6 +195,22 @@ export function tokenToPrincipal(row: McpToken): McpPrincipal {
     sourceWeight: row.sourceWeight,
     name: row.name,
     ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
+  };
+}
+
+export function toIdentityRecord(row: McpOauthIdentity): McpOauthIdentityRecord {
+  return {
+    id: row.id,
+    issuer: row.issuer,
+    subject: row.subject,
+    userId: row.userId,
+    tenantId: row.tenantId,
+    agentName: row.agentName,
+    scopes: normalizeScopes(row.scopes),
+    sourceWeight: row.sourceWeight,
+    createdAt: row.createdAt.toISOString(),
+    lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
+    revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
   };
 }
 
@@ -221,27 +283,41 @@ export async function createMcpToken(input: McpTokenCreateRequest, now: Date = n
     });
   }
 
-  const raw = generateRawMcpToken();
-  const id = generateRowId();
-  const expiresAt = input.expiresInDays
-    ? new Date(now.getTime() + input.expiresInDays * 24 * 60 * 60 * 1000)
-    : null;
+  // Review A9: omitted → 365 days; `null` is the explicit "never expires".
+  const expiresInDays = input.expiresInDays === undefined ? MCP_TOKEN_DEFAULT_EXPIRES_IN_DAYS : input.expiresInDays;
+  const expiresAt = expiresInDays === null
+    ? null
+    : new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000);
 
-  const row = await prisma.mcpToken.create({
-    data: {
-      id,
-      userId: input.userId,
-      tenantId: input.tenantId,
-      name: input.name,
-      agentName: buildTokenAgentName(input.name, id),
-      prefix: raw.slice(0, MCP_TOKEN_DISPLAY_PREFIX_LENGTH),
-      tokenHash: hashMcpToken(raw),
-      scopes: [...input.scopes],
-      sourceWeight: input.sourceWeight ?? 1.0,
-      createdAt: now,
-      expiresAt,
-    },
-  });
+  // Review A10: a unique violation (agentName suffix / token hash) is retried
+  // once with fresh random material instead of surfacing as a 500.
+  let row: McpToken | null = null;
+  let raw = '';
+  for (let attempt = 0; attempt < 2 && !row; attempt++) {
+    raw = generateRawMcpToken();
+    const id = generateRowId();
+    try {
+      row = await prisma.mcpToken.create({
+        data: {
+          id,
+          userId: input.userId,
+          tenantId: input.tenantId,
+          name: input.name,
+          agentName: buildTokenAgentName(input.name, id),
+          prefix: raw.slice(0, MCP_TOKEN_DISPLAY_PREFIX_LENGTH),
+          tokenHash: hashMcpToken(raw),
+          scopes: [...input.scopes],
+          sourceWeight: input.sourceWeight ?? 1.0,
+          createdAt: now,
+          expiresAt,
+        },
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err) || attempt === 1) throw err;
+      logger.warn('mcp-token: unique violation on create — retrying once with a fresh id', { userId: input.userId });
+    }
+  }
+  if (!row) throw new Error('mcp-token: create did not return a row');
 
   logger.info('mcp-token: created', { id: row.id, userId: row.userId, tenantId: row.tenantId, agentName: row.agentName });
   return { token: raw, record: toTokenRecord(row) };
@@ -291,56 +367,145 @@ export async function introspectMcpToken(raw: string, now: Date = new Date()): P
   return { active: true, principal: tokenToPrincipal(row) };
 }
 
+function activeIdentityResponse(row: McpOauthIdentity, now: Date): McpIdentityResolveResponse {
+  // A revoked link is deliberately not re-created by auto-link: the
+  // operator revoked it, so the identity stays unlinked until re-linked
+  // (PATCH /mcp/identities/:id cannot un-revoke either; link anew via SQL/admin).
+  if (row.revokedAt) return { active: false, reason: 'unlinked' };
+  touchLastUsed('oauth', row.id, now);
+  return { active: true, principal: identityToPrincipal(row) };
+}
+
 export async function resolveMcpIdentity(
   input: McpIdentityResolveRequest,
   now: Date = new Date()
 ): Promise<McpIdentityResolveResponse> {
+  // Review A6: an API-side issuer allow-list so a misconfigured second
+  // gateway cannot resolve/auto-link against an IdP the operator never chose.
+  if (!isIssuerAllowed(input.issuer)) {
+    logger.warn('mcp-token: OAuth issuer refused by MCP_OAUTH_ALLOWED_ISSUERS', { issuer: input.issuer });
+    return { active: false, reason: 'issuer_not_allowed' };
+  }
+
   const existing = await prisma.mcpOauthIdentity.findUnique({
     where: { issuer_subject: { issuer: input.issuer, subject: input.subject } },
   });
-  if (existing) {
-    // A revoked link is deliberately not re-created by auto-link: the
-    // operator revoked it, so the identity stays unlinked until re-linked.
-    if (existing.revokedAt) return { active: false, reason: 'unlinked' };
-    touchLastUsed('oauth', existing.id, now);
-    return { active: true, principal: identityToPrincipal(existing) };
-  }
+  if (existing) return activeIdentityResponse(existing, now);
 
   if (input.emailVerified !== true || !input.email) return { active: false, reason: 'unlinked' };
 
-  const user = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
+  // Review A6: `users.email` is stored as typed; compare lower(trim()) on both sides.
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: normalizeEmail(input.email), mode: 'insensitive' } },
+    select: { id: true },
+  });
   if (!user) return { active: false, reason: 'unlinked' };
 
-  const tenants = await prisma.tenant.findMany({ where: { ownerUserId: user.id }, select: { id: true } });
-  if (tenants.length !== 1) {
-    logger.info('mcp-token: auto-link skipped — user does not own exactly one tenant', {
-      userId: user.id,
-      tenantCount: tenants.length,
-      issuer: input.issuer,
-    });
+  // Review D/M6: a user who owns several tenants (the primary operator owns
+  // all three) is linked to the OLDEST-created owned tenant, deterministically;
+  // the operator re-points it with PATCH /mcp/identities/:id.
+  const tenants = await prisma.tenant.findMany({
+    where: { ownerUserId: user.id },
+    select: { id: true, createdAt: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  if (tenants.length === 0) {
+    logger.info('mcp-token: auto-link skipped — user owns no tenant', { userId: user.id, issuer: input.issuer });
     return { active: false, reason: 'unlinked' };
   }
+  const tenantId = tenants[0].id;
 
-  const created = await prisma.mcpOauthIdentity.create({
-    data: {
-      issuer: input.issuer,
-      subject: input.subject,
-      userId: user.id,
-      tenantId: tenants[0].id,
-      agentName: buildOauthAgentName(input.issuer, input.clientId),
-      scopes: [...MCP_OAUTH_DEFAULT_SCOPES],
-      sourceWeight: 1.0,
-      createdAt: now,
-      lastUsedAt: now,
-    },
-  });
-  logger.info('mcp-token: OAuth identity auto-linked (read-only)', {
-    id: created.id,
-    userId: created.userId,
-    tenantId: created.tenantId,
-    issuer: input.issuer,
-  });
-  return { active: true, principal: identityToPrincipal(created) };
+  // Review A6: two concurrent first-resolves race on (issuer, subject) —
+  // re-read the winner instead of surfacing P2002 as a 500. A P2002 on the
+  // agentName suffix (A10) is retried once with a fresh id.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const id = generateRowId();
+    try {
+      const created = await prisma.mcpOauthIdentity.create({
+        data: {
+          id,
+          issuer: input.issuer,
+          subject: input.subject,
+          userId: user.id,
+          tenantId,
+          agentName: buildOauthAgentName(input.issuer, input.clientId, id),
+          scopes: [...MCP_OAUTH_DEFAULT_SCOPES],
+          sourceWeight: 1.0,
+          createdAt: now,
+          lastUsedAt: now,
+        },
+      });
+      logger.info('mcp-token: OAuth identity auto-linked (read-only)', {
+        id: created.id,
+        userId: created.userId,
+        tenantId: created.tenantId,
+        tenantCount: tenants.length,
+        issuer: input.issuer,
+      });
+      return { active: true, principal: identityToPrincipal(created) };
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const winner = await prisma.mcpOauthIdentity.findUnique({
+        where: { issuer_subject: { issuer: input.issuer, subject: input.subject } },
+      });
+      if (winner) return activeIdentityResponse(winner, now);
+      if (attempt === 1) throw err;
+      logger.warn('mcp-token: unique violation on identity create — retrying once with a fresh id', { issuer: input.issuer });
+    }
+  }
+  /* istanbul ignore next -- loop always returns or throws */
+  throw new Error('mcp-token: identity create did not return a row');
+}
+
+// ── OAuth identity administration (x-admin-key routes) ──────────────────────
+
+export async function listMcpIdentities(userId: string): Promise<McpOauthIdentityRecord[]> {
+  const rows = await prisma.mcpOauthIdentity.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+  return rows.map(toIdentityRecord);
+}
+
+/**
+ * Re-point / re-scope an identity. `tenantId` must be owned by the identity's
+ * user (→ 403 `tenant_not_owned`); `scopes` are already a validated subset of
+ * MCP_SCOPES. Returns null when no identity has that id (→ 404). Evicts the
+ * delegation cache so the change applies on the next request, not in ≤60 s.
+ */
+export async function updateMcpIdentity(id: string, patch: McpIdentityUpdateRequest): Promise<McpOauthIdentityRecord | null> {
+  const row = await prisma.mcpOauthIdentity.findUnique({ where: { id } });
+  if (!row) return null;
+  const data: { tenantId?: string; scopes?: string[] } = {};
+  if (patch.tenantId !== undefined && patch.tenantId !== row.tenantId) {
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: patch.tenantId, ownerUserId: row.userId },
+      select: { id: true },
+    });
+    if (!tenant) {
+      throw new HttpError(403, {
+        code: 'tenant_not_owned',
+        message: `Tenant '${patch.tenantId}' is not owned by user '${row.userId}'`,
+      });
+    }
+    data.tenantId = tenant.id;
+  }
+  if (patch.scopes !== undefined) data.scopes = [...patch.scopes];
+  const updated = Object.keys(data).length > 0
+    ? await prisma.mcpOauthIdentity.update({ where: { id: row.id }, data })
+    : row;
+  evictDelegatedPrincipal(`oauth:${row.id}`);
+  logger.info('mcp-token: OAuth identity updated', { id: row.id, userId: row.userId, ...data });
+  return toIdentityRecord(updated);
+}
+
+/** Revoke (never delete). false when no identity has that id (→ 404); idempotent. */
+export async function revokeMcpIdentity(id: string, now: Date = new Date()): Promise<boolean> {
+  const row = await prisma.mcpOauthIdentity.findUnique({ where: { id } });
+  if (!row) return false;
+  if (!row.revokedAt) {
+    await prisma.mcpOauthIdentity.update({ where: { id: row.id }, data: { revokedAt: now } });
+    logger.info('mcp-token: OAuth identity revoked', { id: row.id, userId: row.userId, agentName: row.agentName });
+  }
+  evictDelegatedPrincipal(`oauth:${row.id}`);
+  return true;
 }
 
 // ── Audit stats ─────────────────────────────────────────────────────────────

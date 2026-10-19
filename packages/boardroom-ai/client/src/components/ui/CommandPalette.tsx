@@ -3,7 +3,7 @@ import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { useEntitiesStore } from '../../stores/entities.store';
-import { useCommandPaletteStore } from '../../stores/commandPalette.store';
+import { shouldRefetch, useCommandPaletteStore } from '../../stores/commandPalette.store';
 import { useGraphStore } from '../../stores/graph.store';
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatAsOf, type SpotlightHit } from '../graph/graph-search';
@@ -51,11 +51,15 @@ export function CommandPalette() {
   /** True once the user has typed in memory mode (so seeding the input never clears an existing spotlight). */
   const touched = useRef(false);
 
-  // Tasks and commitments are not preloaded elsewhere — fetch them the first time the palette opens.
+  // Tasks and commitments are not preloaded elsewhere — fetch them the first time
+  // the palette opens, then at most once per PALETTE_ENTITY_TTL_MS for the rest of
+  // the session (an empty list is cached too, so zero-task users stop refetching).
   useEffect(() => {
     if (!open) return;
-    if (tasks.length === 0) void fetchTasks();
-    if (commitments.length === 0) void fetchCommitments();
+    const { tasksFetchedAt, commitmentsFetchedAt, markFetched } = useCommandPaletteStore.getState();
+    const now = Date.now();
+    if (shouldRefetch(tasksFetchedAt, tasks.length, now)) { markFetched('tasks', now); void fetchTasks(); }
+    if (shouldRefetch(commitmentsFetchedAt, commitments.length, now)) { markFetched('commitments', now); void fetchCommitments(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

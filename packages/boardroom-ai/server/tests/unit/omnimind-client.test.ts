@@ -303,4 +303,52 @@ describe('OmniMindClient', () => {
       expect(client.breaker.state).toBe('CLOSED');
     });
   });
+
+  // Lane C — the only place `userId` actually reaches OmniMind for the MCP
+  // token routes is the query string / body built here, so pin it at the
+  // fetch level (the route test mocks this whole client).
+  describe('MCP tokens — userId pinning on the wire', () => {
+    beforeEach(() => {
+      fetchSpy.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
+    });
+
+    it('listMcpTokens / getMcpTokenOptions send ?userId= and x-user-id', async () => {
+      await client.listMcpTokens('u 1');
+      let [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://test:3333/mcp/tokens?userId=u+1');
+      expect(opts.headers['x-user-id']).toBe('u 1');
+
+      await client.getMcpTokenOptions('u-2');
+      [url, opts] = fetchSpy.mock.calls[1];
+      expect(url).toBe('http://test:3333/mcp/tokens/options?userId=u-2');
+      expect(opts.headers['x-user-id']).toBe('u-2');
+    });
+
+    it('revokeMcpToken encodes the id and sends ?userId=', async () => {
+      fetchSpy.mockResolvedValue({ ok: true, status: 204 });
+      await client.revokeMcpToken('u-1', 'tok/odd id');
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://test:3333/mcp/tokens/tok%2Fodd%20id?userId=u-1');
+      expect(opts.method).toBe('DELETE');
+      expect(opts.headers['x-user-id']).toBe('u-1');
+    });
+
+    it('createMcpToken overwrites any userId in the body with the pinned one and forwards expiresInDays: null', async () => {
+      fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ token: 't', record: {} }) });
+      await client.createMcpToken('jwt-user', {
+        userId: 'attacker',
+        tenantId: 'josh-business',
+        name: 'Claude Code',
+        scopes: ['memory:read'],
+        expiresInDays: null,
+      });
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://test:3333/mcp/tokens');
+      expect(opts.method).toBe('POST');
+      expect(opts.headers['x-user-id']).toBe('jwt-user');
+      expect(JSON.parse(opts.body)).toEqual({
+        userId: 'jwt-user', tenantId: 'josh-business', name: 'Claude Code', scopes: ['memory:read'], expiresInDays: null,
+      });
+    });
+  });
 });

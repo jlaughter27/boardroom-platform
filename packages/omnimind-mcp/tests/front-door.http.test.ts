@@ -9,18 +9,25 @@
  * headers on outbound calls, userId defaulting, 503 on upstream outage.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createHash } from 'crypto';
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { SignJWT, exportJWK, generateKeyPair, type JWK } from 'jose';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { startHttpServer, createHttpApp, resolveHttpConfig, type StartedHttpServer } from '../src/transports/http';
+import { startHttpServer, createHttpApp, resolveHttpConfig, resolveStaticAgentKey, scopeDigestOf, type ClientPurpose, type StartedHttpServer } from '../src/transports/http';
+import { createMcpServer } from '../src/server';
 import { OmniMindClient } from '../src/lib/client';
-import { PRM_PATH, MCP_SCOPES } from '../src/lib/principal';
+import { PRM_PATH, MCP_SCOPES, TOKEN_RANDOM_CHARS } from '../src/lib/principal';
 import type { AgentContext } from '../src/types';
 
 const STATIC_KEY = 'legacy-static-key';
 const GATEWAY_KEY = 'omk_gateway';
+const STATIC_AGENT_KEY = 'omk_env_agent';
 const PUBLIC_URL = 'https://mcp.example.test/mcp';
+
+/** Well-formed `omt_` tokens (prefix + 43 base64url chars) — anything shorter is refused before introspection (M-4). */
+const omt = (name: string) => `omt_${createHash('sha256').update(name).digest('base64url').slice(0, TOKEN_RANDOM_CHARS)}`;
+const OMT = { alice: omt('alice'), bob: omt('bob'), expired: omt('expired'), outage: omt('outage'), nope: omt('nope') };
 
 const staticCtx: AgentContext = { agentId: 'env-agent', agentName: 'env-agent', tenantId: 'josh-business', scopes: ['memory:read'], sourceWeight: 1.0 };
 const alice = { kind: 'token', id: 'tok_alice', userId: 'user-alice', tenantId: 'josh-business', agentName: 'claude-ai-alice', scopes: ['memory:read', 'memory:write'], sourceWeight: 0.8 };
@@ -58,16 +65,23 @@ const api = createServer(async (req, res) => {
     introspections++;
     if (req.headers['x-agent-key'] !== GATEWAY_KEY) return json(res, 403, { error: 'gateway key required' });
     const token = (body as { token: string }).token;
-    if (token === 'omt_alice') return json(res, 200, { active: true, principal: alice });
-    if (token === 'omt_bob') return json(res, 200, { active: true, principal: bob });
-    if (token === 'omt_expired') return json(res, 200, { active: false, reason: 'expired' });
-    if (token === 'omt_outage') return json(res, 500, { error: 'db down' });
+    if (token === OMT.alice) return json(res, 200, { active: true, principal: alice });
+    if (token === OMT.bob) return json(res, 200, { active: true, principal: bob });
+    if (token === OMT.expired) return json(res, 200, { active: false, reason: 'expired' });
+    if (token === OMT.outage) return json(res, 500, { error: 'db down' });
     return json(res, 200, { active: false, reason: 'invalid' });
   }
   if (url.pathname === '/mcp/identities/resolve') {
     const claims = body as { subject: string };
     return json(res, 200, claims.subject === 'sub-carol' ? { active: true, principal: carol } : { active: false, reason: 'unlinked' });
   }
+  // M-5 — what the real agent-context middleware does: a verified key whose agent
+  // row disagrees with the legacy identity triple is refused outright.
+  if (req.headers['x-agent-key'] === GATEWAY_KEY && req.headers['x-agent-id'] !== undefined) {
+    return json(res, 403, { error: 'agent_header_mismatch', message: 'x-agent-id does not match the verified agent row' });
+  }
+  // L-6 — the API intersects delegated scopes with the gateway ceiling.
+  if (url.pathname === '/context/reflect') return json(res, 403, { error: 'insufficient_scope', required: 'memory:write' });
   if (url.pathname === '/memories/search') return json(res, 200, { items: [{ id: 'm1', title: 'Railway decision', content: 'Chose Railway', domain: 'business', tags: ['decision'] }], nextCursor: null });
   if (url.pathname.startsWith('/memories/')) return json(res, 200, { id: 'm1', title: 'Railway decision', content: 'Chose Railway', domain: 'business', tags: ['decision'], createdAt: '2026-10-01T00:00:00Z', validAt: '2026-10-01T00:00:00Z', invalidAt: null, status: 'CONFIRMED', sourceType: 'MCP_AGENT', agentId: 'claude-code-josh' });
   if (url.pathname === '/memories' && req.method === 'POST') return json(res, 200, { id: 'new-1', status: 'created' });
@@ -102,6 +116,7 @@ async function mintJwt(opts: { aud?: string; sub?: string; expInS?: number; scop
 let apiUrl = '';
 let mcp: StartedHttpServer;
 let staticOnly: StartedHttpServer;
+let verifiedStatic: StartedHttpServer;
 
 function raw(port: number, opts: { method: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
@@ -142,7 +157,9 @@ beforeAll(async () => {
   const [apiPort, authPort] = await Promise.all([listen(api), listen(authServer)]);
   apiUrl = `http://127.0.0.1:${apiPort}`;
   issuer = `http://127.0.0.1:${authPort}`;
-  const createClientFn = () => new OmniMindClient({ baseUrl: apiUrl, apiKey: 'svc-key', agentKey: GATEWAY_KEY });
+  // The factory honours the purpose the app hands it (M-5): gateway / delegated
+  // clients get the gateway key, static sessions get OMNIMIND_MCP_STATIC_AGENT_KEY or nothing.
+  const createClientFn = ({ agentKey }: ClientPurpose) => new OmniMindClient({ baseUrl: apiUrl, apiKey: 'svc-key', agentKey });
   mcp = await startHttpServer(0, {
     apiKey: STATIC_KEY,
     agentCtx: staticCtx,
@@ -151,11 +168,17 @@ beforeAll(async () => {
     log: () => {},
   });
   staticOnly = await startHttpServer(0, { apiKey: STATIC_KEY, agentCtx: staticCtx, createClientFn, log: () => {} });
+  verifiedStatic = await startHttpServer(0, {
+    apiKey: STATIC_KEY, agentCtx: staticCtx, staticAgentKey: STATIC_AGENT_KEY,
+    auth: { tokenAuth: true, agentKey: GATEWAY_KEY },
+    createClientFn, log: () => {},
+  });
 });
 
 afterAll(async () => {
   await mcp.close();
   await staticOnly.close();
+  await verifiedStatic.close();
   await new Promise(r => api.close(r));
   await new Promise(r => authServer.close(r));
 });
@@ -169,6 +192,20 @@ describe('configuration', () => {
     expect(() => resolveHttpConfig({ OMNIMIND_MCP_TOKEN_AUTH: 'true' } as NodeJS.ProcessEnv)).toThrow(/OMNIMIND_MCP_AGENT_KEY/);
     const withOauth = resolveHttpConfig({ OMNIMIND_MCP_OAUTH_ISSUER: 'https://a.test', OMNIMIND_MCP_PUBLIC_URL: PUBLIC_URL, OMNIMIND_MCP_AGENT_KEY: 'omk_x' } as NodeJS.ProcessEnv);
     expect(withOauth.auth.oauth).toEqual({ issuer: 'https://a.test', audience: PUBLIC_URL });
+  });
+
+  it('M-5: static sessions use OMNIMIND_MCP_STATIC_AGENT_KEY; the gateway key only when no gateway mode is enabled', () => {
+    const mixed = { tokenAuth: true };
+    const legacy = { tokenAuth: false };
+    expect(resolveStaticAgentKey(mixed, { OMNIMIND_MCP_AGENT_KEY: 'omk_gw' } as NodeJS.ProcessEnv)).toEqual({ key: undefined, source: 'none' });
+    expect(resolveStaticAgentKey(mixed, { OMNIMIND_MCP_AGENT_KEY: 'omk_gw', OMNIMIND_MCP_STATIC_AGENT_KEY: 'omk_me' } as NodeJS.ProcessEnv)).toEqual({ key: 'omk_me', source: 'OMNIMIND_MCP_STATIC_AGENT_KEY' });
+    expect(resolveStaticAgentKey(legacy, { OMNIMIND_MCP_AGENT_KEY: 'omk_gw' } as NodeJS.ProcessEnv)).toEqual({ key: 'omk_gw', source: 'OMNIMIND_MCP_AGENT_KEY' });
+    expect(resolveStaticAgentKey(legacy, {} as NodeJS.ProcessEnv)).toEqual({ key: undefined, source: 'none' });
+    const cfg = resolveHttpConfig({ OMNIMIND_MCP_API_KEY: 'k', OMNIMIND_MCP_TOKEN_AUTH: 'true', OMNIMIND_MCP_AGENT_KEY: 'omk_gw', OMNIMIND_MCP_TRUST_PROXY: 'true' } as NodeJS.ProcessEnv);
+    expect(cfg.staticAgentKey).toEqual({ key: undefined, source: 'none' });
+    expect(cfg.trustProxy).toBe(true);
+    expect(mcp.app.staticAgentKeySource).toBe('none');
+    expect(verifiedStatic.app.staticAgentKeySource).toBe('OMNIMIND_MCP_STATIC_AGENT_KEY');
   });
 });
 
@@ -206,33 +243,93 @@ describe('401 contract', () => {
     expect(legacy.headers['www-authenticate']).toBe('Bearer realm="omnimind-mcp"');
   });
 
-  it('bad / expired / unknown credentials → error="invalid_token"; the raw token never appears in the body', async () => {
-    for (const bearer of ['wrong-key', 'omt_nope', 'omt_expired', 'a.b.c']) {
+  it('bad / expired / unknown credentials → error="invalid_token"; the body is generic (L-4) and never carries the token', async () => {
+    const before = introspections;
+    for (const bearer of ['wrong-key', OMT.nope, OMT.expired, 'a.b.c', 'omt_short']) {
       const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(bearer), body: INIT });
       expect(res.status, bearer).toBe(401);
       expect(res.headers['www-authenticate'], bearer).toBe(`Bearer realm="omnimind-mcp", error="invalid_token", resource_metadata="https://mcp.example.test${PRM_PATH}"`);
+      expect(JSON.parse(res.body), bearer).toEqual({ error: 'invalid_token' }); // no revoked / expired / unlinked oracle
       expect(res.body).not.toContain(bearer);
     }
-    const legacy = await raw(staticOnly.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_alice'), body: INIT });
+    // Only the two well-formed unknown tokens reached introspection; `omt_short` was refused by shape (M-4).
+    expect(introspections - before).toBe(2);
+    const legacy = await raw(staticOnly.port, { method: 'POST', path: '/', headers: mcpHeaders(OMT.alice), body: INIT });
     expect(legacy.status).toBe(401); // token auth is not enabled there
     expect(legacy.headers['www-authenticate']).toBe('Bearer realm="omnimind-mcp", error="invalid_token"');
+    const none = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(), body: INIT });
+    expect(JSON.parse(none.body)).toEqual({ error: 'unauthorized' });
   });
 
   it('introspection outage → 503 (retryable), no WWW-Authenticate, not cached', async () => {
     const before = introspections;
-    const r1 = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_outage'), body: INIT });
-    const r2 = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_outage'), body: INIT });
+    const r1 = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(OMT.outage), body: INIT });
+    const r2 = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(OMT.outage), body: INIT });
     expect([r1.status, r2.status]).toEqual([503, 503]);
     expect(r1.headers['www-authenticate']).toBeUndefined();
     expect(JSON.parse(r1.body)).toEqual({ error: 'auth_unavailable', message: 'token introspection unavailable' });
     expect(introspections - before).toBe(2);
+  });
+
+  it('M-4: a per-IP failure budget answers 429 + Retry-After before introspection, while known-good credentials keep working', async () => {
+    const logs: string[] = [];
+    const limited = await startHttpServer(0, {
+      apiKey: STATIC_KEY, agentCtx: staticCtx, auth: { tokenAuth: true, agentKey: GATEWAY_KEY },
+      createClientFn: ({ agentKey }) => new OmniMindClient({ baseUrl: apiUrl, apiKey: 'svc-key', agentKey }),
+      authFailureLimit: { capacity: 3, refillPerMinute: 1 }, log: l => logs.push(l),
+    });
+    try {
+      // Warm a positive: alice is introspected once and cached.
+      const { client, transport, connect: go } = connect(OMT.alice, limited.port);
+      await go();
+      const before = introspections;
+      for (let i = 0; i < 3; i++) {
+        const res = await raw(limited.port, { method: 'POST', path: '/', headers: mcpHeaders(omt(`guess-${i}`)), body: INIT });
+        expect(res.status).toBe(401);
+      }
+      expect(introspections - before).toBe(3);
+      const blocked = await raw(limited.port, { method: 'POST', path: '/', headers: mcpHeaders(omt('guess-4')), body: INIT });
+      expect(blocked.status).toBe(429);
+      expect(Number(blocked.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+      expect(JSON.parse(blocked.body)).toEqual({ error: 'too_many_requests', message: 'too many failed authentication attempts' });
+      expect(introspections - before).toBe(3); // the 4th guess never reached OmniMind
+      // Missing credentials are failures too, and also throttled now.
+      expect((await raw(limited.port, { method: 'POST', path: '/', headers: mcpHeaders(), body: INIT })).status).toBe(429);
+      // The cached-positive session and the static key are unaffected from the same IP.
+      const list = await raw(limited.port, { method: 'POST', path: '/', headers: mcpHeaders(OMT.alice, { 'mcp-session-id': transport.sessionId as string }), body: LIST });
+      expect(list.status).toBe(200);
+      expect((await raw(limited.port, { method: 'POST', path: '/', headers: mcpHeaders(STATIC_KEY), body: INIT })).status).toBe(200);
+      // Without OMNIMIND_MCP_TRUST_PROXY a spoofed X-Forwarded-For does not buy a fresh bucket (still the socket's
+      // budget → 429) and the shared-budget situation is logged exactly once.
+      for (const fakeIp of ['9.9.9.9', '8.8.8.8']) {
+        expect((await raw(limited.port, { method: 'POST', path: '/', headers: mcpHeaders(omt('spoof'), { 'x-forwarded-for': fakeIp }), body: INIT })).status).toBe(429);
+      }
+      expect(logs.filter(l => /OMNIMIND_MCP_TRUST_PROXY is not set/.test(l))).toHaveLength(1);
+      await client.close();
+    } finally {
+      await limited.close();
+    }
+    // With trustProxy on, the right-most X-Forwarded-For entry is the bucket key.
+    const trusted = await startHttpServer(0, {
+      apiKey: STATIC_KEY, agentCtx: staticCtx, auth: { tokenAuth: true, agentKey: GATEWAY_KEY }, trustProxy: true,
+      createClientFn: ({ agentKey }) => new OmniMindClient({ baseUrl: apiUrl, apiKey: 'svc-key', agentKey }),
+      authFailureLimit: { capacity: 1, refillPerMinute: 1 }, log: () => {},
+    });
+    try {
+      const attempt = (xff: string) => raw(trusted.port, { method: 'POST', path: '/', headers: mcpHeaders(omt('spoof'), { 'x-forwarded-for': xff }), body: INIT });
+      expect((await attempt('1.1.1.1, 2.2.2.2')).status).toBe(401);
+      expect((await attempt('3.3.3.3, 2.2.2.2')).status).toBe(429); // same right-most entry → same bucket
+      expect((await attempt('2.2.2.2, 4.4.4.4')).status).toBe(401); // a different nearest-hop address is another client
+    } finally {
+      await trusted.close();
+    }
   });
 });
 
 describe('omt_ token principals', () => {
   it('opens a session, lists 20 tools, and outbound calls carry delegation headers only', async () => {
     const before = introspections;
-    const { client, transport, connect: go } = connect('omt_alice');
+    const { client, transport, connect: go } = connect(OMT.alice);
     await go();
     const sid = transport.sessionId as string;
     expect(mcp.app.sessions.get(sid)?.principalKey).toBe('token:tok_alice');
@@ -279,10 +376,10 @@ describe('omt_ token principals', () => {
   });
 
   it('binds the session to its principal: another token or the static key → 404, never a leak', async () => {
-    const { transport, connect: go, client } = connect('omt_alice');
+    const { transport, connect: go, client } = connect(OMT.alice);
     await go();
     const sid = transport.sessionId as string;
-    for (const other of ['omt_bob', STATIC_KEY]) {
+    for (const other of [OMT.bob, STATIC_KEY]) {
       const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(other, { 'mcp-session-id': sid }), body: LIST });
       expect(res.status, other).toBe(404);
       const get = await raw(mcp.port, { method: 'GET', path: '/', headers: { authorization: `Bearer ${other}`, accept: 'text/event-stream', 'mcp-session-id': sid } });
@@ -291,14 +388,14 @@ describe('omt_ token principals', () => {
       expect(del.status, other).toBe(404);
     }
     expect(mcp.app.sessions.has(sid)).toBe(true); // the foreign DELETE did nothing
-    const own = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders('omt_alice', { 'mcp-session-id': sid }), body: LIST });
+    const own = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(OMT.alice, { 'mcp-session-id': sid }), body: LIST });
     expect(own.status).toBe(200);
     await client.close();
   });
 
   it('a read-only token is SCOPE_DENIED on writes; per-principal sessions do not share identity', async () => {
-    const a = connect('omt_alice');
-    const b = connect('omt_bob');
+    const a = connect(OMT.alice);
+    const b = connect(OMT.bob);
     await Promise.all([a.connect(), b.connect()]);
     const denied = await b.client.callTool({ name: 'memory_write', arguments: { content: 'x', skipExtraction: true } });
     expect(denied.isError).toBe(true);
@@ -313,18 +410,103 @@ describe('omt_ token principals', () => {
 });
 
 describe('legacy static key keeps its identity headers', () => {
-  it('sends x-agent-id / x-tenant-id / x-source-weight and no x-mcp-principal', async () => {
+  it('sends x-agent-id / x-tenant-id / x-source-weight, no x-mcp-principal and (M-5) never the gateway key', async () => {
     const { client, transport, connect: go } = connect(STATIC_KEY);
     await go();
     expect(mcp.app.sessions.get(transport.sessionId as string)?.principalKey).toBe('static:env');
     const res = await client.callTool({ name: 'memory_search', arguments: { query: 'q', userId: 'user-x' } });
-    expect(res.isError).toBeFalsy();
+    expect(res.isError).toBeFalsy(); // the fake API 403s agent_header_mismatch when the gateway key rides with the triple
     const call = lastCall('/memories/search');
     expect(call.headers['x-agent-id']).toBe('env-agent');
     expect(call.headers['x-tenant-id']).toBe('josh-business');
     expect(call.headers['x-source-weight']).toBe('1');
     expect(call.headers['x-user-id']).toBe('user-x');
     expect(call.headers).not.toHaveProperty('x-mcp-principal');
+    expect(call.headers).not.toHaveProperty('x-agent-key');
+    // Every outbound call of this session (audit rows included) is gateway-key-free.
+    await new Promise(r => setTimeout(r, 20));
+    const audit = lastCall('/mcp/audit');
+    expect(audit.headers['x-agent-id']).toBe('env-agent');
+    expect(audit.headers).not.toHaveProperty('x-agent-key');
+    for (const s of seen.filter(s => s.headers['x-agent-id'] === 'env-agent')) expect(s.headers['x-agent-key']).toBeUndefined();
+    await client.close();
+  });
+
+  it('M-5: with OMNIMIND_MCP_STATIC_AGENT_KEY the static session is verified with THAT key, still never the gateway key', async () => {
+    const { client, connect: go } = connect(STATIC_KEY, verifiedStatic.port);
+    await go();
+    const res = await client.callTool({ name: 'memory_search', arguments: { query: 'q', userId: 'user-x' } });
+    expect(res.isError).toBeFalsy();
+    const call = lastCall('/memories/search');
+    expect(call.headers['x-agent-key']).toBe(STATIC_AGENT_KEY);
+    expect(call.headers['x-agent-id']).toBe('env-agent');
+    expect(call.headers).not.toHaveProperty('x-mcp-principal');
+    // Token principals on the same server still delegate with the gateway key.
+    const t = connect(OMT.alice, verifiedStatic.port);
+    await t.connect();
+    await t.client.callTool({ name: 'memory_search', arguments: { query: 'q' } });
+    expect(lastCall('/memories/search').headers['x-agent-key']).toBe(GATEWAY_KEY);
+    expect(lastCall('/memories/search').headers['x-mcp-principal']).toBe('token:tok_alice');
+    await Promise.all([client.close(), t.client.close()]);
+  });
+});
+
+describe('session lifecycle hardening', () => {
+  it('M-1: an authenticated initialize the SDK rejects (406 / bad Host) leaves no server, transport or client behind', async () => {
+    let built = 0;
+    const clients: OmniMindClient[] = [];
+    const strict = await startHttpServer(0, {
+      apiKey: STATIC_KEY, agentCtx: staticCtx, log: () => {},
+      createClientFn: ({ agentKey }) => { const c = new OmniMindClient({ baseUrl: apiUrl, apiKey: 'svc-key', agentKey }); clients.push(c); return c; },
+      createServerFn: (ctx, client, extras) => { built++; return createMcpServer(ctx, { client, ...extras }); },
+    });
+    try {
+      const base = { 'content-type': 'application/json', authorization: `Bearer ${STATIC_KEY}` };
+      const notAcceptable = await raw(strict.port, { method: 'POST', path: '/', headers: { ...base, accept: 'application/json' }, body: INIT });
+      const badHost = await raw(strict.port, { method: 'POST', path: '/', headers: { ...base, accept: 'application/json, text/event-stream', host: 'evil.example:1' }, body: INIT });
+      expect([notAcceptable.status, badHost.status]).toEqual([406, 403]);
+      expect(built).toBe(2);
+      expect(strict.app.sessions.size).toBe(0);
+      expect(clients).toHaveLength(4); // session client + deferred twin per attempt
+      expect(clients.every(c => c.isClosed)).toBe(true);
+      expect(strict.app.deferred.clientCount).toBe(0);
+      // A good initialize afterwards still works and is tracked.
+      const ok = await raw(strict.port, { method: 'POST', path: '/', headers: { ...base, accept: 'application/json, text/event-stream' }, body: INIT });
+      expect(ok.status).toBe(200);
+      expect(strict.app.sessions.size).toBe(1);
+    } finally {
+      await strict.close();
+    }
+  });
+
+  it('M-3: the same identity with a narrower scope set cannot drive a session opened with wider scopes', async () => {
+    const wide = connect(await mintJwt({ scope: 'memory:read memory:write' }));
+    await wide.connect();
+    const sid = wide.transport.sessionId as string;
+    expect(mcp.app.sessions.get(sid)?.principalKey).toBe('oauth:oid_carol');
+    expect(mcp.app.sessions.get(sid)?.scopeDigest).toBe(scopeDigestOf(['memory:write', 'memory:read']));
+    expect(scopeDigestOf(['memory:read', 'memory:write'])).toBe(scopeDigestOf(['memory:write', 'memory:read', 'memory:read']));
+    expect(scopeDigestOf(['memory:read'])).not.toBe(scopeDigestOf(['memory:read', 'memory:write']));
+
+    const narrow = await mintJwt({ scope: 'memory:read' });
+    const res = await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(narrow, { 'mcp-session-id': sid }), body: LIST });
+    expect(res.status).toBe(404); // same oauth:oid_carol, different effective scopes → not this session
+    expect((await raw(mcp.port, { method: 'DELETE', path: '/', headers: { authorization: `Bearer ${narrow}`, 'mcp-session-id': sid } })).status).toBe(404);
+    expect(mcp.app.sessions.has(sid)).toBe(true);
+    // A fresh token with the SAME scopes (different jti / exp) is the same caller.
+    const sameScopes = await mintJwt({ scope: 'memory:write memory:read', expInS: 400 });
+    expect((await raw(mcp.port, { method: 'POST', path: '/', headers: mcpHeaders(sameScopes, { 'mcp-session-id': sid }), body: LIST })).status).toBe(200);
+    await wide.client.close();
+  });
+
+  it('L-6: an upstream 403 insufficient_scope surfaces as the typed SCOPE_DENIED error, not a raw HTTP string', async () => {
+    const { client, connect: go } = connect(OMT.alice);
+    await go();
+    const res = await client.callTool({ name: 'memory_reflect', arguments: { entityType: 'goal', entityId: 'g1' } });
+    expect(res.isError).toBe(true);
+    const text = (res.content as Array<{ text: string }>)[0].text;
+    expect(JSON.parse(text)).toMatchObject({ error: 'SCOPE_DENIED', message: expect.stringContaining('insufficient_scope') });
+    expect(text).not.toContain('→ 403');
     await client.close();
   });
 });

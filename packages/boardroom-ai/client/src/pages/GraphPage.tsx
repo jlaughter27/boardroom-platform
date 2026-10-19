@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { KnowledgeGraph, KnowledgeGraphEdgeType, KnowledgeGraphNode, KnowledgeGraphNodeType } from '@boardroom/shared';
 import * as api from '../lib/api';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { EmptyState, Skeleton } from '../components/ui';
 import { KnowledgeGraphView, type KnowledgeGraphViewHandle, type SpotlightState } from '../components/graph/KnowledgeGraphView';
@@ -15,7 +16,7 @@ import { GraphTimeline } from '../components/graph/GraphTimeline';
 import { NODE_TYPES } from '../components/graph/graph-theme';
 import { EDGE_TYPES, filterByEdgeTypes } from '../components/graph/graph-filters';
 import {
-  canGoBack, canGoForward, createFocusHistory, currentFocus, goBack, goForward, pushFocus, type FocusHistory,
+  canGoBack, canGoForward, createFocusHistory, currentFocus, goBack, goForward, pruneHistory, pushFocus, type FocusHistory,
 } from '../components/graph/graph-focus';
 import { applyTimeline, type TimeWindow } from '../components/graph/graph-timeline';
 import { maxScore, mergeBacklinks, missingHitIds, scoreMap } from '../components/graph/graph-search';
@@ -23,32 +24,22 @@ import { useGraphStore } from '../stores/graph.store';
 import { useCommandPaletteStore } from '../stores/commandPalette.store';
 import { cn } from '../lib/cn';
 
-const STORAGE_KEY = 'boardroom.graph.filters.v2';
+/**
+ * Two kinds of "current node", kept apart on purpose:
+ *   - SELECTED — what the inspector shows and the canvas emphasises. A single
+ *     click. Never changes the visible id set, so it never relayouts.
+ *   - FOCUSED  — the root of the local graph (depth > 0), the `?focus=` URL
+ *     param and the back / forward history. Only explicit actions change it:
+ *     double-click on the canvas, the inspector's "Focus here", a palette hit
+ *     ("Focus in graph"), find-a-node, a crumb, back / forward, `?focus=`.
+ *   Focusing also selects.
+ */
+
+export const STORAGE_KEY = 'boardroom.graph.filters.v2';
+/** Pre-edge-type / pre-depth key; migrated into v2 on first read, then removed. */
+export const LEGACY_STORAGE_KEY = 'boardroom.graph.filters.v1';
 const DEFAULT_DEPTH: GraphFilters['depth'] = 2; // local-first
 const LAZY_FETCH_BATCH = 12;
-
-function loadFilters(): GraphFilters {
-  const base: GraphFilters = {
-    types: new Set(NODE_TYPES), edgeTypes: new Set(EDGE_TYPES), domain: 'all', showOrphans: false, showLabels: true, depth: DEFAULT_DEPTH,
-  };
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return base;
-    const j = JSON.parse(raw) as Partial<{
-      types: KnowledgeGraphNodeType[]; edgeTypes: KnowledgeGraphEdgeType[]; domain: string; showOrphans: boolean; showLabels: boolean; depth: number;
-    }>;
-    const depth = typeof j.depth === 'number' && [0, 1, 2, 3].includes(j.depth) ? (j.depth as GraphFilters['depth']) : DEFAULT_DEPTH;
-    return {
-      ...base,
-      types: new Set(j.types?.length ? j.types : NODE_TYPES),
-      edgeTypes: new Set(j.edgeTypes?.length ? j.edgeTypes.filter((t) => EDGE_TYPES.includes(t)) : EDGE_TYPES),
-      domain: j.domain ?? 'all',
-      showOrphans: j.showOrphans ?? false,
-      showLabels: j.showLabels ?? true,
-      depth,
-    };
-  } catch { return base; }
-}
 
 function saveFilters(f: GraphFilters) {
   try {
@@ -56,6 +47,39 @@ function saveFilters(f: GraphFilters) {
       types: [...f.types], edgeTypes: [...f.edgeTypes], domain: f.domain, showOrphans: f.showOrphans, showLabels: f.showLabels, depth: f.depth,
     }));
   } catch { /* storage unavailable — fine */ }
+}
+
+export function loadFilters(): GraphFilters {
+  const base: GraphFilters = {
+    types: new Set(NODE_TYPES), edgeTypes: new Set(EDGE_TYPES), domain: 'all', showOrphans: false, showLabels: true, depth: DEFAULT_DEPTH,
+  };
+  try {
+    let raw = sessionStorage.getItem(STORAGE_KEY);
+    let migrated = false;
+    if (!raw) { raw = sessionStorage.getItem(LEGACY_STORAGE_KEY); migrated = !!raw; }
+    if (!raw) return base;
+    const j = JSON.parse(raw) as Partial<{
+      types: unknown[]; edgeTypes: unknown[]; domain: unknown; showOrphans: unknown; showLabels: unknown; depth: unknown;
+    }>;
+    // Everything from storage is validated — a stale or hand-edited entry must not poison the filters.
+    const types = Array.isArray(j.types) ? j.types.filter((t): t is KnowledgeGraphNodeType => (NODE_TYPES as readonly string[]).includes(t as string)) : [];
+    const edgeTypes = Array.isArray(j.edgeTypes) ? j.edgeTypes.filter((t): t is KnowledgeGraphEdgeType => (EDGE_TYPES as readonly string[]).includes(t as string)) : [];
+    const depth = typeof j.depth === 'number' && [0, 1, 2, 3].includes(j.depth) ? (j.depth as GraphFilters['depth']) : DEFAULT_DEPTH;
+    const f: GraphFilters = {
+      ...base,
+      types: new Set(types.length ? types : NODE_TYPES),
+      edgeTypes: new Set(edgeTypes.length ? edgeTypes : EDGE_TYPES),
+      domain: typeof j.domain === 'string' && j.domain ? j.domain : 'all',
+      showOrphans: typeof j.showOrphans === 'boolean' ? j.showOrphans : false,
+      showLabels: typeof j.showLabels === 'boolean' ? j.showLabels : true,
+      depth,
+    };
+    if (migrated) {
+      saveFilters(f);
+      try { sessionStorage.removeItem(LEGACY_STORAGE_KEY); } catch { /* fine */ }
+    }
+    return f;
+  } catch { return base; }
 }
 
 /** BFS from a root up to `depth` hops; returns distance per reachable node. */
@@ -83,11 +107,13 @@ function openSpotlightPalette() {
 export default function GraphPage() {
   usePageTitle('Knowledge Graph');
   const [params, setParams] = useSearchParams();
-  const initialFocus = params.get('focus');
+  // Read once: the deep-link target at mount. Later focus changes write the URL, never the other way round.
+  const [initialFocus] = useState<string | null>(() => params.get('focus'));
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFiltersState] = useState<GraphFilters>(loadFilters);
+  const [focusId, setFocusId] = useState<string | null>(initialFocus);
   const [selectedId, setSelectedId] = useState<string | null>(initialFocus);
   const [history, setHistory] = useState<FocusHistory>(() => (initialFocus ? pushFocus(createFocusHistory(), initialFocus) : createFocusHistory()));
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -95,14 +121,19 @@ export default function GraphPage() {
   const [mentionCount, setMentionCount] = useState<number | null>(null);
   const [tlWindow, setTlWindow] = useState<TimeWindow | null>(null);
   const [tlHide, setTlHide] = useState(false);
-  const [fetchingMissing, setFetchingMissing] = useState(false);
+  /** Lazy neighbourhood requests in flight (a count, so overlapping batches cannot strand the flag). */
+  const [fetchingCount, setFetchingCount] = useState(0);
+  /** Ids whose neighbourhood fetch settled with nothing (archived / superseded / deleted) — never retried. */
+  const [unavailable, setUnavailable] = useState<ReadonlySet<string>>(() => new Set());
   const viewRef = useRef<KnowledgeGraphViewHandle>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const attemptedFetch = useRef(new Set<string>());
-  const reducedMotion = useMemo(
-    () => typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false),
-    [],
-  );
+  const inFlightFetch = useRef(new Set<string>());
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const focusIdRef = useRef(focusId);
+  focusIdRef.current = focusId;
+  const reducedMotion = useReducedMotion();
 
   const spotlight = useGraphStore((s) => s.spotlight);
   const focusRequest = useGraphStore((s) => s.focusRequest);
@@ -125,7 +156,14 @@ export default function GraphPage() {
     try {
       const fresh = await api.getKnowledgeGraph({ memoryLimit: 200 });
       attemptedFetch.current.clear();
+      setUnavailable(new Set());
       setGraph(fresh);
+      // History entries that left the graph are dropped — except the current
+      // focus and live hits, which the lazy fetch will bring back.
+      const ids = new Set(fresh.nodes.map((n) => n.id));
+      const hits = new Set(useGraphStore.getState().spotlight.hits.map((h) => h.nodeId));
+      const keepId = focusIdRef.current;
+      setHistory((h) => pruneHistory(h, (id) => ids.has(id) || id === keepId || hits.has(id)));
     } catch { /* keep the old graph */ }
   }, []);
 
@@ -139,9 +177,9 @@ export default function GraphPage() {
   // ── Keep ?focus= in the URL so a node is shareable / reload-safe ──────────
   useEffect(() => {
     const next = new URLSearchParams(params);
-    if (selectedId) next.set('focus', selectedId); else next.delete('focus');
+    if (focusId) next.set('focus', focusId); else next.delete('focus');
     if (next.toString() !== params.toString()) setParams(next, { replace: true });
-  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const nodesById = useMemo(() => new Map((graph?.nodes ?? []).map((n) => [n.id, n])), [graph]);
@@ -167,11 +205,15 @@ export default function GraphPage() {
   }, [graph]);
 
   const hitIds = useMemo(() => new Set(spotlight.hits.map((h) => h.nodeId)), [spotlight.hits]);
+  const loadedHits = useMemo(() => [...hitIds].filter((id) => nodesById.has(id)).length, [hitIds, nodesById]);
+  const unavailableHits = useMemo(() => [...hitIds].filter((id) => unavailable.has(id) && !nodesById.has(id)).length, [hitIds, unavailable, nodesById]);
+  // "Filter to results" with no hit loaded would blank the canvas — fall back to fading and say so.
+  const emptyFilter = spotlight.active && spotlight.filterToResults && spotlight.hits.length > 0 && loadedHits === 0;
   const spotlightState = useMemo<SpotlightState | null>(
     () => (spotlight.active && spotlight.hits.length > 0
-      ? { scores: scoreMap(spotlight.hits), max: maxScore(spotlight.hits), filter: spotlight.filterToResults }
+      ? { scores: scoreMap(spotlight.hits), max: maxScore(spotlight.hits), filter: spotlight.filterToResults && loadedHits > 0 }
       : null),
-    [spotlight.active, spotlight.hits, spotlight.filterToResults],
+    [spotlight.active, spotlight.hits, spotlight.filterToResults, loadedHits],
   );
 
   const { nodes, edges, depthById } = useMemo(() => {
@@ -194,7 +236,7 @@ export default function GraphPage() {
       keep = anchored;
     }
     // Edge-type filter: drop disallowed edges and the nodes they alone connected
-    const pinned = new Set<string>(selectedId ? [selectedId] : []);
+    const pinned = new Set<string>(focusId ? [focusId] : []);
     const edgeFiltered = filterByEdgeTypes(
       graph.nodes.filter((n) => keep.has(n.id)),
       graph.edges.filter((e) => keep.has(e.source) && keep.has(e.target)),
@@ -205,15 +247,15 @@ export default function GraphPage() {
     const allowedEdges = edgeFiltered.edges;
 
     let depth: Map<string, number> | undefined;
-    if (selectedId && filters.depth > 0 && keep.has(selectedId)) {
-      // local graph: BFS over the kept subgraph
+    if (focusId && filters.depth > 0 && keep.has(focusId)) {
+      // local graph: BFS over the kept subgraph, rooted at the FOCUSED node
       const sub = new Map<string, Set<string>>();
       for (const e of allowedEdges) {
         if (!sub.has(e.source)) sub.set(e.source, new Set());
         if (!sub.has(e.target)) sub.set(e.target, new Set());
         sub.get(e.source)!.add(e.target); sub.get(e.target)!.add(e.source);
       }
-      depth = neighbourhood(selectedId, sub, filters.depth);
+      depth = neighbourhood(focusId, sub, filters.depth);
       const local = new Set(depth.keys());
       // Spotlight hits (and their 1-hop) always stay visible, even outside the local ring
       if (spotlightState) {
@@ -229,12 +271,12 @@ export default function GraphPage() {
     if (!filters.showOrphans) {
       const linked = new Set<string>();
       for (const e of es) { linked.add(e.source); linked.add(e.target); }
-      if (selectedId) linked.add(selectedId);
+      if (focusId) linked.add(focusId);
       for (const id of hitIds) linked.add(id);
       keep = new Set([...keep].filter((id) => linked.has(id)));
     }
     return { nodes: graph.nodes.filter((n) => keep.has(n.id)), edges: es, depthById: depth };
-  }, [graph, filters, selectedId, nodesById, adjacency, hitIds, spotlightState]);
+  }, [graph, filters, focusId, nodesById, adjacency, hitIds, spotlightState]);
 
   const visibleCounts = useMemo(() => {
     const c: Record<KnowledgeGraphNodeType, number> = { goal: 0, project: 0, task: 0, person: 0, decision: 0, commitment: 0, memory: 0 };
@@ -248,10 +290,15 @@ export default function GraphPage() {
   );
 
   const selected = selectedId ? nodesById.get(selectedId) ?? null : null;
+  const focused = focusId ? nodesById.get(focusId) ?? null : null;
   const hovered = hoverId ? nodesById.get(hoverId) ?? null : null;
+  // A selected node the timeline hides must not keep its neighbourhood vivid while itself invisible.
+  const canvasSelectedId = selectedId && timelineOverlay?.nodeVisibility.get(selectedId) === 'hidden' ? null : selectedId;
 
   // ── Focus + history ───────────────────────────────────────────────────────
+  /** Re-root on `id`, select it and centre the viewport (the view retries until the node has a position). */
   const jumpTo = useCallback((id: string) => {
+    setFocusId(id);
     setSelectedId(id);
     // Give the simulation a frame to include the node, then centre on it
     requestAnimationFrame(() => viewRef.current?.focusNode(id));
@@ -262,31 +309,31 @@ export default function GraphPage() {
     jumpTo(id);
   }, [jumpTo]);
 
+  // Side effects stay OUT of the setState updaters (StrictMode double-invokes them).
   const historyBack = useCallback(() => {
-    setHistory((h) => {
-      if (!canGoBack(h)) return h;
-      const next = goBack(h);
-      const id = currentFocus(next);
-      if (id) jumpTo(id);
-      return next;
-    });
+    const h = historyRef.current;
+    if (!canGoBack(h)) return;
+    const next = goBack(h);
+    historyRef.current = next;
+    setHistory(next);
+    const id = currentFocus(next);
+    if (id) jumpTo(id);
   }, [jumpTo]);
 
   const historyForward = useCallback(() => {
-    setHistory((h) => {
-      if (!canGoForward(h)) return h;
-      const next = goForward(h);
-      const id = currentFocus(next);
-      if (id) jumpTo(id);
-      return next;
-    });
+    const h = historyRef.current;
+    if (!canGoForward(h)) return;
+    const next = goForward(h);
+    historyRef.current = next;
+    setHistory(next);
+    const id = currentFocus(next);
+    if (id) jumpTo(id);
   }, [jumpTo]);
 
-  // Clicking a node on the canvas is a focus too (so it enters the history)
-  const onCanvasSelect = useCallback((id: string | null) => {
-    if (id) setHistory((h) => pushFocus(h, id));
-    setSelectedId(id);
-  }, []);
+  // Single click on the canvas: select only (inspector opens, no relayout).
+  const onCanvasSelect = useCallback((id: string | null) => { setSelectedId(id); }, []);
+  // Double click on the canvas: explicit focus (re-roots the local graph, enters the history).
+  const onCanvasFocus = useCallback((id: string) => { pick(id); }, [pick]);
 
   // ── Focus requests from the ⌘K palette ────────────────────────────────────
   useEffect(() => {
@@ -295,12 +342,23 @@ export default function GraphPage() {
     pick(focusRequest);
   }, [focusRequest, pick]);
 
+  // ── ?focus= deep link: centre once the node is in the graph ───────────────
+  const initialCentred = useRef(false);
+  useEffect(() => {
+    if (!graph || !initialFocus || initialCentred.current) return;
+    if (!nodesById.has(initialFocus)) return; // beyond the cap: wait for the lazy fetch to merge it
+    initialCentred.current = true;
+    const raf = requestAnimationFrame(() => viewRef.current?.focusNode(initialFocus));
+    return () => cancelAnimationFrame(raf);
+  }, [graph, nodesById, initialFocus]);
+
   // ── Keyboard: "/" opens spotlight, [ ] walk history, Esc clears selection ─
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable;
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (useCommandPaletteStore.getState().open) return; // the palette owns the keyboard while open
       if (e.key === '/') { e.preventDefault(); openSpotlightPalette(); }
       else if (e.key === '[') { e.preventDefault(); historyBack(); }
       else if (e.key === ']') { e.preventDefault(); historyForward(); }
@@ -311,25 +369,44 @@ export default function GraphPage() {
   }, [historyBack, historyForward]);
 
   // ── Lazily fetch what the loaded graph lacks (1-hop via backlinks): spotlight
-  //    hits, and a ?focus= / palette target beyond the 200-memory cap ──────────
+  //    hits, and a ?focus= / palette target beyond the 200-memory cap.
+  //
+  //    Never cancelled on a dependency change: the merge is idempotent (it
+  //    dedupes by node / edge id), while dropping a response would strand the
+  //    ids. Ids are marked attempted only once the request settles; ids the
+  //    server did not return (404 / archived) are marked unavailable and never
+  //    retried until a full refetch. ──────────────────────────────────────────
   useEffect(() => {
     if (!graph) return;
     const wanted = spotlight.active && spotlight.hits.length > 0 ? missingHitIds(spotlight.hits, nodesById) : [];
-    if (selectedId && !nodesById.has(selectedId) && !wanted.includes(selectedId)) wanted.unshift(selectedId);
-    const missing = wanted.filter((id) => !attemptedFetch.current.has(id)).slice(0, LAZY_FETCH_BATCH);
+    if (focusId && !nodesById.has(focusId) && !wanted.includes(focusId)) wanted.unshift(focusId);
+    const missing = wanted
+      .filter((id) => !attemptedFetch.current.has(id) && !inFlightFetch.current.has(id))
+      .slice(0, LAZY_FETCH_BATCH);
     if (missing.length === 0) return;
-    for (const id of missing) attemptedFetch.current.add(id);
-    let cancelled = false;
-    setFetchingMissing(true);
+    for (const id of missing) inFlightFetch.current.add(id);
+    setFetchingCount((c) => c + 1);
     api.getGraphNeighbourhoods(missing)
       .then((responses) => {
-        if (cancelled || responses.length === 0) return;
-        setGraph((g) => (g ? mergeBacklinks(g, responses) : g));
+        const returned = new Set(responses.filter((r) => r?.node).map((r) => r.node.id));
+        const gone = missing.filter((id) => !returned.has(id));
+        if (responses.length > 0) setGraph((g) => (g ? mergeBacklinks(g, responses) : g));
+        if (gone.length > 0) {
+          setUnavailable((prev) => { const next = new Set(prev); for (const id of gone) next.add(id); return next; });
+        }
       })
-      .catch(() => { /* hits stay list-only */ })
-      .finally(() => { if (!cancelled) setFetchingMissing(false); });
-    return () => { cancelled = true; };
-  }, [graph, spotlight.active, spotlight.hits, nodesById, selectedId]);
+      .catch(() => { /* network failure: the ids stay list-only until a refetch */ })
+      .finally(() => {
+        for (const id of missing) { inFlightFetch.current.delete(id); attemptedFetch.current.add(id); }
+        setFetchingCount((c) => Math.max(0, c - 1));
+      });
+  }, [graph, spotlight.active, spotlight.hits, nodesById, focusId]);
+
+  // Focus-history ids that turned out not to exist are pruned (a crumb must never show a raw id for nothing).
+  useEffect(() => {
+    if (unavailable.size === 0) return;
+    setHistory((h) => pruneHistory(h, (id) => !unavailable.has(id)));
+  }, [unavailable]);
 
   // ── Spotlight: fit the view to the hit set once per result set ────────────
   const hitKey = useMemo(() => [...hitIds].sort().join('|'), [hitIds]);
@@ -345,8 +422,6 @@ export default function GraphPage() {
     return () => clearTimeout(t);
   }, [spotlight.active, hitIds, hitKey, nodesById, graph, reducedMotion]);
 
-  const loadedHits = useMemo(() => [...hitIds].filter((id) => nodesById.has(id)).length, [hitIds, nodesById]);
-
   // ── Render ────────────────────────────────────────────────────────────────
   const total = graph?.nodes.length ?? 0;
   const truncated = graph?.stats.memoryLimitHit ?? false;
@@ -360,12 +435,12 @@ export default function GraphPage() {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">Knowledge Graph</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground" data-testid="graph-summary">
             {loading ? 'Loading…' : total === 0 ? 'No linked entities yet.' : (
               <>
                 <span className="tabular-nums text-foreground">{nodes.length}</span> of <span className="tabular-nums">{total}</span> nodes ·{' '}
                 <span className="tabular-nums">{edges.length}</span> links
-                {selected && filters.depth > 0 && <> · local {filters.depth}° around <span className="text-foreground">{selected.label}</span></>}
+                {focused && filters.depth > 0 && <> · local {filters.depth}° around <span className="text-foreground">{focused.label}</span></>}
                 {truncated && ' · memories capped at 200 by importance'}
               </>
             )}
@@ -399,7 +474,7 @@ export default function GraphPage() {
           edgeCounts={edgeCounts}
           domains={domains}
           nodes={graph.nodes}
-          hasSelection={!!selected}
+          hasSelection={!!focused}
           onPick={pick}
           onFit={() => viewRef.current?.zoomToFit()}
           onSpotlight={openSpotlightPalette}
@@ -414,7 +489,9 @@ export default function GraphPage() {
             <SpotlightBar
               spotlight={spotlight}
               loadedHits={loadedHits}
-              fetchingMissing={fetchingMissing}
+              unavailableHits={unavailableHits}
+              fetchingMissing={fetchingCount > 0}
+              emptyFilter={emptyFilter}
               onToggleFilter={() => useGraphStore.getState().toggleFilterToResults()}
               onLoadMore={() => void useGraphStore.getState().loadMore()}
               onFit={() => viewRef.current?.zoomToFitIds(new Set([...hitIds].filter((id) => nodesById.has(id))))}
@@ -453,8 +530,9 @@ export default function GraphPage() {
               ref={viewRef}
               nodes={nodes}
               edges={edges}
-              selectedId={selectedId}
+              selectedId={canvasSelectedId}
               onSelect={onCanvasSelect}
+              onFocus={onCanvasFocus}
               onHoverChange={setHoverId}
               showLabels={filters.showLabels}
               depthById={depthById}
@@ -468,7 +546,10 @@ export default function GraphPage() {
                 nodesById={nodesById}
                 edges={graph!.edges}
                 onSelect={pick}
-                onFocusLocal={() => setFilters({ ...filters, depth: filters.depth === 0 ? DEFAULT_DEPTH : filters.depth })}
+                onFocusLocal={() => {
+                  pick(selected.id);
+                  if (filters.depth === 0) setFilters({ ...filters, depth: DEFAULT_DEPTH });
+                }}
                 onClose={() => setSelectedId(null)}
                 onLinked={refetch}
                 className={sidePanelClass}

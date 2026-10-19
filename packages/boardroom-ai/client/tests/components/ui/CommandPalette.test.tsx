@@ -40,7 +40,7 @@ describe('CommandPalette — memory search mode', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    useCommandPaletteStore.setState({ open: false });
+    useCommandPaletteStore.setState({ open: false, tasksFetchedAt: 0, commitmentsFetchedAt: 0 });
     useGraphStore.getState().clearSpotlight();
     useGraphStore.setState({ paletteMode: 'commands', graphMounted: false, focusRequest: null });
     useEntitiesStore.setState({ tasks: [{ id: 't1', title: 'Ship pricing page', status: 'IN_PROGRESS' } as never], commitments: [{ id: 'c1', description: 'Send pricing deck to Ada', status: 'PENDING' } as never] });
@@ -120,11 +120,32 @@ describe('CommandPalette — commands mode', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    useCommandPaletteStore.setState({ open: false });
+    useCommandPaletteStore.setState({ open: false, tasksFetchedAt: 0, commitmentsFetchedAt: 0 });
     useGraphStore.setState({ paletteMode: 'commands', graphMounted: false, focusRequest: null });
     useEntitiesStore.setState({ goals: [], projects: [], people: [], decisions: [], tasks: [], commitments: [] });
     vi.mocked(api.getTasks).mockResolvedValue([{ id: 't1', title: 'Ship pricing page', status: 'IN_PROGRESS' } as never]);
     vi.mocked(api.getCommitments).mockResolvedValue([{ id: 'c1', description: 'Send pricing deck to Ada', status: 'PENDING' } as never]);
+  });
+
+  it('caches task / commitment lists for the session and refetches only after the 60 s TTL (L6)', async () => {
+    vi.mocked(api.getTasks).mockResolvedValue([]); // a user with zero tasks
+    vi.mocked(api.getCommitments).mockResolvedValue([]);
+    renderPalette();
+    act(() => { useCommandPaletteStore.setState({ open: true }); });
+    await waitFor(() => expect(api.getTasks).toHaveBeenCalledTimes(1));
+    expect(api.getCommitments).toHaveBeenCalledTimes(1);
+    // Close + reopen within the TTL: still empty, but no refetch.
+    act(() => { useCommandPaletteStore.getState().close(); });
+    act(() => { useCommandPaletteStore.setState({ open: true }); });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.getTasks).toHaveBeenCalledTimes(1);
+    expect(api.getCommitments).toHaveBeenCalledTimes(1);
+    // TTL expired → one refetch on the next open.
+    act(() => { useCommandPaletteStore.getState().close(); });
+    act(() => { useCommandPaletteStore.setState({ tasksFetchedAt: Date.now() - 61_000, commitmentsFetchedAt: Date.now() - 61_000 }); });
+    act(() => { useCommandPaletteStore.setState({ open: true }); });
+    await waitFor(() => expect(api.getTasks).toHaveBeenCalledTimes(2));
+    expect(api.getCommitments).toHaveBeenCalledTimes(2);
   });
 
   it('fetches tasks and commitments on open and searches them; picking one focuses the graph node', async () => {

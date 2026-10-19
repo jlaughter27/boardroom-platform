@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import * as api from '../../../src/lib/api';
-import type { McpConnectInfo, McpTokenRecord } from '../../../src/lib/api';
+import type { McpConnectInfo, McpTokenOptions, McpTokenRecord } from '../../../src/lib/api';
 import { ConnectedToolsPanel } from '../../../src/components/settings/ConnectedToolsPanel';
 
 vi.mock('../../../src/lib/api', async (importOriginal) => {
@@ -16,7 +16,7 @@ vi.mock('../../../src/lib/api', async (importOriginal) => {
   };
 });
 
-const options = {
+const options: McpTokenOptions = {
   tenants: [{ id: 'josh-business', name: 'Business' }, { id: 'josh-personal', name: 'Personal' }],
   scopes: [
     { id: 'memory:read', description: 'Read memory', write: false },
@@ -93,18 +93,20 @@ describe('<ConnectedToolsPanel />', () => {
     expect(within(revokedRow).queryByRole('button', { name: /Revoke Cursor laptop/ })).not.toBeInTheDocument();
   });
 
-  it('create flow (Claude Code, read-only, 90 days): posts the right body, shows the token once and the Claude Code snippet', async () => {
+  it('create flow (Claude Code, read-only, default expiry): posts the right body, shows the token once and the Claude Code snippet', async () => {
     arrange([]);
     vi.mocked(api.createMcpToken).mockResolvedValue({ token: 'omt_abcd1234_RAWSECRET', record: record() });
     const form = await openForm();
 
-    // Defaults: client Claude Code → name "Claude Code", first tenant, read-only, 90 days.
+    // Defaults: client Claude Code → name "Claude Code", first tenant, read-only, 365 days (OmniMind's default).
     expect((within(form).getByLabelText('Token name') as HTMLInputElement).value).toBe('Claude Code');
+    expect((within(form).getByLabelText('Expires') as HTMLSelectElement).value).toBe('365');
+    expect(within(form).getByRole('option', { name: 'Never (not recommended)' })).toBeInTheDocument();
     fireEvent.click(within(form).getByRole('button', { name: 'Create token' }));
 
     await waitFor(() => expect(api.createMcpToken).toHaveBeenCalledTimes(1));
     expect(api.createMcpToken).toHaveBeenCalledWith({
-      tenantId: 'josh-business', name: 'Claude Code', scopes: ['memory:read'], expiresInDays: 90,
+      tenantId: 'josh-business', name: 'Claude Code', scopes: ['memory:read'], expiresInDays: 365,
     });
 
     const created = await screen.findByTestId('mcp-token-created');
@@ -147,8 +149,9 @@ describe('<ConnectedToolsPanel />', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Create token' }));
 
     await waitFor(() => expect(api.createMcpToken).toHaveBeenCalledTimes(1));
+    // "Never" is sent explicitly as null — omitting the field would make OmniMind apply its 365-day default.
     expect(api.createMcpToken).toHaveBeenCalledWith({
-      tenantId: 'josh-personal', name: 'Cursor', scopes: ['memory:read', 'memory:write', 'task:write'],
+      tenantId: 'josh-personal', name: 'Cursor', scopes: ['memory:read', 'memory:write', 'task:write'], expiresInDays: null,
     });
 
     const created = await screen.findByTestId('mcp-token-created');
@@ -201,15 +204,113 @@ describe('<ConnectedToolsPanel />', () => {
     expect(screen.queryByRole('button', { name: 'Revoke Claude Code' })).not.toBeInTheDocument();
   });
 
-  it('warns when the operator has not configured the public MCP URL and still renders a placeholder snippet', async () => {
+  it('MCP URL unset: warns, shows the placeholder for orientation, but never lets it be copied (M6)', async () => {
     arrange([], options, { ...connectInfo, mcpUrl: null });
     vi.mocked(api.createMcpToken).mockResolvedValue({ token: 'omt_x', record: record() });
     render(<ConnectedToolsPanel />);
-    expect(await screen.findByText(/OMNIMIND_MCP_PUBLIC_URL/)).toBeInTheDocument();
+    expect(await screen.findByTestId('mcp-url-unset')).toHaveTextContent(/OMNIMIND_MCP_PUBLIC_URL/);
+    expect(screen.queryByTestId('mcp-connect-info-failed')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'New token' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const created = await screen.findByTestId('mcp-token-created');
-    expect(within(created).getByText(/claude mcp add --transport http omnimind https:\/\/<your-omnimind-mcp-host>\/mcp/)).toBeInTheDocument();
+    expect(within(created).getByTestId('mcp-url-warning')).toHaveTextContent(/has not set/);
+    const block = within(created).getByTestId('mcp-snippet-block-0');
+    expect(within(block).getByText(/https:\/\/<your-omnimind-mcp-host>\/mcp/)).toBeInTheDocument();
+    const copy = within(block).getByRole('button', { name: 'Copy Terminal' });
+    expect(copy).toBeDisabled();
+    fireEvent.click(copy);
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(within(block).getByTestId('mcp-snippet-block-0-copy-disabled')).toHaveTextContent(/not configured/);
+    // The token itself (no URL in it) is still copyable.
+    fireEvent.click(within(created).getByRole('button', { name: 'Copy Token' }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('omt_x'));
+  });
+
+  it('a connect-info fetch failure is reported as such, not as "operator has not set the URL" (M6)', async () => {
+    arrange([], options, null);
+    vi.mocked(api.createMcpToken).mockResolvedValue({ token: 'omt_x', record: record() });
+    render(<ConnectedToolsPanel />);
+    const note = await screen.findByTestId('mcp-connect-info-failed');
+    expect(note).toHaveTextContent(/Could not load the connection details \(nope\)/);
+    expect(screen.queryByTestId('mcp-url-unset')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument(); // tokens + options loaded fine
+    fireEvent.click(screen.getByRole('button', { name: 'New token' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const created = await screen.findByTestId('mcp-token-created');
+    expect(within(created).getByTestId('mcp-url-warning')).toHaveTextContent(/could not be loaded \(nope\)/);
+    expect(within(created).getByTestId('mcp-url-warning')).not.toHaveTextContent(/has not set/);
+    expect(within(within(created).getByTestId('mcp-snippet-block-0')).getByRole('button', { name: 'Copy Terminal' })).toBeDisabled();
+  });
+
+  it('keeps keyboard focus after Cancel (back on Revoke), after a failed revoke (the row) and after a revoke (the revoked list)', async () => {
+    arrange([record()]);
+    vi.mocked(api.revokeMcpToken).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+    render(<ConnectedToolsPanel />);
+    const row = await screen.findByTestId('mcp-token-row-tok_1');
+    fireEvent.click(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }));
+    expect(document.activeElement).toBe(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
+
+    // Failed revoke: the row stays, focus lands on it (not on <body>).
+    fireEvent.click(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm revoke' }));
+    await waitFor(() => expect(within(row).getByRole('button', { name: 'Revoke Claude Code' })).toBeInTheDocument());
+    expect(document.activeElement).toBe(row);
+
+    // Successful revoke: the token moves to the revoked list; focus follows it to that list's summary.
+    fireEvent.click(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm revoke' }));
+    await waitFor(() => expect(within(screen.getByTestId('mcp-token-row-tok_1')).getByText('Revoked')).toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('mcp-revoked-summary')));
+    expect(document.activeElement).toHaveTextContent('1 revoked token');
+  });
+
+  it('surfaces a clipboard failure instead of silently doing nothing (L3)', async () => {
+    arrange([]);
+    vi.mocked(api.createMcpToken).mockResolvedValue({ token: 'omt_x', record: record() });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    const execCommand = document.execCommand;
+    (document as unknown as { execCommand: unknown }).execCommand = vi.fn(() => false);
+    try {
+      render(<ConnectedToolsPanel />);
+      fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+      const created = await screen.findByTestId('mcp-token-created');
+      fireEvent.click(within(created).getByRole('button', { name: 'Copy Terminal' }));
+      expect(await within(created).findByRole('button', { name: 'Copy Terminal' })).toHaveTextContent('Copy failed');
+      expect(within(created).getByText(/Could not reach the clipboard/)).toBeInTheDocument();
+      expect(within(created).getByText(/Copy failed — the value is selected/)).toBeInTheDocument();
+    } finally {
+      (document as unknown as { execCommand: unknown }).execCommand = execCommand;
+    }
+  });
+
+  it('a lapsed subscription (402 on create) is explained, and the token list / revoke stay usable', async () => {
+    arrange([record()]);
+    vi.mocked(api.createMcpToken).mockRejectedValue(new api.ApiError('Request failed: 402', 402, { error: 'subscription_required', message: 'Please subscribe to continue' }));
+    vi.mocked(api.revokeMcpToken).mockResolvedValue(undefined);
+    render(<ConnectedToolsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/subscription is not active/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/can still be revoked/);
+    const row = screen.getByTestId('mcp-token-row-tok_1');
+    fireEvent.click(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm revoke' }));
+    await waitFor(() => expect(api.revokeMcpToken).toHaveBeenCalledWith('tok_1'));
+  });
+
+  it('validation_failed details (422 / upstream 400) render as readable copy, not "Request failed: 422"', async () => {
+    arrange([]);
+    vi.mocked(api.createMcpToken).mockRejectedValue(new api.ApiError('Request failed: 422', 422, {
+      error: 'validation_failed', details: [{ field: 'name', message: 'String must contain at most 60 character(s)' }],
+    }));
+    render(<ConnectedToolsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Please check: Token name: String must contain at most 60 character(s).');
+    expect(alert).not.toHaveTextContent(/Request failed/);
   });
 
   it('shows a retryable error when the list fails', async () => {

@@ -76,6 +76,16 @@ describe('useMemoryStore — hybrid engine (Memory Explorer)', () => {
     expect(api.hybridSearchMemories).not.toHaveBeenCalled();
   });
 
+  it('reset() returns the engine to list mode so a later search() does not inherit hybrid (L8)', async () => {
+    expect(useMemoryStore.getState().engine).toBe('hybrid');
+    useMemoryStore.getState().reset();
+    expect(useMemoryStore.getState().engine).toBe('list');
+    vi.mocked(api.listMemories).mockResolvedValue({ items: [], total: 0, offset: 0, limit: 20 });
+    await useMemoryStore.getState().search({ q: 'after logout' });
+    expect(api.listMemories).toHaveBeenCalledWith({ q: 'after logout', limit: 20, offset: 0 });
+    expect(api.hybridSearchMemories).not.toHaveBeenCalled();
+  });
+
   it('setFilters drops empty tag lists and re-searches', async () => {
     vi.mocked(api.listMemories).mockResolvedValue({ items: [], total: 0, offset: 0, limit: 20 });
     useMemoryStore.getState().setFilters({ tags: [] });

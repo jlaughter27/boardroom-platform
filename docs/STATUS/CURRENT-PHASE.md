@@ -1,10 +1,34 @@
 # Current Phase
 
-**Phase in flight:** ✅ **Phase 6 build — implemented and independently reviewed (pending deploy + operator checklist)**
-**Last update:** 2026-10-02
-**Updated by:** Claude (audit + remediation session, branch `claude/amazing-mccarthy-grvem2`)
+**Phase in flight:** ✅ **Phase 7 — Universal memory MCP: built, independently reviewed, awaiting Railway deploy + operator checklist**
+**Last update:** 2026-10-19
+**Updated by:** Claude (research → build → review session, branch `claude/amazing-mccarthy-grvem2`)
 
-**Next phase (not yet started):** Phase 6 — 30-day dogfooding window. **Do not start Phase 6 until the operator checklist in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` ("Post-audit operator checklist") is done** — O-103 (decay) and M-102 (tag queries) would otherwise have made the dogfooding window measure bugs, not the architecture.
+**Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key.
+
+---
+
+## ✅ Phase 7 — Universal memory MCP front door + searchable graph (2026-10-18/19)
+
+Source: `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md` ("do now" items 1–11). Built by five parallel lanes against one contract, then four adversarial reviewers (reports under the session scratchpad; findings: 6 HIGH / 26 MEDIUM / ~37 LOW, all fixed with tests that fail on the old code). Final state: typecheck 5/5, **2,039 tests passing** (149 shared · 228 mcp · 1,133 omnimind · 284 server · 245 client) + 45 eval, client build green, frozen install clean, audit clean at high+ (`proxy-addr` pinned ≥2.0.8).
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Per-user identity on one MCP URL | ✅ `omt_` personal tokens (introspection), OAuth JWTs (jose, RFC 8707 audience, JWKS discovery, verified-email auto-link), legacy static bearer kept; sessions bound to principal + scope digest |
+| 2 | Delegation on the API | ✅ gateway agent (`mcp:delegate`) + `x-mcp-principal`; scopes = principal ∩ gateway; delegated route **allow-list** (403 elsewhere); user isolation on `userId`/`x-user-id`; token routes BoardRoom-only |
+| 3 | RFC 9728 PRM + 401/503 contract | ✅ `/.well-known/oauth-protected-resource[/mcp]`, generic 401 body, per-IP failed-auth limiter (`OMNIMIND_MCP_TRUST_PROXY` on Railway) |
+| 4 | ChatGPT-shaped `search`/`fetch` | ✅ 20 tools; provenance field; invalidated rows excluded unless `includeArchived` |
+| 5 | Freshness contract | ✅ server `instructions`; `requiresUserInteraction` on destructive tools; no push (documented) |
+| 6 | Settings → Connected AI tools | ✅ mint/revoke tokens (365-day default, `null` = never), one-time display, per-client snippets with OAuth-first branching |
+| 7 | Searchable graph | ✅ ⌘K hybrid spotlight with `asOf`, select ≠ focus (no relayout on click), local-first depth 2, edge-type filter, focus history, timeline scrubber, Memory Explorer tags/asOf/archived, render tests + GraphPage test |
+| 8 | Ops | ✅ `packages/omnimind-mcp/Dockerfile` + `railway.toml`, CI docker matrix, compose service, `.dockerignore`, 79-var `.env.example`, operator runbook, agent configs, FRAGILE-ZONES §8 |
+| 9 | Write latency | ✅ `bench --n N --yes` (cleans up), `OMNIMIND_MCP_WRITE_EXTRACT=async` on a long-lived client |
+
+**Operator checklist (in this order — see DEPLOYMENT-RUNBOOK "MCP live checklist"):** 0 `OMNIMIND_ADMIN_KEY` + `ADMIN_EMAILS` set → 1 gateway agent via keygen with `MCP_GATEWAY_CEILING_SCOPES` → 2 `PATCH /admin/tenants/:id {ownerUserId}` for each tenant → 3 deploy `omnimind-mcp` (repo-root context, `RAILWAY_DOCKERFILE_PATH`, `OMNIMIND_MCP_TOKEN_AUTH=true`, `OMNIMIND_MCP_AGENT_KEY`, `OMNIMIND_MCP_PUBLIC_URL`, `OMNIMIND_MCP_ALLOWED_HOSTS`, `OMNIMIND_MCP_TRUST_PROXY=true`) → 4 BoardRoom `OMNIMIND_MCP_PUBLIC_URL` (+ `APP_PUBLIC_URL`) → 5 mint a token in Settings → 6 install per client → 7 verify (PRM, 401, `tools/list` = 20, audit attribution, revoke ≈ 1 min, bench) → 8 `OMNIMIND_REQUIRE_AGENT_KEY=true`.
+
+**Not verified in the sandbox:** the first real `docker (omnimind-mcp)` CI build; any live client (Claude.ai header field availability, ChatGPT developer-mode auth options) — snippets branch defensively; OAuth end to end against a real issuer (tested against an in-process RS256 issuer only).
+
+**Design calls made (revisit if wrong):** no push freshness (turn-time reads + `instructions`); OAuth auto-link is read-only and picks the oldest owned tenant; the gateway key is never sent on static sessions; SSE kept for `tools/call` responses (keep-alive during long writes); token default expiry 365 days; graph single click selects, double click / "Focus here" re-roots.
 
 ---
 
@@ -21,13 +45,13 @@ Source: `docs/research/IMPROVEMENT-RESEARCH-2026-10-02.md`. Built by six paralle
 | 5 | Per-entity reflection (capsules) | ✅ nightly job + on-demand reflect, injected ≤3 |
 | 6 | Private networking + backups + restore drill | ✅ `::` bind, docs, `services/backup/` (needs Railway deploy) |
 | 7 | Knowledge graph extras | ✅ backlinks, unlinked mentions, link editors, duplicates |
-| 8 | MCP conformance | ✅ 18 annotated tools, structured output, pagination, idempotency, resources, prompts |
+| 8 | MCP conformance | ✅ 18 annotated tools (20 since Phase 7: `search`, `fetch`), structured output, pagination, idempotency, resources, prompts |
 
 **Operator checklist additions (on top of the Phase 5.7 list in `docs/03-operations/DEPLOYMENT-RUNBOOK.md`):**
 1. Deploy `services/backup/` as a Railway cron service with the R2 vars; run the first restore drill and log it in `BACKUP-DRILLS.md`.
 2. Optional but recommended: set `OTEL_EXPORTER_OTLP_ENDPOINT` (+ headers) on both services; pick one backend.
 3. Switch `OMNIMIND_API_URL` to `http://omnimind-api.railway.internal:3333` after confirming OmniMind binds `::` on the new image.
-4. Add `OMNIMIND_MCP_USER_ID` to MCP agent configs so resources can read.
+4. ~~Add `OMNIMIND_MCP_USER_ID` to MCP agent configs so resources can read.~~ Superseded by Phase 7: hosted tokens bind the user; `OMNIMIND_MCP_USER_ID` is only for stdio/static mode.
 5. First `retrieval-eval` CI run passed (2026-10-03: for-persona recall@10 0.520 / MRR 0.440 vs gates 0.5 / 0.35; weakest slice `update` at 0.27). Thresholds ratchet upward only, after three green runs on `main`.
 6. Enable branch protection on `verify`, `docker`, `retrieval-eval`.
 
@@ -110,7 +134,7 @@ Six workstreams + one typecheck baseline cleanup, all merged via PRs #10–#15. 
 - `docker-entrypoint.sh` — baseline resolve for new migration `20260509000001_mcp_phase_4`
 
 *Docs:*
-- `docs/runbooks/omnimind-mcp.md` — agent key rotation, audit log review, ministry troubleshooting, rate limits
+- `docs/runbooks/omnimind-mcp.md` — (rewritten in Phase 7 as the operator path to live; rotation = SQL upsert or new agent name, see §1)
 - `docs/runbooks/backup-restore.md` — backup config, restore procedure, restore test evidence
 - `docs/POST-IMPLEMENTATION-REVIEW.md` — builder retrospective on Phases 0–4
 

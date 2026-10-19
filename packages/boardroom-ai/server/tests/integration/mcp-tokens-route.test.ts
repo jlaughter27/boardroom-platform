@@ -8,7 +8,12 @@
  *   * userId is pinned to the JWT user — a client-supplied userId is dropped
  *   * upstream 403 tenant_not_owned / 409 token_limit surface with the same
  *     status + error code (not 502); a 5xx still maps to 502 upstream_error
- *   * connect-info reads BoardRoom env and falls back to the request origin
+ *   * connect-info reads BoardRoom env only (nothing reflected from the request)
+ *   * the body schema is the shared contract: unknown / duplicate scopes are
+ *     rejected here (422) before OmniMind is called; `expiresInDays: null` is
+ *     forwarded as "never expires"
+ *   * only POST (create) is subscription-gated — a lapsed subscriber (402) can
+ *     still list, revoke and read options / connect-info
  *
  * No supertest dependency — plain app.listen(0) + global fetch.
  */
@@ -149,6 +154,16 @@ describe('POST /mcp/tokens — userId pinning', () => {
     expect(payload).toEqual({ userId: 'jwt-user-1', tenantId: 'josh-business', name: 'Claude Code', scopes: ['memory:read'], expiresInDays: 90 });
   });
 
+  it('forwards expiresInDays: null ("never expires") untouched', async () => {
+    const res = await fetch(`${base}/api/mcp/tokens`, authed({
+      method: 'POST',
+      body: JSON.stringify({ tenantId: 'josh-business', name: 'Cursor', scopes: ['memory:read', 'task:write'], expiresInDays: null }),
+    }));
+    expect(res.status).toBe(201);
+    const [, payload] = client.createMcpToken.mock.calls[0];
+    expect(payload).toEqual({ userId: 'jwt-user-1', tenantId: 'josh-business', name: 'Cursor', scopes: ['memory:read', 'task:write'], expiresInDays: null });
+  });
+
   it('drops a client-supplied userId — the JWT user always wins', async () => {
     const res = await fetch(`${base}/api/mcp/tokens`, authed({
       method: 'POST',
@@ -167,12 +182,22 @@ describe('POST /mcp/tokens — userId pinning', () => {
       { tenantId: 'josh-business', name: 'x'.repeat(61), scopes: ['memory:read'] },
       { tenantId: 'josh-business', name: 'ok', scopes: [] },
       { tenantId: 'josh-business', name: 'ok', scopes: ['memory:read'], expiresInDays: 0 },
+      { tenantId: 'josh-business', name: 'ok', scopes: ['memory:read'], expiresInDays: 366 },
       { tenantId: 'josh-business', name: 'ok', scopes: ['memory:read'], sourceWeight: 3 },
+      // The shared McpScopesSchema (not a loose string array) decides what a scope is:
+      { tenantId: 'josh-business', name: 'ok', scopes: ['memory:read', 'bogus:scope'] },
+      { tenantId: 'josh-business', name: 'ok', scopes: ['*'] },
+      { tenantId: 'josh-business', name: 'ok', scopes: ['mcp:delegate'] },
+      { tenantId: 'josh-business', name: 'ok', scopes: ['memory:read', 'memory:read'] },
     ];
     for (const body of cases) {
       const res = await fetch(`${base}/api/mcp/tokens`, authed({ method: 'POST', body: JSON.stringify(body) }));
       expect(res.status, JSON.stringify(body)).toBe(422);
-      expect(await res.json()).toMatchObject({ error: 'validation_failed' });
+      const json = await res.json();
+      expect(json).toMatchObject({ error: 'validation_failed' });
+      // Details carry a field + message pair the client renders as readable copy.
+      expect(Array.isArray(json.details)).toBe(true);
+      expect(json.details[0]).toEqual(expect.objectContaining({ field: expect.any(String), message: expect.any(String) }));
     }
     expect(client.createMcpToken).not.toHaveBeenCalled();
   });
@@ -226,10 +251,10 @@ describe('DELETE /mcp/tokens/:id', () => {
 });
 
 describe('GET /mcp/tokens/connect-info', () => {
-  it('env unset → mcpUrl null, appUrl = request origin, oauthEnabled false; no upstream call', async () => {
-    const res = await fetch(`${base}/api/mcp/tokens/connect-info`, authed());
+  it('env unset → mcpUrl null, appUrl null (never the request Host), oauthEnabled false; no upstream call', async () => {
+    const res = await fetch(`${base}/api/mcp/tokens/connect-info`, authed({ headers: { Host: 'evil.example' } }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ mcpUrl: null, appUrl: base, oauthEnabled: false });
+    expect(await res.json()).toEqual({ mcpUrl: null, appUrl: null, oauthEnabled: false });
     expect(client.listMcpTokens).not.toHaveBeenCalled();
     expect(client.getMcpTokenOptions).not.toHaveBeenCalled();
   });
@@ -253,12 +278,38 @@ describe('GET /mcp/tokens/connect-info', () => {
   });
 });
 
-describe('mount', () => {
-  it('app.ts mounts /mcp/tokens behind requireSubscription', async () => {
+describe('subscription gating (STRIPE_SECRET_KEY set, no subscription → 402 on create only)', () => {
+  beforeEach(() => {
+    setEnv('STRIPE_SECRET_KEY', 'sk_test_gate');
+    client.getSubscription.mockReset().mockResolvedValue(null);
+  });
+  afterAll(() => { setEnv('STRIPE_SECRET_KEY', undefined); });
+
+  it('POST /mcp/tokens → 402 subscription_required without calling OmniMind', async () => {
+    const res = await fetch(`${base}/api/mcp/tokens`, authed({
+      method: 'POST',
+      body: JSON.stringify({ tenantId: 'josh-business', name: 'Claude Code', scopes: ['memory:read'] }),
+    }));
+    expect(res.status).toBe(402);
+    expect(await res.json()).toMatchObject({ error: 'subscription_required' });
+    expect(client.getSubscription).toHaveBeenCalledWith('jwt-user-1');
+    expect(client.createMcpToken).not.toHaveBeenCalled();
+  });
+
+  it('a lapsed subscriber can still list, revoke and read options / connect-info', async () => {
+    expect((await fetch(`${base}/api/mcp/tokens`, authed())).status).toBe(200);
+    expect((await fetch(`${base}/api/mcp/tokens/options`, authed())).status).toBe(200);
+    expect((await fetch(`${base}/api/mcp/tokens/connect-info`, authed())).status).toBe(200);
+    const del = await fetch(`${base}/api/mcp/tokens/tok_1`, authed({ method: 'DELETE' }));
+    expect(del.status).toBe(204);
+    expect(client.revokeMcpToken).toHaveBeenCalledWith('jwt-user-1', 'tok_1');
+  });
+
+  it('app.ts mounts /mcp/tokens behind the auth wall only (no router-level requireSubscription)', async () => {
     const { createApp } = await import('../../src/app');
     const app = createApp();
-    const layer = (app as unknown as { _router: { stack: Array<{ regexp: RegExp; handle: { name?: string; stack?: unknown[] } }> } })._router.stack
+    const layer = (app as unknown as { _router: { stack: Array<{ regexp: RegExp; handle: { name?: string } }> } })._router.stack
       .find((l) => l.regexp.test('/mcp/tokens') && l.handle.name === 'requireSubscription');
-    expect(layer).toBeDefined();
+    expect(layer).toBeUndefined();
   });
 });

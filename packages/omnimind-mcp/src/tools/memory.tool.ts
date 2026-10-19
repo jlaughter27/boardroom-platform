@@ -49,7 +49,15 @@ export function resolveWriteExtractMode(env: NodeJS.ProcessEnv = process.env): W
 export interface MemoryWriteToolOptions {
   /** Defaults to `resolveWriteExtractMode(process.env)`. */
   extractMode?: WriteExtractMode;
-  /** Test / ops hook: receives the deferred-extraction promise in `async` mode (already error-handled). */
+  /**
+   * M-2 — client the deferred extraction runs on in `async` mode. Over the HTTP
+   * front door this is a second client bound to the same principal that
+   * outlives the session (owned by the app's `DeferredWorkQueue`), so a DELETE
+   * / idle sweep / eviction racing the 2-5 s Haiku call no longer loses the
+   * facts and the `memory_write:extract` audit row. Defaults to `client`.
+   */
+  deferredClient?: OmniMindClient;
+  /** Receives the deferred-extraction promise in `async` mode (already error-handled): the HTTP app tracks it for drain-on-shutdown; tests await it. */
   onDeferred?: (done: Promise<void>) => void;
 }
 
@@ -85,6 +93,16 @@ export const FACT_KEY_PREFIX_LENGTH = 32;
 export function deriveFactIdempotencyKey(userKey: string, factText: string): string {
   const digest = createHash('sha256').update(`${userKey}:${factText}`).digest('hex').slice(0, 64);
   return `${userKey.slice(0, FACT_KEY_PREFIX_LENGTH)}:${digest}`;
+}
+
+/**
+ * L-8 — `Idempotency-Key` for the async tail's `PATCH … { supersedes: raw }`.
+ * Derived from the raw row id alone so a replay after a process restart (the
+ * in-memory replay cache is empty, the row writes replay via their own keys)
+ * does not apply the supersede twice. 75 chars, under OmniMind's 128 cap.
+ */
+export function deriveSupersedeIdempotencyKey(rawId: string): string {
+  return `supersedes:${createHash('sha256').update(`supersedes:${rawId}`).digest('hex')}`;
 }
 
 /**
@@ -253,7 +271,7 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext, opts:
         });
         if (replayKey) memoryWriteReplayCache.set(replayKey, result);
         const rawId = result.created[0] ?? result.updated[0];
-        const deferred = runDeferredExtraction(client, ctx, input, auditInput, rawId);
+        const deferred = runDeferredExtraction(opts.deferredClient ?? client, ctx, input, auditInput, rawId);
         opts.onDeferred?.(deferred);
         return result;
       }
@@ -281,13 +299,19 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext, opts:
   } satisfies McpTool;
 }
 
+/** What the `memory_write:extract` audit row says happened to the raw prose row. */
+export const RAW_ROW_KEPT_NO_FACTS = 'no facts extracted; raw row kept';
+export const RAW_ROW_KEPT_UPDATES_ONLY = 'facts updated existing rows only (no new fact row to supersede it); raw row kept';
+
 /**
  * Async-mode tail of `memory_write`: extract facts from the prose that was
  * already stored as `rawId`, write them, and — when at least one new fact row
  * was created — supersede the raw row with the first one (the prose survives
- * in version history / `consolidatedFrom`; nothing is deleted). Audited as
- * `memory_write:extract`; failures are logged, never thrown (the caller has
- * already received its response).
+ * in version history / `consolidatedFrom`; nothing is deleted). When every
+ * fact was an *update* of an existing row there is nothing to supersede it
+ * with, so the raw row is kept and the audit row says so (`rawRowKept`,
+ * `reason`). Audited as `memory_write:extract`; failures are logged, never
+ * thrown (the caller has already received its response).
  */
 export function runDeferredExtraction(
   client: OmniMindClient,
@@ -298,12 +322,18 @@ export function runDeferredExtraction(
 ): Promise<void> {
   return withAudit(client, ctx, 'memory_write:extract', auditInput, async () => {
     const facts = await extractAndDedup(input.content, ctx, client, input.userId);
-    if (facts.length === 0) return { ok: true, created: [], updated: [], skipped: 0, rawId };
+    if (facts.length === 0) return { ok: true, created: [], updated: [], skipped: 0, rawId, rawRowKept: true, reason: RAW_ROW_KEPT_NO_FACTS };
     const tally = await writeFacts(client, ctx, input, facts);
     if (rawId && tally.created.length > 0 && !tally.created.includes(rawId)) {
-      await client.updateMemory(tally.created[0], { supersedes: rawId, agentId: ctx.agentId }, input.userId);
+      await client.updateMemory(
+        tally.created[0],
+        { supersedes: rawId, agentId: ctx.agentId },
+        input.userId,
+        { idempotencyKey: deriveSupersedeIdempotencyKey(rawId) }
+      );
+      return { ok: true, ...tally, rawId, rawRowKept: false };
     }
-    return { ok: true, ...tally, rawId };
+    return { ok: true, ...tally, rawId, rawRowKept: true, ...(tally.updated.length > 0 && tally.created.length === 0 ? { reason: RAW_ROW_KEPT_UPDATES_ONLY } : {}) };
   })
     .then(() => undefined)
     .catch(err => {

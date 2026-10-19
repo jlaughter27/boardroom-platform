@@ -97,7 +97,7 @@ The DeepSeek v3.2 split is RETIRED (ADR-007). Existing type files in shared/ wer
 1. **Check `docs/STATUS/CURRENT-PHASE.md` FIRST** — it tells you the active phase + active task. The roadmap is the source of truth for ongoing work.
 2. Follow the load-order in `docs/_meta/CONTEXT-LOAD-ORDER.md` for your task type (only ~2-3 files needed per task).
 3. Read this file completely if it's your first session in this repo.
-4. Check `docs/02-reference/DECISIONS.md` for the 13 architectural decisions — don't re-litigate settled decisions.
+4. Check `docs/02-reference/DECISIONS.md` for the 14 architectural decisions — don't re-litigate settled decisions.
 5. Check `docs/contracts/` for API contracts between services.
 6. Read `docs/02-reference/FRAGILE-ZONES.md` if touching Docker, middleware ordering, Prisma, or env vars.
 7. The older `docs/tasks/_TASK-INDEX.md` is HISTORICAL; the live task index is `docs/STATUS/PHASE-PROGRESS-TRACKER.md`.
@@ -177,7 +177,7 @@ boardroom-platform/
 ├── scripts/                        # Deploy checks, backups, seeding
 ├── turbo.json                      # Build pipeline config
 ├── docker-compose.yml              # Local dev: postgres + both services
-└── .env.example                    # 71 env vars documented (incl. OMNIMIND_MCP_* front door)
+└── .env.example                    # 79 env vars documented, each once (incl. OMNIMIND_MCP_* front door)
 ```
 
 ---
@@ -415,7 +415,7 @@ Post-implementation review:
 
 ## Architectural Decisions (Summary)
 
-13 ADRs in `docs/02-reference/DECISIONS.md`. The critical ones:
+14 ADRs in `docs/02-reference/DECISIONS.md` (ADR-001 … ADR-014). The critical ones:
 
 | ADR | Decision | Don't Revisit Unless |
 |-----|----------|---------------------|
@@ -452,7 +452,7 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 - Ops: OTel behind `OTEL_EXPORTER_OTLP_ENDPOINT`, `::` bind for Railway private networking, backup service (`services/backup/`), labeled retrieval eval gated in CI (`retrieval-eval` job), persona distinctiveness eval.
 - Contracts: `docs/contracts/PHASE-6-CONTRACTS.md`, `docs/contracts/omnimind-api.contract.md`.
 
-## Known Limitations (as of 2026-10-02)
+## Known Limitations (as of 2026-10-18)
 
 1. **CI gate exists since 2026-10-02** (`.github/workflows/ci.yml`: frozen install, typecheck incl. client, tests, audit, Docker builds, labeled retrieval eval on pgvector) but Railway still auto-deploys `main` on push regardless of CI status — enable branch protection requiring the `verify` + `docker` checks.
 2. **In-memory rate limiting** — resets on restart, no cross-instance coordination. The Redis-backed alternative was quarantined under `_disabled/` (decision: revisit when scaling beyond 1 instance).
@@ -508,7 +508,7 @@ OmniMind API (port 3333, private network) — agentId = principal.agentName, sco
 PostgreSQL
 ```
 
-One hosted URL serves every user and client; the process identity is the **gateway** agent (its scopes are the *ceiling* for every token, so it carries `mcp:delegate` + all six grantable scopes) and each session is re-attributed to the token's principal (`mcp-token:<slug>-<id>` is what lands in `agent_id`). A personal instance can still run single-identity (legacy static bearer `OMNIMIND_MCP_API_KEY`, or stdio with an `omk_` agent key).
+One hosted URL serves every user and client; the process identity is the **gateway** agent — the agent row behind `OMNIMIND_MCP_AGENT_KEY`, whose scopes are the *ceiling* for every token, so it carries `mcp:delegate` + all seven grantable scopes (`MCP_GATEWAY_CEILING_SCOPES` in shared) — and each session is re-attributed to the token's principal (`mcp-token:<slug>-<id>` is what lands in `agent_id`). The hosted gateway does not read `OMNIMIND_MCP_AGENT_NAME` / `_TENANT_ID` / `_SCOPES` / `_SOURCE_WEIGHT` or `OMNIMIND_MCP_USER_ID`; those are for the legacy static bearer, stdio, `bench` and `smoke`. A personal instance can still run single-identity (legacy static bearer `OMNIMIND_MCP_API_KEY` + its own `OMNIMIND_MCP_STATIC_AGENT_KEY`, or stdio with an `omk_` agent key).
 
 ### 20 Available Tools (annotated, structured output, cursor pagination, `idempotencyKey` on writes — see `docs/MEMORY-PROTOCOL.md`)
 
@@ -540,21 +540,24 @@ One hosted URL serves every user and client; the process identity is the **gatew
 ```bash
 # Hosted HTTP gateway (what Railway runs — packages/omnimind-mcp/Dockerfile, CMD node dist/index.js http).
 # Clients authenticate with per-user omt_ tokens minted in BoardRoom → Settings → Connected AI tools.
+# Order of operations: OMNIMIND_ADMIN_KEY on the API → keygen the gateway → tenant owners → deploy this
+# (docs/runbooks/omnimind-mcp.md §0–§7). The gateway identity is the agent row behind the key; the
+# OMNIMIND_MCP_AGENT_NAME/_TENANT_ID/_SCOPES/_SOURCE_WEIGHT vars are NOT read in this mode.
 PORT=3334 \
 OMNIMIND_API_URL=http://omnimind-api.railway.internal:3333 \
 OMNIMIND_API_KEY=<service key> \
-OMNIMIND_MCP_AGENT_NAME=omnimind-mcp-gateway \
-OMNIMIND_MCP_TENANT_ID=josh-business \
-OMNIMIND_MCP_SCOPES=mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write \
-OMNIMIND_MCP_AGENT_KEY=<omk_ key of the gateway agent, same scope list> \
+OMNIMIND_MCP_AGENT_KEY=<omk_ key of omnimind-mcp-gateway: mcp:delegate + all seven grantable scopes> \
 OMNIMIND_MCP_TOKEN_AUTH=true \
 OMNIMIND_MCP_ALLOWED_HOSTS=omnimind-mcp-production.up.railway.app \
+OMNIMIND_MCP_TRUST_PROXY=true \
 OMNIMIND_MCP_PUBLIC_URL=https://omnimind-mcp-production.up.railway.app/mcp \
 OMNIMIND_MCP_APP_URL=https://boardroom-ai-production-1092.up.railway.app \
 ANTHROPIC_API_KEY=<key> \
 node packages/omnimind-mcp/dist/index.js http
-# Optional OAuth resource-server mode: OMNIMIND_MCP_OAUTH_ISSUER / _JWKS_URL / _AUDIENCE (audience == PUBLIC_URL).
-# Legacy single-user HTTP: OMNIMIND_MCP_TOKEN_AUTH=false + OMNIMIND_MCP_API_KEY=<one static inbound bearer>.
+# Optional OAuth resource-server mode: OMNIMIND_MCP_OAUTH_ISSUER / _JWKS_URL / _AUDIENCE (audience == PUBLIC_URL);
+# set OMNIMIND_MCP_OAUTH_ISSUER on BoardRoom too so the snippets go OAuth-first, and MCP_OAUTH_ALLOWED_ISSUERS on the API.
+# Legacy single-user HTTP: OMNIMIND_MCP_TOKEN_AUTH=false + OMNIMIND_MCP_API_KEY=<one static inbound bearer>
+#   + the process identity vars + OMNIMIND_MCP_STATIC_AGENT_KEY=<that identity's omk_ key>.
 
 # Connect a client (same URL + header for Cursor, Windsurf, Gemini CLI, VS Code, Zed, Claude.ai connector):
 claude mcp add --transport http omnimind https://omnimind-mcp-production.up.railway.app/mcp \
@@ -573,12 +576,14 @@ node packages/omnimind-mcp/dist/index.js
 # Smoke test (registration: 20 tools, 3 prompts, 4 resource templates)
 node packages/omnimind-mcp/dist/index.js smoke
 
-# memory_write latency bench: N in-process writes (stdio/gateway env + --user) and the server-side p95 from
-# GET /mcp/audit/stats; warns above 20 s → set OMNIMIND_MCP_WRITE_EXTRACT=async. Target p95 < 10 s.
-node packages/omnimind-mcp/dist/index.js bench --n 10 --user <user id>
+# memory_write latency bench: N in-process REAL writes (stdio env incl. AGENT_NAME/TENANT_ID + --user) and the
+# server-side p95 from GET /mcp/audit/stats; warns above 20 s → set OMNIMIND_MCP_WRITE_EXTRACT=async. Target p95 < 10 s.
+# --cleanup is on by default (archives the bench rows); --yes is required outside NODE_ENV=development.
+node packages/omnimind-mcp/dist/index.js bench --n 10 --user <user id> [--yes]
 
-# Generate an agent key (run once, store in 1Password).
-# Gateway: --agent omnimind-mcp-gateway --scopes "mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write"  (the ceiling for every token)
+# Generate an agent key (run once, store in 1Password; needs OMNIMIND_ADMIN_KEY — POST /mcp/agents is admin-gated).
+# Gateway: --agent omnimind-mcp-gateway --scopes "mcp:delegate,memory:read,memory:write,decision:write,task:write,project:write,commitment:write,code:write"  (the ceiling for every token)
+# Create-only: re-running for an existing name is 409 and stores nothing — rotate with the ON CONFLICT SQL keygen prints (runbook §1).
 node packages/omnimind-mcp/dist/index.js keygen --agent <name> --tenant <id> --scopes '<list>' --source-weight <float>
 ```
 

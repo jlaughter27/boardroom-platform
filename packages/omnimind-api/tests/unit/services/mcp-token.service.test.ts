@@ -7,8 +7,8 @@ import { createHash } from 'crypto';
 const mockPrisma = vi.hoisted(() => ({
   tenant: { findFirst: vi.fn(), findMany: vi.fn() },
   mcpToken: { count: vi.fn(), create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-  mcpOauthIdentity: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-  user: { findUnique: vi.fn() },
+  mcpOauthIdentity: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+  user: { findUnique: vi.fn(), findFirst: vi.fn() },
   mcpAuditLog: { findMany: vi.fn() },
 }));
 const mockLogger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
@@ -17,6 +17,7 @@ vi.mock('../../../src/lib/logger', () => ({ logger: mockLogger }));
 
 import {
   __resetMcpTokenStateForTest,
+  AGENT_NAME_SUFFIX_LENGTH,
   buildOauthAgentName,
   buildTokenAgentName,
   createMcpToken,
@@ -27,14 +28,24 @@ import {
   getMcpTokenOptions,
   hashMcpToken,
   introspectMcpToken,
+  isIssuerAllowed,
+  isUniqueViolation,
+  listMcpIdentities,
   listMcpTokens,
   loadDelegatedPrincipal,
+  normalizeEmail,
+  normalizeIssuer,
+  oauthAgentNameBase,
+  parseAllowedIssuers,
   percentile,
   resolveMcpIdentity,
+  revokeMcpIdentity,
   revokeMcpToken,
   slugify,
+  toIdentityRecord,
   tokenStatus,
   toTokenRecord,
+  updateMcpIdentity,
 } from '../../../src/services/mcp-token.service';
 import { HttpError } from '../../../src/middleware/error-handler';
 
@@ -100,20 +111,61 @@ describe('helpers', () => {
     expect(hashMcpToken(a)).toBe(createHash('sha256').update(a).digest('hex'));
   });
 
-  it('generateRowId: cuid-shaped (c + 24 base36)', () => {
-    expect(generateRowId()).toMatch(/^c[a-z0-9]{24}$/);
+  it('generateRowId (review A10): c + 24 base64url chars from CSPRNG bytes, no modulo bias, unique, principal-ref safe', () => {
+    const ids = new Set(Array.from({ length: 2000 }, generateRowId));
+    expect(ids.size).toBe(2000);
+    const seen = new Set<string>();
+    for (const id of ids) {
+      expect(id).toMatch(/^c[A-Za-z0-9_-]{24}$/);
+      expect(`token:${id}`).toMatch(/^(token|oauth):[A-Za-z0-9_-]{1,64}$/);
+      for (const ch of id.slice(1)) seen.add(ch);
+    }
+    // base64url yields all 64 symbols (a base36 `% 36` generator could never emit upper-case, '-' or '_')
+    expect(seen.size).toBe(64);
   });
 
-  it('slugify + buildTokenAgentName: mcp-token:<slug>-<last 6 of id>', () => {
+  it('isUniqueViolation: Prisma P2002 only (duck-typed)', () => {
+    expect(isUniqueViolation({ code: 'P2002', meta: { target: ['agent_name'] } })).toBe(true);
+    expect(isUniqueViolation({ code: 'P2025' })).toBe(false);
+    expect(isUniqueViolation(new Error('x'))).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+  });
+
+  it('slugify + buildTokenAgentName: mcp-token:<slug>-<last 8 of id>', () => {
+    expect(AGENT_NAME_SUFFIX_LENGTH).toBe(8);
     expect(slugify('  Claude Desktop (Mac) ')).toBe('claude-desktop-mac');
     expect(slugify('!!!')).toBe('token');
-    expect(buildTokenAgentName('Claude Desktop', 'cabcdefghijklmnopqrstuvwx')).toBe('mcp-token:claude-desktop-stuvwx');
+    expect(buildTokenAgentName('Claude Desktop', 'cabcdefghijklmnopqrstuvwx')).toBe('mcp-token:claude-desktop-qrstuvwx');
   });
 
-  it('buildOauthAgentName: clientId wins, else issuer host, else raw issuer', () => {
-    expect(buildOauthAgentName('https://accounts.example.com/realm', 'my-client')).toBe('oauth:my-client');
-    expect(buildOauthAgentName('https://accounts.example.com/realm')).toBe('oauth:accounts.example.com');
-    expect(buildOauthAgentName('urn:issuer:x')).toBe('oauth:urn:issuer:x');
+  it('buildOauthAgentName (review A5): per-identity suffix; clientId wins, else issuer host, else raw issuer', () => {
+    expect(oauthAgentNameBase('https://accounts.example.com/realm', 'my-client')).toBe('oauth:my-client');
+    expect(oauthAgentNameBase('https://accounts.example.com/realm')).toBe('oauth:accounts.example.com');
+    expect(oauthAgentNameBase('urn:issuer:x')).toBe('oauth:urn:issuer:x');
+    const a = buildOauthAgentName('https://accounts.example.com/realm', 'my-client', 'cidentAAAAAAAAAAAAAAAAAA1');
+    const b = buildOauthAgentName('https://accounts.example.com/realm', 'my-client', 'cidentBBBBBBBBBBBBBBBBBB2');
+    expect(a).toBe('oauth:my-client-AAAAAAA1');
+    expect(b).toBe('oauth:my-client-BBBBBBB2');
+    expect(a).not.toBe(b);
+    expect(buildOauthAgentName('https://accounts.example.com/realm', undefined, 'cidentAAAAAAAAAAAAAAAAAA1')).toBe('oauth:accounts.example.com-AAAAAAA1');
+  });
+
+  it('normalizeEmail / normalizeIssuer / parseAllowedIssuers / isIssuerAllowed (review A6)', () => {
+    expect(normalizeEmail('  Josh@Gmail.COM ')).toBe('josh@gmail.com');
+    expect(normalizeIssuer(' https://idp.example/ ')).toBe('https://idp.example');
+    expect(parseAllowedIssuers(undefined)).toBeNull();
+    expect(parseAllowedIssuers('')).toBeNull();
+    expect(parseAllowedIssuers(' , ')).toBeNull();
+    expect([...parseAllowedIssuers('https://a.example/, https://b.example')!]).toEqual(['https://a.example', 'https://b.example']);
+    expect(isIssuerAllowed('https://anything', {})).toBe(true);
+    expect(isIssuerAllowed('https://a.example', { MCP_OAUTH_ALLOWED_ISSUERS: 'https://a.example/' })).toBe(true);
+    expect(isIssuerAllowed('https://evil.example', { MCP_OAUTH_ALLOWED_ISSUERS: 'https://a.example' })).toBe(false);
+  });
+
+  it('toIdentityRecord: ISO dates, drops unknown scopes, carries issuer/subject', () => {
+    const rec = toIdentityRecord(identityRow({ scopes: ['memory:read', '*'] }));
+    expect(rec).toMatchObject({ id: 'cident0000000000000000001', issuer: 'https://accounts.example.com', subject: 'sub-123', userId: USER, tenantId: TENANT, scopes: ['memory:read'], revokedAt: null });
+    expect(typeof rec.createdAt).toBe('string');
   });
 
   it('tokenStatus: revoked beats expired; expiry is inclusive at the boundary', () => {
@@ -171,12 +223,58 @@ describe('createMcpToken', () => {
     const data = mockPrisma.mcpToken.create.mock.calls[0][0].data;
     expect(data.tokenHash).toBe(hashMcpToken(out.token));
     expect(data.prefix).toBe(out.token.slice(0, 12));
-    expect(data.agentName).toBe(`mcp-token:claude-desktop-${String(data.id).slice(-6)}`);
+    expect(data.agentName).toBe(`mcp-token:claude-desktop-${String(data.id).slice(-8)}`);
     expect(data.expiresAt).toEqual(new Date(NOW.getTime() + 30 * 86400000));
     expect(data.sourceWeight).toBe(0.5);
     expect(JSON.stringify(data)).not.toContain(out.token);
     expect(out.record).not.toHaveProperty('tokenHash');
     expect(out.record.expiresAt).toBe(new Date(NOW.getTime() + 30 * 86400000).toISOString());
+  });
+});
+
+describe('createMcpToken — expiry default + unique-violation retry (reviews A9 / A10)', () => {
+  const input = { userId: USER, tenantId: TENANT, name: 'Claude Desktop', scopes: ['memory:read' as const] };
+  beforeEach(() => {
+    mockPrisma.tenant.findFirst.mockResolvedValue({ id: TENANT });
+    mockPrisma.mcpToken.count.mockResolvedValue(0);
+    mockPrisma.mcpToken.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...tokenRow(), ...data, lastUsedAt: null, revokedAt: null,
+    }));
+  });
+
+  it('expiresInDays omitted → 365 days, never null', async () => {
+    const out = await createMcpToken(input, NOW);
+    expect(mockPrisma.mcpToken.create.mock.calls[0][0].data.expiresAt).toEqual(new Date(NOW.getTime() + 365 * 86400000));
+    expect(out.record.expiresAt).toBe(new Date(NOW.getTime() + 365 * 86400000).toISOString());
+  });
+
+  it('expiresInDays: null → never expires (explicit)', async () => {
+    const out = await createMcpToken({ ...input, expiresInDays: null }, NOW);
+    expect(mockPrisma.mcpToken.create.mock.calls[0][0].data.expiresAt).toBeNull();
+    expect(out.record.expiresAt).toBeNull();
+  });
+
+  it('P2002 on the first INSERT → retried once with a fresh id + token; second P2002 → rethrown', async () => {
+    const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { target: ['agent_name'] } });
+    mockPrisma.mcpToken.create
+      .mockRejectedValueOnce(p2002)
+      .mockImplementationOnce(async ({ data }: { data: Record<string, unknown> }) => ({ ...tokenRow(), ...data, lastUsedAt: null, revokedAt: null }));
+    const out = await createMcpToken(input, NOW);
+    expect(mockPrisma.mcpToken.create).toHaveBeenCalledTimes(2);
+    const [first, second] = mockPrisma.mcpToken.create.mock.calls.map(c => c[0].data);
+    expect(first.id).not.toBe(second.id);
+    expect(first.tokenHash).not.toBe(second.tokenHash);
+    expect(hashMcpToken(out.token)).toBe(second.tokenHash);
+
+    mockPrisma.mcpToken.create.mockReset();
+    mockPrisma.mcpToken.create.mockRejectedValue(p2002);
+    await expect(createMcpToken(input, NOW)).rejects.toMatchObject({ code: 'P2002' });
+    expect(mockPrisma.mcpToken.create).toHaveBeenCalledTimes(2);
+
+    mockPrisma.mcpToken.create.mockReset();
+    mockPrisma.mcpToken.create.mockRejectedValue(new Error('db down'));
+    await expect(createMcpToken(input, NOW)).rejects.toThrow('db down');
+    expect(mockPrisma.mcpToken.create).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -279,36 +377,144 @@ describe('resolveMcpIdentity', () => {
     expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
   });
 
-  it('auto-link: verified email + known user owning exactly one tenant → read-only identity', async () => {
+  const createImpl = async ({ data }: { data: Record<string, unknown> }) => ({ ...identityRow(), ...data, revokedAt: null });
+
+  it('auto-link: verified email + known user owning one tenant → read-only identity with a per-identity agentName (A5) and a case-insensitive, trimmed email match (A6)', async () => {
     mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
-    mockPrisma.user.findUnique.mockResolvedValue({ id: USER });
-    mockPrisma.tenant.findMany.mockResolvedValue([{ id: TENANT }]);
-    mockPrisma.mcpOauthIdentity.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-      ...identityRow(), ...data, id: 'cidentnew00000000000000001', revokedAt: null,
-    }));
-    const out = await resolveMcpIdentity({ ...req, email: 'josh@example.com', emailVerified: true, clientId: 'chatgpt' }, NOW);
-    expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'josh@example.com' }, select: { id: true } });
-    expect(mockPrisma.mcpOauthIdentity.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ issuer: req.issuer, subject: req.subject, userId: USER, tenantId: TENANT, agentName: 'oauth:chatgpt', scopes: ['memory:read'], sourceWeight: 1 }),
-    });
-    expect(out).toMatchObject({ active: true, principal: { kind: 'oauth', id: 'cidentnew00000000000000001', userId: USER, tenantId: TENANT, scopes: ['memory:read'] } });
+    mockPrisma.user.findFirst.mockResolvedValue({ id: USER });
+    mockPrisma.tenant.findMany.mockResolvedValue([{ id: TENANT, createdAt: NOW }]);
+    mockPrisma.mcpOauthIdentity.create.mockImplementation(createImpl);
+    const out = await resolveMcpIdentity({ ...req, email: '  Josh@Example.COM ', emailVerified: true, clientId: 'chatgpt' }, NOW);
+    expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({ where: { email: { equals: 'josh@example.com', mode: 'insensitive' } }, select: { id: true } });
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.tenant.findMany).toHaveBeenCalledWith({ where: { ownerUserId: USER }, select: { id: true, createdAt: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    const data = mockPrisma.mcpOauthIdentity.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ issuer: req.issuer, subject: req.subject, userId: USER, tenantId: TENANT, scopes: ['memory:read'], sourceWeight: 1 });
+    expect(data.id).toMatch(/^c[A-Za-z0-9_-]{24}$/);
+    expect(data.agentName).toBe(`oauth:chatgpt-${String(data.id).slice(-8)}`);
+    expect(out).toMatchObject({ active: true, principal: { kind: 'oauth', id: data.id, userId: USER, tenantId: TENANT, scopes: ['memory:read'], agentName: data.agentName } });
   });
 
-  it('unlinked: no verified email / unknown user / user with 0 or 2 tenants', async () => {
+  it('auto-link (review D/M6): a user owning several tenants is linked to the OLDEST-created one, deterministically', async () => {
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
+    mockPrisma.user.findFirst.mockResolvedValue({ id: USER });
+    // the service asks the DB for createdAt asc, id asc — the first row is the oldest
+    mockPrisma.tenant.findMany.mockResolvedValue([
+      { id: 'josh-personal', createdAt: new Date('2026-01-01T00:00:00Z') },
+      { id: 'josh-business', createdAt: new Date('2026-02-01T00:00:00Z') },
+      { id: 'tgfc-ministry', createdAt: new Date('2026-03-01T00:00:00Z') },
+    ]);
+    mockPrisma.mcpOauthIdentity.create.mockImplementation(createImpl);
+    const out = await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true }, NOW);
+    expect(mockPrisma.mcpOauthIdentity.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'josh-personal', scopes: ['memory:read'] });
+    expect(out).toMatchObject({ active: true, principal: { tenantId: 'josh-personal', scopes: ['memory:read'] } });
+  });
+
+  it('unlinked: no verified email / unknown user / user with 0 tenants', async () => {
     mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
     expect(await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: false }, NOW)).toEqual({ active: false, reason: 'unlinked' });
     expect(await resolveMcpIdentity({ ...req, email: 'j@x.com' }, NOW)).toEqual({ active: false, reason: 'unlinked' });
-    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
 
-    mockPrisma.user.findUnique.mockResolvedValue(null);
+    mockPrisma.user.findFirst.mockResolvedValue(null);
     expect(await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true }, NOW)).toEqual({ active: false, reason: 'unlinked' });
 
-    mockPrisma.user.findUnique.mockResolvedValue({ id: USER });
+    mockPrisma.user.findFirst.mockResolvedValue({ id: USER });
     mockPrisma.tenant.findMany.mockResolvedValue([]);
     expect(await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true }, NOW)).toEqual({ active: false, reason: 'unlinked' });
-    mockPrisma.tenant.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
-    expect(await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true }, NOW)).toEqual({ active: false, reason: 'unlinked' });
     expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
+  });
+
+  it('issuer allow-list (review A6): MCP_OAUTH_ALLOWED_ISSUERS set → other issuers are issuer_not_allowed before any lookup', async () => {
+    const prev = process.env.MCP_OAUTH_ALLOWED_ISSUERS;
+    try {
+      process.env.MCP_OAUTH_ALLOWED_ISSUERS = 'https://accounts.example.com/, https://other.example';
+      mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(identityRow());
+      expect(await resolveMcpIdentity({ issuer: 'https://evil.example', subject: 'sub-123', email: 'j@x.com', emailVerified: true }, NOW)).toEqual({ active: false, reason: 'issuer_not_allowed' });
+      expect(mockPrisma.mcpOauthIdentity.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
+      // listed issuer (trailing-slash tolerant) still resolves
+      expect((await resolveMcpIdentity(req, NOW)).active).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.MCP_OAUTH_ALLOWED_ISSUERS; else process.env.MCP_OAUTH_ALLOWED_ISSUERS = prev;
+    }
+  });
+
+  it('create race (review A6): P2002 on (issuer, subject) → the winner row is re-read and returned, never a 500', async () => {
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(identityRow({ id: 'cidentwinner0000000000001' }));
+    mockPrisma.user.findFirst.mockResolvedValue({ id: USER });
+    mockPrisma.tenant.findMany.mockResolvedValue([{ id: TENANT, createdAt: NOW }]);
+    mockPrisma.mcpOauthIdentity.create.mockRejectedValue(Object.assign(new Error('dup'), { code: 'P2002', meta: { target: ['issuer', 'subject'] } }));
+    const out = await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true }, NOW);
+    expect(out).toMatchObject({ active: true, principal: { id: 'cidentwinner0000000000001' } });
+    expect(mockPrisma.mcpOauthIdentity.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('agentName collision (review A10): P2002 with no winner row → retried once with a fresh id; a second P2002 is rethrown', async () => {
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
+    mockPrisma.user.findFirst.mockResolvedValue({ id: USER });
+    mockPrisma.tenant.findMany.mockResolvedValue([{ id: TENANT, createdAt: NOW }]);
+    const p2002 = Object.assign(new Error('dup'), { code: 'P2002', meta: { target: ['agent_name'] } });
+    mockPrisma.mcpOauthIdentity.create.mockRejectedValueOnce(p2002).mockImplementationOnce(createImpl);
+    const out = await resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true, clientId: 'c' }, NOW);
+    expect(out.active).toBe(true);
+    expect(mockPrisma.mcpOauthIdentity.create).toHaveBeenCalledTimes(2);
+    const [a, b] = mockPrisma.mcpOauthIdentity.create.mock.calls.map(c => c[0].data);
+    expect(a.id).not.toBe(b.id);
+    expect(a.agentName).not.toBe(b.agentName);
+
+    mockPrisma.mcpOauthIdentity.create.mockReset();
+    mockPrisma.mcpOauthIdentity.create.mockRejectedValue(p2002);
+    await expect(resolveMcpIdentity({ ...req, email: 'j@x.com', emailVerified: true }, NOW)).rejects.toMatchObject({ code: 'P2002' });
+    expect(mockPrisma.mcpOauthIdentity.create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('OAuth identity administration (review D/M6)', () => {
+  it('listMcpIdentities: newest first, public records only', async () => {
+    mockPrisma.mcpOauthIdentity.findMany.mockResolvedValue([identityRow()]);
+    const out = await listMcpIdentities(USER);
+    expect(mockPrisma.mcpOauthIdentity.findMany).toHaveBeenCalledWith({ where: { userId: USER }, orderBy: { createdAt: 'desc' } });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: 'cident0000000000000000001', scopes: ['memory:read'] });
+  });
+
+  it('updateMcpIdentity: null for unknown id; tenant must be owned by the identity user (403 tenant_not_owned); scopes replaced; cache evicted', async () => {
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
+    expect(await updateMcpIdentity('nope', { scopes: ['memory:read'] })).toBeNull();
+
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(identityRow());
+    mockPrisma.tenant.findFirst.mockResolvedValue(null);
+    await expect(updateMcpIdentity('cident0000000000000000001', { tenantId: 'tgfc-ministry' })).rejects.toMatchObject({ statusCode: 403, body: { code: 'tenant_not_owned' } });
+    expect(mockPrisma.tenant.findFirst).toHaveBeenCalledWith({ where: { id: 'tgfc-ministry', ownerUserId: USER }, select: { id: true } });
+    expect(mockPrisma.mcpOauthIdentity.update).not.toHaveBeenCalled();
+
+    // warm the delegation cache, then update: the next load must refetch
+    await loadDelegatedPrincipal('oauth:cident0000000000000000001', NOW);
+    mockPrisma.mcpOauthIdentity.findUnique.mockClear();
+    mockPrisma.tenant.findFirst.mockResolvedValue({ id: 'tgfc-ministry' });
+    mockPrisma.mcpOauthIdentity.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => identityRow({ ...(data as object) }));
+    const rec = await updateMcpIdentity('cident0000000000000000001', { tenantId: 'tgfc-ministry', scopes: ['memory:read', 'task:write'] });
+    expect(mockPrisma.mcpOauthIdentity.update).toHaveBeenCalledWith({ where: { id: 'cident0000000000000000001' }, data: { tenantId: 'tgfc-ministry', scopes: ['memory:read', 'task:write'] } });
+    expect(rec).toMatchObject({ tenantId: 'tgfc-ministry', scopes: ['memory:read', 'task:write'] });
+    mockPrisma.mcpOauthIdentity.findUnique.mockClear();
+    await loadDelegatedPrincipal('oauth:cident0000000000000000001', NOW);
+    expect(mockPrisma.mcpOauthIdentity.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokeMcpIdentity: false for unknown id; sets revokedAt once (idempotent); evicts the cache so the next request is refused', async () => {
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
+    expect(await revokeMcpIdentity('nope', NOW)).toBe(false);
+
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(identityRow());
+    expect((await loadDelegatedPrincipal('oauth:cident0000000000000000001', NOW)).ok).toBe(true);
+    expect(await revokeMcpIdentity('cident0000000000000000001', NOW)).toBe(true);
+    expect(mockPrisma.mcpOauthIdentity.update).toHaveBeenCalledWith({ where: { id: 'cident0000000000000000001' }, data: { revokedAt: NOW } });
+    mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(identityRow({ revokedAt: NOW }));
+    expect(await loadDelegatedPrincipal('oauth:cident0000000000000000001', NOW)).toEqual({ ok: false, reason: 'revoked' });
+    mockPrisma.mcpOauthIdentity.update.mockClear();
+    expect(await revokeMcpIdentity('cident0000000000000000001', NOW)).toBe(true);
+    expect(mockPrisma.mcpOauthIdentity.update).not.toHaveBeenCalled();
   });
 });
 

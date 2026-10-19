@@ -5,6 +5,7 @@ import { parseInput } from '../lib/validate';
 import { MAX_PAGE_SIZE } from '../lib/cursor';
 import { PROVENANCE, McpProvenanceSchema } from '../lib/provenance';
 import type { OmniMindClient, MemoryRecord } from '../lib/client';
+import { isInvalidatedMemory } from './memory.tool';
 import { McpValidationError, READ_ONLY_ANNOTATIONS } from '../types';
 import type { AgentContext, McpTool } from '../types';
 
@@ -49,14 +50,22 @@ export function parseMemoryId(raw: string, ctx: AgentContext, appUrl: string | u
     throw new McpValidationError(`Invalid tool input: id: ${why}`, [{ path: 'id', message: why }]);
   };
   if (!value) return reject('must not be empty');
+  // L-1 — malformed percent-encoding is a VALIDATION_ERROR like any other bad id, not a URIError.
+  const decode = (part: string): string => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return reject('not a memory id');
+    }
+  };
 
   const resource = /^omnimind:\/\/([^/]+)\/memory\/([^/?#]+)$/.exec(value);
   if (resource) {
-    if (decodeURIComponent(resource[1]) !== ctx.tenantId) return reject('resource tenant does not match this principal');
-    return checkRaw(decodeURIComponent(resource[2]), reject);
+    if (decode(resource[1]) !== ctx.tenantId) return reject('resource tenant does not match this principal');
+    return checkRaw(decode(resource[2]), reject);
   }
   if (appUrl && value.startsWith(`${appUrl}/memory/`)) {
-    return checkRaw(decodeURIComponent(value.slice(appUrl.length + '/memory/'.length).split(/[?#]/)[0]), reject);
+    return checkRaw(decode(value.slice(appUrl.length + '/memory/'.length).split(/[?#]/)[0]), reject);
   }
   const node = /^([a-z]+):(.+)$/.exec(value);
   if (node) {
@@ -74,6 +83,7 @@ function checkRaw(id: string, reject: (why: string) => never): string {
 const SearchInput = z.object({
   query: z.string().min(1).describe('Natural-language search query over the memory store'),
   limit: z.number().int().min(1).max(MAX_PAGE_SIZE).default(SEARCH_DEFAULT_LIMIT).describe(`Max results (default ${SEARCH_DEFAULT_LIMIT}, max ${MAX_PAGE_SIZE})`),
+  includeArchived: z.boolean().default(false).describe('Also return SUPERSEDED / ARCHIVED (invalidated) memories; off by default'),
   userId: z.string().optional().describe('Defaults to the authenticated user'),
 });
 
@@ -158,7 +168,7 @@ export function searchTool(client: OmniMindClient, ctx: AgentContext, opts: Conn
   return {
     name: 'search',
     title: 'Search (connector)',
-    description: 'Read-only connector search over the shared memory store (same hybrid semantic + full-text + trigram ranking as memory_search). Returns {results:[{id,title,url}]}; pass an id to fetch for the full text.',
+    description: 'Read-only connector search over the shared memory store (same hybrid semantic + full-text + trigram ranking as memory_search). Returns {results:[{id,title,url}]} of currently valid memories (superseded / archived rows are excluded unless includeArchived=true); pass an id to fetch for the full text.',
     inputSchema: SearchInput,
     outputSchema: SearchOutputSchema,
     annotations: READ_ONLY_ANNOTATIONS,
@@ -166,10 +176,14 @@ export function searchTool(client: OmniMindClient, ctx: AgentContext, opts: Conn
       requireScope(ctx, 'memory:read');
       const input = parseInput(SearchInput, raw);
       const userId = boundUser(ctx, input.userId);
-      return withAudit(client, ctx, 'search', { query: input.query, limit: input.limit, userId }, async () => {
-        const { items } = await client.searchHybrid({ query: input.query, limit: input.limit }, userId);
+      return withAudit(client, ctx, 'search', { query: input.query, limit: input.limit, includeArchived: input.includeArchived, userId }, async () => {
+        const { items } = await client.searchHybrid({ query: input.query, limit: input.limit, includeArchived: input.includeArchived }, userId);
+        // L-7 — the hybrid route excludes ARCHIVED but still ranks SUPERSEDED
+        // rows (and anything with `invalidAt` / `supersededBy` set); Deep
+        // Research must not cite stale facts, so drop them unless asked for.
+        const visible = input.includeArchived ? items : items.filter(m => !isInvalidatedMemory(m));
         return {
-          results: items.map(m => ({ id: m.id, title: titleOf(m), url: memoryUrl(ctx, m.id, opts.appUrl) })),
+          results: visible.map(m => ({ id: m.id, title: titleOf(m), url: memoryUrl(ctx, m.id, opts.appUrl) })),
           provenance: PROVENANCE,
         };
       });
@@ -181,7 +195,7 @@ export function fetchTool(client: OmniMindClient, ctx: AgentContext, opts: Conne
   return {
     name: 'fetch',
     title: 'Fetch (connector)',
-    description: 'Read-only connector fetch of one memory by id (from search): {id,title,text,url,metadata}. Only memory ids are accepted.',
+    description: 'Read-only connector fetch of one memory by id (from search): {id,title,text,url,metadata}. Only memory ids are accepted. A superseded / archived row is returned as stored with metadata.status (SUPERSEDED / ARCHIVED) and metadata.invalidAt set — treat it as history, not current truth.',
     inputSchema: FetchInput,
     outputSchema: FetchOutputSchema,
     annotations: READ_ONLY_ANNOTATIONS,

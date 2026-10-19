@@ -44,6 +44,9 @@ export function MemorySearch() {
   const tagChips = useMemo(() => collectTagChips(memories, selectedTags), [memories, selectedTags]);
   const asOfLabel = formatAsOf(filters.asOf);
   const hybridEligible = engine === 'hybrid';
+  // Which endpoint answered decides which controls do anything: the hybrid
+  // endpoint ignores class / sort, the list endpoint ignores as-of / archived.
+  const listOnlyTitle = 'Not applied by hybrid search — clear the query to filter the list by it';
 
   function toggleTag(tag: string) {
     const next = selectedTags.includes(tag) ? selectedTags.filter((t) => t !== tag) : [...selectedTags, tag];
@@ -110,7 +113,9 @@ export function MemorySearch() {
             setFilters({ memoryClass: e.target.value || undefined })
           }
           aria-label="Memory class"
-          className={selectClass}
+          className={cn(selectClass, hybridActive && 'opacity-50 cursor-not-allowed')}
+          disabled={hybridActive}
+          title={hybridActive ? listOnlyTitle : undefined}
         >
           <option value="">All Classes</option>
           {Object.values(MemoryClass).map((mc) => (
@@ -138,7 +143,9 @@ export function MemorySearch() {
           value={filters.sortBy ?? 'createdAt'}
           onChange={(e) => setFilters({ sortBy: e.target.value })}
           aria-label="Sort by"
-          className={selectClass}
+          className={cn(selectClass, hybridActive && 'opacity-50 cursor-not-allowed')}
+          disabled={hybridActive}
+          title={hybridActive ? 'Hybrid results are ranked by relevance; sorting applies to the list' : undefined}
         >
           <option value="createdAt">Created</option>
           <option value="importance">Importance</option>
@@ -153,42 +160,48 @@ export function MemorySearch() {
                 filters.sortOrder === 'asc' ? 'desc' : 'asc',
             })
           }
-          className="bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors"
-          title={`Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
+          disabled={hybridActive}
+          className={cn('bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors', hybridActive && 'opacity-50 cursor-not-allowed')}
+          title={hybridActive ? 'Hybrid results are ranked by relevance; sorting applies to the list' : `Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
         >
           {filters.sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
         </button>
 
-        {/* As-of date (hybrid search time travel) */}
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Only memories that were valid on this day (hybrid search)">
-          <span>As of</span>
-          <input
-            type="date"
-            value={filters.asOf ?? ''}
-            onChange={(e) => setFilters({ asOf: e.target.value || undefined })}
-            aria-label="As of date"
-            className={`${selectClass} py-1`}
-          />
-        </label>
+        {/* As-of date + archived (hybrid search only) — hidden while the list endpoint answers,
+            because it ignores both; a stale chip stays visible so it can be cleared. */}
+        {hybridEligible && hybridActive && (
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Only memories that were valid on this day (hybrid search)">
+            <span>As of</span>
+            <input
+              type="date"
+              value={filters.asOf ?? ''}
+              onChange={(e) => setFilters({ asOf: e.target.value || undefined })}
+              aria-label="As of date"
+              className={`${selectClass} py-1`}
+            />
+          </label>
+        )}
         {asOfLabel && (
-          <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-foreground" data-testid="memory-asof-chip">
+          <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-foreground" data-testid="memory-asof-chip" title={hybridActive ? undefined : 'Applies once you type a query (hybrid search)'}>
             {asOfLabel}
             <button type="button" onClick={() => setFilters({ asOf: undefined })} aria-label="Clear as-of date" className="text-muted-foreground hover:text-foreground">×</button>
           </span>
         )}
 
-        <button
-          type="button"
-          onClick={() => setFilters({ includeArchived: filters.includeArchived ? undefined : true })}
-          aria-pressed={!!filters.includeArchived}
-          className={cn(
-            'rounded border px-2 py-1.5 text-sm transition-colors',
-            filters.includeArchived ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
-          )}
-          title="Include archived memories (hybrid search)"
-        >
-          Include archived
-        </button>
+        {hybridEligible && hybridActive && (
+          <button
+            type="button"
+            onClick={() => setFilters({ includeArchived: filters.includeArchived ? undefined : true })}
+            aria-pressed={!!filters.includeArchived}
+            className={cn(
+              'rounded border px-2 py-1.5 text-sm transition-colors',
+              filters.includeArchived ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
+            )}
+            title="Include archived memories (hybrid search)"
+          >
+            Include archived
+          </button>
+        )}
 
         <button
           type="button"

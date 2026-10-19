@@ -59,6 +59,34 @@ describe('MemorySearch — hybrid filters', () => {
     render(<MemorySearch />);
     expect(screen.getByText('hybrid')).toBeInTheDocument();
   });
+
+  it('greys out the controls the hybrid endpoint ignores (class, sort) while hybrid results are shown (M5)', () => {
+    render(<MemorySearch />);
+    expect(screen.getByLabelText('Memory class')).toBeDisabled();
+    expect(screen.getByLabelText('Memory class')).toHaveAttribute('title', expect.stringMatching(/Not applied by hybrid search/));
+    expect(screen.getByLabelText('Sort by')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Desc|Asc/ })).toBeDisabled();
+    expect(screen.getByLabelText('Status')).toBeEnabled(); // status IS forwarded to hybrid
+    expect(screen.getByLabelText('As of date')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Include archived' })).toBeInTheDocument();
+  });
+
+  it('hides as-of / include-archived (which the list endpoint ignores) while the list endpoint answers (M5)', () => {
+    useMemoryStore.setState({ hybridActive: false, filters: {}, memories: [] });
+    render(<MemorySearch />);
+    expect(screen.queryByLabelText('As of date')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Include archived' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Memory class')).toBeEnabled();
+    expect(screen.getByLabelText('Sort by')).toBeEnabled();
+  });
+
+  it('a stale as-of chip stays clearable in list mode', () => {
+    useMemoryStore.setState({ hybridActive: false, filters: { asOf: '2026-08-12' }, memories: [] });
+    render(<MemorySearch />);
+    expect(screen.getByTestId('memory-asof-chip')).toHaveTextContent('as of 12 Aug 2026');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear as-of date' }));
+    expect(useMemoryStore.getState().filters.asOf).toBeUndefined();
+  });
 });
 
 describe('MemoryList — hybrid results', () => {

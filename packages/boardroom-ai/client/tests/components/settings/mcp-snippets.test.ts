@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   MCP_CLIENTS,
+  MCP_REVOKE_NOTE,
+  MCP_RUNBOOK_PATH,
   buildSnippet,
+  claudeCodeCommand,
   cursorDeeplink,
   inferClientFromName,
   type McpClientId,
 } from '../../../src/components/settings/mcp-snippets';
-import { readWriteScopes, describeCreateError } from '../../../src/components/settings/McpTokenCreateForm';
+import { readWriteScopes, describeCreateError, describeValidationDetails } from '../../../src/components/settings/McpTokenCreateForm';
 import { ApiError } from '../../../src/lib/api';
 
 const input = { mcpUrl: 'https://mcp.example/mcp', token: 'omt_abc_secret' };
@@ -51,12 +54,57 @@ describe('buildSnippet', () => {
     expect(s.blocks[0].code).toContain('"Authorization": "Bearer omt_abc_secret"');
   });
 
-  it('ChatGPT explains OAuth availability from connect-info and mentions search/fetch', () => {
+  it('ChatGPT (M7): OAuth-first when enabled; otherwise says plainly that a token may not be usable and points to the runbook', () => {
     const off = buildSnippet('chatgpt', { ...input, oauthEnabled: false });
-    expect(off.notes.join(' ')).toMatch(/OAuth is not enabled/);
+    const offText = [...off.steps, ...off.notes].join(' ');
+    expect(offText).toMatch(/OAuth is not enabled on this server yet/);
+    expect(offText).toMatch(/ChatGPT cannot use this token/);
+    expect(offText).toContain(MCP_RUNBOOK_PATH);
+    expect(offText).toMatch(/OAuth or "No authentication"/);
     expect(off.notes.join(' ')).toMatch(/`search` and `fetch`/);
+    // No step tells the user to pick a header option as if it were guaranteed.
+    expect(off.steps.some((s) => /choose "Custom header"/.test(s))).toBe(false);
+
     const on = buildSnippet('chatgpt', { ...input, oauthEnabled: true });
-    expect(on.notes.join(' ')).toMatch(/choose OAuth instead/);
+    expect(on.steps[2]).toMatch(/^Authentication: choose OAuth/);
+    expect(on.steps.join(' ')).toMatch(/no token is needed/);
+    expect(on.notes.join(' ')).toMatch(/`search` and `fetch`/);
+  });
+
+  it('Claude.ai / Claude Desktop (H1): header steps, an explicit no-header-field fallback, OAuth first when enabled', () => {
+    for (const id of ['claude-ai', 'claude-desktop'] as const) {
+      const off = buildSnippet(id, { ...input, oauthEnabled: false });
+      expect(off.steps[2]).toMatch(/Advanced settings\. If it shows a header field/);
+      expect(off.notes[0]).toBe(
+        "If your plan's Add custom connector dialog has no header field, this server needs OAuth (operator sets OMNIMIND_MCP_OAUTH_ISSUER) — until then use Claude Code or Claude Desktop with the Claude Code MCP config below.",
+      );
+      expect(off.notes.join(' ')).toMatch(/OAuth is not enabled/);
+      // The fallback is actionable: the Claude Code one-liner ships as a block.
+      expect(off.blocks.some((b) => b.code === claudeCodeCommand(input.mcpUrl, input.token))).toBe(true);
+      // No unverified plan-availability claim.
+      expect([...off.steps, ...off.notes].join(' ')).not.toMatch(/Pro, Max, Team, Enterprise/);
+
+      const on = buildSnippet(id, { ...input, oauthEnabled: true });
+      expect(on.steps[1]).toMatch(/advertises OAuth/);
+      expect(on.steps[1]).toMatch(/No token is needed on this path/);
+      expect(on.steps[2]).toMatch(/if a header field is offered/);
+      expect(on.notes.join(' ')).toMatch(/no header field/);
+    }
+    // Desktop additionally gets a claude_desktop_config.json bridge that needs no header field at all.
+    const desktop = buildSnippet('claude-desktop', { ...input, oauthEnabled: false });
+    const bridge = desktop.blocks.find((b) => b.label.startsWith('Or claude_desktop_config.json'));
+    expect(bridge).toBeDefined();
+    expect(JSON.parse(bridge!.code).mcpServers.omnimind.args).toEqual(['-y', 'mcp-remote', input.mcpUrl, '--header', 'Authorization:Bearer omt_abc_secret']);
+    expect(buildSnippet('claude-ai', input).blocks.some((b) => b.label.startsWith('Or claude_desktop_config.json'))).toBe(false);
+  });
+
+  it('the revoke note says access ends within about a minute (60 s token cache), on every client', () => {
+    for (const { id } of MCP_CLIENTS) {
+      const s = buildSnippet(id, input);
+      expect(s.notes, id).toContain(MCP_REVOKE_NOTE);
+      expect(s.notes.join(' '), id).toMatch(/within about a minute/);
+      expect(s.notes.join(' '), id).not.toMatch(/immediately/);
+    }
   });
 
   it('unknown ids fall back to the generic Streamable HTTP snippet', () => {
@@ -105,5 +153,34 @@ describe('describeCreateError', () => {
     expect(describeCreateError(new ApiError('x', 409, { error: 'token_limit' }))).toMatch(/token limit/i);
     expect(describeCreateError(new ApiError('bad name', 422, { error: 'validation_failed' }))).toBe('bad name');
     expect(describeCreateError(new Error('boom'))).toBe('boom');
+  });
+
+  it('402 (lapsed subscription) explains that existing tokens still work and can be revoked', () => {
+    const msg = describeCreateError(new ApiError('Request failed: 402', 402, { error: 'subscription_required', message: 'Please subscribe to continue' }));
+    expect(msg).toMatch(/subscription is not active/);
+    expect(msg).toMatch(/can still be revoked/);
+  });
+
+  it('validation_failed bodies with no message become readable copy — BoardRoom [{field,message}] and OmniMind details alike', () => {
+    // BoardRoom's own validateBody (422) and OmniMind's /mcp 400 bodies both carry [{ field, message }].
+    const br = describeCreateError(new ApiError('Request failed: 422', 422, {
+      error: 'validation_failed',
+      details: [{ field: 'scopes.1', message: "Invalid enum value. Expected 'memory:read' | …, received 'bogus'" }, { field: 'name', message: 'String must contain at most 60 character(s)' }],
+    }));
+    expect(br).toBe("Please check: Scopes: Invalid enum value. Expected 'memory:read' | …, received 'bogus'; Token name: String must contain at most 60 character(s).");
+    expect(br).not.toMatch(/Request failed/);
+
+    const om400 = describeCreateError(new ApiError('Request failed: 400', 400, {
+      error: 'validation_failed',
+      details: [{ field: 'expiresInDays', message: 'Expected number, received string' }],
+    }));
+    expect(om400).toBe('Please check: Expiry: Expected number, received string.');
+
+    // Older zod flatten() shape is still understood.
+    expect(describeValidationDetails({ details: { formErrors: [], fieldErrors: { scopes: ['scopes must not repeat'] } } }))
+      .toBe('Please check: Scopes: scopes must not repeat.');
+    // Nothing usable → null so the caller can fall back.
+    expect(describeValidationDetails({ error: 'validation_failed' })).toBeNull();
+    expect(describeCreateError(new ApiError('Request failed: 422', 422, { error: 'validation_failed' }))).toBe('Request failed: 422');
   });
 });

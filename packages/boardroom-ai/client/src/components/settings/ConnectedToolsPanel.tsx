@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Badge, Card, Skeleton, useToastStore } from '../ui';
 import { getMcpConnectInfo, getMcpTokenOptions, listMcpTokens, revokeMcpToken } from '../../lib/api';
 import type { McpConnectInfo, McpTokenCreateResponse, McpTokenOptions, McpTokenRecord } from '../../lib/api';
@@ -23,9 +23,25 @@ interface TokenRowProps {
 function TokenRow({ token, onRevoke }: TokenRowProps) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const revokeBtnRef = useRef<HTMLButtonElement>(null);
+  /** Where focus should land once the confirm group unmounts: the row (after a revoke) or the Revoke button (after Cancel). */
+  const restoreFocus = useRef<'row' | 'button' | null>(null);
   const revoked = Boolean(token.revokedAt);
   const expired = !revoked && isExpired(token);
   const clientId = inferClientFromName(token.name);
+
+  // The confirm buttons unmount when `confirming` flips back, which would drop
+  // focus to <body>; move it somewhere sensible instead (a11y, L3). Cancel →
+  // the Revoke button; a failed revoke → the row. A successful revoke moves the
+  // token to the revoked list (a new row instance), so the panel handles that case.
+  useEffect(() => {
+    if (confirming || !restoreFocus.current) return;
+    const target = restoreFocus.current;
+    restoreFocus.current = null;
+    if (target === 'button' && revokeBtnRef.current) revokeBtnRef.current.focus();
+    else rowRef.current?.focus();
+  }, [confirming, revoked]);
 
   async function confirmRevoke() {
     setBusy(true);
@@ -33,13 +49,21 @@ function TokenRow({ token, onRevoke }: TokenRowProps) {
       await onRevoke(token.id);
     } finally {
       setBusy(false);
+      restoreFocus.current = 'row';
       setConfirming(false);
     }
   }
 
+  function cancelRevoke() {
+    restoreFocus.current = 'button';
+    setConfirming(false);
+  }
+
   return (
     <li
-      className={`rounded-xl border border-border p-4 space-y-3 ${revoked ? 'opacity-60' : ''}`}
+      ref={rowRef}
+      tabIndex={-1}
+      className={`rounded-xl border border-border p-4 space-y-3 outline-none focus-visible:ring-2 focus-visible:ring-ring ${revoked ? 'opacity-60' : ''}`}
       data-testid={`mcp-token-row-${token.id}`}
       aria-label={`Token ${token.name}`}
     >
@@ -60,10 +84,10 @@ function TokenRow({ token, onRevoke }: TokenRowProps) {
               <Button variant="danger" size="sm" onClick={confirmRevoke} disabled={busy} autoFocus>
                 {busy ? 'Revoking…' : 'Confirm revoke'}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
+              <Button variant="ghost" size="sm" onClick={cancelRevoke} disabled={busy}>Cancel</Button>
             </div>
           ) : (
-            <Button variant="secondary" size="sm" onClick={() => setConfirming(true)} aria-label={`Revoke ${token.name}`}>
+            <Button ref={revokeBtnRef} variant="secondary" size="sm" onClick={() => setConfirming(true)} aria-label={`Revoke ${token.name}`}>
               Revoke
             </Button>
           )
@@ -93,9 +117,20 @@ export function ConnectedToolsPanel() {
   const [tokens, setTokens] = useState<McpTokenRecord[]>([]);
   const [options, setOptions] = useState<McpTokenOptions | null>(null);
   const [connectInfo, setConnectInfo] = useState<McpConnectInfo | null>(null);
+  const [connectInfoError, setConnectInfoError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const revokedSummaryRef = useRef<HTMLElement>(null);
+  const newTokenRef = useRef<HTMLButtonElement>(null);
+  /** Set after a successful revoke: the row moves to the revoked list (a new instance), so focus is restored here, not in the row. */
+  const [focusAfterRevoke, setFocusAfterRevoke] = useState(false);
+
+  useEffect(() => {
+    if (!focusAfterRevoke) return;
+    setFocusAfterRevoke(false);
+    (revokedSummaryRef.current ?? newTokenRef.current)?.focus();
+  }, [focusAfterRevoke, tokens]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,7 +142,14 @@ export function ConnectedToolsPanel() {
     ]);
     if (tokensRes.status === 'fulfilled') setTokens(tokensRes.value.tokens ?? []);
     if (optionsRes.status === 'fulfilled') setOptions(optionsRes.value);
-    if (infoRes.status === 'fulfilled') setConnectInfo(infoRes.value);
+    if (infoRes.status === 'fulfilled') {
+      setConnectInfo(infoRes.value);
+      setConnectInfoError(null);
+    } else {
+      // Distinct from "configured without a URL": the request itself failed.
+      setConnectInfo(null);
+      setConnectInfoError(infoRes.reason instanceof Error ? infoRes.reason.message : 'Could not load the connection details');
+    }
     const failed = [tokensRes, optionsRes].find((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (failed) {
       const reason = failed.reason;
@@ -127,6 +169,7 @@ export function ConnectedToolsPanel() {
       await revokeMcpToken(id);
       const now = new Date().toISOString();
       setTokens((prev) => prev.map((t) => (t.id === id ? { ...t, revokedAt: now } : t)));
+      setFocusAfterRevoke(true);
       addToast('Token revoked', 'success');
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Could not revoke token', 'error');
@@ -143,11 +186,12 @@ export function ConnectedToolsPanel() {
         <div>
           <h2 className="text-lg font-medium text-foreground">Connected AI tools</h2>
           <p className="text-sm text-muted-foreground">
-            Give Claude, ChatGPT, Cursor or any MCP client access to your OmniMind memory with a personal token. No OAuth setup needed.
+            Give Claude Code, Cursor, ChatGPT or any MCP client access to your OmniMind memory with a personal token.
+            Clients that accept a header need no OAuth setup; the install snippet tells you when a client does.
           </p>
         </div>
         {!creating && (
-          <Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={loading || !hasTenant}>
+          <Button ref={newTokenRef} variant="primary" size="sm" onClick={() => setCreating(true)} disabled={loading || !hasTenant}>
             New token
           </Button>
         )}
@@ -168,9 +212,16 @@ export function ConnectedToolsPanel() {
           )}
 
           {connectInfo && !connectInfo.mcpUrl && (
-            <p className="rounded-xl border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-foreground" role="note">
-              The public MCP URL is not configured. Snippets will show a placeholder until the operator sets{' '}
+            <p className="rounded-xl border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-foreground" role="note" data-testid="mcp-url-unset">
+              The public MCP URL is not configured. Snippets will show a placeholder (and its Copy buttons stay disabled) until the operator sets{' '}
               <code className="font-mono">OMNIMIND_MCP_PUBLIC_URL</code> on BoardRoom.
+            </p>
+          )}
+
+          {!connectInfo && connectInfoError && (
+            <p className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-foreground" role="note" data-testid="mcp-connect-info-failed">
+              <span>Could not load the connection details ({connectInfoError}). You can still create and revoke tokens; snippets will show a placeholder URL until this loads.</span>
+              <Button variant="ghost" size="sm" onClick={() => void load()}>Retry</Button>
             </p>
           )}
 
@@ -189,6 +240,7 @@ export function ConnectedToolsPanel() {
               <McpTokenCreateForm
                 options={options}
                 connectInfo={connectInfo}
+                connectInfoError={connectInfoError}
                 onCreated={handleCreated}
                 onDone={() => setCreating(false)}
               />
@@ -213,7 +265,12 @@ export function ConnectedToolsPanel() {
 
           {revoked.length > 0 && (
             <details className="group">
-              <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
+              <summary
+                ref={revokedSummaryRef}
+                tabIndex={0}
+                className="cursor-pointer rounded text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid="mcp-revoked-summary"
+              >
                 {revoked.length} revoked token{revoked.length === 1 ? '' : 's'}
               </summary>
               <ul className="space-y-3 mt-3" aria-label="Revoked tokens">

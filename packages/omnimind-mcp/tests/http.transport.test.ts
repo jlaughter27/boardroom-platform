@@ -11,8 +11,8 @@ import { request as httpRequest } from 'http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
-  startHttpServer, createHttpApp, resolveHttpConfig, resolveSessionIdleMs, keysMatch, extractPresentedKey,
-  MAX_BODY_BYTES, DEFAULT_SESSION_IDLE_MS, type StartedHttpServer, type Session,
+  startHttpServer, createHttpApp, resolveHttpConfig, resolveSessionIdleMs, keysMatch, extractPresentedKey, parsePort,
+  MAX_BODY_BYTES, DEFAULT_SESSION_IDLE_MS, DEFAULT_PORT, type StartedHttpServer, type Session,
 } from '../src/transports/http';
 import type { AgentContext } from '../src/types';
 
@@ -83,6 +83,14 @@ describe('config / auth helpers', () => {
     expect(keysMatch('abd', 'abc')).toBe(false);
     expect(keysMatch('ab', 'abc')).toBe(false);
     expect(keysMatch(undefined, 'abc')).toBe(false);
+  });
+
+  it('L-10: parsePort accepts 1..65535, defaults when unset, and refuses garbage (so listen(NaN) can never happen)', () => {
+    expect(parsePort(undefined)).toBe(DEFAULT_PORT);
+    expect(parsePort('')).toBe(DEFAULT_PORT);
+    expect(parsePort(' 8080 ')).toBe(8080);
+    expect(parsePort('65535')).toBe(65535);
+    for (const bad of ['0', '65536', '-1', 'abc', '80.5', '1e3', '0x50', '3334 extra']) expect(parsePort(bad), bad).toBeUndefined();
   });
 
   it('parses Bearer case-insensitively and x-mcp-api-key', () => {

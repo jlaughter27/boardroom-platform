@@ -98,7 +98,7 @@ packages/omnimind-api/
 │   ├── middleware/               # auth (API key), validate (Zod), error-handler, rate-limiter
 │   ├── jobs/
 │   │   └── cortex-scheduler.ts   # node-cron: weekly memo (Sun 6pm), patterns (Mon 3am),
-│   │                             # contradictions (Tue 9pm)
+│   │                             # contradictions (Mon 4am)
 │   └── lib/
 │       ├── db.ts logger.ts env.ts prompt-loader.ts
 ├── tests/unit/                   # Vitest unit tests

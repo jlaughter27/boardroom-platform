@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  FOCUS_HISTORY_MAX, breadcrumbs, canGoBack, canGoForward, createFocusHistory, currentFocus, goBack, goForward, pushFocus,
+  FOCUS_HISTORY_MAX, breadcrumbs, canGoBack, canGoForward, createFocusHistory, currentFocus, goBack, goForward, pruneHistory, pushFocus,
+  type FocusHistory,
 } from '../../../src/components/graph/graph-focus';
 
 describe('graph-focus — focus history', () => {
@@ -50,5 +51,21 @@ describe('graph-focus — focus history', () => {
     h = goBack(goBack(h));
     expect(breadcrumbs(h, 3)).toEqual(['c', 'd', 'e']);
     expect(breadcrumbs(createFocusHistory())).toEqual([]);
+  });
+
+  it('pruneHistory drops ids that no longer exist, collapses duplicates and keeps the index on the nearest earlier survivor (L10)', () => {
+    const h: FocusHistory = { entries: ['a', 'b', 'c', 'b'], index: 3 };
+    const pruned = pruneHistory(h, (id) => id !== 'b');
+    expect(pruned).toEqual({ entries: ['a', 'c'], index: 1 });
+    // current entry survives → index follows it
+    expect(pruneHistory({ entries: ['a', 'b', 'c'], index: 2 }, (id) => id !== 'a')).toEqual({ entries: ['b', 'c'], index: 1 });
+    // removal creating a consecutive duplicate collapses it
+    expect(pruneHistory({ entries: ['a', 'b', 'a'], index: 2 }, (id) => id !== 'b')).toEqual({ entries: ['a'], index: 0 });
+    // nothing to prune → same reference (no re-render churn)
+    expect(pruneHistory(h, () => true)).toBe(h);
+    // everything pruned → empty
+    expect(pruneHistory(h, () => false)).toEqual({ entries: [], index: -1 });
+    // the current entry is dropped and nothing earlier survives → the first survivor
+    expect(pruneHistory({ entries: ['x', 'y'], index: 0 }, (id) => id !== 'x')).toEqual({ entries: ['y'], index: 0 });
   });
 });

@@ -18,14 +18,28 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
 import { fetch as undiciFetch } from 'undici';
 import { z } from 'zod';
+import { MCP_SCOPES as SHARED_MCP_SCOPES, MCP_GATEWAY_CEILING_SCOPES, MCP_DELEGATE_SCOPE, MCP_TOKEN_PREFIX, MCP_TOKEN_RANDOM_BYTES } from '@boardroom/shared';
 import { assertSourceWeight } from './auth';
+import { OmniMindHttpError } from './client';
 import { LruTtlCache } from './replay-cache';
 import type { IdentityClaims, IntrospectResult, OmniMindClient, ResolveIdentityResult } from './client';
 import { principalKeyOf } from '../types';
 import type { AgentContext, McpPrincipal } from '../types';
 
-/** Every scope an OmniMind agent / token / identity can hold (advertised in the PRM document). */
-export const MCP_SCOPES = ['memory:read', 'memory:write', 'decision:write', 'task:write', 'project:write', 'commitment:write'] as const;
+/**
+ * Every scope an OmniMind token / identity can hold (advertised in the PRM
+ * document). The shared constant is the single vocabulary the API, BoardRoom
+ * and this server agree on; re-exported here for existing importers.
+ */
+export const MCP_SCOPES = SHARED_MCP_SCOPES;
+/**
+ * L-6 — the most a delegated context can ever hold: the gateway ceiling minus
+ * the gateway-only `mcp:delegate`. The API computes `principal ∩ (gateway row −
+ * mcp:delegate)`; applying the same ceiling here means `requireScope()` and the
+ * API agree, and a wildcard principal is expanded to the explicit list rather
+ * than passing locally and failing upstream.
+ */
+export const DELEGATED_SCOPE_CEILING: readonly string[] = MCP_GATEWAY_CEILING_SCOPES.filter(s => s !== MCP_DELEGATE_SCOPE);
 /** JWS algorithm allowlist for OAuth access tokens — asymmetric only, never HS*. */
 export const OAUTH_ALGORITHMS = ['RS256', 'ES256', 'EdDSA'] as const;
 export const PRINCIPAL_CACHE_POSITIVE_MS = 60_000;
@@ -33,7 +47,11 @@ export const PRINCIPAL_CACHE_NEGATIVE_MS = 10_000;
 export const PRINCIPAL_CACHE_MAX_ENTRIES = 2_000;
 /** Session-binding key of the legacy static credential (one identity per process). */
 export const STATIC_PRINCIPAL_KEY = 'static:env';
-export const TOKEN_PREFIX = 'omt_';
+export const TOKEN_PREFIX: string = MCP_TOKEN_PREFIX;
+/** base64url of `MCP_TOKEN_RANDOM_BYTES` random bytes, unpadded: 32 bytes → 43 chars. */
+export const TOKEN_RANDOM_CHARS = Math.ceil((MCP_TOKEN_RANDOM_BYTES * 4) / 3);
+/** A compact JWS larger than this is refused before any verification (M-4). */
+export const JWT_MAX_BYTES = 8 * 1024;
 /** RFC 9728 well-known path; also served with the `/mcp` suffix for path-scoped resources. */
 export const PRM_PATH = '/.well-known/oauth-protected-resource';
 export const DEFAULT_DOCS_URL = 'https://github.com/jlaughter27/boardroom-platform/blob/main/docs/MEMORY-PROTOCOL.md';
@@ -83,6 +101,26 @@ function assertHttpUrl(value: string, label: string): string {
   return value;
 }
 
+/** `localhost` / `127.0.0.1` / `::1` — the only hosts allowed to speak plain http for issuer / JWKS URLs. */
+export function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+/**
+ * L-3 — an authorization-server URL (issuer, JWKS) must be https; plain http
+ * is accepted only on loopback (local development). Discovery and key
+ * fetching over cleartext would let a MITM substitute signing keys.
+ */
+export function assertSecureUrl(value: string, label: string): string {
+  assertHttpUrl(value, label);
+  const u = new URL(value);
+  if (u.protocol !== 'https:' && !isLoopbackHost(u.hostname)) {
+    throw new Error(`${label} must use https (plain http is only accepted for localhost / 127.0.0.1): got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
 /**
  * Resolve the inbound-auth configuration from env. Throws (with a message the
  * operator can act on) when nothing is configured or a mode is half-configured:
@@ -111,14 +149,14 @@ export function resolvePrincipalAuthConfig(env: NodeJS.ProcessEnv = process.env)
 
   let oauth: OAuthConfig | undefined;
   if (issuer) {
-    assertHttpUrl(issuer, 'OMNIMIND_MCP_OAUTH_ISSUER');
+    assertSecureUrl(issuer, 'OMNIMIND_MCP_OAUTH_ISSUER');
     if (!agentKey) throw new Error('OMNIMIND_MCP_OAUTH_ISSUER requires OMNIMIND_MCP_AGENT_KEY (identity resolution is a delegated call).');
     const audience = trimmed(env.OMNIMIND_MCP_OAUTH_AUDIENCE) ?? publicUrl;
     if (!audience || !publicUrl) {
       throw new Error('OMNIMIND_MCP_OAUTH_ISSUER requires OMNIMIND_MCP_PUBLIC_URL (the resource identifier clients bind tokens to; OMNIMIND_MCP_OAUTH_AUDIENCE may override the expected aud).');
     }
     const jwksUrl = trimmed(env.OMNIMIND_MCP_OAUTH_JWKS_URL);
-    if (jwksUrl) assertHttpUrl(jwksUrl, 'OMNIMIND_MCP_OAUTH_JWKS_URL');
+    if (jwksUrl) assertSecureUrl(jwksUrl, 'OMNIMIND_MCP_OAUTH_JWKS_URL');
     oauth = { issuer, audience, ...(jwksUrl ? { jwksUrl } : {}) };
   }
 
@@ -192,6 +230,22 @@ export function looksLikeJwt(credential: string): boolean {
   return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(credential);
 }
 
+const TOKEN_SHAPE = new RegExp(`^${TOKEN_PREFIX}[A-Za-z0-9_-]{${TOKEN_RANDOM_CHARS}}$`);
+
+/**
+ * M-4 — the exact shape BoardRoom mints (`omt_` + 43 base64url chars). Anything
+ * else with the prefix is refused locally: no introspection round-trip, no
+ * cache entry, so `omt_<nonce>` floods cost OmniMind nothing.
+ */
+export function isWellFormedToken(credential: string): boolean {
+  return TOKEN_SHAPE.test(credential);
+}
+
+/** M-4 — a JWT we are willing to verify: three segments and at most `JWT_MAX_BYTES`. */
+export function isWellFormedJwt(credential: string): boolean {
+  return Buffer.byteLength(credential, 'utf8') <= JWT_MAX_BYTES && looksLikeJwt(credential);
+}
+
 function scopeGranted(scopes: readonly string[], required: string): boolean {
   if (scopes.includes('*') || scopes.includes(required)) return true;
   const [prefix] = required.split(':');
@@ -223,6 +277,28 @@ export function parseScopeClaim(payload: JWTPayload): string[] | undefined {
   return undefined;
 }
 
+const MCP_SCOPE_PREFIXES = new Set(MCP_SCOPES.map(s => s.split(':')[0]));
+
+/** An MCP scope (`memory:read`, …), the global wildcard, or an MCP-prefix wildcard (`memory:*`). */
+export function isMcpScope(scope: string): boolean {
+  if (scope === '*') return true;
+  if ((MCP_SCOPES as readonly string[]).includes(scope)) return true;
+  const m = /^([a-z]+):\*$/.exec(scope);
+  return Boolean(m && MCP_SCOPE_PREFIXES.has(m[1]));
+}
+
+/**
+ * L-2 — the MCP-relevant part of an OAuth `scope` claim. OIDC scopes
+ * (`openid email profile offline_access`) are ignored; when nothing MCP-shaped
+ * remains the claim is treated as absent (the identity's stored scopes apply)
+ * instead of intersecting down to nothing.
+ */
+export function mcpScopesOfClaim(tokenScopes: readonly string[] | undefined): string[] | undefined {
+  if (!tokenScopes) return undefined;
+  const mcp = tokenScopes.filter(isMcpScope);
+  return mcp.length > 0 ? mcp : undefined;
+}
+
 const McpPrincipalWireSchema = z.object({
   kind: z.enum(['token', 'oauth']),
   id: z.string().min(1),
@@ -251,13 +327,13 @@ export function parsePrincipal(raw: unknown): McpPrincipal {
   };
 }
 
-/** The per-session AgentContext for a delegated caller. `agentId` is the principal's agent name. */
+/** The per-session AgentContext for a delegated caller. `agentId` is the principal's agent name; scopes are capped at `DELEGATED_SCOPE_CEILING` (L-6). */
 export function agentContextFromPrincipal(principal: McpPrincipal): AgentContext {
   return {
     agentId: principal.agentName,
     agentName: principal.agentName,
     tenantId: principal.tenantId,
-    scopes: [...principal.scopes],
+    scopes: intersectScopes(principal.scopes, DELEGATED_SCOPE_CEILING),
     sourceWeight: principal.sourceWeight,
     defaultUserId: principal.userId,
     principal,
@@ -285,12 +361,25 @@ export interface PrincipalResolverDeps {
 
 export interface PrincipalResolver {
   resolve(credential: string | undefined): Promise<PrincipalResolution>;
-  /** Number of cached resolutions (tests / diagnostics). */
+  /**
+   * True when the credential can be accepted without any upstream call (static
+   * key match or a live positive cache entry). The HTTP layer uses it to keep
+   * authenticated clients working while their IP's failure budget is exhausted.
+   */
+  isKnownGood(credential: string | undefined): boolean;
+  /** Number of cached resolutions, positive + negative (tests / diagnostics). */
   readonly cacheSize: number;
+  /** Cached positives only (never evicted by a flood of negatives). */
+  readonly positiveCacheSize: number;
   clearCache(): void;
 }
 
-/** RFC 8414 / OIDC discovery — returns the issuer's `jwks_uri`. */
+/**
+ * RFC 8414 / OIDC discovery — returns the issuer's `jwks_uri`. L-3: the
+ * document's `issuer` MUST equal the configured issuer (RFC 8414 §3.3) and the
+ * `jwks_uri` must be https (loopback http allowed); a candidate that fails
+ * either check is rejected, never silently used.
+ */
 export async function discoverJwksUri(issuer: string, fetchFn: typeof undiciFetch = undiciFetch): Promise<string> {
   const u = new URL(issuer);
   const path = u.pathname.replace(/\/$/, '');
@@ -298,6 +387,7 @@ export async function discoverJwksUri(issuer: string, fetchFn: typeof undiciFetc
     `${u.origin}${path}/.well-known/openid-configuration`,
     `${u.origin}/.well-known/oauth-authorization-server${path}`,
   ];
+  const normalizedIssuer = issuer.replace(/\/$/, '');
   const failures: string[] = [];
   for (const url of candidates) {
     try {
@@ -307,8 +397,18 @@ export async function discoverJwksUri(issuer: string, fetchFn: typeof undiciFetc
         continue;
       }
       const meta = (await res.json()) as { jwks_uri?: unknown; issuer?: unknown };
+      if (typeof meta.issuer !== 'string' || meta.issuer.replace(/\/$/, '') !== normalizedIssuer) {
+        failures.push(`${url} → issuer mismatch (metadata says ${JSON.stringify(meta.issuer)})`);
+        continue;
+      }
       if (typeof meta.jwks_uri !== 'string' || !meta.jwks_uri) {
         failures.push(`${url} → no jwks_uri`);
+        continue;
+      }
+      try {
+        assertSecureUrl(meta.jwks_uri, 'jwks_uri');
+      } catch (err) {
+        failures.push(`${url} → ${(err as Error).message}`);
         continue;
       }
       return meta.jwks_uri;
@@ -327,7 +427,11 @@ export function createPrincipalResolver(cfg: PrincipalAuthConfig, deps: Principa
   const now = deps.now ?? (() => Date.now());
   const log = deps.log ?? ((line: string) => console.log(line));
   const fetchFn = deps.fetchFn ?? undiciFetch;
-  const cache = new LruTtlCache<PrincipalResolution>(PRINCIPAL_CACHE_MAX_ENTRIES, PRINCIPAL_CACHE_POSITIVE_MS, now);
+  // M-4 — two maps: a flood of negative entries (unknown-but-well-formed tokens)
+  // can evict only other negatives, never a live positive.
+  const positives = new LruTtlCache<PrincipalResolution>(PRINCIPAL_CACHE_MAX_ENTRIES, PRINCIPAL_CACHE_POSITIVE_MS, now);
+  const negatives = new LruTtlCache<PrincipalResolution>(PRINCIPAL_CACHE_MAX_ENTRIES, PRINCIPAL_CACHE_NEGATIVE_MS, now);
+  let warnedOidcOnlyScope = false;
 
   let jwksPromise: Promise<JWTVerifyGetKey> | undefined;
   function getJwks(): Promise<JWTVerifyGetKey> {
@@ -365,13 +469,34 @@ export function createPrincipalResolver(cfg: PrincipalAuthConfig, deps: Principa
     return Math.max(0, Math.min(PRINCIPAL_CACHE_POSITIVE_MS, Date.parse(exp) - now()));
   }
 
+  /**
+   * M-4 — how an upstream failure of introspection / identity resolution maps:
+   * network error or 5xx → 503 (never cached); 401 / 403 → the GATEWAY key is
+   * wrong or lacks `mcp:delegate` — also 503, loudly, because the presented
+   * credential was never checked; any other 4xx (the API refused the request
+   * itself: shape, size, schema) → `invalid_token`, cached negatively.
+   */
+  function upstreamFailure(what: string, err: unknown): PrincipalResolution {
+    if (err instanceof OmniMindHttpError) {
+      if (err.status === 401 || err.status === 403) {
+        log(`[omnimind-mcp] ${what} refused by OmniMind (${err.status}): check OMNIMIND_MCP_AGENT_KEY (gateway key with scope mcp:delegate)`);
+        return unavailable(`${what} unavailable`);
+      }
+      if (err.status >= 400 && err.status < 500) {
+        log(`[omnimind-mcp] ${what} rejected the credential (${err.status})`);
+        return invalid('invalid');
+      }
+    }
+    log(`[omnimind-mcp] ${what} unavailable: ${(err as Error).message}`);
+    return unavailable(`${what} unavailable`);
+  }
+
   async function resolveToken(token: string): Promise<PrincipalResolution> {
     let result: IntrospectResult;
     try {
       result = await (deps.gateway as NonNullable<PrincipalResolverDeps['gateway']>).introspectToken(token);
     } catch (err) {
-      log(`[omnimind-mcp] token introspection unavailable: ${(err as Error).message}`);
-      return unavailable('token introspection unavailable');
+      return upstreamFailure('token introspection', err);
     }
     if (!result || typeof result !== 'object') return unavailable('token introspection returned no body');
     if (!result.active) return invalid(typeof result.reason === 'string' ? result.reason : 'invalid');
@@ -421,8 +546,7 @@ export function createPrincipalResolver(cfg: PrincipalAuthConfig, deps: Principa
     try {
       result = await (deps.gateway as NonNullable<PrincipalResolverDeps['gateway']>).resolveIdentity(claims);
     } catch (err) {
-      log(`[omnimind-mcp] identity resolution unavailable: ${(err as Error).message}`);
-      return unavailable('identity resolution unavailable');
+      return upstreamFailure('identity resolution', err);
     }
     if (!result || typeof result !== 'object') return unavailable('identity resolution returned no body');
     if (!result.active) return invalid(typeof result.reason === 'string' ? result.reason : 'unlinked');
@@ -433,14 +557,40 @@ export function createPrincipalResolver(cfg: PrincipalAuthConfig, deps: Principa
       log(`[omnimind-mcp] identity resolution returned an invalid principal: ${(err as Error).message}`);
       return unavailable('identity resolution returned an invalid principal');
     }
-    const tokenScopes = parseScopeClaim(payload);
-    if (tokenScopes) principal = { ...principal, scopes: intersectScopes(principal.scopes, tokenScopes) };
+    const claimScopes = parseScopeClaim(payload);
+    const tokenScopes = mcpScopesOfClaim(claimScopes);
+    if (tokenScopes) {
+      principal = { ...principal, scopes: intersectScopes(principal.scopes, tokenScopes) };
+    } else if (claimScopes && !warnedOidcOnlyScope) {
+      warnedOidcOnlyScope = true;
+      log('[omnimind-mcp] OAuth access token carries a scope claim with no MCP scopes (e.g. "openid email profile"); using the linked identity\'s stored scopes. Mint memory:* scopes at the authorization server to narrow per client.');
+    }
     // Cap the cached lifetime at the token's own expiry.
     const expMs = typeof payload.exp === 'number' ? payload.exp * 1000 : undefined;
     if (expMs !== undefined && (!principal.expiresAt || Date.parse(principal.expiresAt) > expMs)) {
       principal = { ...principal, expiresAt: new Date(expMs).toISOString() };
     }
     return accept(principal);
+  }
+
+  /** A cached positive, unless the principal crossed its own expiry inside the window (then demoted to a negative). */
+  function cachedPositive(digest: string): PrincipalResolution | undefined {
+    const cached = positives.get(digest);
+    if (!cached || !cached.ok) return undefined;
+    const exp = cached.agentCtx.principal?.expiresAt;
+    if (exp && Date.parse(exp) <= now()) {
+      negatives.set(digest, invalid('expired'));
+      return undefined;
+    }
+    return cached;
+  }
+
+  function isKnownGood(credential: string | undefined): boolean {
+    if (!credential) return false;
+    if (cfg.staticApiKey && credentialsMatch(credential, cfg.staticApiKey)) return true;
+    const isToken = credential.startsWith(TOKEN_PREFIX);
+    if (isToken ? !isWellFormedToken(credential) : !isWellFormedJwt(credential)) return false;
+    return cachedPositive(credentialDigest(credential)) !== undefined;
   }
 
   async function resolve(credential: string | undefined): Promise<PrincipalResolution> {
@@ -455,28 +605,34 @@ export function createPrincipalResolver(cfg: PrincipalAuthConfig, deps: Principa
     if (isToken && !cfg.tokenAuth) return invalid('token auth is not enabled on this server');
     if (isJwt && !cfg.oauth) return invalid('oauth is not enabled on this server');
     if (!isToken && !isJwt) return invalid('unrecognized credential');
+    // M-4 — shape first: a malformed credential never reaches the network or the cache.
+    if (isToken && !isWellFormedToken(credential)) return invalid('malformed token');
+    if (isJwt && !isWellFormedJwt(credential)) return invalid('malformed jwt');
 
     const digest = credentialDigest(credential);
-    const cached = cache.get(digest);
-    if (cached) {
-      // A cached positive may have crossed the principal's own expiry inside the 60 s window.
-      if (cached.ok && cached.agentCtx.principal?.expiresAt && Date.parse(cached.agentCtx.principal.expiresAt) <= now()) {
-        cache.set(digest, invalid('expired'), PRINCIPAL_CACHE_NEGATIVE_MS);
-        return invalid('expired');
-      }
-      return cached;
-    }
+    const positive = cachedPositive(digest);
+    if (positive) return positive;
+    const negative = negatives.get(digest);
+    if (negative) return negative;
 
     const fresh = isToken ? await resolveToken(credential) : await resolveJwt(credential);
-    if (fresh.ok || fresh.status === 401) cache.set(digest, fresh, positiveTtl(fresh));
+    if (fresh.ok) positives.set(digest, fresh, positiveTtl(fresh));
+    else if (fresh.status === 401) negatives.set(digest, fresh, PRINCIPAL_CACHE_NEGATIVE_MS);
     return fresh;
   }
 
   return {
     resolve,
+    isKnownGood,
     get cacheSize() {
-      return cache.size;
+      return positives.size + negatives.size;
     },
-    clearCache: () => cache.clear(),
+    get positiveCacheSize() {
+      return positives.size;
+    },
+    clearCache: () => {
+      positives.clear();
+      negatives.clear();
+    },
   };
 }

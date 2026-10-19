@@ -78,6 +78,7 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
     const q = query.trim();
     const { spotlight } = get();
     if (!q) {
+      seq += 1; // an in-flight search for the previous text must not resurrect hits under an empty query
       set({ spotlight: { ...emptySpotlight(), asOf: spotlight.asOf, filterToResults: spotlight.filterToResults } });
       return;
     }

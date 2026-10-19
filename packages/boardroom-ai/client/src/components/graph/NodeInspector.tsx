@@ -274,8 +274,13 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
       </div>
 
       <div className="flex gap-2 border-b border-border px-4 py-2.5">
-        <button type="button" onClick={onFocusLocal} className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
-          Focus local graph
+        <button
+          type="button"
+          onClick={onFocusLocal}
+          className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90"
+          title="Re-root the local graph on this node (a single click on the canvas only selects)"
+        >
+          Focus here
         </button>
         {route && (
           <Link to={route} className="flex h-8 items-center rounded-md border border-border px-3 text-xs text-foreground hover:bg-muted">

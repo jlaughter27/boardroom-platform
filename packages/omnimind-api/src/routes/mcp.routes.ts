@@ -3,7 +3,9 @@ import { z } from 'zod';
 import {
   MCP_DELEGATE_SCOPE,
   McpAuditStatsQuerySchema,
+  McpIdentityListQuerySchema,
   McpIdentityResolveRequestSchema,
+  McpIdentityUpdateRequestSchema,
   McpTokenCreateRequestSchema,
   McpTokenIntrospectRequestSchema,
   McpTokenListQuerySchema,
@@ -12,9 +14,49 @@ import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
 import { HttpError } from '../middleware/error-handler';
 import { requireAdminKey, isAdminRequest } from '../middleware/admin-auth';
+import { DELEGATED_ROUTE_FORBIDDEN } from '../middleware/delegated-user-isolation';
 import * as mcpTokens from '../services/mcp-token.service';
 
 const router: IRouter = Router();
+
+/**
+ * Validation failures on `/mcp` stay 400 (the original convention of this
+ * router) but carry the SAME body shape as the rest of the API's 422s
+ * (`middleware/validate.ts`): `{ error: 'validation_failed', details: [{ field, message }] }`.
+ * Review A7: BoardRoom's proxy no longer needs a second error parser.
+ */
+function validationFailed(res: Response, error: z.ZodError): void {
+  res.status(400).json({
+    error: 'validation_failed',
+    details: error.issues.map(e => ({ field: e.path.join('.'), message: e.message })),
+  });
+}
+
+/**
+ * Token management (`/mcp/tokens*` create / list / options / revoke) is
+ * BoardRoom-only: BoardRoom authenticates the user with its JWT and sends the
+ * service key alone. Review A2: a read-only delegated principal could mint
+ * itself a full-write token with its own userId. ANY agent context — verified,
+ * legacy triple or delegated — is refused here, not just delegated ones
+ * (delegated contexts are already stopped by the allow-list middleware).
+ */
+function requireNoAgentContext(req: Request, res: Response, next: NextFunction): void {
+  const ctx = req.agentContext;
+  if (ctx) {
+    logger.warn('mcp: token-management route refused for an agent context', {
+      path: req.path,
+      method: req.method,
+      agentId: ctx.agentId,
+      delegated: ctx.delegated ?? false,
+    });
+    res.status(403).json({
+      error: ctx.delegated ? DELEGATED_ROUTE_FORBIDDEN : 'agent_context_not_allowed',
+      message: 'MCP token management is BoardRoom-only; agent identities (x-agent-key / x-agent-id / x-mcp-principal) may not manage tokens',
+    });
+    return;
+  }
+  next();
+}
 
 const AuditLogSchema = z.object({
   agentId: z.string().min(1),
@@ -77,10 +119,7 @@ function resolveMcpTenantScope(req: Request): string | null {
 router.post('/audit', async (req, res, next) => {
   try {
     const parsed = AuditLogSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-      return;
-    }
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
 
     // M-103: a VERIFIED agent may only write audit rows for itself.
     const ctx = req.agentContext;
@@ -124,11 +163,23 @@ router.post('/audit', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /mcp/audit — list audit log entries (tenant-scoped, F-206)
+// GET /mcp/audit — list audit log entries (tenant-scoped, F-206).
+// Review A4: a DELEGATED principal sees only its own rows — `agentId` is
+// forced to the principal's agentName; a disagreeing `?agentId=` is a 403.
 router.get('/audit', async (req, res, next) => {
   try {
     const tenantId = resolveMcpTenantScope(req);
-    const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
+    const requestedAgentId = typeof req.query.agentId === 'string' && req.query.agentId.length > 0 ? req.query.agentId : undefined;
+    const ctx = req.agentContext;
+    if (ctx?.delegated && requestedAgentId && requestedAgentId !== ctx.agentId) {
+      res.status(403).json({
+        error: 'audit_identity_mismatch',
+        message: 'A delegated principal may only read its own audit rows',
+        agentId: ctx.agentId,
+      });
+      return;
+    }
+    const agentId = ctx?.delegated ? ctx.agentId : requestedAgentId;
     const limitRaw = parseInt((req.query.limit as string) ?? '50', 10);
     const limit = Math.min(Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50, 200);
 
@@ -151,10 +202,7 @@ router.get('/audit', async (req, res, next) => {
 router.post('/agents', requireAdminKey, async (req, res, next) => {
   try {
     const parsed = AgentCreateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-      return;
-    }
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
 
     try {
       const agent = await prisma.agent.create({
@@ -180,9 +228,15 @@ router.post('/agents', requireAdminKey, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /mcp/agents — list registered agents (tenant-scoped, F-206)
+// GET /mcp/agents — list registered agents (tenant-scoped, F-206).
+// Review A4: never for a delegated principal (agent roster = recon). The
+// allow-list middleware already stops it; this is defence in depth.
 router.get('/agents', async (req, res, next) => {
   try {
+    if (req.agentContext?.delegated) {
+      res.status(403).json({ error: DELEGATED_ROUTE_FORBIDDEN, message: 'GET /mcp/agents is not available to a delegated MCP principal' });
+      return;
+    }
     const tenantId = resolveMcpTenantScope(req);
     const agents = await prisma.agent.findMany({
       where: tenantId ? { tenantId } : {},
@@ -223,12 +277,9 @@ function requireDelegateGateway(req: Request, res: Response, next: NextFunction)
   next();
 }
 
-function validationFailed(res: Response, error: z.ZodError): void {
-  res.status(400).json({ error: 'validation_failed', details: error.flatten() });
-}
-
-// POST /mcp/tokens — mint a per-user token (raw value returned once)
-router.post('/tokens', async (req, res, next) => {
+// POST /mcp/tokens — mint a per-user token (raw value returned once).
+// expiresInDays omitted → 365; null → never expires.
+router.post('/tokens', requireNoAgentContext, async (req, res, next) => {
   try {
     const parsed = McpTokenCreateRequestSchema.safeParse(req.body);
     if (!parsed.success) { validationFailed(res, parsed.error); return; }
@@ -239,7 +290,7 @@ router.post('/tokens', async (req, res, next) => {
 
 // GET /mcp/tokens/options?userId= — tenants the user owns + grantable scopes
 // (declared before GET /tokens/:anything so the literal segment wins)
-router.get('/tokens/options', async (req, res, next) => {
+router.get('/tokens/options', requireNoAgentContext, async (req, res, next) => {
   try {
     const parsed = McpTokenListQuerySchema.safeParse(req.query);
     if (!parsed.success) { validationFailed(res, parsed.error); return; }
@@ -248,7 +299,7 @@ router.get('/tokens/options', async (req, res, next) => {
 });
 
 // GET /mcp/tokens?userId= — newest first; revoked > 30 days ago are hidden
-router.get('/tokens', async (req, res, next) => {
+router.get('/tokens', requireNoAgentContext, async (req, res, next) => {
   try {
     const parsed = McpTokenListQuerySchema.safeParse(req.query);
     if (!parsed.success) { validationFailed(res, parsed.error); return; }
@@ -266,11 +317,11 @@ router.post('/tokens/introspect', requireDelegateGateway, async (req, res, next)
 });
 
 // DELETE /mcp/tokens/:id?userId= — revoke (204); 404 when not that user's
-router.delete('/tokens/:id', async (req, res, next) => {
+router.delete('/tokens/:id', requireNoAgentContext, async (req, res, next) => {
   try {
     const parsed = McpTokenListQuerySchema.safeParse(req.query);
     if (!parsed.success) { validationFailed(res, parsed.error); return; }
-    const ok = await mcpTokens.revokeMcpToken(req.params.id, parsed.data.userId);
+    const ok = await mcpTokens.revokeMcpToken(String(req.params.id), parsed.data.userId);
     if (!ok) {
       res.status(404).json({ error: 'not_found', message: 'Token not found' });
       return;
@@ -285,6 +336,46 @@ router.post('/identities/resolve', requireDelegateGateway, async (req, res, next
     const parsed = McpIdentityResolveRequestSchema.safeParse(req.body);
     if (!parsed.success) { validationFailed(res, parsed.error); return; }
     res.json(await mcpTokens.resolveMcpIdentity(parsed.data));
+  } catch (err) { next(err); }
+});
+
+// ── OAuth identity administration (x-admin-key, review D/M6) ────────────────
+// Auto-link picks the user's oldest owned tenant with read-only scopes; these
+// routes let the operator inspect, re-point / re-scope and revoke identities.
+
+// GET /mcp/identities?userId= — all identities (incl. revoked) of a user
+router.get('/identities', requireAdminKey, async (req, res, next) => {
+  try {
+    const parsed = McpIdentityListQuerySchema.safeParse(req.query);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    res.json({ identities: await mcpTokens.listMcpIdentities(parsed.data.userId) });
+  } catch (err) { next(err); }
+});
+
+// PATCH /mcp/identities/:id { tenantId?, scopes? } — tenant must be owned by
+// the identity's user (403 tenant_not_owned); scopes ⊆ MCP_SCOPES (400)
+router.patch('/identities/:id', requireAdminKey, async (req, res, next) => {
+  try {
+    const parsed = McpIdentityUpdateRequestSchema.safeParse(req.body);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    const updated = await mcpTokens.updateMcpIdentity(String(req.params.id), parsed.data);
+    if (!updated) {
+      res.status(404).json({ error: 'not_found', message: 'Identity not found' });
+      return;
+    }
+    res.json(updated);
+  } catch (err) { next(err); }
+});
+
+// DELETE /mcp/identities/:id — revoke (204, idempotent, evicts the delegation cache)
+router.delete('/identities/:id', requireAdminKey, async (req, res, next) => {
+  try {
+    const ok = await mcpTokens.revokeMcpIdentity(String(req.params.id));
+    if (!ok) {
+      res.status(404).json({ error: 'not_found', message: 'Identity not found' });
+      return;
+    }
+    res.status(204).end();
   } catch (err) { next(err); }
 });
 

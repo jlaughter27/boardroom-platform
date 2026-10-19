@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { createRef, forwardRef, useEffect, useImperativeHandle } from 'react';
-import { KnowledgeGraphView, type KnowledgeGraphViewHandle } from '../../../src/components/graph/KnowledgeGraphView';
+import { INTENT_TTL_MS, KnowledgeGraphView, type KnowledgeGraphViewHandle } from '../../../src/components/graph/KnowledgeGraphView';
 import { edge, fakeCtx, node, type FakeCtx } from './fixtures';
 
 /**
@@ -158,5 +158,91 @@ describe('KnowledgeGraphView — handle + callbacks', () => {
     act(() => ref.current!.focusNode('memory:hit', 3));
     expect(registry.centerAt).toHaveBeenCalledWith(10, 0, 400);
     expect(registry.zoom).toHaveBeenCalledWith(3, 400);
+  });
+
+  it('double-click (detail 2) is a focus, single click a select', () => {
+    const onSelect = vi.fn();
+    const onFocus = vi.fn();
+    render(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId={null} onSelect={onSelect} onFocus={onFocus} showLabels={false} />);
+    const onNodeClick = registry.props!.onNodeClick as (n: { id: string }, ev: { detail: number }) => void;
+    onNodeClick({ id: 'memory:hit' }, { detail: 1 });
+    expect(onSelect).toHaveBeenLastCalledWith('memory:hit');
+    expect(onFocus).not.toHaveBeenCalled();
+    onNodeClick({ id: 'memory:hit' }, { detail: 2 });
+    expect(onFocus).toHaveBeenCalledWith('memory:hit');
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('KnowledgeGraphView — relayout + viewport policy', () => {
+  beforeEach(() => { registry.props = null; registry.ctxById.clear(); vi.clearAllMocks(); });
+
+  it('selection / spotlight / depth changes never reheat; only an id-set change does (once)', () => {
+    const { rerender } = render(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} />);
+    expect(registry.reheat).toHaveBeenCalledTimes(1); // first layout
+    rerender(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId="memory:hit" onSelect={noop} showLabels={false} />);
+    rerender(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId="project:p" onSelect={noop} showLabels={false} spotlight={{ scores: new Map([['memory:hit', 1]]), max: 1, filter: true }} />);
+    rerender(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId="project:p" onSelect={noop} showLabels={false} depthById={new Map([['project:p', 0], ['memory:hit', 1]])} />);
+    expect(registry.reheat).toHaveBeenCalledTimes(1);
+    rerender(<KnowledgeGraphView nodes={nodes.slice(0, 2)} edges={edges.slice(0, 1)} selectedId="project:p" onSelect={noop} showLabels={false} />);
+    expect(registry.reheat).toHaveBeenCalledTimes(2);
+    rerender(<KnowledgeGraphView nodes={nodes.slice(0, 2)} edges={edges.slice(0, 1)} selectedId={null} onSelect={noop} showLabels={false} />);
+    expect(registry.reheat).toHaveBeenCalledTimes(2);
+  });
+
+  it('with no intent the first engine stop fits the whole graph exactly once per layout', () => {
+    const { rerender } = render(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} />);
+    const stop = () => (registry.props!.onEngineStop as () => void)();
+    stop(); stop();
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(1);
+    rerender(<KnowledgeGraphView nodes={nodes.slice(0, 2)} edges={edges.slice(0, 1)} selectedId={null} onSelect={noop} showLabels={false} />);
+    stop();
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(2);
+  });
+
+  it('a fresh focusNode outranks the one-time fit and is re-applied when the simulation settles', () => {
+    const ref = createRef<KnowledgeGraphViewHandle>();
+    const { rerender } = render(<KnowledgeGraphView ref={ref} nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} />);
+    act(() => ref.current!.focusNode('memory:hit'));
+    expect(registry.centerAt).toHaveBeenCalledTimes(1);
+    // Relayout (lazy merge / local-mode re-root) → engine stop: no whole-graph fit, the node is re-centred.
+    rerender(<KnowledgeGraphView ref={ref} nodes={nodes.slice(0, 2)} edges={edges.slice(0, 1)} selectedId={null} onSelect={noop} showLabels={false} />);
+    (registry.props!.onEngineStop as () => void)();
+    expect(registry.zoomToFit).not.toHaveBeenCalled();
+    expect(registry.centerAt).toHaveBeenCalledTimes(2);
+    expect(registry.centerAt).toHaveBeenLastCalledWith(10, 0, 400);
+  });
+
+  it('a fresh zoomToFitIds ("Fit hits") outranks the one-time fit; an explicit zoomToFit clears the intent', () => {
+    const ref = createRef<KnowledgeGraphViewHandle>();
+    render(<KnowledgeGraphView ref={ref} nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} />);
+    act(() => ref.current!.zoomToFitIds(new Set(['memory:hit'])));
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(1);
+    (registry.props!.onEngineStop as () => void)();
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(2);
+    // re-applied as a subset fit, not a whole-graph fit
+    const filter = registry.zoomToFit.mock.calls[1][2] as (n: { id: string }) => boolean;
+    expect(filter({ id: 'memory:hit' })).toBe(true);
+    expect(filter({ id: 'project:p' })).toBe(false);
+
+    act(() => ref.current!.zoomToFit());
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(3);
+    expect(registry.zoomToFit.mock.calls[2][2]).toBeUndefined(); // whole graph
+    (registry.props!.onEngineStop as () => void)();
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(3); // nothing pending, already fitted this layout
+  });
+
+  it('a stale intent (older than INTENT_TTL_MS) no longer blocks the fit', () => {
+    const ref = createRef<KnowledgeGraphViewHandle>();
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(1_000_000);
+    const { rerender } = render(<KnowledgeGraphView ref={ref} nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} />);
+    act(() => ref.current!.focusNode('memory:hit'));
+    now.mockReturnValue(1_000_000 + INTENT_TTL_MS + 1);
+    rerender(<KnowledgeGraphView ref={ref} nodes={nodes.slice(0, 2)} edges={edges.slice(0, 1)} selectedId={null} onSelect={noop} showLabels={false} />);
+    (registry.props!.onEngineStop as () => void)();
+    expect(registry.zoomToFit).toHaveBeenCalledTimes(1);
+    expect(registry.centerAt).toHaveBeenCalledTimes(1);
+    now.mockRestore();
   });
 });

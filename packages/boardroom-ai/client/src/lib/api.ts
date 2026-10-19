@@ -22,6 +22,10 @@ import type {
   SubscriptionData,
   KnowledgeGraph,
   KnowledgeGraphQuery,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenListResponse,
+  McpTokenOptions,
 } from '@boardroom/shared';
 import type { ClientUserMode } from '../types/debate';
 
@@ -1223,52 +1227,34 @@ export async function getGraphNeighbourhoods(nodeIds: string[]): Promise<GraphBa
 // Settings → "Connected AI tools". BoardRoom pins userId to the JWT user, so
 // the browser never sends one.
 
-// TODO(A1): switch to @boardroom/shared once exported
-// (packages/shared/src/types/mcp-token.types.ts). Field names mirror A1's contract.
-export interface McpTokenRecord {
-  id: string;
-  userId: string;
-  tenantId: string;
-  name: string;
-  agentName: string;
-  prefix: string;
-  scopes: string[];
-  sourceWeight: number;
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt: string | null;
-  revokedAt: string | null;
-}
+// Record / response shapes are the shared wire contract (CLAUDE.md rule 4).
+export type {
+  McpScope,
+  McpScopeDescriptor,
+  McpTokenCreateResponse,
+  McpTokenListResponse,
+  McpTokenOptions,
+  McpTokenRecord,
+} from '@boardroom/shared';
 
-export interface McpTokenCreateInput {
-  tenantId: string;
-  name: string;
-  scopes: string[];
-  sourceWeight?: number;
-  expiresInDays?: number;
-}
-
-export interface McpTokenCreateResponse {
-  /** Raw bearer token — shown once, never retrievable again. */
-  token: string;
-  record: McpTokenRecord;
-}
-
-export interface McpTokenOptions {
-  tenants: Array<{ id: string; name: string }>;
-  scopes: Array<{ id: string; description: string; write: boolean }>;
-}
+/**
+ * Browser → BoardRoom create body: the shared request minus `userId` (BoardRoom
+ * pins it to the JWT user). `expiresInDays: null` means "never expires";
+ * omitting it lets OmniMind apply its default expiry (365 days).
+ */
+export type McpTokenCreateInput = Omit<McpTokenCreateRequest, 'userId'>;
 
 export interface McpConnectInfo {
   /** Public Streamable-HTTP MCP endpoint, or null when the operator has not set OMNIMIND_MCP_PUBLIC_URL. */
   mcpUrl: string | null;
-  appUrl: string;
+  /** Public URL of this app from APP_PUBLIC_URL, or null when unset (never derived from the request). */
+  appUrl: string | null;
   oauthEnabled: boolean;
 }
 
 /** `GET /mcp/tokens` → `{ tokens }` for the current user (revoked ones included). */
 export function listMcpTokens() {
-  return request<{ tokens: McpTokenRecord[] }>('/mcp/tokens');
+  return request<McpTokenListResponse>('/mcp/tokens');
 }
 
 /** `POST /mcp/tokens` → 201 `{ token, record }`. 403 tenant_not_owned, 409 token_limit surface as ApiError. */
