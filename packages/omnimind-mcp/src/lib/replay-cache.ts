@@ -41,7 +41,7 @@ export class LruTtlCache<V> {
     return hit.value;
   }
 
-  /** `ttlMs` overrides the cache default for this one entry (the principal cache keeps positives 60 s and negatives 10 s). */
+  /** `ttlMs` overrides the cache default for this one entry (the principal cache keeps positives for `OMNIMIND_MCP_PRINCIPAL_CACHE_MS`, 30 s by default, and negatives 10 s). */
   set(key: string, value: V, ttlMs: number = this.ttlMs): void {
     if (this.map.has(key)) this.map.delete(key);
     this.map.set(key, { value, expiresAt: this.now() + ttlMs });
@@ -50,6 +50,22 @@ export class LruTtlCache<V> {
       if (oldest === undefined) break;
       this.map.delete(oldest);
     }
+  }
+
+  /** True for a live (unexpired) entry; does not refresh recency. */
+  has(key: string): boolean {
+    const hit = this.map.get(key);
+    if (!hit) return false;
+    if (hit.expiresAt <= this.now()) {
+      this.map.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  /** Remove one entry; true when something was removed. */
+  delete(key: string): boolean {
+    return this.map.delete(key);
   }
 
   get size(): number {

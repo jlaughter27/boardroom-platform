@@ -270,6 +270,41 @@ export class OmniMindHttpError extends Error {
   get isInsufficientScope(): boolean {
     return this.status === 403 && /insufficient_scope/.test(this.bodyText);
   }
+  /**
+   * True for the API's `401 { error: 'principal_invalid', reason }` — the
+   * delegated principal behind `x-mcp-principal` was revoked, expired or no
+   * longer exists (agent-context.ts evicts its own cache synchronously on
+   * revoke, so this is the first and authoritative signal the MCP server gets).
+   */
+  get isPrincipalInvalid(): boolean {
+    return this.status === 401 && this.parsedBody()?.error === 'principal_invalid';
+  }
+  /** `revoked` | `expired` | `not_found` | `malformed` from a `principal_invalid` body; undefined otherwise. */
+  get principalInvalidReason(): PrincipalInvalidReason | undefined {
+    if (!this.isPrincipalInvalid) return undefined;
+    const reason = this.parsedBody()?.reason;
+    return reason === 'revoked' || reason === 'expired' || reason === 'not_found' || reason === 'malformed' ? reason : 'revoked';
+  }
+  private parsedBody(): { error?: unknown; reason?: unknown } | undefined {
+    try {
+      const parsed: unknown = JSON.parse(this.bodyText);
+      return parsed && typeof parsed === 'object' ? (parsed as { error?: unknown; reason?: unknown }) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/** Why the API refused a delegated principal (`reason` field of its `401 principal_invalid` body). */
+export type PrincipalInvalidReason = 'revoked' | 'expired' | 'not_found' | 'malformed';
+
+/** What a client reports when an outbound delegated call is refused with `401 principal_invalid`. */
+export interface PrincipalInvalidEvent {
+  /** `kind:id` of the delegated principal this client acts for. */
+  principalKey: string;
+  reason: PrincipalInvalidReason;
+  method: string;
+  path: string;
 }
 
 export class OmniMindClient {
@@ -280,6 +315,7 @@ export class OmniMindClient {
   private agentHeaders: AgentHeaders | null = null;
   private delegated: DelegatedPrincipalRef | null = null;
   private closed = false;
+  private principalInvalidHandler: ((event: PrincipalInvalidEvent) => void) | null = null;
 
   constructor(config: OmniMindClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -322,6 +358,18 @@ export class OmniMindClient {
   }
 
   /**
+   * Front door — called (at most once per failing request, never thrown
+   * through) when a delegated call is refused with `401 principal_invalid`.
+   * The HTTP transport uses it to evict the credential from its positive
+   * cache and close the session, so revocation in BoardRoom is effective
+   * immediately rather than at the end of the cache window. Static-identity
+   * clients never fire it (there is no principal to invalidate).
+   */
+  onPrincipalInvalid(handler: ((event: PrincipalInvalidEvent) => void) | null): void {
+    this.principalInvalidHandler = handler;
+  }
+
+  /**
    * Routes outside the API's delegated allow-list (`GET /mcp/audit/stats`,
    * `POST /mcp/agents`, token introspection, identity resolution) are
    * gateway / static-identity calls: the API answers 403
@@ -343,6 +391,7 @@ export class OmniMindClient {
     this.closed = true;
     this.delegated = null;
     this.agentHeaders = null;
+    this.principalInvalidHandler = null;
   }
 
   get isClosed(): boolean {
@@ -385,7 +434,16 @@ export class OmniMindClient {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new OmniMindHttpError(method, path, res.status, text);
+        const error = new OmniMindHttpError(method, path, res.status, text);
+        const principalKey = this.delegatedPrincipalKey;
+        if (principalKey && this.principalInvalidHandler && error.isPrincipalInvalid) {
+          try {
+            this.principalInvalidHandler({ principalKey, reason: error.principalInvalidReason ?? 'revoked', method, path });
+          } catch (hookErr) {
+            console.error('[omnimind-mcp] onPrincipalInvalid handler failed:', (hookErr as Error).message);
+          }
+        }
+        throw error;
       }
 
       return res.json() as Promise<T>;

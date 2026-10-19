@@ -120,11 +120,16 @@ services:
       OMNIMIND_MCP_DOCS_URL: ${OMNIMIND_MCP_DOCS_URL:-}
       OMNIMIND_MCP_WRITE_EXTRACT: ${OMNIMIND_MCP_WRITE_EXTRACT:-sync}
       OMNIMIND_MCP_SESSION_IDLE_MS: ${OMNIMIND_MCP_SESSION_IDLE_MS:-1800000}
+      # Positive credential-cache TTL (ms, clamped 5000..300000): bounds only how long an
+      # IDLE client keeps a session after its token is revoked; data calls fail at once.
+      OMNIMIND_MCP_PRINCIPAL_CACHE_MS: ${OMNIMIND_MCP_PRINCIPAL_CACHE_MS:-30000}
       # Per-IP auth-failure limiter source: false here (no proxy); true on Railway.
       OMNIMIND_MCP_TRUST_PROXY: ${OMNIMIND_MCP_TRUST_PROXY:-false}
       OMNIMIND_MCP_OAUTH_ISSUER: ${OMNIMIND_MCP_OAUTH_ISSUER:-}
       OMNIMIND_MCP_OAUTH_JWKS_URL: ${OMNIMIND_MCP_OAUTH_JWKS_URL:-}
       OMNIMIND_MCP_OAUTH_AUDIENCE: ${OMNIMIND_MCP_OAUTH_AUDIENCE:-}
+      # OIDC userinfo fallback for email/email_verified when the access token lacks them.
+      OMNIMIND_MCP_OAUTH_USERINFO: ${OMNIMIND_MCP_OAUTH_USERINFO:-true}
       NODE_ENV: ${NODE_ENV:-development}
     depends_on:
       - omnimind-api

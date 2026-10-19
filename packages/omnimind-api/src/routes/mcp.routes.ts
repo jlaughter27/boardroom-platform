@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   MCP_DELEGATE_SCOPE,
   McpAuditStatsQuerySchema,
+  McpIdentityCreateRequestSchema,
   McpIdentityListQuerySchema,
   McpIdentityResolveRequestSchema,
   McpIdentityUpdateRequestSchema,
@@ -341,14 +342,32 @@ router.post('/identities/resolve', requireDelegateGateway, async (req, res, next
 
 // ── OAuth identity administration (x-admin-key, review D/M6) ────────────────
 // Auto-link picks the user's oldest owned tenant with read-only scopes; these
-// routes let the operator inspect, re-point / re-scope and revoke identities.
+// routes let the operator link by hand, inspect, re-point / re-scope and
+// revoke identities.
 
-// GET /mcp/identities?userId= — all identities (incl. revoked) of a user
+// POST /mcp/identities { issuer, subject, userId, tenantId, scopes?, sourceWeight?, clientId? }
+// — link an (issuer, subject) pair when the IdP never sends a verified e-mail.
+// 201 { identity } for a new row; 200 { identity } when a revoked row for the
+// same pair was reactivated in place (the pair is unique regardless of revokedAt).
+// 409 identity_exists { existingId } · 404 user_not_found · 403 tenant_not_owned
+// · 403 issuer_not_allowed · 400 validation_failed.
+router.post('/identities', requireAdminKey, async (req, res, next) => {
+  try {
+    const parsed = McpIdentityCreateRequestSchema.safeParse(req.body);
+    if (!parsed.success) { validationFailed(res, parsed.error); return; }
+    const result = await mcpTokens.createMcpIdentity(parsed.data);
+    res.status(result.outcome === 'created' ? 201 : 200).json({ identity: result.identity });
+  } catch (err) { next(err); }
+});
+
+// GET /mcp/identities[?userId=][&limit=50] — newest first, revoked included.
+// Without userId: every identity (operator view), so an unlinked subject can
+// be found after the warn line resolve writes for it. limit 1..200, default 50.
 router.get('/identities', requireAdminKey, async (req, res, next) => {
   try {
     const parsed = McpIdentityListQuerySchema.safeParse(req.query);
     if (!parsed.success) { validationFailed(res, parsed.error); return; }
-    res.json({ identities: await mcpTokens.listMcpIdentities(parsed.data.userId) });
+    res.json({ identities: await mcpTokens.listMcpIdentities(parsed.data) });
   } catch (err) { next(err); }
 });
 

@@ -6,6 +6,19 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-19 — Phase 7 — Blind spots closed, deployment-ready
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR opened | **Tests:** 2,107 passing + 45 eval (was 2,039)
+
+- verified from primary docs (support.claude.com, claude.com/docs, code.claude.com, Gemini/VS Code/Zed source repos; OpenAI secondary): ChatGPT connectors are OAuth or no-auth only (no header field); Claude.ai "Request headers" is a limited beta, otherwise OAuth (CIMD / DCR / own client); Claude Code `--scope user`; Gemini CLI `httpUrl` + `gemini mcp add`; VS Code `type: "http"` + `inputs`; Zed native `url` (no bridge); Windsurf plaintext; clients break on `/mcp` → `/mcp/` redirects — snippets, agent configs, runbook §6/§9 and CLAUDE.md limitation 14 now state these without hedging
+- OAuth path made production-usable: OIDC userinfo fallback when access tokens lack `email`/`email_verified` (`OMNIMIND_MCP_OAUTH_USERINFO`), issuer trailing-slash tolerance, cached discovery, admin `POST /mcp/identities` manual link (+ list-all, unlinked attempts logged by subject hash), runbook §9 identity-provider recipe (WorkOS AuthKit / Auth0 / Ory, DCR + resource indicator + redirect URIs), new checklist step 5
+- revocation effective immediately for data access: API evicts synchronously; MCP server returns `PRINCIPAL_REVOKED`, evicts the credential, closes the session; `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` (30 s default) bounds only idle sessions
+- no-redirect guarantee tested for `/mcp`, `/mcp/`, `/` and the PRM paths; `scripts/pre-deploy-check.sh` covers omnimind-mcp (typecheck, Docker, required files) and probes the live front door when `OMNIMIND_MCP_PUBLIC_URL` is set
+- `.env.example` 81 vars (`OMNIMIND_MCP_PRINCIPAL_CACHE_MS`, `OMNIMIND_MCP_OAUTH_USERINFO` added)
+- still unverified in the sandbox: first real `docker (omnimind-mcp)` CI build (runs on the PR); OAuth against a real provider
+
+---
+
 ## 2026-10-18/19 — Phase 7 — Universal memory MCP front door + searchable graph
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed (2 commits: build `7fce388`, review fixes) | **Tests:** 2,039 passing + 45 eval (was 1,481)

@@ -13,12 +13,27 @@
  * A session is bound to the principal that opened it; a request on that
  * session with any other principal is answered 404 as if the session did not
  * exist. RFC 9728 Protected Resource Metadata is served at
- * `/.well-known/oauth-protected-resource[/mcp]` when OAuth is configured.
+ * `/.well-known/oauth-protected-resource[/mcp[/]]` when OAuth is configured.
+ *
+ * No redirects, ever: `POST /mcp`, `POST /mcp/` and `POST /` (and GET / DELETE
+ * on them) all reach the MCP handler directly — the path is not inspected
+ * beyond `/health` and the PRM documents. Claude drops `Authorization` on a
+ * cross-host redirect and ChatGPT reports "Session terminated" on a
+ * `/mcp` → `/mcp/` 307, so a 3xx from this server is a bug (covered by tests).
  *
  * Session lifecycle (R-M-04): every request on a session bumps `lastSeenAt`;
  * a sweeper closes sessions idle longer than `OMNIMIND_MCP_SESSION_IDLE_MS`
  * (default 30 min) once a minute, and when the cap is reached a new
  * `initialize` evicts the least-recently-seen session instead of answering 503.
+ *
+ * Revocation is immediate for data access: the first delegated call OmniMind
+ * refuses with `401 principal_invalid` (its own cache is evicted synchronously
+ * on revoke) evicts that principal from the positive credential cache, marks
+ * every session of that principal revoked — the in-flight tool call returns
+ * `PRINCIPAL_REVOKED`, the next POST / GET / DELETE on those session ids is
+ * `401 invalid_token`, and the sessions are closed after a short grace period
+ * so the error result still reaches the client. A client that makes no data
+ * call drops within `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` (30 s default).
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { createHash, randomUUID, timingSafeEqual } from 'crypto';
@@ -34,6 +49,7 @@ import type { OmniMindClient, ResolvedAgentKey } from '../lib/client';
 import { DeferredWorkQueue, DEFERRED_DRAIN_TIMEOUT_MS } from '../lib/deferred-work';
 import { AuthFailureLimiter, clientIpOf } from '../lib/rate-limit';
 import type { AuthFailureLimiterOptions } from '../lib/rate-limit';
+import { LruTtlCache } from '../lib/replay-cache';
 import {
   buildProtectedResourceMetadata,
   buildWwwAuthenticate,
@@ -43,6 +59,8 @@ import {
   hasAnyAuthMode,
   isProtectedResourceMetadataPath,
   resolvePrincipalAuthConfig,
+  resolvePrincipalCacheMs,
+  PRINCIPAL_CACHE_ENV,
   PRM_PATH,
   STATIC_PRINCIPAL_KEY,
 } from '../lib/principal';
@@ -54,6 +72,11 @@ export const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 export const MAX_SESSIONS = 100;
 export const DEFAULT_SESSION_IDLE_MS = 30 * 60 * 1000;
 export const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000;
+/** How long a revoked session stays open so the in-flight `PRINCIPAL_REVOKED` result can be written before the transport closes. */
+export const REVOKED_SESSION_CLOSE_GRACE_MS = 500;
+/** How long a revoked session id is remembered (→ `401 invalid_token` rather than `404` for a client that keeps using it). */
+export const REVOKED_SESSION_MEMORY_MS = 10 * 60 * 1000;
+export const REVOKED_SESSION_MAX_ENTRIES = 1_000;
 const SESSION_HEADER = 'mcp-session-id';
 
 export interface Session {
@@ -75,6 +98,8 @@ export interface Session {
   client?: OmniMindClient;
   /** M-2 — same identity, outlives the session; owned by the app's DeferredWorkQueue. */
   deferredClient?: OmniMindClient;
+  /** Set when OmniMind refused this principal (`401 principal_invalid`); the session is closing and serves nothing more. */
+  revoked?: { at: number; reason: string };
 }
 
 /** M-3 — order-insensitive, duplicate-insensitive fingerprint of a scope set. */
@@ -155,6 +180,8 @@ export interface HttpTransportOptions {
   trustProxy?: boolean;
   /** M-2 — how long `close()` waits for in-flight deferred extraction (default 30 s). */
   drainTimeoutMs?: number;
+  /** Positive credential-cache TTL (default env `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` → 30 s, clamped to 5 s..300 s). */
+  principalCacheMs?: number;
 }
 
 export interface HttpConfig {
@@ -303,7 +330,10 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
     principalKey === STATIC_PRINCIPAL_KEY ? { role: 'static', agentKey: staticAgentKey.key } : { role: 'delegated', agentKey: gatewayAgentKey };
   const createClient = opts.createClientFn ?? ((purpose: ClientPurpose) => createOmniMindClient(process.env, { agentKey: purpose.agentKey }));
   const gateway = gatewayModes ? (opts.gatewayClient ?? createClient({ role: 'gateway', agentKey: gatewayAgentKey })) : undefined;
-  const resolver = createPrincipalResolver(authConfig, { staticAgentCtx, gateway, jwks: opts.jwks, log });
+  const resolver = createPrincipalResolver(authConfig, { staticAgentCtx, gateway, jwks: opts.jwks, log, positiveTtlMs: opts.principalCacheMs ?? resolvePrincipalCacheMs() });
+  // Session ids OmniMind told us are dead (`401 principal_invalid`): a request
+  // on one of them from the same principal is 401, not 404, until it ages out.
+  const revokedSessions = new LruTtlCache<{ principalKey: string; reason: string }>(REVOKED_SESSION_MAX_ENTRIES, REVOKED_SESSION_MEMORY_MS);
   const makeServer = opts.createServerFn
     ?? ((ctx: AgentContext, client: OmniMindClient, extras?: Pick<CreateMcpServerOptions, 'deferredClient' | 'onDeferred'>) =>
       createMcpServer(ctx, { client, ...opts.serverOptions, ...extras }));
@@ -332,9 +362,36 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
 
   async function sweepIdle(now = Date.now()): Promise<string[]> {
     const stale: string[] = [];
-    for (const [sid, s] of sessions) if (now - s.lastSeenAt >= sessionIdleMs) stale.push(sid);
-    for (const sid of stale) await closeSession(sid, `idle-closed after ${Math.round(sessionIdleMs / 1000)}s`);
+    for (const [sid, s] of sessions) if (s.revoked || now - s.lastSeenAt >= sessionIdleMs) stale.push(sid);
+    for (const sid of stale) {
+      const reason = sessions.get(sid)?.revoked?.reason;
+      await closeSession(sid, reason ? `revoked (${reason})` : `idle-closed after ${Math.round(sessionIdleMs / 1000)}s`);
+    }
     return stale;
+  }
+
+  /**
+   * OmniMind refused a delegated call with `401 principal_invalid`: the
+   * principal was revoked / expired / removed and the API's own cache already
+   * reflects it. Make that immediate here too — evict every cached credential
+   * of the principal (a fresh `initialize` must re-introspect and be refused),
+   * mark each of its sessions revoked (the next request on them is `401`),
+   * and close them once the in-flight error result has had time to flush.
+   */
+  function revokePrincipal(principalKey: string, reason: string, origin: string): void {
+    const dropped = resolver.evictPrincipal(principalKey);
+    let marked = 0;
+    for (const [sid, s] of sessions) {
+      if (s.principalKey !== principalKey || s.revoked) continue;
+      s.revoked = { at: Date.now(), reason };
+      revokedSessions.set(sid, { principalKey, reason });
+      marked++;
+      const timer = setTimeout(() => { void closeSession(sid, `revoked (${reason})`); }, REVOKED_SESSION_CLOSE_GRACE_MS);
+      timer.unref?.();
+    }
+    if (dropped > 0 || marked > 0) {
+      log(`[omnimind-mcp] principal ${principalKey} refused by OmniMind (${reason}) on ${origin}: evicted ${dropped} cached credential(s), closing ${marked} session(s)`);
+    }
   }
 
   async function evictLeastRecentlySeen(): Promise<void> {
@@ -365,6 +422,11 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
     // deferred extraction runs on it and the queue closes it once idle.
     const deferredClient = createClient(purpose);
     deferred.adopt(deferredClient);
+    // Any outbound path (tool call, audit row, deferred extraction) that sees
+    // `401 principal_invalid` revokes the principal here at once.
+    const onInvalid = (e: { principalKey: string; reason: string; method: string; path: string }) => revokePrincipal(e.principalKey, e.reason, `${e.method} ${e.path}`);
+    client.onPrincipalInvalid(onInvalid);
+    deferredClient.onPrincipalInvalid(onInvalid);
     let server: McpServer;
     try {
       ({ server } = makeServer(agentCtx, client, { deferredClient, onDeferred: done => deferred.track(deferredClient, done) }));
@@ -414,7 +476,7 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
   /** Session lookup that never distinguishes "unknown id" from "someone else's session" (or the same identity with other scopes, M-3). */
   function boundSession(sessionId: string, principalKey: string, scopeDigest: string): Session | undefined {
     const session = sessions.get(sessionId);
-    if (!session || session.principalKey !== principalKey) return undefined;
+    if (!session || session.principalKey !== principalKey || session.revoked) return undefined;
     if (session.scopeDigest !== undefined && session.scopeDigest !== scopeDigest) return undefined;
     return session;
   }
@@ -454,6 +516,8 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
       return;
     }
 
+    // Everything else is MCP traffic regardless of path (`/`, `/mcp`, `/mcp/`,
+    // …): served here, never redirected (see the module docstring).
     const presented = extractPresentedKey(req);
     const ip = clientIpOf(req, trustProxy);
     if (!trustProxy && !warnedUntrustedProxy && req.headers['x-forwarded-for'] !== undefined) {
@@ -489,6 +553,18 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
 
     const sidHeader = req.headers[SESSION_HEADER];
     const sessionId = typeof sidHeader === 'string' ? sidHeader : undefined;
+
+    // A session OmniMind declared dead, driven by the principal that owned it:
+    // 401 with the normal challenge (the credential itself is gone), for POST,
+    // GET (SSE reconnect) and DELETE alike. Anyone else gets the usual 404 below.
+    if (sessionId) {
+      const dead = revokedSessions.get(sessionId);
+      if (dead && dead.principalKey === principalKey) {
+        await closeSession(sessionId, `revoked (${dead.reason})`); // no-op once the grace timer has run
+        refuse(res, ip, presented, `session ${sessionId} revoked (${dead.reason})`);
+        return;
+      }
+    }
 
     if (method === 'POST') {
       let raw: string;
@@ -692,6 +768,9 @@ export async function startHttpServer(
     log('[omnimind-mcp] hint: set OMNIMIND_MCP_ALLOWED_HOSTS=<host[:port]>[,…] to the exact Host header clients send when this server is reached through a proxy, container hostname or public domain; otherwise those requests get 403 Invalid Host header.');
   }
   log(`[omnimind-mcp] sessions: idle timeout ${Math.round((opts?.sessionIdleMs ?? resolveSessionIdleMs()) / 1000)}s, cap ${opts?.maxSessions ?? MAX_SESSIONS} (least-recently-seen evicted at cap)`);
+  if (config.auth.tokenAuth || config.auth.oauth) {
+    log(`[omnimind-mcp] credential cache: positives ${Math.round(app.resolver.positiveTtlMs / 1000)}s (${PRINCIPAL_CACHE_ENV}), evicted at once when OmniMind answers 401 principal_invalid; revoked sessions close within ${REVOKED_SESSION_CLOSE_GRACE_MS}ms`);
+  }
 
   const close = async () => {
     await app.close();

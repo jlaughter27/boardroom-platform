@@ -376,13 +376,35 @@ describe('OAuth identity administration: GET/PATCH/DELETE /mcp/identities (x-adm
     expect(del.body.error).toBe('delegated_route_forbidden');
   });
 
-  it('GET lists a user\'s identities (400 without userId)', async () => {
-    expect((await admin(api().get('/mcp/identities'))).status).toBe(400);
+  it('GET lists a user\'s identities (limit defaults to 50)', async () => {
     mockPrisma.mcpOauthIdentity.findMany.mockResolvedValue([IDENTITY]);
     const res = await admin(api().get(`/mcp/identities?userId=${USER}`));
     expect(res.status).toBe(200);
     expect(res.body.identities).toEqual([expect.objectContaining({ id: IDENTITY.id, issuer: IDENTITY.issuer, subject: 'sub-1', tenantId: TENANT, scopes: ['memory:read'], createdAt: '2026-10-01T00:00:00.000Z' })]);
-    expect(mockPrisma.mcpOauthIdentity.findMany).toHaveBeenCalledWith({ where: { userId: USER }, orderBy: { createdAt: 'desc' } });
+    expect(mockPrisma.mcpOauthIdentity.findMany).toHaveBeenCalledWith({ where: { userId: USER }, orderBy: { createdAt: 'desc' }, take: 50 });
+  });
+
+  it('GET without userId lists EVERY identity newest first (operator view), honouring ?limit= ≤ 200; 400 above it or non-integer', async () => {
+    const other = { ...IDENTITY, id: 'cident0000000000000000002', userId: OTHER, subject: 'sub-2', createdAt: new Date('2026-10-02T00:00:00Z'), revokedAt: new Date('2026-10-03T00:00:00Z') };
+    mockPrisma.mcpOauthIdentity.findMany.mockResolvedValue([other, IDENTITY]);
+    const all = await admin(api().get('/mcp/identities'));
+    expect(all.status).toBe(200);
+    expect(all.body.identities.map((i: { id: string }) => i.id)).toEqual([other.id, IDENTITY.id]);
+    expect(all.body.identities[0]).toMatchObject({ userId: OTHER, revokedAt: '2026-10-03T00:00:00.000Z' });
+    expect(mockPrisma.mcpOauthIdentity.findMany).toHaveBeenCalledWith({ where: {}, orderBy: { createdAt: 'desc' }, take: 50 });
+
+    const limited = await admin(api().get('/mcp/identities?limit=5'));
+    expect(limited.status).toBe(200);
+    expect(mockPrisma.mcpOauthIdentity.findMany).toHaveBeenLastCalledWith({ where: {}, orderBy: { createdAt: 'desc' }, take: 5 });
+    expect((await admin(api().get('/mcp/identities?limit=200'))).status).toBe(200);
+    expect(mockPrisma.mcpOauthIdentity.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 200 }));
+
+    for (const bad of ['limit=201', 'limit=0', 'limit=abc', 'limit=2.5']) {
+      const res = await admin(api().get(`/mcp/identities?${bad}`));
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('validation_failed');
+      expect(res.body.details.map((d: { field: string }) => d.field)).toContain('limit');
+    }
   });
 
   it('PATCH re-points tenant (owned only) and re-scopes (subset only); 404 unknown; 400 empty/invalid', async () => {
@@ -427,6 +449,120 @@ describe('OAuth identity administration: GET/PATCH/DELETE /mcp/identities (x-adm
 
     mockPrisma.mcpOauthIdentity.findUnique.mockResolvedValue(null);
     expect((await admin(api().delete('/mcp/identities/nope'))).status).toBe(404);
+  });
+
+  describe('POST /mcp/identities (operator link for IdPs that send no verified e-mail)', () => {
+    const body = { issuer: 'https://idp.example/', subject: 'sub-9', userId: USER, tenantId: TENANT };
+    const byKey = (byPair: Record<string, unknown> | null, byId: Record<string, unknown> | null = null) =>
+      mockPrisma.mcpOauthIdentity.findUnique.mockImplementation(async ({ where }: { where: { id?: string; issuer_subject?: unknown } }) => (where.issuer_subject ? byPair : byId));
+    const createImpl = async ({ data }: { data: Record<string, unknown> }) => ({ ...IDENTITY, ...data, lastUsedAt: null, revokedAt: null });
+
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: USER });
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: TENANT });
+      byKey(null);
+      mockPrisma.mcpOauthIdentity.create.mockImplementation(createImpl);
+    });
+
+    it('401 without the admin key; 403 delegated_route_forbidden for a delegated principal; 403 for a plain verified agent without the admin key', async () => {
+      expect((await api().post('/mcp/identities').set('x-api-key', API_KEY).send(body)).status).toBe(401);
+      mockPrisma.mcpToken.findUnique.mockResolvedValue(TOKEN);
+      const del = await admin(api().post('/mcp/identities')).set('x-agent-key', GATEWAY_KEY).set('x-mcp-principal', `token:${TOKEN.id}`).send(body);
+      expect(del.status).toBe(403);
+      expect(del.body.error).toBe('delegated_route_forbidden');
+      expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
+    });
+
+    it('201 { identity } — issuer normalised, read-only default scopes, agentName oauth:<issuer host>-<suffix>', async () => {
+      const res = await admin(api().post('/mcp/identities')).send(body);
+      expect(res.status).toBe(201);
+      expect(Object.keys(res.body)).toEqual(['identity']);
+      expect(res.body.identity).toMatchObject({ issuer: 'https://idp.example', subject: 'sub-9', userId: USER, tenantId: TENANT, scopes: ['memory:read'], sourceWeight: 1, revokedAt: null, lastUsedAt: null });
+      expect(res.body.identity.agentName).toBe(`oauth:idp.example-${String(res.body.identity.id).slice(-8)}`);
+      expect(mockPrisma.mcpOauthIdentity.findUnique).toHaveBeenCalledWith({ where: { issuer_subject: { issuer: 'https://idp.example', subject: 'sub-9' } } });
+      expect(mockPrisma.tenant.findFirst).toHaveBeenCalledWith({ where: { id: TENANT, ownerUserId: USER }, select: { id: true } });
+
+      const full = await admin(api().post('/mcp/identities')).send({ ...body, scopes: ['memory:read', 'task:write'], sourceWeight: 1.5, clientId: 'chatgpt' });
+      expect(full.status).toBe(201);
+      expect(full.body.identity).toMatchObject({ scopes: ['memory:read', 'task:write'], sourceWeight: 1.5 });
+      expect(full.body.identity.agentName).toMatch(/^oauth:chatgpt-[A-Za-z0-9_-]{8}$/);
+    });
+
+    it('409 identity_exists with the existing id when the pair already has an active row', async () => {
+      byKey({ ...IDENTITY, id: 'cidentactive0000000000001' });
+      const res = await admin(api().post('/mcp/identities')).send(body);
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ code: 'identity_exists', existingId: 'cidentactive0000000000001' });
+      expect(res.body.message).toContain('PATCH /mcp/identities/cidentactive0000000000001');
+      expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
+      expect(mockPrisma.mcpOauthIdentity.update).not.toHaveBeenCalled();
+    });
+
+    it('a revoked row for the pair → 200 { identity } reactivated in place, and the delegation cache is evicted', async () => {
+      const revoked = { ...IDENTITY, issuer: 'https://idp.example', subject: 'sub-9', userId: OTHER, tenantId: 'old-tenant', revokedAt: new Date('2026-10-10T00:00:00Z') };
+      // the gateway had this principal cached while it was still active
+      byKey(revoked, { ...revoked, revokedAt: null });
+      mockPrisma.memoryEntry.findMany.mockResolvedValue([]);
+      expect((await api().get('/memories').set('x-api-key', API_KEY).set('x-agent-key', GATEWAY_KEY).set('x-mcp-principal', `oauth:${IDENTITY.id}`)).status).toBe(200);
+
+      mockPrisma.mcpOauthIdentity.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...revoked, ...data }));
+      const res = await admin(api().post('/mcp/identities')).send({ ...body, scopes: ['memory:read', 'memory:write'] });
+      expect(res.status).toBe(200);
+      expect(res.body.identity).toMatchObject({ id: IDENTITY.id, userId: USER, tenantId: TENANT, scopes: ['memory:read', 'memory:write'], revokedAt: null });
+      expect(mockPrisma.mcpOauthIdentity.update).toHaveBeenCalledWith({ where: { id: IDENTITY.id }, data: { revokedAt: null, userId: USER, tenantId: TENANT, scopes: ['memory:read', 'memory:write'], sourceWeight: 1 } });
+      expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
+
+      // evicted: the very next delegated request re-reads the row (which now carries the new user/tenant)
+      byKey(revoked, { ...revoked, revokedAt: null, userId: USER, tenantId: TENANT, scopes: ['memory:read', 'memory:write'] });
+      mockPrisma.mcpOauthIdentity.findUnique.mockClear();
+      const after = await api().get('/memories').set('x-api-key', API_KEY).set('x-agent-key', GATEWAY_KEY).set('x-mcp-principal', `oauth:${IDENTITY.id}`);
+      expect(after.status).toBe(200);
+      expect(mockPrisma.mcpOauthIdentity.findUnique).toHaveBeenCalledWith({ where: { id: IDENTITY.id } });
+    });
+
+    it('403 tenant_not_owned / 404 user_not_found / 403 issuer_not_allowed', async () => {
+      mockPrisma.tenant.findFirst.mockResolvedValue(null);
+      const notOwned = await admin(api().post('/mcp/identities')).send(body);
+      expect(notOwned.status).toBe(403);
+      expect(notOwned.body.code).toBe('tenant_not_owned');
+
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      const noUser = await admin(api().post('/mcp/identities')).send(body);
+      expect(noUser.status).toBe(404);
+      expect(noUser.body.code).toBe('user_not_found');
+
+      const prev = process.env.MCP_OAUTH_ALLOWED_ISSUERS;
+      try {
+        process.env.MCP_OAUTH_ALLOWED_ISSUERS = 'https://accounts.example.com';
+        mockPrisma.mcpOauthIdentity.findUnique.mockClear();
+        const refused = await admin(api().post('/mcp/identities')).send(body);
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('issuer_not_allowed');
+        expect(mockPrisma.mcpOauthIdentity.findUnique).not.toHaveBeenCalled();
+      } finally {
+        if (prev === undefined) delete process.env.MCP_OAUTH_ALLOWED_ISSUERS; else process.env.MCP_OAUTH_ALLOWED_ISSUERS = prev;
+      }
+      expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
+    });
+
+    it('400 validation_failed with [{field,message}] details (review A7 shape): missing fields, bad scopes, weight > 2, empty clientId', async () => {
+      const missing = await admin(api().post('/mcp/identities')).send({});
+      expect(missing.status).toBe(400);
+      expect(missing.body.error).toBe('validation_failed');
+      for (const d of missing.body.details) expect(Object.keys(d).sort()).toEqual(['field', 'message']);
+      expect(missing.body.details.map((d: { field: string }) => d.field)).toEqual(expect.arrayContaining(['issuer', 'subject', 'userId', 'tenantId']));
+
+      for (const [bad, field] of [
+        [{ ...body, scopes: [] }, 'scopes'], [{ ...body, scopes: ['*'] }, 'scopes'], [{ ...body, scopes: ['mcp:delegate'] }, 'scopes'],
+        [{ ...body, scopes: ['memory:read', 'memory:read'] }, 'scopes'], [{ ...body, sourceWeight: 2.5 }, 'sourceWeight'], [{ ...body, clientId: '' }, 'clientId'],
+      ] as const) {
+        const res = await admin(api().post('/mcp/identities')).send(bad);
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('validation_failed');
+        expect(res.body.details.some((d: { field: string }) => d.field.startsWith(field))).toBe(true);
+      }
+      expect(mockPrisma.mcpOauthIdentity.create).not.toHaveBeenCalled();
+    });
   });
 });
 

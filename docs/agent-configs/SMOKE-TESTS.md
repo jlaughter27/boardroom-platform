@@ -254,7 +254,7 @@ curl -s -i -X POST https://<mcp-host>/mcp -H 'content-type: application/json' -d
 1. `initialize` with `Authorization: Bearer omt_…` (curl in runbook §7b; SSE responses go through `mcpjson` before `jq`). Expected: 200, `mcp-session-id`, `instructions` present, `tools/list` → 20 tools incl. `search` and `fetch` with `readOnlyHint: true`.
 2. Call `memory_write` with a read-only token → `SCOPE_DENIED` tool result. With a write token → `created: [<id>]`.
 3. `GET /mcp/audit?limit=5&tenantId=<the token's tenant>` on OmniMind: the row's `agentId` is the token's `agentName` (`mcp-token:<slug>-<6 chars>`), the tenant/user are the token's — the gateway's name appears nowhere.
-4. Revoke the token in Settings; a new `initialize` → 401 within about a minute (positive resolutions are cached 60 s).
+4. Revoke the token in Settings; the next call on the open session fails at once (`PRINCIPAL_REVOKED`), the session is closed, and a new `initialize` → `401 invalid_token` (an idle client may keep a session up to `OMNIMIND_MCP_PRINCIPAL_CACHE_MS`, default 30 s, but every call on it fails).
 5. Negative control: a gateway whose agent row holds only `mcp:delegate` makes every tool, reads included, return `SCOPE_DENIED` — effective scopes are `token ∩ (gateway − mcp:delegate)`. A token minted with `code:write` keeps it only if the row carries all seven grantable scopes.
 6. Boundary control: a delegated call (gateway `x-agent-key` + `x-mcp-principal: token:<id>`) to `GET /mcp/tokens` on OmniMind must be `403 delegated_route_forbidden` — token management never goes through the gateway.
 
@@ -265,7 +265,7 @@ Two tokens for two BoardRoom users (or two tenants). `memory_write` from A, `mem
 `node packages/omnimind-mcp/dist/index.js bench --n 10 --user <id>` (in-process `memory_write` with the stdio/gateway env — export `OMNIMIND_MCP_AGENT_NAME` + `_TENANT_ID` for it; add `--yes` outside `NODE_ENV=development` because the writes and Haiku spend are real; `--cleanup` is on by default and archives the `bench` rows afterwards (`--no-cleanup` keeps them); also reports server-side p95 from `GET /mcp/audit/stats`) → `memory_write` p95 < 10 s, and no `recommendAsync` warning (fires above 20 s). Time `status_get` in Test 14 over the public URL → p95 < 1.5 s. Above ~20 s set `OMNIMIND_MCP_WRITE_EXTRACT=async` and re-run.
 
 **Test 17 — One real client per family**
-Claude.ai connector (`claude-ai-connector.md`), Claude Code (`claude mcp add …`), Cursor (`cursor.json`), ChatGPT (OAuth mode, or header auth where the workspace offers it). Each: list tools, `status_get`, a `memory_search`. ChatGPT: a plain "search OmniMind for …" must route to `search` then `fetch` without a confirmation prompt.
+Claude.ai connector (`claude-ai-connector.md` — OAuth sign-in, or the *Request headers* beta where the organization has it), Claude Code (`claude mcp add --transport http --scope user …`), Cursor (`cursor.json`), ChatGPT (OAuth mode only — its dialog has no header field, so this test needs runbook §9 done). Each: list tools, `status_get`, a `memory_search`. ChatGPT: a plain "search OmniMind for …" must route to `search` then `fetch` without a confirmation prompt.
 
 ---
 
@@ -278,7 +278,7 @@ Claude.ai connector (`claude-ai-connector.md`), Claude Code (`claude mcp add …
 - [ ] Tier 5: cursor-josh read-only enforced
 - [ ] Tier 6: HTTP transport auth works; chatgpt read-only enforced
 - [ ] Tier 7: all tool calls appear in audit log
-- [ ] Tier 8: hosted gateway — 401 `unauthorized` without a token / `invalid_token` with a bogus one (PRM served when OAuth is on), token round trip, per-token attribution in audit, revocation → 401 within about a minute, scope-ceiling negative control, `delegated_route_forbidden` boundary control, bench within targets
+- [ ] Tier 8: hosted gateway — 401 `unauthorized` without a token / `invalid_token` with a bogus one (PRM served when OAuth is on), token round trip, per-token attribution in audit, revocation → next call fails at once / new `initialize` 401, scope-ceiling negative control, `delegated_route_forbidden` boundary control, bench within targets
 - [ ] Cross-agent: memory written by claude-code-josh is readable by cursor-josh (same tenant)
 
 All boxes checked = Phase 2 complete. Start dogfooding for 1 week before Phase 3.

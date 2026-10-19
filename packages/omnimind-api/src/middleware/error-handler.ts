@@ -4,7 +4,8 @@ import { logger } from '../lib/logger';
 export class HttpError extends Error {
   constructor(
     public readonly statusCode: number,
-    public readonly body: { code: string; message: string },
+    // Extra fields (e.g. `existingId` on a 409) are spread into the response as-is.
+    public readonly body: { code: string; message: string; [extra: string]: unknown },
   ) {
     super(body.message);
     this.name = 'HttpError';

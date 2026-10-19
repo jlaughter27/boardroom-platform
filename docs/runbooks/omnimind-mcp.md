@@ -1,6 +1,6 @@
 # OmniMind-MCP Runbook — from checkout to "live"
 
-Last updated: 2026-10-18 | Hosted MCP front door (per-user `omt_` tokens, OAuth resource server, `search`/`fetch`, Dockerfile + Railway service)
+Last updated: 2026-10-19 | Hosted MCP front door (per-user `omt_` tokens, OAuth resource server, `search`/`fetch`, Dockerfile + Railway service)
 
 This is the operator path. **Follow §0–§7 in order the first time** — each step creates something the next step needs, and nothing is used before it exists (the MCP service in §3 refuses to start without the gateway key from §1). Afterwards jump to the section you need. Protocol-level detail (tool semantics, scopes, pagination) stays in `docs/MEMORY-PROTOCOL.md`; the OmniMind endpoints referenced here are specified in `docs/contracts/omnimind-api.contract.md`. Code of record: `packages/omnimind-mcp/src/lib/principal.ts` (credential → principal), `packages/omnimind-api/src/middleware/agent-context.ts` (delegation), `packages/omnimind-api/src/services/mcp-token.service.ts` (tokens), `packages/shared/src/types/mcp-token.types.ts` (`MCP_SCOPES`, `MCP_GATEWAY_CEILING_SCOPES`), `packages/boardroom-ai/client/src/components/settings/mcp-snippets.ts` (install snippets).
 
@@ -146,9 +146,11 @@ A plain Node HTTP process: no database, no Prisma, no prompts directory, no bash
 | `OMNIMIND_MCP_AGENT_NAME` / `OMNIMIND_MCP_TENANT_ID` / `OMNIMIND_MCP_SCOPES` / `OMNIMIND_MCP_SOURCE_WEIGHT` | *(unset)* | **yes** | not read | not read | The static/stdio process identity. **The hosted gateway never reads them** — its identity, tenant and scope ceiling come from the agent row behind `OMNIMIND_MCP_AGENT_KEY`, and nothing compares the env with the row. Only the legacy static bearer, stdio, `bench` and `smoke` need `AGENT_NAME` + `TENANT_ID`. |
 | `OMNIMIND_MCP_USER_ID` | *(unset)* | optional | — | — | Static / stdio only: user the `omnimind://` resources read as. Delegated sessions bind the token's user. |
 | `OMNIMIND_MCP_OAUTH_ISSUER` / `OMNIMIND_MCP_OAUTH_JWKS_URL` / `OMNIMIND_MCP_OAUTH_AUDIENCE` | *(empty)* | — | — | issuer **yes** | OAuth resource-server mode (§9). JWKS is discovered from the issuer when the URL is unset; audience defaults to `OMNIMIND_MCP_PUBLIC_URL`. |
+| `OMNIMIND_MCP_OAUTH_USERINFO` | `true` | — | — | opt | When the access token lacks `email` / `email_verified`, fetch them from the issuer's `userinfo_endpoint` with the same token (`sub` must match). `false` disables the fallback (§9.4). |
 | `OMNIMIND_MCP_DOCS_URL` | *(optional)* | opt | opt | opt | PRM `resource_documentation`; defaults to `docs/MEMORY-PROTOCOL.md` on GitHub. |
 | `OMNIMIND_MCP_WRITE_EXTRACT` | `sync` | opt | opt | opt | `async` returns from `memory_write` before Haiku fact extraction finishes (§7c). Deferred extraction runs on a long-lived client, so it completes even after the session that started it ends. |
 | `OMNIMIND_MCP_SESSION_IDLE_MS` | `1800000` | opt | opt | opt | Idle session timeout; cap 100 live sessions, least-recently-seen evicted. |
+| `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` | `30000` | — | opt | opt | Positive credential-cache TTL (ms), clamped 5000..300000. Bounds only how long an **idle** client keeps a session after its token is revoked; a data call on a revoked token is refused at once. |
 | `NODE_ENV` | `production` | set by the image | | | Also gates `bench --yes` (§7c). |
 
 5. Deploy. The log must show: `HTTP transport started on port <PORT>` → the enabled auth modes (`omt_ tokens (introspection)`, plus `OAuth (issuer …, audience …)` when set; **not** `static key`) → `allowedHosts: <your host>` without the `(default — loopback only)` suffix → `sessions: idle timeout 1800s, cap 100` → `auth failure limit: … client IP from right-most X-Forwarded-For` (the `socket peer (set OMNIMIND_MCP_TRUST_PROXY=true …)` variant on Railway means the limiter is keyed on the proxy). An exit with `requires OMNIMIND_MCP_AGENT_KEY` means §1 was skipped.
@@ -166,7 +168,7 @@ The token panel and its install snippets are rendered by BoardRoom from `GET /ap
 |---|---|---|
 | `OMNIMIND_MCP_PUBLIC_URL` | `https://omnimind-mcp-production.up.railway.app/mcp` — **identical** to the MCP service's value | `mcpUrl` in every snippet. Unset ⇒ snippets show the placeholder `https://<your-omnimind-mcp-host>/mcp`. |
 | `APP_PUBLIC_URL` | `https://boardroom-ai-production-1092.up.railway.app` | `appUrl` (links back to Settings in the snippets). Optional: falls back to the request origin. |
-| `OMNIMIND_MCP_OAUTH_ISSUER` | same issuer as the MCP service, **only** when §9 is configured | `oauthEnabled: true` ⇒ the Claude.ai / Claude Desktop and ChatGPT snippets show the OAuth path **first** and the header path as the alternative. Leave unset in token-only mode or the snippets promise a sign-in flow the server cannot serve. |
+| `OMNIMIND_MCP_OAUTH_ISSUER` | same issuer as the MCP service, **only** when §9 is configured | `oauthEnabled: true` ⇒ the Claude.ai / Claude Desktop snippets show the OAuth path **first** (the *Request headers* beta as the alternative) and the ChatGPT snippet shows the OAuth steps instead of "ChatGPT cannot use this token". Leave unset in token-only mode or the snippets promise a sign-in flow the server cannot serve. |
 
 `connect-info` and `GET /api/mcp/tokens/options` sit behind the login cookie only (not behind the subscription middleware), so a user can always see the panel and their tenants. Redeploy BoardRoom after changing these; nothing on the MCP side depends on them.
 
@@ -177,7 +179,7 @@ The token panel and its install snippets are rendered by BoardRoom from `GET /ap
 BoardRoom → **Settings → Connected AI tools**. Pick the client (it pre-fills the token name and renders the right snippet), the tenant (only tenants you own are offered — §2) and the scopes (all seven are offered; the gateway ceiling from §1 is what makes them effective). The `omt_…` value (`omt_` + 43 base64url chars) is shown **once**; the list afterwards shows only the 12-char prefix, expiry, last-used time and a Revoke button.
 
 - **Expiry.** Tokens expire **365 days** after minting by default. The scripted API accepts `expiresInDays` (shorter) or `expiresInDays: null` for a non-expiring token; an expired token is `401 invalid_token` like a revoked one.
-- **Revocation.** The row gets `revoked_at`; the MCP server caches a positive resolution for up to **60 s** and a live session keeps its resolved identity until the next resolution, so expect the client to lose access **within about a minute**, not within one request (the Settings page and the snippets say the same).
+- **Revocation.** The row gets `revoked_at` and OmniMind evicts its delegation cache synchronously; the MCP server fails the in-flight call with `PRINCIPAL_REVOKED`, evicts the credential and closes the session, so the next request is `401 invalid_token`. The token stops working **immediately**; only an idle client that makes no calls may keep an open session for up to `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` (default 30 s), and every call on it fails (the Settings page and the snippets say the same).
 
 Recommended scopes per client:
 
@@ -194,66 +196,105 @@ Scripted equivalent: `POST /mcp/tokens` on OmniMind (contract) or `POST /api/mcp
 
 ## 6. Install in each client
 
-Every HTTP client needs the same two facts: the server URL **`https://<mcp-host>/mcp`** and the header `Authorization: Bearer omt_…`. The Settings page renders these snippets with the real URL and token filled in (`mcp-snippets.ts` is the source of truth; this section mirrors it). Stdio configs (`docs/agent-configs/*.json`, `omnimind-local` entries) remain for running the server locally with an `omk_` agent key — not needed for the hosted path.
+Every client needs the server URL **`https://<mcp-host>/mcp`** and a credential: the header `Authorization: Bearer omt_…` where the client can send one, or an OAuth sign-in (§9) where it cannot. The Settings page renders these snippets with the real URL and token filled in (`mcp-snippets.ts` is the source of truth; this section mirrors it, and the dialog vocabulary below was checked against each vendor's own documentation on 2026-10-19). Stdio configs (`docs/agent-configs/*.json`, `omnimind-local` entries) remain for running the server locally with an `omk_` agent key — not needed for the hosted path.
+
+**Which credential works where**
+
+| Client | Header token (`omt_`) | OAuth (§9) | Notes |
+|---|:-:|:-:|---|
+| Claude.ai | beta only | yes | The "Request headers" section of *Add custom connector* is in beta for a limited set of organizations. No beta ⇒ OAuth is the only path. |
+| Claude Desktop | beta only, **or** the `claude_desktop_config.json` `mcp-remote` bridge (always) | yes | Shares claude.ai's connector list and dialog. |
+| Claude Code | yes | yes | `claude mcp add … --header` |
+| ChatGPT | **no** | **required** | The Create-connector dialog offers OAuth or "No authentication" only; there is no header / API-key field. |
+| Cursor, Windsurf, Gemini CLI, VS Code, Zed | yes | varies | Static header in the config file. |
+
+**Shared rule — the URL must not redirect.** `OMNIMIND_MCP_PUBLIC_URL` is the final URL: Claude drops the `Authorization` header when a redirect crosses hosts, and ChatGPT reports "Session terminated" on a `/mcp` → `/mcp/` 307. The server answers both spellings directly; a custom domain or proxy in front of it must not add a redirect.
 
 ### Claude.ai and Claude Desktop (custom connector)
-Settings → **Connectors** → *Add custom connector* → name `OmniMind`, Remote MCP server URL `https://<mcp-host>/mcp`. The dialog differs by plan, so the Settings page shows two paths and leads with OAuth when the server advertises an issuer:
+One dialog for both: remote connectors are configured and brokered through the Claude account, so Claude Desktop → Settings → Connectors shows the same list as claude.ai (and `claude_desktop_config.json` is a separate, local-server mechanism). The dialog layout varies by organization — either name, URL and an *Advanced settings* disclosure on one screen, or two steps — but the choices are the same:
 
-- **OAuth mode** (issuer configured, §9): leave *Advanced settings* empty; Claude discovers the issuer from the PRM document and asks you to sign in when you enable the connector — no token needed. OAuth sign-in grants read-only access by default (`memory:read`); a token carries exactly the scopes you picked.
-- **Token mode:** expand *Advanced settings*; **if it shows a header field** ("Authorization" or a custom header) paste `Authorization: Bearer omt_…` there and leave OAuth Client ID / Client Secret empty. The header field is not offered on every plan — if it is missing and OAuth is not configured, the connector cannot take a token; use the Claude Code command below (works everywhere) or, on Claude Desktop, `claude_desktop_config.json` bridged with `mcp-remote` (no header field needed):
-  ```json
-  { "mcpServers": { "omnimind": { "command": "npx", "args": ["-y", "mcp-remote", "https://<mcp-host>/mcp", "--header", "Authorization:Bearer omt_…"] } } }
-  ```
+- **Authentication:** *Sign in now* · *Sign in when needed* · *No sign-in*.
+- **OAuth client:** *Use Claude's published identity* (Client ID Metadata Document that Anthropic hosts) · *Register automatically* (Dynamic Client Registration) · *Use your own OAuth client* (a client ID you registered with the issuer; secret blank unless required).
+- **Request headers** — fixed credentials Claude sends on every request: pick a header name from the list (`authorization`, `x-api-key`, `x-auth-token`, or a custom name Anthropic approves), enter the **full value verbatim** (`Bearer omt_…` — Claude adds no scheme), up to four headers. **Beta, limited set of organizations:** if you don't see *Request headers* in the dialog, your organization doesn't have it yet. On an OAuth connection `authorization` cannot be a request header.
+- **Authentication settings cannot be edited after creation** (OAuth client and request headers alike): remove the connector and add it again.
 
-Add, then enable the connector in a chat from the tools menu. Claude Desktop shares Claude.ai's connector list; the `claude_desktop_config.json` route above is the only reason to edit that file for the hosted server.
+Steps, as the Settings page shows them (OAuth first when the server advertises an issuer):
+
+1. Settings → **Connectors** → *Add custom connector* → name `OmniMind`, URL `https://<mcp-host>/mcp`.
+2. **OAuth mode (issuer configured, §9):** Authentication *Sign in when needed*; OAuth client *Register automatically*. Pick *Use Claude's published identity* only if the issuer supports CIMD (Claude uses it only when the authorization-server metadata advertises `client_id_metadata_document_supported: true` **and** `none` in `token_endpoint_auth_methods_supported`; otherwise it falls back to DCR anyway). No token is needed — Claude asks you to sign in on first use. OAuth sign-in is read-only (`memory:read`) until an admin widens the identity (§9); an `omt_` token carries exactly the scopes picked at minting.
+3. **Token mode:** Authentication *No sign-in*; under *Request headers* add header name `authorization`, value `Bearer omt_…`. Only possible when the beta section is visible.
+4. **No Request headers and no OAuth yet:**
+   - claude.ai (web / mobile) has **no way to send the token**. The server needs OAuth — §9, then `OMNIMIND_MCP_OAUTH_ISSUER` on BoardRoom (§4) so the page switches to the sign-in steps. Until then use Claude Code or Claude Desktop.
+   - Claude Desktop can skip the connector dialog and bridge the hosted URL through `mcp-remote` in `claude_desktop_config.json` (works regardless of the beta; token with its exact scopes):
+     ```json
+     { "mcpServers": { "omnimind": { "command": "npx", "args": ["-y", "mcp-remote", "https://<mcp-host>/mcp", "--header", "Authorization:Bearer omt_…"] } } }
+     ```
+5. Add, then enable the connector in a chat from the tools menu. Claude follows the 2025-03-26 / 2025-06-18 / 2025-11-25 authorization specs; connectors are IPv4-only and connect from Anthropic's cloud, so the host must be publicly reachable.
 
 ### Claude Code
 ```bash
-claude mcp add --transport http omnimind https://<mcp-host>/mcp --header "Authorization: Bearer omt_…"
-# add --scope user to make it available in every project; `claude mcp list` should report it connected
+claude mcp add --transport http --scope user omnimind https://<mcp-host>/mcp --header "Authorization: Bearer omt_…"
+# --scope user stores it in ~/.claude.json for every project (the default local scope = current project only).
+# `claude mcp list` should report it connected; /mcp shows state and re-auth in OAuth mode.
 ```
-Claude Code loads the server `instructions` at session start (truncated at 2,048 chars) and uses them for tool search; `/mcp` shows connection state and re-auth in OAuth mode.
+To keep the token out of a committed `.mcp.json`, use environment-variable expansion — Claude Code expands `${VAR}` in `url` and `headers`:
+```json
+{ "mcpServers": { "omnimind": { "type": "http", "url": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer ${OMNIMIND_TOKEN}" } } } }
+```
+Pick a name like `OMNIMIND_TOKEN`: credential-looking names such as `ANTHROPIC_AUTH_TOKEN` are deliberately read as empty in a remote server's `url`/`headers`, so `Bearer ${ANTHROPIC_AUTH_TOKEN}` sends `Bearer ` with no credential. Claude Code loads the server `instructions` at session start (truncated at 2,048 chars). OAuth: `claude mcp login omnimind` or `/mcp`; its CIMD declares the loopback callbacks `http://localhost/callback` and `http://127.0.0.1/callback` (port ignored).
 
-### ChatGPT (Developer mode)
-Settings → **Connectors** → *Advanced* → enable **Developer mode** → *Create* → name `OmniMind`, URL `https://<mcp-host>/mcp`. Authentication: **when the server has an OAuth issuer (§9), choose OAuth** — ChatGPT completes the sign-in itself, no token needed (read-only by default; a token carries exactly its scopes). Without an issuer: developer-mode connectors normally offer only *OAuth* or *No authentication*; a personal token works **only if** the dialog also shows a custom header / API-key field — paste the header there. If it does not, ChatGPT cannot use a token until the operator sets `OMNIMIND_MCP_OAUTH_ISSUER` (and the matching BoardRoom variable, §4). ChatGPT uses the read-only `search` and `fetch` tools (`readOnlyHint: true`, so no confirmation prompt); Deep Research and company knowledge retrieve through that pair only.
+### ChatGPT (Developer mode) — OAuth only
+Settings → **Apps & Connectors** (older builds: *Connectors*) → *Advanced* → **Developer mode** on. Developer mode exists on Plus, Pro, Business, Enterprise and Edu (not Free); on Business/Enterprise an admin enables it under *Workspace Settings → Permissions & Roles*. Then *Create* → name `OmniMind`, URL `https://<mcp-host>/mcp`.
+
+- **Authentication: OAuth.** The dialog offers **OAuth or "No authentication" only — there is no header or API-key field**, so a personal `omt_` token can never be used from ChatGPT. Without an issuer on this server (§9) ChatGPT cannot connect; the Settings page says so and points here. ChatGPT registers with the issuer via CIMD (public-client `none` or `private_key_jwt`) or DCR, and signs the user in.
+- Write tools are confirmed available in Developer mode on Business, Enterprise and Edu; on Plus and Pro the connector **may be read-only** (`search`/`fetch` only) — 2026 help-center text says so and launch-era text says otherwise, so check the current plan limits. ChatGPT asks for confirmation before non-read-only tools (it keys off `readOnlyHint`), shows changed tool definitions as a diff, and disables new actions by default.
+- `search` and `fetch` (`readOnlyHint: true`, no confirmation prompt) are what Deep Research and company knowledge use; without Developer mode a server lacking them is rejected, so they stay exposed.
+- OAuth sign-in is read-only (`memory:read`) by default; widen per identity with `PATCH /mcp/identities/:id` (§9).
 
 ### Cursor
 `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 ```json
 { "mcpServers": { "omnimind": { "url": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer omt_…" } } } }
 ```
-One-click: `cursor://anysphere.cursor-deeplink/mcp/install?name=omnimind&config=<base64 of {url, headers}>` — rendered on the Settings page. Cursor → Settings → MCP shows the server; toggle it on if listed as disabled.
+Cursor resolves `${env:NAME}` in `url` and `headers`, so `"Authorization": "Bearer ${env:OMNIMIND_TOKEN}"` keeps the token out of the file. One-click: `cursor://anysphere.cursor-deeplink/mcp/install?name=omnimind&config=<base64 of {url, headers}>` — rendered on the Settings page. Cursor → Settings → MCP shows the server; toggle it on if listed as disabled.
 
 ### Windsurf
 `~/.codeium/windsurf/mcp_config.json` (Windsurf → Settings → Cascade → MCP → Configure), then *Refresh* in the MCP panel:
 ```json
 { "mcpServers": { "omnimind": { "serverUrl": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer omt_…" } } } }
 ```
-Windsurf caps the total tool count at 100 across all servers; OmniMind contributes 20.
+Use `serverUrl` (not `url`) for a remote server. The file is global only (no per-project config) and has no environment-variable interpolation, so the token sits in it in plain text — prefer a read-mostly token. Windsurf caps the total tool count at 100 across all servers; OmniMind contributes 20.
 
 ### Gemini CLI
-`~/.gemini/settings.json` (or `.gemini/settings.json` in a project), then `/mcp` inside Gemini CLI to confirm:
+```bash
+gemini mcp add --transport http --scope user --header "Authorization: Bearer omt_…" omnimind https://<mcp-host>/mcp
+# --scope user → ~/.gemini/settings.json (default scope = project); /mcp inside Gemini CLI confirms the tools.
+```
+Equivalent JSON in `~/.gemini/settings.json` (or `.gemini/settings.json` in a project):
 ```json
 { "mcpServers": { "omnimind": { "httpUrl": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer omt_…" } } } }
 ```
-Equivalent: `gemini mcp add --transport http omnimind https://<mcp-host>/mcp --header "Authorization: Bearer omt_…"`. Use `httpUrl` (Streamable HTTP), never `url` (legacy SSE, which this server does not serve and Gemini Enterprise rejects).
+`httpUrl` selects Streamable HTTP; `url` selects the legacy SSE transport, which this server does not serve (and Gemini Enterprise rejects). Gemini CLI resolves `$VAR` / `${VAR}` (and `${VAR:-default}`) across the whole settings file, so `"Bearer $OMNIMIND_TOKEN"` works; an undefined variable is left as the literal placeholder.
 
 ### VS Code / GitHub Copilot
-`.vscode/mcp.json` in the workspace (or *MCP: Add Server* from the Command Palette); Copilot Chat must be in **Agent** mode:
+`.vscode/mcp.json` in the workspace (or *MCP: Add Server* from the Command Palette); Copilot Chat must be in **Agent** mode. Use an `inputs` prompt so the token is requested once (`password: true` hides it) and kept in VS Code's secret store, never in the file:
 ```json
-{ "servers": { "omnimind": { "type": "http", "url": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer omt_…" } } } }
+{
+  "inputs": [{ "id": "omnimind-token", "type": "promptString", "password": true, "description": "OmniMind personal token (omt_…)" }],
+  "servers": { "omnimind": { "type": "http", "url": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer ${input:omnimind-token}" } } }
+}
 ```
-From a terminal: `code --add-mcp '{"name":"omnimind","type":"http","url":"https://<mcp-host>/mcp","headers":{"Authorization":"Bearer omt_…"}}'`. To keep the token out of a committed file use an `inputs` prompt (`docs/agent-configs/vscode-copilot.json`).
+`type: "http"` is required (`"sse"` is the other value; VS Code tries HTTP Stream first and falls back to SSE). `${env:NAME}` also works. Servers that need interactive inputs are not forwarded to Copilot harness sessions; for those, or a throwaway machine, the literal form is `code --add-mcp '{"name":"omnimind","type":"http","url":"https://<mcp-host>/mcp","headers":{"Authorization":"Bearer omt_…"}}'`.
 
 ### Zed
-`settings.json` (`zed: open settings`):
+Zed connects to remote MCP servers natively — no `mcp-remote` bridge. `settings.json` (`zed: open settings`), or Settings → AI → MCP Servers → *Add Remote Server*:
 ```json
-{ "context_servers": { "omnimind": { "source": "custom", "url": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer omt_…" } } } }
+{ "context_servers": { "omnimind": { "url": "https://<mcp-host>/mcp", "headers": { "Authorization": "Bearer omt_…" } } } }
 ```
-If your Zed build only supports stdio servers, bridge with `mcp-remote`: `"command": "npx", "args": ["-y", "mcp-remote", "https://<mcp-host>/mcp", "--header", "Authorization:Bearer omt_…"]`. Zed does not surface elicitation; destructive tools rely on their server-side `confirm`/`dryRun` arguments.
+The header is stored in plain text (no interpolation documented). With no `Authorization` header configured, Zed starts the standard MCP OAuth flow instead (only works once §9 is live). Zed does not surface elicitation; destructive tools rely on their server-side `confirm`/`dryRun` arguments, so prefer a read-mostly token.
 
 ### Any other Streamable HTTP client
-URL + header as above. Smoke with curl (§7b). The legacy HTTP+SSE two-endpoint transport is not served on purpose (deprecated; rejected by Copilot Studio and Gemini Enterprise).
+URL + header as above. Smoke with curl (§7b). The server may answer a POST with `application/json` or `text/event-stream` (both are spec-compliant and every client must accept both); `GET` opens the SSE stream; `Mcp-Session-Id` is issued at `initialize` and must be echoed. The legacy HTTP+SSE two-endpoint transport is not served on purpose (deprecated; rejected by Copilot Studio and Gemini Enterprise).
 
 ---
 
@@ -295,7 +336,7 @@ curl -s -X POST https://<mcp-host>/mcp "${H[@]}" -d '{"jsonrpc":"2.0","id":2,"me
 curl -s -X POST https://<mcp-host>/mcp "${H[@]}" -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"status_get","arguments":{}}}' | mcpjson | jq '.result.structuredContent.counts'
 curl -s -X DELETE https://<mcp-host>/mcp -H "Authorization: Bearer omt_…" -H "mcp-session-id: $SID"
 ```
-A token without `memory:write` must get `{ "error": "SCOPE_DENIED" }` from `memory_write` (a tool result, not a transport error). A revoked token gets `401` on a new session within 60 s. A wrong/unknown credential is `401` with body `{"error":"invalid_token"}` (no credential at all: `{"error":"unauthorized"}`); OmniMind unreachable — or a gateway key OmniMind does not know (§1 "Rotation") — is `503 auth_unavailable` with `Retry-After` (never cached). A session is bound to its principal **and** that principal's scope digest: a request whose credential now resolves to different scopes (token edited, identity re-scoped) is refused and the client must re-`initialize`.
+A token without `memory:write` must get `{ "error": "SCOPE_DENIED" }` from `memory_write` (a tool result, not a transport error). A revoked token fails its next call at once (`PRINCIPAL_REVOKED` on the in-flight call, then `401 invalid_token`); an idle session may linger up to 30 s. A wrong/unknown credential is `401` with body `{"error":"invalid_token"}` (no credential at all: `{"error":"unauthorized"}`); OmniMind unreachable — or a gateway key OmniMind does not know (§1 "Rotation") — is `503 auth_unavailable` with `Retry-After` (never cached). A session is bound to its principal **and** that principal's scope digest: a request whose credential now resolves to different scopes (token edited, identity re-scoped) is refused and the client must re-`initialize`.
 
 **c. Write-latency bench (`memory_write`)**
 ```bash
@@ -348,15 +389,104 @@ One store, every client reads it at the start of relevant turns, and a write fro
 
 ---
 
-## 9. OAuth option (resource-server mode)
+## 9. OAuth (resource-server mode) — required for ChatGPT and most Claude.ai organizations
 
-The MCP server is an OAuth 2.1 **resource server**, not an authorization server. Set `OMNIMIND_MCP_OAUTH_ISSUER` (and optionally `_JWKS_URL`, `_AUDIENCE`) on the MCP service — plus `OMNIMIND_MCP_OAUTH_ISSUER` on BoardRoom so the snippets switch to OAuth-first (§4) — and it verifies incoming JWTs with `jose` — asymmetric algorithms only (RS256/ES256/EdDSA), `iss` = issuer, `aud` = audience (RFC 8707; defaults to `OMNIMIND_MCP_PUBLIC_URL`), `exp`/`sub` required, 30 s clock skew — then resolves the principal through `POST /mcp/identities/resolve` with `{issuer, subject, email?, emailVerified?, clientId?}`. A user is **auto-linked by verified e-mail** on first use (claim `email` with `email_verified: true` matching a BoardRoom user who owns at least one tenant; with several owned tenants the **oldest-created** one is bound — §2 shows how to move it); otherwise the credential is `401 unlinked`. The identity row's `agentName` is `oauth:<clientId or issuer host>-<8 chars of the row id>` (unique per identity since migration `20261018000001`) with the default OAuth scopes — **`memory:read` only** (`MCP_OAUTH_DEFAULT_SCOPES`), which is why the snippets say OAuth sign-in is read-only by default; a `scope` claim on the token narrows further (`intersectScopes`), and an admin widens or re-tenants the row with `PATCH /mcp/identities/:id {scopes, tenantId}`.
+**Why you need it.** ChatGPT's connector dialog has no header or API-key field (OAuth or "No authentication" only), and claude.ai's *Request headers* section is a beta for a limited set of organizations. Without OAuth those two clients cannot use the per-user `omt_` tokens at all. Everything else (Claude Code, Claude Desktop via the `mcp-remote` bridge, Cursor, Windsurf, Gemini CLI, VS Code, Zed) works with tokens alone, so this section is optional until a ChatGPT or claude.ai user needs in.
 
-- **Issuer allow-list on OmniMind.** Optional `MCP_OAUTH_ALLOWED_ISSUERS` (comma-separated) on omnimind-api makes `POST /mcp/identities/resolve` refuse any issuer not listed, so a misconfigured gateway cannot link identities from an unexpected provider. Set it to the same issuer URL when you turn OAuth on.
-- Discovery: `GET https://<mcp-host>/.well-known/oauth-protected-resource` (and `…/oauth-protected-resource/mcp` for path-scoped clients) returns RFC 9728 metadata `{ resource, authorization_servers: [issuer], scopes_supported, bearer_methods_supported: ["header"], resource_documentation }`; `scopes_supported` is `MCP_SCOPES` from `@boardroom/shared` (all seven). **It is served only when OAuth is configured** — in token-only mode it is `404`, and `WWW-Authenticate` on a 401 carries `resource_metadata="…"` only in OAuth mode.
-- Client registration is the **issuer's** job. Claude.ai and Claude Code prefer **Client ID Metadata Documents (CIMD)** and use them only when the authorization server advertises `client_id_metadata_document_supported` and `none` in `token_endpoint_auth_methods_supported`; Dynamic Client Registration (RFC 7591) is deprecated in MCP spec 2026-07-28 but still what Cursor, Gemini CLI and Copilot Studio use; static pre-registered clients are the third path. Pick an issuer (WorkOS AuthKit, Ory Hydra, Auth0, …) that supports all three — ADR-014.
-- We validate tokens from **one configured issuer**, with no consent-time scope picker and no built-in authorization server. Token auth (`omt_`) and OAuth coexist on the same endpoint; the server decides by shape (`omt_` prefix vs compact JWS).
-- Startup refuses an issuer without `OMNIMIND_MCP_PUBLIC_URL` or without `OMNIMIND_MCP_AGENT_KEY` (identity resolution is a delegated call).
+**What the server is.** An OAuth 2.1 **resource server** only (ADR-014): it verifies JWTs from one configured issuer and maps them to BoardRoom users. There is no built-in authorization server, no consent-time scope picker, and client registration is entirely the issuer's job. `omt_` tokens and OAuth coexist on the same endpoint (the server tells them apart by shape: `omt_` prefix vs compact JWS).
+
+### 9.1 Choose an identity provider
+
+Requirements, in order of importance:
+
+1. **Dynamic Client Registration (RFC 7591)** — what ChatGPT, Claude's *Register automatically*, Cursor, Gemini CLI and Copilot Studio use. Non-negotiable.
+2. **Client ID Metadata Documents (CIMD)** — what Claude.ai / Claude Code and ChatGPT prefer. Claude selects it only when the authorization-server metadata advertises `client_id_metadata_document_supported: true` and `none` in `token_endpoint_auth_methods_supported`; otherwise it falls back to DCR, so CIMD is a nice-to-have, not a blocker.
+3. **Resource indicators (RFC 8707)** — the access token's `aud` must be this server (`OMNIMIND_MCP_PUBLIC_URL`).
+4. **Asymmetric signing** (RS256 / ES256 / EdDSA) with a JWKS endpoint; HS256 tokens are refused.
+5. **`email` + `email_verified` claims** in the access token, **or** a `userinfo_endpoint` in the issuer's discovery document — the server fetches `email` / `email_verified` from it when the token lacks them (same bearer token; the `sub` must match; `OMNIMIND_MCP_OAUTH_USERINFO=false` disables the fallback).
+6. Optional: a `scope` claim limited to our seven MCP scopes.
+
+Known DCR-capable options for MCP: **WorkOS AuthKit** and **Auth0** both document MCP / DCR support; Ory Hydra also implements DCR. **CIMD support changes quickly — verify it on the provider's current docs** before promising Claude's *Use Claude's published identity* option. Pick one issuer; the server validates tokens from exactly one.
+
+### 9.2 Configure the provider
+
+| Setting | Value | Why |
+|---|---|---|
+| Issuer URL | e.g. `https://<tenant>.authkit.app` / `https://<tenant>.auth0.com/` — must serve `/.well-known/openid-configuration` (or `oauth-authorization-server`) | Goes into `OMNIMIND_MCP_OAUTH_ISSUER` verbatim (trailing slash matters for `iss`). |
+| JWKS | The discovery document's `jwks_uri` | Discovered automatically; set `OMNIMIND_MCP_OAUTH_JWKS_URL` only when the provider's discovery is unreachable from the MCP service. |
+| Audience / resource indicator | `https://<mcp-host>/mcp` — identical to `OMNIMIND_MCP_PUBLIC_URL` | RFC 8707: clients send `resource=<PUBLIC_URL>` (they learn it from the PRM document); the provider must mint `aud` = that value. Auth0 calls this an "API identifier"; AuthKit a "resource". Wrong audience ⇒ `401 err_jwt_claim_validation_failed`. |
+| Scopes | Define the seven MCP scopes (`memory:read`, `memory:write`, `decision:write`, `task:write`, `project:write`, `commitment:write`, `code:write`), or none | A `scope` claim can only **narrow** the identity's scopes (`intersectScopes`); no claim ⇒ the identity's own scopes, which default to read-only. |
+| Claims | `email` + `email_verified` in the access token, or a `userinfo_endpoint` | Auto-link needs a verified e-mail (9.4). |
+| Dynamic Client Registration | Enabled, public clients (`token_endpoint_auth_method: none`) with PKCE | Required for ChatGPT, Claude *Register automatically*, Cursor, Gemini CLI. |
+| CIMD | Enable if offered | Lets Claude / ChatGPT use their published client identities instead of registering. |
+| Redirect URIs | Claude: `https://claude.ai/api/mcp/auth_callback` and `https://claude.com/api/mcp/auth_callback`; Claude Code: `http://localhost/callback`, `http://127.0.0.1/callback` (any port); ChatGPT: `https://chatgpt.com/connector_platform_oauth_redirect` | **Verify the Claude and ChatGPT values on the client's current docs** when you register them: the researcher could fetch Anthropic's page (`claude.ai/api/mcp/auth_callback` is confirmed there) but not OpenAI's, and tutorials also show `https://chatgpt.com/oauth/callback`. With DCR/CIMD the client registers its own redirect URI and you register nothing. |
+| Token lifetime | Short access tokens (≤ 1 h) with refresh tokens | The server re-verifies `exp` per request with 30 s clock skew; refresh is the client's job. |
+
+### 9.3 Configure our services
+
+| Service | Variable | Value |
+|---|---|---|
+| **omnimind-mcp** | `OMNIMIND_MCP_OAUTH_ISSUER` | the issuer URL, exactly as it appears in `iss` |
+| | `OMNIMIND_MCP_OAUTH_JWKS_URL` | optional override; discovered from the issuer when unset |
+| | `OMNIMIND_MCP_OAUTH_AUDIENCE` | optional; defaults to `OMNIMIND_MCP_PUBLIC_URL` — leave unset unless the provider cannot mint that exact string |
+| | `OMNIMIND_MCP_OAUTH_USERINFO` | optional, default `true`: fetch `email`/`email_verified` from the issuer's `userinfo_endpoint` when the access token lacks them; `false` disables |
+| | `OMNIMIND_MCP_PUBLIC_URL`, `OMNIMIND_MCP_AGENT_KEY` | already set (§3); startup refuses an issuer without either — identity resolution is a delegated call |
+| **omnimind-api** | `MCP_OAUTH_ALLOWED_ISSUERS` | the same issuer URL (comma-separated if several gateways); `POST /mcp/identities/resolve` refuses any other issuer with `issuer_not_allowed`, so a misconfigured gateway cannot link identities from an unexpected provider |
+| **boardroom-ai** | `OMNIMIND_MCP_OAUTH_ISSUER` | the same issuer URL — `connect-info` then reports `oauthEnabled: true` and the Claude.ai / Claude Desktop / ChatGPT snippets switch to the sign-in steps (§4). Set it **last**, once 9.5 passes, or the page promises a sign-in the server cannot serve |
+
+Redeploy the MCP service, then omnimind-api, then BoardRoom. The MCP log must show `OAuth (issuer …, audience …)` in the auth-mode line.
+
+What the server does per request: verify the compact JWS with `jose` against the JWKS (asymmetric only), require `iss` = issuer, `aud` = audience, `exp` and `sub`, 30 s skew; read `email` / `email_verified` from the payload or, failing that, from `userinfo_endpoint`; then `POST /mcp/identities/resolve {issuer, subject, email?, emailVerified?, clientId?}` as the gateway. The PRM document `GET /.well-known/oauth-protected-resource` (and `…/oauth-protected-resource/mcp` for path-scoped clients) returns RFC 9728 metadata `{ resource, authorization_servers: [issuer], scopes_supported, bearer_methods_supported: ["header"], resource_documentation }` — served only with an issuer; in token-only mode it is `404` and the `WWW-Authenticate` challenge carries no `resource_metadata`. A `401` is what starts the client's sign-in (Claude ignores `WWW-Authenticate` on a `200`).
+
+### 9.4 First login — how an OAuth identity becomes a BoardRoom user
+
+- **Auto-link by verified e-mail.** On the first request from an unknown `(issuer, subject)`, if `email_verified` is true and a BoardRoom user matches the address (case-insensitive) **and owns at least one tenant** (§2), the API creates the identity row: `scopes: ['memory:read']` (read-only, `MCP_OAUTH_DEFAULT_SCOPES`), `tenantId` = the user's **oldest-created owned tenant**, `agentName: oauth:<clientId or issuer host>-<8 chars of the row id>`. The client is now connected, read-only.
+- **No e-mail from the provider** (no claims and no usable `userinfo_endpoint`, or `email_verified: false`): the credential is `401 unlinked`. Link it manually from the subject in the MCP service log:
+  ```bash
+  curl -s -X POST -H "x-admin-key: $OMNIMIND_ADMIN_KEY" -H 'content-type: application/json' \
+    -d '{"issuer":"https://<issuer>","subject":"<sub claim>","userId":"<user cuid>","tenantId":"josh-business","scopes":["memory:read"]}' \
+    https://omnimind-api-production.up.railway.app/mcp/identities
+  ```
+  (`scopes` optional — defaults to read-only; the tenant must be owned by that user.) The next request from that token resolves.
+- **Widen or move an identity** (the client can only read, or landed in the wrong tenant):
+  ```bash
+  curl -s -H "x-admin-key: $OMNIMIND_ADMIN_KEY" "https://omnimind-api-production.up.railway.app/mcp/identities?userId=<user cuid>" | jq .
+  curl -s -X PATCH -H "x-admin-key: $OMNIMIND_ADMIN_KEY" -H 'content-type: application/json' \
+    -d '{"tenantId":"josh-business","scopes":["memory:read","memory:write","decision:write","task:write"]}' \
+    https://omnimind-api-production.up.railway.app/mcp/identities/<identity id>
+  ```
+  The change applies on the client's next request (the delegation cache is evicted synchronously); a live session bound to the old scope digest is refused and the client re-`initialize`s.
+- **Revoke:** `DELETE /mcp/identities/:id` → the next request is `401`; the next sign-in from that subject re-links (auto or manual) as a new row.
+
+### 9.5 Verify
+
+```bash
+# 1. PRM shows the issuer and our resource
+curl -s https://<mcp-host>/.well-known/oauth-protected-resource | jq .
+# → { "resource": "https://<mcp-host>/mcp", "authorization_servers": ["https://<issuer>"], "scopes_supported": [ …7… ], "bearer_methods_supported": ["header"], … }
+
+# 2. The challenge now advertises the PRM
+curl -s -i -X POST https://<mcp-host>/mcp -H 'content-type: application/json' -d '{}' | sed -n '1p;/^www-authenticate/Ip'
+# → 401 · WWW-Authenticate: Bearer realm="omnimind-mcp", resource_metadata="https://<mcp-host>/.well-known/oauth-protected-resource"
+
+# 3. A real token from the provider's test flow (audience = PUBLIC_URL) → initialize 200
+JWT=<access token minted for resource https://<mcp-host>/mcp>
+curl -s -i -X POST https://<mcp-host>/mcp -H "Authorization: Bearer $JWT" \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' | sed -n '1p;/^mcp-session-id/Ip'
+# → 200 + mcp-session-id. First call auto-links (9.4): GET /mcp/identities?userId=… now lists the row with scopes ["memory:read"].
+# → 401 {"error":"invalid_token"} with "unlinked" in the service log = no verified e-mail reached us → 9.4 manual link.
+
+# 4. Wrong audience → 401
+JWT_OTHER=<token minted for a different resource / API>
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<mcp-host>/mcp -H "Authorization: Bearer $JWT_OTHER" -H 'content-type: application/json' -d '{}'
+# → 401 (service log: err_jwt_claim_validation_failed aud)
+
+# 5. Audit attribution: entries carry agentId = oauth:<client>-<id>, not the gateway
+curl -s -H "x-api-key: $OMNIMIND_API_KEY" "https://omnimind-api-production.up.railway.app/mcp/audit?limit=5&tenantId=<tenant>" | jq '.entries[].agentId'
+```
+
+Then set `OMNIMIND_MCP_OAUTH_ISSUER` on BoardRoom (§4), redeploy, and connect one real ChatGPT and one real Claude.ai client per §6.
 
 ---
 
@@ -407,13 +537,14 @@ SELECT agent_id, tool_name, duration_ms, created_at FROM mcp_audit_logs WHERE du
 | `409 Agent name already registered` from keygen | Agent exists — `POST /mcp/agents` is create-only | §1 "Rotation" (SQL upsert or a new name); do **not** deploy the printed key as is |
 | `503 admin_disabled` from keygen / `/admin/*` | `OMNIMIND_ADMIN_KEY` unset on omnimind-api in production | §0 |
 | Settings: "No tenant is assigned to your account yet" / `POST /mcp/tokens` 403 | `tenants.owner_user_id` not set to this user | §2 |
-| OAuth `401 unlinked` | `email` claim missing/unverified, no BoardRoom user with that address owning a tenant, or the identity row was revoked | Create the user, set a tenant owner (§2), issuer must emit `email_verified`; a revoked row stays unlinked until `DELETE /mcp/identities/:id` lets the next sign-in re-link |
+| OAuth `401 unlinked` | No verified e-mail reached us (no `email`/`email_verified` claims **and** no usable `userinfo_endpoint`, or `OMNIMIND_MCP_OAUTH_USERINFO=false`), no BoardRoom user with that address owning a tenant, or the identity row was revoked | Link manually: `POST /mcp/identities {issuer, subject, userId, tenantId, scopes?}` (§9.4); or create the user / set a tenant owner (§2) and have the issuer emit `email_verified`; a revoked row stays unlinked until `DELETE /mcp/identities/:id` lets the next sign-in re-link |
 | OAuth `401` with reason `issuer_not_allowed` (OmniMind log: "issuer refused by MCP_OAUTH_ALLOWED_ISSUERS") | The API's allow-list is set and does not contain this issuer | Add the issuer to `MCP_OAUTH_ALLOWED_ISSUERS` on omnimind-api (same string as `OMNIMIND_MCP_OAUTH_ISSUER`) |
-| OAuth client can only read | Default OAuth scopes are `memory:read` | `PATCH /mcp/identities/:id {"scopes":[…]}` (§2), or use an `omt_` token with the scopes you need |
+| OAuth client can only read | Default OAuth scopes are `memory:read` | `PATCH /mcp/identities/:id {"scopes":[…]}` (§9.4), or use an `omt_` token with the scopes you need |
 | OAuth identity landed in the wrong tenant | Auto-link bound the oldest-created owned tenant | `PATCH /mcp/identities/:id {"tenantId": …}` (§2) |
 | OAuth `401 err_jwt_claim_validation_failed` (aud) | `OMNIMIND_MCP_OAUTH_AUDIENCE` / `PUBLIC_URL` ≠ the resource the issuer minted for | Make audience == `OMNIMIND_MCP_PUBLIC_URL` on both sides |
 | PRM returns 404 | OAuth not configured (expected) | Only set the issuer vars if you need OAuth clients |
-| ChatGPT / Claude.ai offers no header field, or rejects header auth | Plan or workspace allows OAuth connectors only | §9, then set `OMNIMIND_MCP_OAUTH_ISSUER` on BoardRoom too (§4) |
+| ChatGPT offers no header field; claude.ai shows no *Request headers* section | By design: ChatGPT's dialog is OAuth / no-auth only; Claude's *Request headers* is a beta for a limited set of organizations | §9 (OAuth), then set `OMNIMIND_MCP_OAUTH_ISSUER` on BoardRoom too (§4). Claude Desktop can use the `mcp-remote` bridge meanwhile (§6) |
+| Claude connector: `401` loops or "Session terminated" in ChatGPT right after connecting | The MCP URL redirects (e.g. `/mcp` → `/mcp/` 307, or http → https on a custom domain): Claude drops `Authorization` on cross-host redirects | Point the client at the final URL (`OMNIMIND_MCP_PUBLIC_URL`); remove the redirect from the proxy / domain config |
 | `400 no valid session ID` | Client skipped `initialize` or dropped `mcp-session-id` | Client bug; sessions are required on the 2025-era protocol |
 | `404 Session not found` after a pause | Idle timeout or eviction | Client re-initializes; raise `OMNIMIND_MCP_SESSION_IDLE_MS` if it happens mid-conversation |
 | Session refused after a token's scopes changed | Session is bound to principal + scope digest | Client re-`initialize`s (new session) |

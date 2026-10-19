@@ -3,6 +3,8 @@
 
 import { z } from 'zod';
 import {
+  MCP_IDENTITY_LIST_DEFAULT_LIMIT,
+  MCP_IDENTITY_LIST_MAX_LIMIT,
   MCP_SCOPES,
   MCP_SOURCE_WEIGHT_MAX,
   MCP_SOURCE_WEIGHT_MIN,
@@ -159,12 +161,30 @@ export const McpOauthIdentityRecordSchema = z.object({
   revokedAt: z.string().nullable(),
 });
 
+// userId omitted → all identities (admin view); limit is a query string → coerced
 export const McpIdentityListQuerySchema = z.object({
-  userId: z.string().trim().min(1),
+  userId: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(MCP_IDENTITY_LIST_MAX_LIMIT).default(MCP_IDENTITY_LIST_DEFAULT_LIMIT),
 });
 
 export const McpIdentityListResponseSchema = z.object({
   identities: z.array(McpOauthIdentityRecordSchema),
+});
+
+// scopes omitted → MCP_OAUTH_DEFAULT_SCOPES (applied server-side, not here, so the
+// schema stays a structural mirror of McpIdentityCreateRequest)
+export const McpIdentityCreateRequestSchema = z.object({
+  issuer: z.string().trim().min(1).max(512),
+  subject: z.string().trim().min(1).max(512),
+  userId: z.string().trim().min(1),
+  tenantId: z.string().trim().min(1),
+  scopes: McpScopesSchema.optional(),
+  sourceWeight: McpSourceWeightSchema.optional(),
+  clientId: z.string().trim().min(1).max(256).optional(),
+});
+
+export const McpIdentityCreateResponseSchema = z.object({
+  identity: McpOauthIdentityRecordSchema,
 });
 
 export const McpIdentityUpdateRequestSchema = z
@@ -204,5 +224,7 @@ export const AdminTenantRecordSchema = z.object({
 
 export type McpTokenCreateRequestInput = z.input<typeof McpTokenCreateRequestSchema>;
 export type McpIdentityResolveRequestInput = z.input<typeof McpIdentityResolveRequestSchema>;
+export type McpIdentityCreateRequestInput = z.input<typeof McpIdentityCreateRequestSchema>;
+export type McpIdentityListQueryInput = z.input<typeof McpIdentityListQuerySchema>;
 export type McpIdentityUpdateRequestInput = z.input<typeof McpIdentityUpdateRequestSchema>;
 export type McpAuditStatsQueryInput = z.input<typeof McpAuditStatsQuerySchema>;

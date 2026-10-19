@@ -1,7 +1,7 @@
 # Current Phase
 
 **Phase in flight:** ✅ **Phase 7 — Universal memory MCP: built, independently reviewed, awaiting Railway deploy + operator checklist**
-**Last update:** 2026-10-19
+**Last update:** 2026-10-19 (blind spots closed; PR opened)
 **Updated by:** Claude (research → build → review session, branch `claude/amazing-mccarthy-grvem2`)
 
 **Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key.
@@ -16,7 +16,7 @@ Source: `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md` ("do now" items 1–1
 |---|---|---|
 | 1 | Per-user identity on one MCP URL | ✅ `omt_` personal tokens (introspection), OAuth JWTs (jose, RFC 8707 audience, JWKS discovery, verified-email auto-link), legacy static bearer kept; sessions bound to principal + scope digest |
 | 2 | Delegation on the API | ✅ gateway agent (`mcp:delegate`) + `x-mcp-principal`; scopes = principal ∩ gateway; delegated route **allow-list** (403 elsewhere); user isolation on `userId`/`x-user-id`; token routes BoardRoom-only |
-| 3 | RFC 9728 PRM + 401/503 contract | ✅ `/.well-known/oauth-protected-resource[/mcp]`, generic 401 body, per-IP failed-auth limiter (`OMNIMIND_MCP_TRUST_PROXY` on Railway) |
+| 3 | RFC 9728 PRM + 401/503 contract | ✅ `/.well-known/oauth-protected-resource[/mcp[/]]`, generic 401 body, per-IP failed-auth limiter (`OMNIMIND_MCP_TRUST_PROXY` on Railway), immediate revocation, userinfo fallback, no-redirect guarantee |
 | 4 | ChatGPT-shaped `search`/`fetch` | ✅ 20 tools; provenance field; invalidated rows excluded unless `includeArchived` |
 | 5 | Freshness contract | ✅ server `instructions`; `requiresUserInteraction` on destructive tools; no push (documented) |
 | 6 | Settings → Connected AI tools | ✅ mint/revoke tokens (365-day default, `null` = never), one-time display, per-client snippets with OAuth-first branching |
@@ -24,9 +24,9 @@ Source: `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md` ("do now" items 1–1
 | 8 | Ops | ✅ `packages/omnimind-mcp/Dockerfile` + `railway.toml`, CI docker matrix, compose service, `.dockerignore`, 79-var `.env.example`, operator runbook, agent configs, FRAGILE-ZONES §8 |
 | 9 | Write latency | ✅ `bench --n N --yes` (cleans up), `OMNIMIND_MCP_WRITE_EXTRACT=async` on a long-lived client |
 
-**Operator checklist (in this order — see DEPLOYMENT-RUNBOOK "MCP live checklist"):** 0 `OMNIMIND_ADMIN_KEY` + `ADMIN_EMAILS` set → 1 gateway agent via keygen with `MCP_GATEWAY_CEILING_SCOPES` → 2 `PATCH /admin/tenants/:id {ownerUserId}` for each tenant → 3 deploy `omnimind-mcp` (repo-root context, `RAILWAY_DOCKERFILE_PATH`, `OMNIMIND_MCP_TOKEN_AUTH=true`, `OMNIMIND_MCP_AGENT_KEY`, `OMNIMIND_MCP_PUBLIC_URL`, `OMNIMIND_MCP_ALLOWED_HOSTS`, `OMNIMIND_MCP_TRUST_PROXY=true`) → 4 BoardRoom `OMNIMIND_MCP_PUBLIC_URL` (+ `APP_PUBLIC_URL`) → 5 mint a token in Settings → 6 install per client → 7 verify (PRM, 401, `tools/list` = 20, audit attribution, revoke ≈ 1 min, bench) → 8 `OMNIMIND_REQUIRE_AGENT_KEY=true`.
+**Operator checklist (in this order — see DEPLOYMENT-RUNBOOK "MCP live checklist"):** 0 `OMNIMIND_ADMIN_KEY` + `ADMIN_EMAILS` set → 1 gateway agent via keygen with `MCP_GATEWAY_CEILING_SCOPES` → 2 `PATCH /admin/tenants/:id {ownerUserId}` for each tenant → 3 deploy `omnimind-mcp` (repo-root context, `RAILWAY_DOCKERFILE_PATH`, `OMNIMIND_MCP_TOKEN_AUTH=true`, `OMNIMIND_MCP_AGENT_KEY`, `OMNIMIND_MCP_PUBLIC_URL`, `OMNIMIND_MCP_ALLOWED_HOSTS`, `OMNIMIND_MCP_TRUST_PROXY=true`) → 4 BoardRoom `OMNIMIND_MCP_PUBLIC_URL` (+ `APP_PUBLIC_URL`) → 5 OAuth issuer (runbook §9; required for ChatGPT and most Claude.ai orgs) → 6 mint a token in Settings → 7 install per client → 8 verify (PRM, 401, `tools/list` = 20, audit attribution, revoke immediate, bench) → 9 `OMNIMIND_REQUIRE_AGENT_KEY=true`.
 
-**Not verified in the sandbox:** the first real `docker (omnimind-mcp)` CI build; any live client (Claude.ai header field availability, ChatGPT developer-mode auth options) — snippets branch defensively; OAuth end to end against a real issuer (tested against an in-process RS256 issuer only).
+**Blind spots closed 2026-10-19:** client dialog facts verified from primary docs (ChatGPT = OAuth or no-auth only; Claude.ai "Request headers" is a limited beta; Claude Code needs `--scope user`; Gemini `httpUrl`, VS Code `type: http` + `inputs`, Zed native `url`) and snippets/runbook now state them without hedging; revocation is immediate for data access (`PRINCIPAL_REVOKED`, `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` 30 s); OAuth works with providers that omit e-mail claims (OIDC userinfo fallback, `OMNIMIND_MCP_OAUTH_USERINFO`) and identities can be linked manually (`POST /mcp/identities`); `/mcp`, `/mcp/` and `/` are served without redirects; `scripts/pre-deploy-check.sh` covers the third service and probes the live front door. **Still not verified in the sandbox:** the first real `docker (omnimind-mcp)` CI build (runs on the PR) and OAuth against a real provider (in-process RS256 issuer with userinfo only).
 
 **Design calls made (revisit if wrong):** no push freshness (turn-time reads + `instructions`); OAuth auto-link is read-only and picks the oldest owned tenant; the gateway key is never sent on static sessions; SSE kept for `tools/call` responses (keep-alive during long writes); token default expiry 365 days; graph single click selects, double click / "Focus here" re-roots.
 

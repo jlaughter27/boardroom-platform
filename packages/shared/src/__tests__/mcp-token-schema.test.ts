@@ -7,6 +7,8 @@ import {
   MCP_DELEGATE_SCOPE,
   MCP_GATEWAY_CEILING_SCOPES,
   MCP_GATEWAY_SCOPES,
+  MCP_IDENTITY_LIST_DEFAULT_LIMIT,
+  MCP_IDENTITY_LIST_MAX_LIMIT,
   MCP_OAUTH_DEFAULT_SCOPES,
   MCP_PRINCIPAL_HEADER,
   MCP_SCOPE_DESCRIPTORS,
@@ -16,6 +18,9 @@ import {
   MCP_TOKEN_PREFIX,
   McpAuditStatsQuerySchema,
   McpAuditStatsSchema,
+  McpIdentityCreateRequestSchema,
+  McpIdentityCreateResponseSchema,
+  McpIdentityListQuerySchema,
   McpIdentityResolveRequestSchema,
   McpIdentityResolveResponseSchema,
   McpIdentityUpdateRequestSchema,
@@ -27,6 +32,8 @@ import {
   McpTokenIntrospectResponseSchema,
   McpTokenRecordSchema,
   type McpAuditStats,
+  type McpIdentityCreateRequest,
+  type McpIdentityListQuery,
   type McpIdentityResolveResponse,
   type McpIdentityUpdateRequest,
   type McpOauthIdentityRecord,
@@ -154,6 +161,36 @@ describe('record / principal / response schemas match the interfaces', () => {
     expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: [] }).success).toBe(false);
     expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: ['*'] }).success).toBe(false);
     expect(McpIdentityUpdateRequestSchema.safeParse({ scopes: ['mcp:delegate'] }).success).toBe(false);
+  });
+
+  it('McpIdentityCreateRequestSchema matches the interface: scopes optional (server default), subset-only; clientId/sourceWeight bounded', () => {
+    const minimal: McpIdentityCreateRequest = { issuer: 'https://idp.example', subject: 'sub-1', userId: 'u', tenantId: 't' };
+    const full: McpIdentityCreateRequest = { ...minimal, scopes: ['memory:read', 'task:write'], sourceWeight: 1.5, clientId: 'chatgpt' };
+    expect(McpIdentityCreateRequestSchema.safeParse(minimal).success).toBe(true);
+    expect(McpIdentityCreateRequestSchema.safeParse(full).success).toBe(true);
+    // scopes stay optional in the schema: the default is applied by the API so the shape mirrors the interface
+    expect(McpIdentityCreateRequestSchema.parse(minimal).scopes).toBeUndefined();
+    for (const bad of [
+      { ...minimal, issuer: '' }, { ...minimal, subject: '' }, { ...minimal, userId: '' }, { ...minimal, tenantId: '' },
+      { ...minimal, scopes: [] }, { ...minimal, scopes: ['*'] }, { ...minimal, scopes: ['mcp:delegate'] }, { ...minimal, scopes: ['memory:read', 'memory:read'] },
+      { ...minimal, sourceWeight: 2.5 }, { ...minimal, clientId: '' }, { ...minimal, issuer: 'x'.repeat(513) },
+    ]) expect(McpIdentityCreateRequestSchema.safeParse(bad).success).toBe(false);
+    const rec: McpOauthIdentityRecord = {
+      id: 'cident1', issuer: 'https://idp.example', subject: 'sub-1', userId: 'u', tenantId: 't', agentName: 'oauth:chatgpt-abcdefgh',
+      scopes: ['memory:read'], sourceWeight: 1, createdAt: '2026-10-19T00:00:00.000Z', lastUsedAt: null, revokedAt: null,
+    };
+    expect(McpIdentityCreateResponseSchema.safeParse({ identity: rec }).success).toBe(true);
+    expect(McpIdentityCreateResponseSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('McpIdentityListQuerySchema: userId optional (admin list-all), limit coerced with default 50 and ceiling 200', () => {
+    const none: McpIdentityListQuery = {};
+    expect(McpIdentityListQuerySchema.parse(none)).toEqual({ limit: MCP_IDENTITY_LIST_DEFAULT_LIMIT });
+    expect(McpIdentityListQuerySchema.parse({ userId: 'u', limit: '25' })).toEqual({ userId: 'u', limit: 25 });
+    expect(McpIdentityListQuerySchema.parse({ limit: String(MCP_IDENTITY_LIST_MAX_LIMIT) }).limit).toBe(MCP_IDENTITY_LIST_MAX_LIMIT);
+    for (const bad of [{ limit: '0' }, { limit: '201' }, { limit: '1.5' }, { limit: 'abc' }, { userId: '' }]) {
+      expect(McpIdentityListQuerySchema.safeParse(bad).success).toBe(false);
+    }
   });
 
   it('McpIdentityResolveRequestSchema requires issuer + subject, validates email', () => {

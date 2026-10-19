@@ -177,7 +177,7 @@ boardroom-platform/
 ├── scripts/                        # Deploy checks, backups, seeding
 ├── turbo.json                      # Build pipeline config
 ├── docker-compose.yml              # Local dev: postgres + both services
-└── .env.example                    # 79 env vars documented, each once (incl. OMNIMIND_MCP_* front door)
+└── .env.example                    # 81 env vars documented, each once (incl. OMNIMIND_MCP_* front door)
 ```
 
 ---
@@ -467,7 +467,7 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 11. The retrieval-eval CI job's first real run (PR #20, 2026-10-03, mock embeddings) passed with a thin margin on the gated leg: for-persona recall@10 0.520 vs gate 0.5, MRR 0.440 vs 0.35; `/memories/search` recall@10 0.535, MRR 0.549; the `update` slice is the weakest (recall@10 0.27). The run is deterministic (hash-seeded vectors), so the margin is stable, not flaky. Thresholds ratchet upward only after three green runs on `main` per `docs/runbooks/retrieval-eval.md`.
 12. Reflection and commitment-nudge jobs, OTel export, private networking and the backup service all need Railway env/config (see the runbook checklist).
 13. **No push-based freshness for MCP clients.** MCP's `notifications/resources/updated` / `list_changed` exist but no shipping chat client (Claude.ai, ChatGPT, Cursor, …) turns them into an assistant turn or auto-reads resources, so "all platforms stay up to date" means **turn-time reads**: the server's `instructions` and the `session_start` prompt tell hosts to call `status_get` / `memory_search` at the start of relevant turns, and a write from any client is visible to every other client on its next turn, not before. Phase 12 (outbox/webhooks) pushes to agents and UIs we control, not to third-party chat clients. See `docs/runbooks/omnimind-mcp.md` §8.
-14. **OAuth is resource-server only.** The MCP service validates JWTs from the single configured issuer (`OMNIMIND_MCP_OAUTH_ISSUER` / `_JWKS_URL` / `_AUDIENCE`, RFC 9728 PRM at `/.well-known/oauth-protected-resource`, RFC 8707 audience binding) and auto-links the user by verified e-mail; there is **no built-in authorization server**, no consent-time scope picker, and client registration (CIMD, which Claude prefers; DCR, deprecated in MCP spec 2026-07-28 but still used by Cursor/Gemini CLI/Copilot Studio; static clients) is entirely the issuer's job (ADR-014 spike). Per-user `omt_` tokens from BoardRoom Settings are the primary credential; the PRM document is served only when an issuer is configured. ChatGPT workspaces that allow only OAuth connectors need this path (header auth is rejected there).
+14. **OAuth is resource-server only — and it is the only way in for ChatGPT and most Claude.ai organizations.** ChatGPT's connector dialog offers OAuth or "No authentication" and has no header / API-key field, so per-user `omt_` tokens can never be used from ChatGPT; claude.ai's *Request headers* section (`authorization` = `Bearer omt_…`, sent verbatim) is a beta for a limited set of organizations, and Claude Desktop can otherwise only reach the hosted URL through the `claude_desktop_config.json` `mcp-remote` bridge. The MCP service validates JWTs from the single configured issuer (`OMNIMIND_MCP_OAUTH_ISSUER` / `_JWKS_URL` / `_AUDIENCE`, RFC 9728 PRM at `/.well-known/oauth-protected-resource`, RFC 8707 audience binding), reads `email` / `email_verified` from the token or — when the token lacks them — from the issuer's `userinfo_endpoint` (`OMNIMIND_MCP_OAUTH_USERINFO=false` disables), auto-links the user read-only to their oldest owned tenant by verified e-mail, and otherwise returns `401 unlinked` until an admin links the subject with `POST /mcp/identities {issuer, subject, userId, tenantId, scopes?}` (widen later with `PATCH /mcp/identities/:id`). There is **no built-in authorization server** and no consent-time scope picker; client registration (CIMD, which Claude and ChatGPT prefer; DCR, deprecated in MCP spec 2026-07-28 but still used by ChatGPT/Cursor/Gemini CLI/Copilot Studio; static clients) is the issuer's job — recipe in `docs/runbooks/omnimind-mcp.md` §9 (ADR-014 spike).
 
 ## Resilience layer (omnimind-client.ts)
 
@@ -559,8 +559,8 @@ node packages/omnimind-mcp/dist/index.js http
 # Legacy single-user HTTP: OMNIMIND_MCP_TOKEN_AUTH=false + OMNIMIND_MCP_API_KEY=<one static inbound bearer>
 #   + the process identity vars + OMNIMIND_MCP_STATIC_AGENT_KEY=<that identity's omk_ key>.
 
-# Connect a client (same URL + header for Cursor, Windsurf, Gemini CLI, VS Code, Zed, Claude.ai connector):
-claude mcp add --transport http omnimind https://omnimind-mcp-production.up.railway.app/mcp \
+# Connect a client (same URL + header for Cursor, Windsurf, Gemini CLI, VS Code, Zed; Claude.ai only via OAuth or the Request-headers beta; ChatGPT via OAuth only):
+claude mcp add --transport http --scope user omnimind https://omnimind-mcp-production.up.railway.app/mcp \
   --header "Authorization: Bearer omt_…"
 
 # Stdio (local checkout, single identity — Claude Desktop / Claude Code without the hosted URL)

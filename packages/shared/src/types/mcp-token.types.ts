@@ -99,6 +99,9 @@ export const MCP_SOURCE_WEIGHT_MIN = 0;
 export const MCP_SOURCE_WEIGHT_MAX = 2;
 /** Scopes an auto-linked OAuth identity starts with (read-only). */
 export const MCP_OAUTH_DEFAULT_SCOPES: readonly McpScope[] = ['memory:read'];
+/** `GET /mcp/identities` page size: default when `limit` is omitted, and the hard ceiling. */
+export const MCP_IDENTITY_LIST_DEFAULT_LIMIT = 50;
+export const MCP_IDENTITY_LIST_MAX_LIMIT = 200;
 
 /** Request header a gateway sends to act as a principal: `token:<id>` | `oauth:<id>`. */
 export const MCP_PRINCIPAL_HEADER = 'x-mcp-principal' as const;
@@ -234,8 +237,40 @@ export interface McpOauthIdentityRecord {
   revokedAt: string | null;
 }
 
+/**
+ * `GET /mcp/identities` query. `userId` omitted → every identity (operator
+ * view, newest first) so an unlinked subject can be located; `limit` caps the
+ * page (1–`MCP_IDENTITY_LIST_MAX_LIMIT`, default `MCP_IDENTITY_LIST_DEFAULT_LIMIT`).
+ */
+export interface McpIdentityListQuery {
+  userId?: string;
+  limit?: number;
+}
+
 export interface McpIdentityListResponse {
   identities: McpOauthIdentityRecord[];
+}
+
+/**
+ * `POST /mcp/identities` (admin) — link an `(issuer, subject)` pair to a user
+ * by hand, for identity providers whose access tokens carry no verified
+ * e-mail (so auto-link on resolve can never fire). `tenantId` must be owned
+ * by `userId`; `scopes` omitted → `MCP_OAUTH_DEFAULT_SCOPES`; `clientId`
+ * only shapes the agentName (`oauth:<clientId or issuer host>-<suffix>`).
+ */
+export interface McpIdentityCreateRequest {
+  issuer: string;
+  subject: string;
+  userId: string;
+  tenantId: string;
+  scopes?: McpScope[];
+  sourceWeight?: number;
+  clientId?: string;
+}
+
+/** `201` (new row) or `200` (a revoked `(issuer, subject)` row reactivated in place). */
+export interface McpIdentityCreateResponse {
+  identity: McpOauthIdentityRecord;
 }
 
 /** `PATCH /mcp/identities/:id` — at least one field. `tenantId` must be owned by the identity's user. */

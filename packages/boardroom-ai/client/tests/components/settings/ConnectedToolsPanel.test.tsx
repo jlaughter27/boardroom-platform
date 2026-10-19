@@ -121,7 +121,7 @@ describe('<ConnectedToolsPanel />', () => {
     const snippet = within(created).getByTestId('mcp-snippet');
     expect(within(snippet).getByText('Connect Claude Code')).toBeInTheDocument();
     expect(within(snippet).getByText(
-      'claude mcp add --transport http omnimind https://mcp.example/mcp --header "Authorization: Bearer omt_abcd1234_RAWSECRET"',
+      'claude mcp add --transport http --scope user omnimind https://mcp.example/mcp --header "Authorization: Bearer omt_abcd1234_RAWSECRET"',
     )).toBeInTheDocument();
 
     // Copy button copies the command.

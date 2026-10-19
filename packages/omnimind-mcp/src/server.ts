@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createOmniMindClient, OmniMindHttpError } from './lib/client';
-import type { OmniMindClient } from './lib/client';
+import type { OmniMindClient, PrincipalInvalidReason } from './lib/client';
 import { resolveAgentFromEnv } from './lib/auth';
 import { memoryWriteTool, memorySearchTool, memorySupersedeT, memoryReflectTool, memoryConsolidateTool } from './tools/memory.tool';
 import type { WriteExtractMode } from './tools/memory.tool';
@@ -81,6 +81,23 @@ function errorResult(error: string, message: string) {
     content: [{ type: 'text' as const, text: JSON.stringify({ error, message }) }],
     isError: true as const,
   };
+}
+
+/**
+ * Front door — what the model reads when OmniMind refuses a delegated call
+ * with `401 principal_invalid`: the credential behind this connection was
+ * revoked (or expired / removed) in BoardRoom. The HTTP transport has already
+ * evicted the credential and is closing the session (client hook), so the
+ * only useful next step is a new token — never a retry.
+ */
+export function principalRevokedMessage(toolName: string, reason: PrincipalInvalidReason): string {
+  const why = reason === 'expired' ? 'has expired'
+    : reason === 'not_found' ? 'no longer exists'
+    : reason === 'malformed' ? 'was not recognised'
+    : 'has been revoked';
+  return `OmniMind refused ${toolName}: the credential behind this connection ${why} (401 principal_invalid). ` +
+    'This session is closed and the credential will not be accepted again. Do not retry; tell the user to mint a new token ' +
+    'in BoardRoom → Settings → Connected AI tools (or re-authorize the connector) and reconnect with it.';
 }
 
 /**
@@ -186,6 +203,14 @@ export function createMcpServer(ctx?: AgentContext, opts: CreateMcpServerOptions
           // requireScope() miss, not an opaque HTTP error string.
           if (err instanceof OmniMindHttpError && err.isInsufficientScope) {
             return errorResult('SCOPE_DENIED', `OmniMind refused ${tool.name}: insufficient_scope (the effective scopes for this principal are narrower than the tool requires)`);
+          }
+          // Front door — the principal was revoked / expired / removed while the
+          // session was open. The API evicts its own cache synchronously on
+          // revoke, so this is immediate; the client hook has already evicted
+          // the credential here and the session is closing. Typed, not a raw
+          // `→ 401` string, so the model stops instead of retrying.
+          if (err instanceof OmniMindHttpError && err.isPrincipalInvalid) {
+            return errorResult('PRINCIPAL_REVOKED', principalRevokedMessage(tool.name, err.principalInvalidReason ?? 'revoked'));
           }
           throw err;
         }
