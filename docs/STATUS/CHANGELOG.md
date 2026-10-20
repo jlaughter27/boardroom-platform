@@ -8,7 +8,7 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ## 2026-10-20 — Phase 7.5 — Apple-grade UI Phase C: shell, route transitions, controls, graph chrome, decision session
 
-**Branch:** worktree off `claude/amazing-mccarthy-grvem2` (Phase C) | **Status:** Committed, not pushed | **Tests:** client 403 → 436 (+33: route transitions, scroll sentinel, controls, mode selector, configurator, sheet, contrast sampler, two new guard rules); server 284 unchanged
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #22, merge `8af3c5c`) | **Status:** Pushed | **Tests:** client 403 → 436 (+33: route transitions, scroll sentinel, controls, mode selector, configurator, sheet, contrast sampler, two new guard rules); server 284 unchanged
 
 - **React 19.3.1** (`react`, `react-dom`, `@types/*`; lockfile): `ViewTransition` + `addTransitionType` are stable. Base UI, Motion, react-router, react-force-graph-2d, cmdk and the testing libraries unchanged and green.
 - **Route transitions:** `shared/Layout.tsx` wraps the page root in `<ViewTransition name="page" update="none">`; `hooks/useRouteTransition.ts` tags direction (`nav-forward` on router link clicks / `useTransitionNavigate()`, `nav-back` / `nav-forward` on popstate from `history.state.idx`); `index.css` slides 10 px + fades in 180 ms on `--ease-out` via `:active-view-transition-type()`, opacity only under reduced motion, no root cross-fade. React's eager (synchronous) popstate transition — which would have made browser back a hard swap — is spent on a no-op update by `RouteTransitionArmer`, rendered before `<BrowserRouter>`; verified mid-flight in both directions by the harness. `PageWrapper` no longer double-animates; ⌘K and keyboard shortcuts navigate through the same path.
