@@ -198,6 +198,7 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="mcp-client" className="text-sm font-medium text-muted-foreground">AI client</label>
+          {/* ui-standards: allow select — labelled form fields (htmlFor) covered by ConnectedToolsPanel tests; migrates with the settings-forms pass */}
           <select id="mcp-client" value={clientId} onChange={(e) => pickClient(e.target.value as McpClientId)} className={selectClass}>
             {MCP_CLIENTS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
@@ -215,6 +216,7 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="mcp-tenant" className="text-sm font-medium text-muted-foreground">Tenant</label>
+          {/* ui-standards: allow select — labelled form fields (htmlFor) covered by ConnectedToolsPanel tests; migrates with the settings-forms pass */}
           <select id="mcp-tenant" value={tenantId} onChange={(e) => setTenantId(e.target.value)} className={selectClass}>
             {options.tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
@@ -222,6 +224,7 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="mcp-expiry" className="text-sm font-medium text-muted-foreground">Expires</label>
+          {/* ui-standards: allow select — labelled form fields (htmlFor) covered by ConnectedToolsPanel tests; migrates with the settings-forms pass */}
           <select id="mcp-expiry" value={expiry} onChange={(e) => setExpiry(e.target.value as Expiry)} className={selectClass}>
             {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>

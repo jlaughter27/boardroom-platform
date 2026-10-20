@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeGraphEdgeType, KnowledgeGraphNode, KnowledgeGraphNodeType } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
+import { Select } from '../ui/Select';
 import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR } from './graph-theme';
 import { ShapeGlyph } from './ShapeGlyph';
 import { EDGE_TYPES, EDGE_TYPE_LABEL } from './graph-filters';
@@ -136,16 +137,14 @@ export function GraphControls({ filters, onChange, counts, edgeCounts, domains, 
         )}
 
         {/* Domain */}
-        <select
+        <Select
           id="graph-domain"
+          className="w-auto min-w-[9rem] rounded-md"
           value={filters.domain}
-          onChange={(e) => onChange({ ...filters, domain: e.target.value })}
-          className="h-9 rounded-md border border-border bg-card px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          onChange={(domain) => onChange({ ...filters, domain })}
           aria-label="Filter by domain"
-        >
-          <option value="all">All domains</option>
-          {domains.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+          options={[{ value: 'all', label: 'All domains' }, ...domains.map((d) => ({ value: d, label: d }))]}
+        />
 
         {/* Local ↔ Global */}
         <div className="flex h-9 items-center overflow-hidden rounded-md border border-border bg-card text-xs" role="group" aria-label="Graph scope">

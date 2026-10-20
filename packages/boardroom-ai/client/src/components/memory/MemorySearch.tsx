@@ -4,8 +4,11 @@ import { useMemoryStore } from '../../stores/memory.store';
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatAsOf } from '../graph/graph-search';
 import { cn } from '../../lib/cn';
+import { Select } from '../ui/Select';
 
 const MAX_TAG_CHIPS = 14;
+/** Sentinel option for "no filter" (a Select value cannot be the empty string). */
+const ALL = '__all__';
 
 /** Tags present in the current result set, most frequent first (selected tags always included). */
 export function collectTagChips(memories: ReadonlyArray<{ tags?: string[] }>, selected: readonly string[] = [], max = MAX_TAG_CHIPS): string[] {
@@ -107,50 +110,40 @@ export function MemorySearch() {
           className={`${selectClass} w-28`}
         />
 
-        <select
-          value={filters.memoryClass ?? ''}
-          onChange={(e) =>
-            setFilters({ memoryClass: e.target.value || undefined })
-          }
+        <Select
+          size="sm"
+          className="w-auto min-w-[8.5rem]"
+          value={filters.memoryClass ?? ALL}
+          onChange={(v) => setFilters({ memoryClass: v === ALL ? undefined : v })}
           aria-label="Memory class"
-          className={cn(selectClass, hybridActive && 'opacity-50 cursor-not-allowed')}
           disabled={hybridActive}
           title={hybridActive ? listOnlyTitle : undefined}
-        >
-          <option value="">All Classes</option>
-          {Object.values(MemoryClass).map((mc) => (
-            <option key={mc} value={mc}>
-              {mc}
-            </option>
-          ))}
-        </select>
+          options={[{ value: ALL, label: 'All Classes' }, ...Object.values(MemoryClass).map((mc) => ({ value: mc, label: mc }))]}
+        />
 
-        <select
-          value={filters.status ?? ''}
-          onChange={(e) => setFilters({ status: e.target.value || undefined })}
+        <Select
+          size="sm"
+          className="w-auto min-w-[8.5rem]"
+          value={filters.status ?? ALL}
+          onChange={(v) => setFilters({ status: v === ALL ? undefined : v })}
           aria-label="Status"
-          className={selectClass}
-        >
-          <option value="">All Statuses</option>
-          {Object.values(MemoryStatus).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          options={[{ value: ALL, label: 'All Statuses' }, ...Object.values(MemoryStatus).map((s) => ({ value: s, label: s }))]}
+        />
 
-        <select
+        <Select
+          size="sm"
+          className="w-auto min-w-[7.5rem]"
           value={filters.sortBy ?? 'createdAt'}
-          onChange={(e) => setFilters({ sortBy: e.target.value })}
+          onChange={(v) => setFilters({ sortBy: v })}
           aria-label="Sort by"
-          className={cn(selectClass, hybridActive && 'opacity-50 cursor-not-allowed')}
           disabled={hybridActive}
           title={hybridActive ? 'Hybrid results are ranked by relevance; sorting applies to the list' : undefined}
-        >
-          <option value="createdAt">Created</option>
-          <option value="importance">Importance</option>
-          <option value="updatedAt">Updated</option>
-        </select>
+          options={[
+            { value: 'createdAt', label: 'Created' },
+            { value: 'importance', label: 'Importance' },
+            { value: 'updatedAt', label: 'Updated' },
+          ]}
+        />
 
         <button
           type="button"

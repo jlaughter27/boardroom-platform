@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeGraphNode } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
+import { Select } from '../ui/Select';
 import {
   DAY_MS, areaPath, clampWindow, easedWindowEnd, formatDay, isFullWindow, playbackDuration, playbackStep, stepWindow, timeExtent, weekHistogram,
   type TimeWindow,
@@ -117,7 +118,9 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
   const single = extent.max === extent.min;
 
   return (
-    <div className={cn('flex flex-col gap-1 rounded-md border border-border bg-card px-3 py-2', className)} data-testid="graph-timeline" aria-label="Timeline">
+    // In-flow transport bar under the canvas (content layer, so solid): the canvas
+    // frame's radius and a hairline edge instead of a hard border.
+    <div className={cn('flex flex-col gap-1 rounded-xl bg-card px-3 py-2 ring-1 ring-hairline shadow-sm', className)} data-testid="graph-timeline" aria-label="Timeline">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button
           type="button"
@@ -129,17 +132,14 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
         >
           {playing ? '❚❚' : '▶'}
         </button>
-        <label className="flex items-center gap-1 text-muted-foreground">
-          <span className="sr-only">Playback speed</span>
-          <select
-            value={speed}
-            onChange={(e) => setSpeed(Number(e.target.value) as (typeof SPEEDS)[number])}
-            aria-label="Playback speed"
-            className="h-7 rounded-md border border-border bg-card px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
-          </select>
-        </label>
+        <Select
+          size="sm"
+          className="w-auto min-w-[3.75rem] tnum"
+          value={String(speed)}
+          onChange={(v) => setSpeed(Number(v) as (typeof SPEEDS)[number])}
+          aria-label="Playback speed"
+          options={SPEEDS.map((s) => ({ value: String(s), label: `${s}×` }))}
+        />
         <span className="tabular-nums text-foreground" style={{ fontVariantNumeric: 'tabular-nums' }} data-testid="timeline-range-label">
           {formatDay(effective.start)} – {formatDay(effective.end)}
         </span>
