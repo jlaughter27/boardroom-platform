@@ -5,7 +5,7 @@ import * as api from '../lib/api';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
-import { EmptyState, Skeleton } from '../components/ui';
+import { EmptyState, PageHeader, Skeleton } from '../components/ui';
 import { KnowledgeGraphView, type KnowledgeGraphViewHandle, type SpotlightState } from '../components/graph/KnowledgeGraphView';
 import { GraphControls, type GraphFilters } from '../components/graph/GraphControls';
 import { NodeInspector } from '../components/graph/NodeInspector';
@@ -454,38 +454,44 @@ export default function GraphPage() {
 
   return (
     <div className="flex h-full min-h-[520px] flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Knowledge Graph</h1>
-          <p className="text-sm text-muted-foreground" data-testid="graph-summary">
+      <PageHeader
+        className="mb-0"
+        title="Knowledge Graph"
+        subtitle={
+          <span data-testid="graph-summary">
             {loading ? 'Loading…' : total === 0 ? 'No linked entities yet.' : (
               <>
-                <span className="tabular-nums text-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>{nodes.length}</span> of <span className="tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>{total}</span> nodes ·{' '}
-                <span className="tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>{edges.length}</span> links
-                {communityResult && communityResult.communities.length > 1 && <> · <span className="tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>{communityResult.communities.length}</span> communities</>}
+                <span className="tnum text-foreground">{nodes.length}</span> of <span className="tnum">{total}</span> nodes ·{' '}
+                <span className="tnum">{edges.length}</span> links
+                {communityResult && communityResult.communities.length > 1 && <> · <span className="tnum">{communityResult.communities.length}</span> communities</>}
                 {focused && filters.depth > 0 && <> · local {filters.depth}° around <span className="text-foreground">{focused.label}</span></>}
                 {truncated && ' · memories capped at 200 by importance'}
               </>
             )}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {hovered && !selected && (
-            <div className="hidden text-xs text-muted-foreground md:block">
-              Hovering <span className="text-foreground">{hovered.label}</span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowMentions((v) => !v)}
-            aria-pressed={showMentions}
-            className={cn('h-8 rounded-md border px-3 text-xs', showMentions ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground')}
-            title="Memories that mention a person, project or goal without being linked to it"
-          >
-            Unlinked mentions{mentionCount !== null ? ` · ${mentionCount}` : ''}
-          </button>
-        </div>
-      </div>
+          </span>
+        }
+        actions={
+          <>
+            {hovered && !selected && (
+              <div className="hidden text-xs text-muted-foreground md:block">
+                Hovering <span className="text-foreground">{hovered.label}</span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowMentions((v) => !v)}
+              aria-pressed={showMentions}
+              className={cn(
+                'h-8 rounded-control border px-3 text-xs transition-[background-color,color,border-color] duration-fast ease-out',
+                showMentions ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
+              )}
+              title="Memories that mention a person, project or goal without being linked to it"
+            >
+              Unlinked mentions{mentionCount !== null ? ` · ${mentionCount}` : ''}
+            </button>
+          </>
+        }
+      />
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 

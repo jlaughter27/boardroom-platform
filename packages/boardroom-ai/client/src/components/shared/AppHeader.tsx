@@ -13,9 +13,11 @@ const pageTitles: Record<string, string> = {
   '/decisions': 'Decision Lab',
   '/memory': 'Memory Explorer',
   '/people': 'People Directory',
+  '/graph': 'Knowledge Graph',
   '/settings': 'Settings',
   '/personas': 'Custom Personas',
   '/integrations': 'Integrations',
+  '/admin': 'Admin',
 };
 
 function getPageTitle(pathname: string): string {
@@ -30,7 +32,18 @@ const ICON_BUTTON = cn(
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 );
 
-export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
+interface AppHeaderProps {
+  onMenuToggle?: () => void;
+  /**
+   * True once the page has scrolled under the header (Layout derives it from
+   * an IntersectionObserver sentinel, never a scroll listener). At rest the
+   * header sits flush with the page; scrolled, it turns into material that
+   * reads the content beneath and draws its bottom hairline.
+   */
+  scrolled?: boolean;
+}
+
+export function AppHeader({ onMenuToggle, scrolled = false }: AppHeaderProps) {
   const location = useLocation();
   const title = getPageTitle(location.pathname);
   const currentSession = useSessionStore((s) => s.currentSession);
@@ -54,15 +67,21 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
   })();
 
   return (
-    // The header is the navigation layer: material surface that reads the page
-    // scrolling beneath it; the hairline replaces a hard border.
+    // The header is the navigation layer. Height never changes between states,
+    // so nothing below it reflows; only the surface and the hairline do.
     <header
+      data-scrolled={scrolled || undefined}
       className={cn(
-        'sticky top-0 z-sticky flex h-14 items-center justify-between px-4 md:px-6',
-        'material-clear !shadow-none border-b border-hairline'
+        'sticky top-0 z-sticky flex h-14 shrink-0 items-center justify-between px-4 md:px-6',
+        // Secondary text in the header always uses the on-glass step, so nothing shifts colour when the material switches on.
+        '[--color-muted-foreground:var(--color-muted-foreground-on-glass)]',
+        'border-b transition-[background-color,border-color] duration-normal ease-out',
+        scrolled
+          ? 'material !shadow-none border-hairline'
+          : 'bg-background border-transparent'
       )}
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
         {/* Mobile hamburger */}
         {onMenuToggle && (
           <button
@@ -83,9 +102,9 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
         >
           <Logo variant="icon" size={24} />
         </Link>
-        <h1 className="text-lg font-semibold tracking-title text-foreground truncate">{title}</h1>
+        <h1 className="truncate text-lg font-semibold leading-9 tracking-title text-foreground">{title}</h1>
         {breadcrumbs.length > 0 && (
-          <div className="flex items-center gap-1.5 text-sm">
+          <div className="flex items-center gap-1.5 text-sm leading-9">
             {breadcrumbs.map((crumb, i) => (
               <span key={i} className="flex items-center gap-1.5">
                 <span className="text-muted-foreground">{'›'}</span>
@@ -102,31 +121,35 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
         )}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      {/* Every control on the right shares one 36 px row: search pill, bell and avatar sit on the same centre line. */}
+      <div className="flex h-9 items-center gap-1.5">
         {/* Search icon (mobile) */}
         <button onClick={toggle} className={cn(ICON_BUTTON, 'sm:hidden')} aria-label="Search">
           <Search size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
-        {/* Cmd+K hint (desktop) */}
+        {/* Cmd+K hint (desktop) — a capsule pill, the same height as the icon buttons */}
         <button
           onClick={toggle}
           className={cn(
-            'hidden sm:inline-flex h-8 items-center gap-1.5 rounded-md border border-hairline-strong px-2.5 text-xs text-muted-foreground',
+            'hidden sm:inline-flex h-9 items-center gap-1.5 rounded-capsule border border-hairline-strong px-3 text-xs text-muted-foreground',
             'transition-[background-color,color,border-color,transform] duration-fast ease-out hover:bg-muted hover:text-foreground active:scale-[0.97]',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
           )}
           aria-label="Open command palette"
         >
           <Search size={14} strokeWidth={1.75} aria-hidden="true" />
-          <kbd className="font-mono">{'⌘'}K</kbd>
+          <span className="leading-none">Search</span>
+          <kbd className="font-mono leading-none text-[11px]">{'⌘'}K</kbd>
         </button>
 
         {/* Notifications */}
         <NotificationCenter />
 
-        {/* User avatar */}
+        {/* User avatar — centred in the same 36 px cell as the icon buttons */}
         {user && (
-          <Avatar name={user.name || 'User'} size="sm" className="ml-1.5 cursor-pointer" />
+          <span className="ml-1 grid h-9 w-9 place-items-center">
+            <Avatar name={user.name || 'User'} size="md" className="cursor-pointer" />
+          </span>
         )}
       </div>
     </header>

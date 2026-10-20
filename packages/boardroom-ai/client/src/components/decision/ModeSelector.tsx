@@ -1,17 +1,22 @@
+import { useId, type ComponentType } from 'react';
 import { motion } from 'motion/react';
+import { Lightbulb, ListChecks, RotateCcw, Scale, ShieldAlert, TriangleAlert, Zap, type LucideProps } from 'lucide-react';
 import { CLIENT_MODE_LIST, type ClientUserMode } from '../../types/debate';
+import { Tabs } from '../ui/Tabs';
+import { DURATION, EASE_OUT, useReducedMotion } from '../../lib/motion';
 
-const MODE_ICONS: Record<ClientUserMode, string> = {
-  'decide': '\u2696\uFE0F',
-  'stress-test': '\uD83D\uDD0D',
-  'plan': '\uD83D\uDCCB',
-  'clarify': '\uD83D\uDCA1',
-  'review': '\uD83D\uDD04',
-  'quick-take': '\u26A1',
-  'premortem': '\uD83E\uDEA6',
+/** One Lucide glyph per mode, 16 px inline, 1.75 stroke (UI-FOUNDATION §6). */
+const MODE_ICONS: Record<ClientUserMode, ComponentType<LucideProps>> = {
+  'decide': Scale,
+  'stress-test': ShieldAlert,
+  'plan': ListChecks,
+  'clarify': Lightbulb,
+  'review': RotateCcw,
+  'quick-take': Zap,
+  'premortem': TriangleAlert,
 };
 
-/** Helper copy shown under the label; falls back to the shared description. */
+/** Helper copy shown under the control; falls back to the shared description. */
 const MODE_HELPER: Partial<Record<ClientUserMode, string>> = {
   premortem: 'Assume it failed. Find out why.',
 };
@@ -23,53 +28,51 @@ interface ModeSelectorProps {
   onSelect: (mode: ClientUserMode) => void;
 }
 
+/**
+ * Analysis mode as a capsule segmented control (ui/Tabs, `segmented`): the
+ * raised pill slides between modes on `springs.snappy`, instantly from the
+ * keyboard. One helper line underneath describes the selected mode and who
+ * sits at the table, cross-fading in 120 ms when the selection changes.
+ */
 export function ModeSelector({ selectedMode, onSelect }: ModeSelectorProps) {
+  const helperId = useId();
+  const reducedMotion = useReducedMotion();
+  const current = MODES.find((m) => m.id === selectedMode) ?? MODES[0];
+  const table = current.personas.length > 0
+    ? `${current.personas.length} personas${current.includesCEO ? ' + CEO synthesis' : ''}`
+    : 'CEO only';
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {MODES.map((config) => {
-        const isSelected = config.id === selectedMode;
-        return (
-          <button
-            key={config.id}
-            type="button"
-            onClick={() => onSelect(config.id)}
-            className={`relative flex items-start gap-3 p-4 rounded-lg border text-left transition-[border-color,background-color,box-shadow,transform] duration-fast ease-out active:scale-[0.99] ${
-              isSelected
-                ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                : 'border-border bg-card hover:border-border hover:bg-muted'
-            }`}
-          >
-            {isSelected && (
-              <motion.div
-                layoutId="mode-selector"
-                className="absolute inset-0 rounded-lg border-2 border-primary pointer-events-none"
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              />
-            )}
-            <span className="text-2xl flex-shrink-0 mt-0.5">{MODE_ICONS[config.id] ?? '\u2022'}</span>
-            <div className="min-w-0">
-              <div className="font-medium text-foreground text-sm">{config.label}</div>
-              <div className="text-muted-foreground text-xs mt-0.5">{MODE_HELPER[config.id] ?? config.description}</div>
-              <div className="text-muted-foreground text-xs mt-1">
-                {config.personas.length > 0
-                  ? `${config.personas.length} personas`
-                  : 'CEO only'}
-                {config.includesCEO && config.personas.length > 0 && ' + CEO synthesis'}
-              </div>
-            </div>
-            {isSelected && (
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-xs"
-              >
-                {'\u2713'}
-              </motion.span>
-            )}
-          </button>
-        );
-      })}
+    <div className="space-y-2.5" data-testid="mode-selector">
+      <Tabs
+        variant="segmented"
+        aria-label="Analysis mode"
+        value={selectedMode}
+        onChange={(id) => onSelect(id as ClientUserMode)}
+        tabs={MODES.map((config) => {
+          const Icon = MODE_ICONS[config.id];
+          return {
+            id: config.id,
+            label: config.label,
+            title: MODE_HELPER[config.id] ?? config.description,
+            icon: Icon ? <Icon size={16} strokeWidth={1.75} aria-hidden="true" /> : undefined,
+          };
+        })}
+      />
+      <div id={helperId} className="relative min-h-[2.5rem] px-1 text-sm" aria-live="polite">
+        {/* Keyed on the mode: the new line fades in over 120 ms; the old one is simply replaced (no exit to wait on). */}
+        <motion.p
+          key={current.id}
+          initial={reducedMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: DURATION.fast, ease: EASE_OUT }}
+          className="text-muted-foreground"
+        >
+          <span className="text-foreground">{MODE_HELPER[current.id] ?? current.description}</span>
+          <span className="mx-1.5 text-hairline-strong" aria-hidden="true">·</span>
+          <span className="tnum">{table}</span>
+        </motion.p>
+      </div>
     </div>
   );
 }

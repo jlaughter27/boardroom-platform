@@ -4,8 +4,11 @@ import { useMemoryStore } from '../../stores/memory.store';
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatAsOf } from '../graph/graph-search';
 import { cn } from '../../lib/cn';
+import { Select } from '../ui/Select';
 
 const MAX_TAG_CHIPS = 14;
+/** Sentinel option for "no filter" (a Select value cannot be the empty string). */
+const ALL = '__all__';
 
 /** Tags present in the current result set, most frequent first (selected tags always included). */
 export function collectTagChips(memories: ReadonlyArray<{ tags?: string[] }>, selected: readonly string[] = [], max = MAX_TAG_CHIPS): string[] {
@@ -61,8 +64,9 @@ export function MemorySearch() {
     search({});
   }
 
+  // One 36 px row: inputs, selects and toggles share the control radius and height.
   const selectClass =
-    'bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40';
+    'h-9 bg-card border border-border rounded-control px-3 text-sm text-foreground outline-none hover:border-hairline-strong focus:border-primary/40 focus:ring-2 focus:ring-ring transition-[border-color,box-shadow] duration-fast ease-out';
 
   return (
     <div className="space-y-3">
@@ -107,50 +111,37 @@ export function MemorySearch() {
           className={`${selectClass} w-28`}
         />
 
-        <select
-          value={filters.memoryClass ?? ''}
-          onChange={(e) =>
-            setFilters({ memoryClass: e.target.value || undefined })
-          }
+        <Select
+          className="w-auto min-w-[8.5rem]"
+          value={filters.memoryClass ?? ALL}
+          onChange={(v) => setFilters({ memoryClass: v === ALL ? undefined : v })}
           aria-label="Memory class"
-          className={cn(selectClass, hybridActive && 'opacity-50 cursor-not-allowed')}
           disabled={hybridActive}
           title={hybridActive ? listOnlyTitle : undefined}
-        >
-          <option value="">All Classes</option>
-          {Object.values(MemoryClass).map((mc) => (
-            <option key={mc} value={mc}>
-              {mc}
-            </option>
-          ))}
-        </select>
+          options={[{ value: ALL, label: 'All Classes' }, ...Object.values(MemoryClass).map((mc) => ({ value: mc, label: mc }))]}
+        />
 
-        <select
-          value={filters.status ?? ''}
-          onChange={(e) => setFilters({ status: e.target.value || undefined })}
+        <Select
+          className="w-auto min-w-[8.5rem]"
+          value={filters.status ?? ALL}
+          onChange={(v) => setFilters({ status: v === ALL ? undefined : v })}
           aria-label="Status"
-          className={selectClass}
-        >
-          <option value="">All Statuses</option>
-          {Object.values(MemoryStatus).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          options={[{ value: ALL, label: 'All Statuses' }, ...Object.values(MemoryStatus).map((s) => ({ value: s, label: s }))]}
+        />
 
-        <select
+        <Select
+          className="w-auto min-w-[7.5rem]"
           value={filters.sortBy ?? 'createdAt'}
-          onChange={(e) => setFilters({ sortBy: e.target.value })}
+          onChange={(v) => setFilters({ sortBy: v })}
           aria-label="Sort by"
-          className={cn(selectClass, hybridActive && 'opacity-50 cursor-not-allowed')}
           disabled={hybridActive}
           title={hybridActive ? 'Hybrid results are ranked by relevance; sorting applies to the list' : undefined}
-        >
-          <option value="createdAt">Created</option>
-          <option value="importance">Importance</option>
-          <option value="updatedAt">Updated</option>
-        </select>
+          options={[
+            { value: 'createdAt', label: 'Created' },
+            { value: 'importance', label: 'Importance' },
+            { value: 'updatedAt', label: 'Updated' },
+          ]}
+        />
 
         <button
           type="button"
@@ -161,7 +152,7 @@ export function MemorySearch() {
             })
           }
           disabled={hybridActive}
-          className={cn('bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors', hybridActive && 'opacity-50 cursor-not-allowed')}
+          className={cn('h-9 bg-card border border-border rounded-control px-3 text-sm text-foreground hover:border-hairline-strong transition-[border-color,box-shadow] duration-fast ease-out', hybridActive && 'opacity-50 cursor-not-allowed')}
           title={hybridActive ? 'Hybrid results are ranked by relevance; sorting applies to the list' : `Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
         >
           {filters.sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
@@ -194,7 +185,7 @@ export function MemorySearch() {
             onClick={() => setFilters({ includeArchived: filters.includeArchived ? undefined : true })}
             aria-pressed={!!filters.includeArchived}
             className={cn(
-              'rounded border px-2 py-1.5 text-sm transition-colors',
+              'h-9 rounded-control border px-3 text-sm transition-[background-color,color,border-color] duration-fast ease-out',
               filters.includeArchived ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
             )}
             title="Include archived memories (hybrid search)"

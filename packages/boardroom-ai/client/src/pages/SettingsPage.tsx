@@ -6,7 +6,7 @@ import { getUserProfile, updateUserProfile } from '../lib/api';
 import { CalendarSettings } from '../components/settings/CalendarSettings';
 import { SubscriptionSettings } from '../components/settings/SubscriptionSettings';
 import { ConnectedToolsPanel } from '../components/settings/ConnectedToolsPanel';
-import { PageWrapper, Card, Button, Input, Badge, Skeleton, useToastStore } from '../components/ui';
+import { PageWrapper, PageHeader, Card, Button, Input, Badge, Skeleton, Select, Slider, useToastStore } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { UserProfile, RiskProfile } from '@boardroom/shared';
 
@@ -164,7 +164,7 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1 space-y-6">
-          <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+          <PageHeader className="mb-0" title="Settings" subtitle="Profile, preferences, integrations and billing." />
 
           {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
@@ -177,17 +177,14 @@ export default function SettingsPage() {
               <Input label="Role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. CTO, Product Manager" />
               <Input label="Industry" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g. FinTech, Healthcare" />
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-muted-foreground">Decision Frequency</label>
-                <select
-                  value={decisionFrequency}
-                  onChange={(e) => setDecisionFrequency(e.target.value)}
-                  className="bg-background border border-border rounded-control px-3 h-9 text-sm text-foreground outline-none hover:border-hairline-strong focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-[border-color,box-shadow] duration-fast ease-out"
-                >
-                  <option value="">Select...</option>
-                  {DECISION_FREQUENCY_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
+                <label htmlFor="decision-frequency" className="text-sm font-medium text-muted-foreground">Decision Frequency</label>
+                <Select
+                  id="decision-frequency"
+                  value={decisionFrequency || undefined}
+                  onChange={setDecisionFrequency}
+                  placeholder="Select..."
+                  options={DECISION_FREQUENCY_OPTIONS.map((opt) => ({ value: opt, label: opt }))}
+                />
               </div>
               <Button variant="primary" onClick={saveProfile} disabled={profileSaving}>
                 {profileSaving ? 'Saving...' : 'Save Profile'}
@@ -204,17 +201,18 @@ export default function SettingsPage() {
               {(['financial', 'technical', 'people', 'strategic'] as const).map((key) => (
                 <div key={key}>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-sm text-muted-foreground capitalize">{key}</label>
-                    <Badge variant="default">{riskProfile[key].toFixed(2)}</Badge>
+                    <span id={`risk-${key}-label`} className="text-sm text-muted-foreground capitalize">{key}</span>
+                    <Badge variant="default" className="tnum">{riskProfile[key].toFixed(2)}</Badge>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
+                  <Slider
+                    aria-labelledby={`risk-${key}-label`}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    largeStep={0.1}
                     value={riskProfile[key]}
-                    onChange={(e) => updateRisk(key, parseFloat(e.target.value))}
-                    className="w-full accent-primary"
+                    onChange={(v) => updateRisk(key, v)}
+                    format={(v) => v.toFixed(2)}
                   />
                 </div>
               ))}

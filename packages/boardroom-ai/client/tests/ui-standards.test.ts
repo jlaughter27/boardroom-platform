@@ -40,8 +40,8 @@ const ALLOW_COMMENT = /ui-standards:\s*allow backdrop-blur\s*[—-]\s*\S/;
 interface Rule {
   name: string;
   pattern: RegExp;
-  /** Return true to accept a matching line anyway. */
-  except?: (line: string, file: string) => boolean;
+  /** Return true to accept a matching line anyway (`prev` is the line above, for justification comments). */
+  except?: (line: string, file: string, prev?: string) => boolean;
 }
 
 const RULES: Rule[] = [
@@ -71,7 +71,25 @@ const RULES: Rule[] = [
     pattern: /\bbackdrop-blur\b/,
     except: (line, file) => BACKDROP_BLUR_ALLOW.has(file) || ALLOW_COMMENT.test(line),
   },
+  {
+    // Native selects cannot carry the popup motion, the hairline surface or
+    // typeahead styling; `ui/Select` can. Put the justification on the line
+    // above (or the same line) when one has to stay.
+    name: 'no native `<select` outside ui/Select.tsx (or add a `ui-standards: allow select — <reason>` comment above it)',
+    pattern: /<select\b/,
+    except: (line, file, prev) => file === 'components/ui/Select.tsx' || ALLOW_SELECT.test(line) || ALLOW_SELECT.test(prev ?? ''),
+  },
+  {
+    // Header / chrome state never comes from a scroll listener: an
+    // IntersectionObserver sentinel costs nothing per frame (hooks/useScrolledSentinel).
+    name: 'no scroll event listeners (use an IntersectionObserver sentinel; or add a `ui-standards: allow scroll-listener — <reason>` comment)',
+    pattern: /addEventListener\(\s*['"]scroll['"]|\bonScroll=/,
+    except: (line) => ALLOW_SCROLL.test(line),
+  },
 ];
+
+const ALLOW_SELECT = /ui-standards:\s*allow select\s*[—-]\s*\S/;
+const ALLOW_SCROLL = /ui-standards:\s*allow scroll-listener\s*[—-]\s*\S/;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -97,7 +115,7 @@ describe('ui standards', () => {
       for (const { full, rel } of files) {
         const lines = readFileSync(full, 'utf8').split('\n');
         lines.forEach((line, i) => {
-          if (rule.pattern.test(line) && !rule.except?.(line, rel)) hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);
+          if (rule.pattern.test(line) && !rule.except?.(line, rel, lines[i - 1])) hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);
         });
       }
       expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);

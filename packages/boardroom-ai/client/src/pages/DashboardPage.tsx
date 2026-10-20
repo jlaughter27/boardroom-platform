@@ -7,7 +7,8 @@ import { useEntitiesStore } from '../stores/entities.store';
 import { useCortexStore } from '../stores/cortex.store';
 import { useAuthStore } from '../stores/auth.store';
 import { useCognitiveLoad } from '../hooks/useCognitiveLoad';
-import { PageWrapper, Skeleton, Button, Card, EmptyState } from '../components/ui';
+import { PageWrapper, PageHeader, Skeleton, Button, Card, EmptyState } from '../components/ui';
+import { SlidersHorizontal } from 'lucide-react';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { useNavigate } from 'react-router-dom';
 import { AINudge } from '../components/shared/AINudge';
@@ -93,29 +94,21 @@ export default function DashboardPage() {
         </div>
       ) : (
       <div className="p-6 max-w-6xl mx-auto space-y-6">
-        {/* Header — on phones the Customize control drops to its own row so the greeting keeps the full width */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* Warm-gold accent bar — anchors the greeting with brand color
-                without adding another logo (Sidebar already carries one). */}
-            <span
-              className="h-10 w-1 rounded-full bg-gradient-to-b from-primary to-primary-warm"
-              aria-hidden
-            />
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground text-balance">
-                {getGreeting()}, {firstName}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
-            </div>
-          </div>
-          <Button variant="ghost" size="sm" onClick={openConfigurator} className="self-start sm:self-auto">
-            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z" />
-            </svg>
-            Customize
-          </Button>
-        </div>
+        {/* Header — the warm-gold accent bar anchors the greeting with brand colour
+            without adding another logo (Sidebar already carries one). On phones the
+            Customize control drops to its own row so the greeting keeps the full width. */}
+        <PageHeader
+          accent
+          className="mb-0"
+          title={<>{getGreeting()}, {firstName}</>}
+          subtitle={subtitle}
+          actions={
+            <Button variant="ghost" size="sm" onClick={openConfigurator}>
+              <SlidersHorizontal size={16} strokeWidth={1.75} aria-hidden="true" />
+              Customize
+            </Button>
+          }
+        />
 
         {/* Errors */}
         {(entitiesError || cortexError) && (
