@@ -1,10 +1,22 @@
 # Current Phase
 
-**Phase in flight:** ✅ **Phase 7 — Universal memory MCP: built, independently reviewed, awaiting Railway deploy + operator checklist**
-**Last update:** 2026-10-19 (blind spots closed; PR opened)
+**Phase in flight:** 🎨 **Phase 7.5 — Visualization + Apple-grade UI foundation** (viz PR up; UI foundation Phases A/B/D building on a side branch; Phase C next). Phase 7 MCP front door is merged (PR #21) and awaits the Railway go-live checklist.
+**Last update:** 2026-10-20 (viz upgrade PR opened; UI research + plan committed)
 **Updated by:** Claude (research → build → review session, branch `claude/amazing-mccarthy-grvem2`)
 
 **Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key. **One command does the checklist** (2026-10-20): `pnpm go-live:mcp -- --project <id> --owner-email <e-mail> --yes` from a laptop, or GitHub → Actions → *MCP go-live* from a phone (runbook "One-command path").
+
+---
+
+## 🎨 Phase 7.5 — Visualization upgrade + Apple-grade UI foundation (2026-10-20)
+
+**Done (PR open):** communities knowledge graph (Louvain + hulls + anchored labels + cluster force, minimap, legend-as-filter, focus glow, hover card, deduped spotlight hits, eased timeline), dashboard chart system (`components/viz/`, 11 SVG primitives, validated palettes, partial-week handling), cockpit row + memory pulse + what's moving + commitment horizon, calibration reliability diagram, diff-style change timeline, screenshot harness (`tools/visual-preview/`). Client tests 245 → 378. Details: `CHANGELOG.md` 2026-10-20.
+
+**In flight (separate branch, merges after the viz PR):** UI foundation per `docs/research/APPLE-GRADE-UI-2026-10-20.md` — Phase A tokens (self-hosted Inter variable with optical sizing + tabular figures, ease-out motion tokens + Apple-parameter springs, layered hue-matched shadows + inset highlight + hairline, concentric radius helper, `.material` with reduced-transparency fallback, dark elevation ladder), Phase B primitives on Base UI (`@base-ui/react`: Dialog, Tooltip, Select, Tabs, Popover, Menu; Button press feedback + glass/capsule; Card elevation; Toast swipe; command palette material; Lucide icons), Phase D guardrails (`ui-standards` test, `UI-FOUNDATION.md`, ADR-015).
+
+**Next:** Phase C — glass app header, React 19.3 `ViewTransition` route transitions, graph floating controls as the navigation layer, decision-session segmented control + synthesis sheet; contrast-on-glass check; reduced-motion/transparency shots.
+
+**Decisions taken (user approved the research 2026-10-20, recommendations adopted):** Base UI as the headless layer; React 19.3 bump for view transitions; Lucide as the single icon set; no Tailwind v4 migration; no displacement "liquid" lensing on content.
 
 ---
 

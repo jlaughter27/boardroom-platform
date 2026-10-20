@@ -63,6 +63,18 @@ export interface GraphPalette {
   label: string;
   labelHalo: string;
   font: string;
+  /** Faint canvas grid + edge vignette (atmosphere) */
+  grid: string;
+  vignette: string;
+  /** Focus glow tint (primary) */
+  glow: string;
+  /** Community hull hues, fixed slot order (validated per theme in tokens.css), plus the neutral fold slot */
+  community: string[];
+  communityNeutral: string;
+  hullFillAlpha: number;
+  hullStrokeAlpha: number;
+  /** True when the dark token set is active (drives shadow strength) */
+  dark: boolean;
 }
 
 const FALLBACK: GraphPalette = {
@@ -76,6 +88,14 @@ const FALLBACK: GraphPalette = {
   label: '#e8e8e2',
   labelHalo: 'rgba(17,17,16,0.85)',
   font: 'Inter, system-ui, sans-serif',
+  grid: 'rgba(232,232,226,0.045)',
+  vignette: 'rgba(0,0,0,0.55)',
+  glow: 'rgba(212,163,26,0.4)',
+  community: ['#d95926', '#3987e5', '#c98500', '#008300', '#9085e9', '#e66767'],
+  communityNeutral: '#898781',
+  hullFillAlpha: 0.13,
+  hullStrokeAlpha: 0.5,
+  dark: true,
 };
 
 /** Read the live token values from the document (called on mount + theme change). */
@@ -99,7 +119,39 @@ export function readGraphPalette(): GraphPalette {
     label: v('--graph-label', FALLBACK.label),
     labelHalo: v('--graph-label-halo', FALLBACK.labelHalo),
     font: v('--font-sans', FALLBACK.font),
+    grid: v('--graph-grid', FALLBACK.grid),
+    vignette: v('--graph-vignette', FALLBACK.vignette),
+    glow: v('--graph-glow', FALLBACK.glow),
+    community: FALLBACK.community.map((fb, i) => v(`--graph-community-${i + 1}`, fb)),
+    communityNeutral: v('--graph-community-neutral', FALLBACK.communityNeutral),
+    hullFillAlpha: Number(v('--graph-hull-fill-alpha', String(FALLBACK.hullFillAlpha))) || FALLBACK.hullFillAlpha,
+    hullStrokeAlpha: Number(v('--graph-hull-stroke-alpha', String(FALLBACK.hullStrokeAlpha))) || FALLBACK.hullStrokeAlpha,
+    dark: document.documentElement.classList.contains('dark'),
   };
+}
+
+/** Hue for a community id: the first six slots get a hue, the rest fold to neutral (never cycled). */
+export function communityColor(palette: GraphPalette, communityId: number | undefined): string {
+  if (communityId === undefined || communityId < 0 || communityId >= palette.community.length) return palette.communityNeutral;
+  return palette.community[communityId];
+}
+
+/** `#rrggbb` (or `rgb()`/`rgba()`) → `rgba(r,g,b,alpha)`; unknown formats pass through. */
+export function withAlpha(color: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(color.trim());
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3 || h.length === 4) h = h.split('').map((c) => c + c).join('');
+    const r = parseInt(h.slice(0, 2), 16); const g = parseInt(h.slice(2, 4), 16); const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  const rgb = /^rgba?\(([^)]+)\)$/i.exec(color.trim());
+  if (rgb) {
+    const parts = rgb[1].split(',').map((x) => x.trim());
+    return `rgba(${parts[0]},${parts[1]},${parts[2]},${a})`;
+  }
+  return color;
 }
 
 export type ShapeMode = 'fill' | 'hollow';
@@ -111,7 +163,7 @@ export type ShapeMode = 'fill' | 'hollow';
  */
 export function drawShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: number, fill: string, stroke?: string, mode: ShapeMode = 'fill'): void {
   if (mode === 'hollow') {
-    traceShape(ctx, shape, r);
+    traceShapePath(ctx, shape, r);
     ctx.lineWidth = Math.max(1.2, r * 0.3);
     ctx.strokeStyle = fill;
     ctx.stroke();
@@ -161,7 +213,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: nu
 }
 
 /** Outline path for a shape (no fill / stroke) — the ring shape is its own outline. */
-function traceShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: number): void {
+export function traceShapePath(ctx: CanvasRenderingContext2D, shape: NodeShape, r: number): void {
   ctx.beginPath();
   switch (shape) {
     case 'diamond':

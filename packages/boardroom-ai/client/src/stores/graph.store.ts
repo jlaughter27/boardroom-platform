@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from '../lib/api';
 import { memoryRowToHit, type HybridSearchRow, type SpotlightHit } from '../components/graph/graph-search';
+import type { Community } from '../components/graph/graph-communities';
 
 /**
  * Spotlight search state shared between the ⌘K palette and the graph page.
@@ -33,6 +34,9 @@ export interface GraphStoreState {
   graphMounted: boolean;
   /** A node id the graph page should focus next (consumed by the page) */
   focusRequest: string | null;
+  /** Louvain partition of the loaded graph: node id → stable community id (written by GraphPage, read by hulls / palette) */
+  communityOf: ReadonlyMap<string, number>;
+  communities: readonly Community[];
 
   setPaletteMode(mode: PaletteMode): void;
   setAsOf(day: string | null): void;
@@ -43,6 +47,7 @@ export interface GraphStoreState {
   setGraphMounted(mounted: boolean): void;
   requestFocus(nodeId: string): void;
   consumeFocusRequest(): string | null;
+  setCommunities(communityOf: ReadonlyMap<string, number>, communities: readonly Community[]): void;
 }
 
 const PAGE = 20;
@@ -65,6 +70,8 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
   paletteMode: 'commands',
   graphMounted: false,
   focusRequest: null,
+  communityOf: new Map(),
+  communities: [],
 
   setPaletteMode: (paletteMode) => set({ paletteMode }),
 
@@ -129,4 +136,6 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
     if (id) set({ focusRequest: null });
     return id;
   },
+
+  setCommunities: (communityOf, communities) => set({ communityOf, communities }),
 }));

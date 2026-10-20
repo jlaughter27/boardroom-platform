@@ -5,6 +5,8 @@ import * as api from '../../lib/api';
 import { useEntitiesStore } from '../../stores/entities.store';
 import type { DecisionChangesResponse } from '../../types/debate';
 import { Card, Badge, Skeleton } from '../ui';
+import { Glyph } from '../viz/Glyph';
+import { toTime } from '../viz/aggregate';
 
 // ---------------------------------------------------------------------------
 // Client-side entity matching
@@ -148,6 +150,84 @@ function timeAgo(iso: string): string {
   return months === 1 ? 'a month ago' : `${months} months ago`;
 }
 
+// ---------------------------------------------------------------------------
+// Diff-style timeline of what changed
+// ---------------------------------------------------------------------------
+
+export type ChangeKind = 'memory' | 'decision' | 'commitment';
+
+export interface ChangeEvent {
+  id: string;
+  kind: ChangeKind;
+  /** '+' created · '−' invalidated / ended */
+  sign: '+' | '−';
+  title: string;
+  meta: string | null;
+  /** ISO timestamp the event sorts by (null sorts last). */
+  at: string | null;
+  href: string | null;
+}
+
+export const TIMELINE_MAX = 8;
+
+/** Flatten the changes payload into one newest-first list; invalidated memories read as removals. */
+export function buildChangeEvents(data: DecisionChangesResponse): ChangeEvent[] {
+  const iso = (v: unknown): string | null => { const t = toTime(v as string | Date | null | undefined); return t === null ? null : new Date(t).toISOString(); };
+  const out: ChangeEvent[] = [];
+  for (const m of data.memories) {
+    const gone = Boolean(m.invalidAt);
+    out.push({
+      id: `memory:${m.id}`, kind: 'memory', sign: gone ? '−' : '+', title: m.title,
+      meta: gone ? 'invalidated' : (m.memoryClass ? String(m.memoryClass).toLowerCase() : null),
+      at: iso(gone ? m.invalidAt : m.createdAt), href: `/memory?id=${encodeURIComponent(m.id)}`,
+    });
+  }
+  for (const d of data.decisions) {
+    out.push({
+      id: `decision:${d.id}`, kind: 'decision', sign: '+', title: d.title,
+      meta: d.chosenPath ? `→ ${d.chosenPath}` : null,
+      at: iso(d.decidedAt ?? d.createdAt), href: d.sessionId ? `/decisions/${d.sessionId}` : '/decisions',
+    });
+  }
+  for (const c of data.commitments) {
+    const done = c.status === 'COMPLETED';
+    out.push({
+      id: `commitment:${c.id}`, kind: 'commitment', sign: '+', title: c.description,
+      meta: done ? 'completed' : c.deadline ? `due ${new Date(c.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : null,
+      at: iso(done ? c.completedAt ?? c.createdAt : c.createdAt), href: null,
+    });
+  }
+  return out.sort((a, b) => {
+    if (a.at === null && b.at === null) return 0;
+    if (a.at === null) return 1;
+    if (b.at === null) return -1;
+    return b.at.localeCompare(a.at);
+  });
+}
+
+function ChangeTimeline({ events }: { events: ChangeEvent[] }) {
+  const shown = events.slice(0, TIMELINE_MAX);
+  const more = events.length - shown.length;
+  return (
+    <ol className="relative ml-1.5 space-y-1.5 border-l border-border pl-5" data-testid="change-timeline">
+      {shown.map((e) => (
+        <li key={e.id} className="relative flex items-baseline gap-2 text-sm" data-kind={e.kind} data-sign={e.sign}>
+          <span className="absolute -left-[26px] top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-card" aria-hidden>
+            <Glyph type={e.kind} color={`var(--color-entity-${e.kind})`} size={12} mode={e.sign === '−' ? 'hollow' : 'fill'} />
+          </span>
+          <span className={`w-3 shrink-0 text-center font-mono text-xs font-semibold ${e.sign === '+' ? 'text-success' : 'text-danger'}`} aria-label={e.sign === '+' ? 'added' : 'removed'}>{e.sign}</span>
+          <span className="min-w-0 flex-1 truncate">
+            {e.href ? <Link to={e.href} className={`text-foreground hover:text-primary ${e.sign === '−' ? 'line-through decoration-muted-foreground/60' : ''}`}>{e.title}</Link> : <span className="text-foreground">{e.title}</span>}
+            {e.meta && <span className="ml-1.5 text-[11px] text-muted-foreground">{e.meta}</span>}
+          </span>
+          {e.at && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{timeAgo(e.at)}</span>}
+        </li>
+      ))}
+      {more > 0 && <li className="text-[11px] text-muted-foreground">+{more} more</li>}
+    </ol>
+  );
+}
+
 const ENTITY_BADGE: Record<MatchedEntity['type'], string> = {
   goal: 'bg-entity-goal',
   project: 'bg-entity-project',
@@ -239,55 +319,7 @@ export function WhatChangedCard({ question, currentSessionId }: WhatChangedCardP
       {nothing ? (
         <p className="text-sm text-muted-foreground">Nothing new on this since then — you are picking up where you left off.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-          {counts.memories > 0 && (
-            <div>
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Memories</div>
-              <ul className="space-y-1">
-                {data.memories.slice(0, 3).map((m) => (
-                  <li key={m.id} className="truncate">
-                    <Link to={`/memory?id=${encodeURIComponent(m.id)}`} className="text-foreground hover:text-primary">
-                      {m.title}
-                    </Link>
-                    {m.invalidAt && <span className="ml-1 text-[11px] text-muted-foreground">(invalidated)</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {counts.decisions > 0 && (
-            <div>
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Decisions</div>
-              <ul className="space-y-1">
-                {data.decisions.slice(0, 3).map((d) => (
-                  <li key={d.id} className="truncate">
-                    <Link to={d.sessionId ? `/decisions/${d.sessionId}` : '/decisions'} className="text-foreground hover:text-primary">
-                      {d.title}
-                    </Link>
-                    {d.chosenPath && <span className="ml-1 text-[11px] text-muted-foreground">— {d.chosenPath}</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {counts.commitments > 0 && (
-            <div>
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Commitments</div>
-              <ul className="space-y-1">
-                {data.commitments.slice(0, 3).map((c) => (
-                  <li key={c.id} className="truncate text-foreground">
-                    {c.description}
-                    {c.deadline && (
-                      <span className="ml-1 text-[11px] text-muted-foreground">
-                        due {new Date(c.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+        <ChangeTimeline events={buildChangeEvents(data)} />
       )}
 
       {data.capsule?.recentChanges?.length ? (

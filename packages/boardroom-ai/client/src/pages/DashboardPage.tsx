@@ -1,4 +1,3 @@
-import { motion, AnimatePresence } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { DashboardConfigurator } from '../components/dashboard/DashboardConfigurator';
@@ -10,10 +9,12 @@ import { useAuthStore } from '../stores/auth.store';
 import { useCognitiveLoad } from '../hooks/useCognitiveLoad';
 import { PageWrapper, Skeleton, Button, Card, EmptyState } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
-import { fadeIn, staggerContainer, staggerItem } from '../lib/motion';
 import { useNavigate } from 'react-router-dom';
 import { AINudge } from '../components/shared/AINudge';
 import { LlmCostWidget } from '../components/dashboard/LlmCostWidget';
+import { CockpitRow } from '../components/dashboard/CockpitRow';
+import { MemoryPulseWidget } from '../components/dashboard/MemoryPulseWidget';
+import { WhatsMovingWidget } from '../components/dashboard/WhatsMovingWidget';
 import { ErrorBoundary } from '../components/shared/ErrorBoundary';
 
 function getGreeting(): string {
@@ -84,16 +85,17 @@ export default function DashboardPage() {
 
   return (
     <PageWrapper>
-      <AnimatePresence mode="wait">
-        {isLoading ? (
-          <motion.div key="skeleton" {...fadeIn} className="p-6 max-w-5xl mx-auto">
-            <DashboardSkeleton />
-          </motion.div>
-        ) : (
-      <motion.div key="content" {...fadeIn} className="p-6 max-w-5xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      {/* No entrance animation on dashboard load (Apple-grade UI standards): the
+          skeleton swaps for content in place; only changed values animate. */}
+      {isLoading ? (
+        <div className="p-6 max-w-6xl mx-auto">
+          <DashboardSkeleton />
+        </div>
+      ) : (
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        {/* Header — on phones the Customize control drops to its own row so the greeting keeps the full width */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
             {/* Warm-gold accent bar — anchors the greeting with brand color
                 without adding another logo (Sidebar already carries one). */}
             <span
@@ -101,13 +103,13 @@ export default function DashboardPage() {
               aria-hidden
             />
             <div>
-              <h1 className="text-2xl font-semibold text-foreground">
+              <h1 className="text-2xl font-semibold text-foreground text-balance">
                 {getGreeting()}, {firstName}
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={openConfigurator}>
+          <Button variant="ghost" size="sm" onClick={openConfigurator} className="self-start sm:self-auto">
             <svg className="w-4 h-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
               <path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z" />
             </svg>
@@ -143,18 +145,28 @@ export default function DashboardPage() {
           />
         )}
 
+        {/* Cockpit — the numbers first (viz lane). Each piece fails closed on its own. */}
+        <ErrorBoundary fallback={null}>
+          <CockpitRow isAdmin={Boolean(user?.isAdmin)} />
+        </ErrorBoundary>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5" data-testid="pulse-row">
+          <div className="lg:col-span-2 min-w-0">
+            <ErrorBoundary fallback={null}><MemoryPulseWidget /></ErrorBoundary>
+          </div>
+          <div className="lg:col-span-3 min-w-0">
+            <ErrorBoundary fallback={null}><WhatsMovingWidget /></ErrorBoundary>
+          </div>
+        </div>
+
         {/* Widget grid or empty state */}
         {hasWidgetData ? (
-          <motion.div
-            {...staggerContainer}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-4"
-          >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {visibleWidgets.map((widget) => (
-              <motion.div key={widget.id} {...staggerItem}>
+              <div key={widget.id}>
                 <WidgetRenderer config={widget} />
-              </motion.div>
+              </div>
             ))}
-          </motion.div>
+          </div>
         ) : (
           <div className="space-y-6">
             <EmptyState
@@ -162,16 +174,13 @@ export default function DashboardPage() {
               title="Your dashboard will come alive"
               description="Start making decisions and tracking goals to populate your dashboard with insights."
             />
-            <motion.div
-              {...staggerContainer}
-              className="grid grid-cols-1 md:grid-cols-3 gap-4"
-            >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 { title: 'Create a Goal', desc: 'Set your first objective to track', icon: '\uD83C\uDFAF', route: '/' },
                 { title: 'Start a Decision', desc: 'Analyze your first decision with AI', icon: '\u2696\uFE0F', route: '/decisions' },
                 { title: 'Add Team Members', desc: 'Build your stakeholder network', icon: '\uD83D\uDC65', route: '/people' },
               ].map((item) => (
-                <motion.div key={item.title} {...staggerItem}>
+                <div key={item.title}>
                   <Card hover onClick={() => navigate(item.route)} className="text-center py-6">
                     {/* Warm-gold halo around the icon — turns placeholder emoji
                         into a branded "quick action" chip. */}
@@ -184,9 +193,9 @@ export default function DashboardPage() {
                     <h3 className="text-sm font-medium text-foreground mb-1">{item.title}</h3>
                     <p className="text-xs text-muted-foreground">{item.desc}</p>
                   </Card>
-                </motion.div>
+                </div>
               ))}
-            </motion.div>
+            </div>
           </div>
         )}
 
@@ -205,9 +214,8 @@ export default function DashboardPage() {
             onClose={closeConfigurator}
           />
         )}
-      </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
+      )}
     </PageWrapper>
   );
 }

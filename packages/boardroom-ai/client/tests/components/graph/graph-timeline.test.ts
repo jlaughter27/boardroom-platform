@@ -122,3 +122,35 @@ describe('graph-timeline — playback', () => {
     expect(fromDateInputValue('nope')).toBeNull();
   });
 });
+
+describe('graph-timeline — eased playback + area sparkline', () => {
+  it('easedWindowEnd decelerates into the extent max and never overshoots', async () => {
+    const { easedWindowEnd, easeOutCubic, playbackDuration, PLAYBACK_MS } = await import('../../../src/components/graph/graph-timeline');
+    const extent = { min: 0, max: 1000 };
+    expect(easedWindowEnd(0, 200, extent)).toBe(200);
+    expect(easedWindowEnd(1, 200, extent)).toBe(1000);
+    expect(easedWindowEnd(2, 200, extent)).toBe(1000);
+    const early = easedWindowEnd(0.25, 200, extent) - 200;
+    const late = easedWindowEnd(1, 200, extent) - easedWindowEnd(0.75, 200, extent);
+    expect(early).toBeGreaterThan(late); // ease-out: big steps first
+    expect(easedWindowEnd(0.5, 0, extent, true)).toBe(500); // reduced motion: linear
+    expect(easeOutCubic(0.5)).toBeCloseTo(0.875);
+    expect(playbackDuration(1)).toBe(PLAYBACK_MS);
+    expect(playbackDuration(2)).toBe(PLAYBACK_MS / 2);
+  });
+
+  it('areaPath draws a closed area and an open line through the buckets', async () => {
+    const { areaPath } = await import('../../../src/components/graph/graph-timeline');
+    const buckets = [{ start: 0, end: 1, count: 2 }, { start: 1, end: 2, count: 0 }, { start: 2, end: 3, count: 4 }];
+    const { area, line } = areaPath(buckets, 100, 50);
+    expect(line.startsWith('M0.00 ')).toBe(true);
+    expect(line.includes(' C')).toBe(true);
+    expect(area.endsWith('L100 50 L0 50 Z')).toBe(true);
+    // the tallest bucket touches the top (y ≈ 1.5), the empty one the baseline (y = 50)
+    expect(line).toMatch(/100\.00 1\.50$/);
+    expect(line).toContain('50.00 50.00');
+    expect(areaPath([], 100, 50)).toEqual({ area: '', line: '' });
+    const one = areaPath([{ start: 0, end: 1, count: 1 }], 100, 50);
+    expect(one.line).toBe('M0 1.50 L100 1.50');
+  });
+});

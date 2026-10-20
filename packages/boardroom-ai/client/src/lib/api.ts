@@ -1223,6 +1223,36 @@ export async function getGraphNeighbourhoods(nodeIds: string[]): Promise<GraphBa
   return out;
 }
 
+// ── Dashboard viz (viz lane) ──
+// The dashboard charts aggregate client-side from endpoints that already
+// exist (no new server routes). `GET /memories` pages at 100 rows, so the
+// 12-week window is walked page by page, newest first, and capped so a very
+// chatty workspace cannot stall the dashboard.
+
+/** Server-side page cap on `GET /memories` (memory.service.ts). */
+export const MEMORY_LIST_PAGE_LIMIT = 100;
+/** Hard cap on pages walked for a dashboard window (100 × 8 = 800 memories). */
+export const MEMORY_LIST_MAX_PAGES = 8;
+
+/**
+ * Every non-archived memory created at or after `sinceIso`, newest first,
+ * across up to `maxPages` pages of `GET /memories?since=&sortBy=createdAt`.
+ * Stops early when a page comes back short or `total` is reached.
+ */
+export async function listMemoriesSince(sinceIso: string, opts: { maxPages?: number; pageSize?: number } = {}): Promise<Memory[]> {
+  const pageSize = Math.min(MEMORY_LIST_PAGE_LIMIT, Math.max(1, opts.pageSize ?? MEMORY_LIST_PAGE_LIMIT));
+  const maxPages = Math.max(1, opts.maxPages ?? MEMORY_LIST_MAX_PAGES);
+  const out: Memory[] = [];
+  for (let page = 0; page < maxPages; page++) {
+    const res = await listMemories({ since: sinceIso, sortBy: 'createdAt', sortOrder: 'desc', limit: pageSize, offset: page * pageSize });
+    const items = Array.isArray(res?.items) ? res.items : [];
+    out.push(...items);
+    const total = typeof res?.total === 'number' ? res.total : Infinity;
+    if (items.length < pageSize || out.length >= total) break;
+  }
+  return out;
+}
+
 // ── MCP tokens (Lane C) ──
 // Settings → "Connected AI tools". BoardRoom pins userId to the JWT user, so
 // the browser never sends one.

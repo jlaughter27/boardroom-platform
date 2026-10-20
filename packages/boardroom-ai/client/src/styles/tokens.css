@@ -60,6 +60,25 @@
   --graph-edge-strong: rgba(26, 26, 22, 0.55);
   --graph-label: #1a1a16;
   --graph-label-halo: rgba(250, 250, 246, 0.85);
+  /*
+   * Graph atmosphere + community hulls (Light). Community hues are the dataviz
+   * reference categorical slots in the order orange → blue → yellow → green →
+   * violet → red, validated adjacent-pair for this surface (worst ΔE 16.2
+   * protan, normal 30.3; yellow sits at 2.07:1 and always carries a text
+   * label). A seventh community and beyond fold into the neutral slot.
+   */
+  --graph-grid: rgba(26, 26, 22, 0.05);
+  --graph-vignette: rgba(26, 26, 22, 0.07);
+  --graph-glow: rgba(181, 137, 10, 0.35);
+  --graph-community-1: #eb6834;
+  --graph-community-2: #2a78d6;
+  --graph-community-3: #eda100;
+  --graph-community-4: #008300;
+  --graph-community-5: #6250d6;
+  --graph-community-6: #e34948;
+  --graph-community-neutral: #898781;
+  --graph-hull-fill-alpha: 0.11;
+  --graph-hull-stroke-alpha: 0.42;
 
   /* Persona colors — one hue per advisor (same values both themes; tailwind `persona.*`). */
   --color-persona-optimist: #22c55e;
@@ -173,6 +192,19 @@
   --graph-edge-strong: rgba(232, 232, 226, 0.6);
   --graph-label: #e8e8e2;
   --graph-label-halo: rgba(17, 17, 16, 0.85);
+  /* Graph atmosphere + community hulls (Dark) — same slot order, dark steps; worst adjacent ΔE 6.9 protan (labelled), normal 22.5. */
+  --graph-grid: rgba(232, 232, 226, 0.045);
+  --graph-vignette: rgba(0, 0, 0, 0.55);
+  --graph-glow: rgba(212, 163, 26, 0.4);
+  --graph-community-1: #d95926;
+  --graph-community-2: #3987e5;
+  --graph-community-3: #c98500;
+  --graph-community-4: #008300;
+  --graph-community-5: #9085e9;
+  --graph-community-6: #e66767;
+  --graph-community-neutral: #898781;
+  --graph-hull-fill-alpha: 0.15;
+  --graph-hull-stroke-alpha: 0.5;
 
   /* Persona colors (Dark) — unchanged hues; defined per theme so a future re-step is one edit. */
   --color-persona-optimist: #22c55e;
@@ -201,6 +233,12 @@
 @keyframes pulse-live {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Graph hover card: origin-aware scale-in, ease-out, under 200 ms (reduced motion skips it). */
+@keyframes graph-card-in {
+  from { opacity: 0; scale: 0.97; }
+  to { opacity: 1; scale: 1; }
 }
 
 @keyframes fade-in {

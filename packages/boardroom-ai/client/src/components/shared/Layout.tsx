@@ -41,7 +41,8 @@ export function Layout() {
         <TrialBanner />
         <main className="flex-1 overflow-y-auto p-4 md:p-6" id="main-content" role="main">
           <AnimatePresence mode="wait">
-            <motion.div key={location.pathname} {...pageTransition}>
+            {/* h-full lets full-height pages (the graph) size from the viewport; auto-height pages are unaffected and still scroll `main`. */}
+            <motion.div key={location.pathname} className="h-full" {...pageTransition}>
               <Outlet />
             </motion.div>
           </AnimatePresence>

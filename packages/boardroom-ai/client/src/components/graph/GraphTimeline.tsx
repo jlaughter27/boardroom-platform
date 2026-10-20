@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeGraphNode } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
 import {
-  DAY_MS, clampWindow, formatDay, isFullWindow, playbackStep, stepWindow, timeExtent, weekHistogram,
+  DAY_MS, areaPath, clampWindow, easedWindowEnd, formatDay, isFullWindow, playbackDuration, playbackStep, stepWindow, timeExtent, weekHistogram,
   type TimeWindow,
 } from './graph-timeline';
 
@@ -53,19 +53,34 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
   }, [extent, win]);
 
   // ── Playback loop ─────────────────────────────────────────────────────────
+  // Smooth mode eases the window end from where it is to the extent's max over
+  // playbackDuration(speed) (ease-out: it decelerates into the newest nodes).
+  // Reduced motion steps a whole week per tick instead of sweeping.
   useEffect(() => {
     if (!playing || !extent) return;
-    const tickMs = reducedMotion ? 700 : 80;
-    const step = playbackStep(extent, speed, reducedMotion);
-    // Advance from a local cursor so ticks never depend on a render having
-    // happened in between (scrubbing stops playback, which restarts the loop).
-    let cur: TimeWindow = winRef.current ?? { start: extent.min, end: extent.max };
+    const start0: TimeWindow = winRef.current ?? { start: extent.min, end: extent.max };
+    if (reducedMotion) {
+      const step = playbackStep(extent, speed, true);
+      let cur = start0;
+      const id = globalThis.setInterval(() => {
+        const { window: next, done } = stepWindow(cur, extent, step);
+        cur = next;
+        onChangeRef.current(done && next.start <= extent.min ? null : next);
+        if (done) setPlaying(false);
+      }, 700);
+      return () => globalThis.clearInterval(id);
+    }
+    const from = start0.end;
+    const duration = playbackDuration(speed) * Math.max(0.05, (extent.max - from) / Math.max(1, extent.max - extent.min));
+    const t0 = performance.now();
     const id = globalThis.setInterval(() => {
-      const { window: next, done } = stepWindow(cur, extent, step);
-      cur = next;
+      const p = Math.min(1, (performance.now() - t0) / Math.max(1, duration));
+      const end = easedWindowEnd(p, from, extent);
+      const next: TimeWindow = { start: start0.start, end };
+      const done = p >= 1;
       onChangeRef.current(done && next.start <= extent.min ? null : next);
       if (done) setPlaying(false);
-    }, tickMs);
+    }, 40);
     return () => globalThis.clearInterval(id);
   }, [playing, speed, extent, reducedMotion]);
 
@@ -77,6 +92,12 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
   const full = isFullWindow(effective, extent);
   const maxCount = buckets.reduce((m, b) => Math.max(m, b.count), 0) || 1;
   const pct = (ms: number) => ((ms - extent.min) / span) * 100;
+  // Sparkline geometry: a 1000 × 100 viewBox stretched to the track; the
+  // active window is a clip over the same path so the highlight is exact.
+  const SPARK_W = 1000; const SPARK_H = 100;
+  const spark = areaPath(buckets, SPARK_W, SPARK_H, maxCount);
+  const clipX = (pct(effective.start) / 100) * SPARK_W;
+  const clipW = Math.max(2, ((pct(effective.end) - pct(effective.start)) / 100) * SPARK_W);
   // The thumbs step a whole day from `min`, so `max` is only reachable when the
   // span is a whole number of days. Let the slider run to the next day boundary
   // and clamp the value back to the extent, so the newest node can be reached.
@@ -119,11 +140,11 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
             {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
           </select>
         </label>
-        <span className="tabular-nums text-foreground" data-testid="timeline-range-label">
+        <span className="tabular-nums text-foreground" style={{ fontVariantNumeric: 'tabular-nums' }} data-testid="timeline-range-label">
           {formatDay(effective.start)} – {formatDay(effective.end)}
         </span>
         {inWindow !== undefined && (
-          <span className="text-muted-foreground">· <span className="tabular-nums">{inWindow}</span> of {nodes.length} in window</span>
+          <span className="text-muted-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>· <span className="tabular-nums">{inWindow}</span> of {nodes.length} in window</span>
         )}
         <span className="ml-auto flex items-center gap-1.5">
           <button
@@ -146,29 +167,32 @@ export function GraphTimeline({ nodes, window: win, onChange, hideOutside, onHid
         </span>
       </div>
 
-      {/* Histogram: one bar per ISO week; bars inside the window are vivid */}
-      <div className="relative h-8" aria-hidden="true" data-testid="timeline-histogram">
-        <svg className="absolute inset-0 h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${Math.max(1, buckets.length)} 10`}>
-          {buckets.map((b, i) => {
-            const h = (b.count / maxCount) * 10;
-            const inside = b.end > effective.start && b.start <= effective.end;
-            return (
-              <rect
-                key={b.start}
-                x={i + 0.1}
-                y={10 - h}
-                width={0.8}
-                height={h}
-                fill="var(--color-primary)"
-                opacity={inside ? 0.85 : 0.25}
-                data-count={b.count}
-              />
-            );
-          })}
+      {/* Area sparkline over ISO weeks; the active window is drawn vivid over a muted base */}
+      <div className="relative h-9" aria-hidden="true" data-testid="timeline-histogram">
+        <svg className="absolute inset-0 h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}>
+          <defs>
+            <linearGradient id="graph-tl-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="var(--color-primary)" stopOpacity="0.55" />
+              <stop offset="1" stopColor="var(--color-primary)" stopOpacity="0.06" />
+            </linearGradient>
+            <clipPath id="graph-tl-window"><rect x={clipX} y={0} width={clipW} height={SPARK_H} /></clipPath>
+          </defs>
+          {/* base: whole extent, muted */}
+          <path d={spark.area} fill="var(--color-muted-foreground)" opacity={0.14} data-testid="timeline-area" />
+          <path d={spark.line} fill="none" stroke="var(--color-muted-foreground)" strokeOpacity={0.35} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          {/* active window: vivid gradient fill + line */}
+          <g clipPath="url(#graph-tl-window)">
+            <path d={spark.area} fill="url(#graph-tl-fill)" />
+            <path d={spark.line} fill="none" stroke="var(--color-primary)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+          </g>
+          {/* week ticks along the baseline (also the per-bucket data hooks) */}
+          {buckets.map((b, i) => (
+            <rect key={b.start} x={Math.max(0, (i / Math.max(1, buckets.length - 1)) * SPARK_W - 1)} y={SPARK_H - 3} width={2} height={3} fill="var(--color-muted-foreground)" opacity={0.35} data-count={b.count} />
+          ))}
         </svg>
         {!full && (
           <div
-            className="pointer-events-none absolute inset-y-0 border-x border-primary/60 bg-primary/10"
+            className="pointer-events-none absolute inset-y-0 border-x border-primary/70"
             style={{ left: `${pct(effective.start)}%`, width: `${Math.max(0.5, pct(effective.end) - pct(effective.start))}%` }}
           />
         )}
