@@ -33,7 +33,7 @@ export function ModeSelector({ selectedMode, onSelect }: ModeSelectorProps) {
             key={config.id}
             type="button"
             onClick={() => onSelect(config.id)}
-            className={`relative flex items-start gap-3 p-4 rounded-lg border text-left transition-all duration-fast ${
+            className={`relative flex items-start gap-3 p-4 rounded-lg border text-left transition-[border-color,background-color,box-shadow,transform] duration-fast ease-out active:scale-[0.99] ${
               isSelected
                 ? 'border-primary bg-primary/10 ring-1 ring-primary'
                 : 'border-border bg-card hover:border-border hover:bg-muted'
@@ -59,8 +59,9 @@ export function ModeSelector({ selectedMode, onSelect }: ModeSelectorProps) {
             </div>
             {isSelected && (
               <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
                 className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-xs"
               >
                 {'\u2713'}

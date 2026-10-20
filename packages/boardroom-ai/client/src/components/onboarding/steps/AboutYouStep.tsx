@@ -59,7 +59,7 @@ export function AboutYouStep({ data, onUpdate }: Props) {
               key={freq.value}
               type="button"
               onClick={() => onUpdate({ decisionFrequency: freq.value })}
-              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-all duration-fast ${
+              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-[border-color,background-color,color,transform] duration-fast ease-out active:scale-[0.97] ${
                 data.decisionFrequency === freq.value
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border bg-background text-muted-foreground hover:border-border'

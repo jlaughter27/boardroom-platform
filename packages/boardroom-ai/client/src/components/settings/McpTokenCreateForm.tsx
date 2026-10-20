@@ -101,7 +101,7 @@ interface McpTokenCreateFormProps {
   onDone: () => void;
 }
 
-const selectClass = 'bg-card border border-border rounded-xl px-3 h-10 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-ring transition-all duration-fast w-full';
+const selectClass = 'bg-card border border-border rounded-control px-3 h-10 text-sm text-foreground outline-none hover:border-hairline-strong focus:border-primary/40 focus:ring-2 focus:ring-ring transition-[border-color,box-shadow] duration-fast ease-out w-full';
 
 export function McpTokenCreateForm({ options, connectInfo, connectInfoError = null, onCreated, onDone }: McpTokenCreateFormProps) {
   const [clientId, setClientId] = useState<McpClientId>('claude-code');

@@ -188,7 +188,7 @@ export default function LoginPage() {
                 {TESTIMONIALS.map((_, i) => (
                   <div
                     key={i}
-                    className={`h-1 rounded-full transition-all duration-500 ${
+                    className={`h-1 rounded-capsule transition-[width,background-color] duration-slow ease-in-out ${
                       i === testimonialIndex
                         ? 'w-6 bg-primary'
                         : 'w-1.5 bg-border'

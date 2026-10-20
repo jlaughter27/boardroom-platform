@@ -181,7 +181,7 @@ export default function SettingsPage() {
                 <select
                   value={decisionFrequency}
                   onChange={(e) => setDecisionFrequency(e.target.value)}
-                  className="bg-background border border-border rounded-md px-3 h-9 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-all duration-fast"
+                  className="bg-background border border-border rounded-control px-3 h-9 text-sm text-foreground outline-none hover:border-hairline-strong focus:border-primary/40 focus:ring-1 focus:ring-ring/30 transition-[border-color,box-shadow] duration-fast ease-out"
                 >
                   <option value="">Select...</option>
                   {DECISION_FREQUENCY_OPTIONS.map((opt) => (

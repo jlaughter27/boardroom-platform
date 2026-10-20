@@ -190,7 +190,7 @@ export default function DecisionSessionPage() {
                     onChange={(e) => setQuestion(e.target.value)}
                     rows={4}
                     placeholder="What decision are you wrestling with?"
-                    className="w-full bg-background border border-borderrounded-lg p-4 text-lg text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-ring/30 outline-none resize-y transition-all duration-fast"
+                    className="w-full bg-background border border-border rounded-lg p-4 text-lg text-foreground placeholder:text-muted-foreground hover:border-hairline-strong focus:border-primary/40 focus:ring-1 focus:ring-ring/30 outline-none resize-y transition-[border-color,box-shadow] duration-fast ease-out"
                   />
                 </div>
 
@@ -266,7 +266,7 @@ export default function DecisionSessionPage() {
 
             {/* Action bar */}
             {phase === 'synthesis' && synthesis && (
-              <div className="sticky bottom-0 z-10 bg-card/80 backdrop-blur border-t border-border-mx-6 px-6 py-3 flex items-center gap-3">
+              <div className="material sticky bottom-0 z-10 -mx-6 rounded-none border-t border-hairline !shadow-none px-6 py-3 flex items-center gap-3">
                 <Button variant="ghost" onClick={handleExport}>Export</Button>
                 <Button variant="secondary" onClick={handleNewDecision}>New Decision</Button>
                 <SimulationButton
