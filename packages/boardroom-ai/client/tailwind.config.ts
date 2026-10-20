@@ -62,6 +62,7 @@ export default {
         sidebar: {
           DEFAULT: 'var(--color-sidebar-bg)',
           border: 'var(--color-sidebar-border)',
+          hairline: 'var(--sidebar-hairline)',
           foreground: 'var(--color-sidebar-foreground)',
           'foreground-muted': 'var(--color-sidebar-foreground-muted)',
         },
@@ -134,6 +135,8 @@ export default {
         // Hairline ring without a shadow — for flat floating chrome.
         hairline: '0 0 0 1px var(--hairline)',
         highlight: 'var(--highlight)',
+        // Sidebar: fixed white-based highlight + hairline (dark surface in both themes).
+        'sidebar-highlight': 'var(--sidebar-highlight), 0 0 0 1px var(--sidebar-hairline)',
       },
       transitionDuration: {
         instant: 'var(--duration-instant)',

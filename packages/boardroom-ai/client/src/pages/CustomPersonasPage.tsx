@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getCustomPersonas, deleteCustomPersona, updateCustomPersona } from '../lib/api';
 import { PersonaEditor } from '../components/settings/PersonaEditor';
-import { PageWrapper, Card, Button, Badge, Skeleton, EmptyState, useToastStore } from '../components/ui';
+import { PageWrapper, PageHeader, Card, Button, Badge, Skeleton, EmptyState, useToastStore } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { staggerContainer, staggerItem, scaleIn } from '../lib/motion';
 import type { CustomPersona } from '@boardroom/shared';
@@ -91,19 +91,16 @@ export default function CustomPersonasPage() {
   return (
     <PageWrapper>
       <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">Custom Personas</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">
-              {personas.length}/3 personas created
-            </p>
-          </div>
-          {personas.length < 3 && (
+        <PageHeader
+          className="mb-0"
+          title="Custom Personas"
+          subtitle={<><span className="tnum">{personas.length}</span>/3 personas created</>}
+          actions={personas.length < 3 ? (
             <Button variant="primary" onClick={() => setShowEditor(true)}>
               Create Persona
             </Button>
-          )}
-        </div>
+          ) : undefined}
+        />
 
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 

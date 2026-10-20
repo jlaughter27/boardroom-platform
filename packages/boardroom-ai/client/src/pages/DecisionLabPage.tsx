@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import * as api from '../lib/api';
 import type { UserMode, SessionSummary } from '@boardroom/shared';
-import { PageWrapper, Card, Button, Badge, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
+import { PageWrapper, PageHeader, Card, Button, Badge, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
+import { Plus } from 'lucide-react';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { CalibrationPanel } from '../components/decision/CalibrationPanel';
 import { staggerContainer, staggerItem } from '../lib/motion';
@@ -96,20 +97,16 @@ export default function DecisionLabPage() {
     <PageWrapper>
       <div className="p-6 max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">Decision Lab</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">
-              {sessions.length} decision{sessions.length !== 1 ? 's' : ''} analyzed
-            </p>
-          </div>
-          <Button variant="primary" onClick={() => navigate('/decisions/new')}>
-            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            New Decision
-          </Button>
-        </div>
+        <PageHeader
+          title="Decision Lab"
+          subtitle={<><span className="tnum">{sessions.length}</span> decision{sessions.length !== 1 ? 's' : ''} analyzed</>}
+          actions={
+            <Button variant="primary" onClick={() => navigate('/decisions/new')}>
+              <Plus size={16} strokeWidth={1.75} aria-hidden="true" />
+              New Decision
+            </Button>
+          }
+        />
 
         {/* Error */}
         {error && (
@@ -143,6 +140,7 @@ export default function DecisionLabPage() {
                 </button>
               ))}
             </div>
+            {/* ui-standards: allow select — outcome-review filter; migrates with the forms pass */}
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}

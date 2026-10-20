@@ -39,6 +39,10 @@
   --color-sidebar-border: #2a2a28;
   --color-sidebar-foreground: #f1f1ec;
   --color-sidebar-foreground-muted: rgba(241, 241, 236, 0.55);
+  /* The sidebar is dark in both themes, so its hairline and top highlight are
+   * white-based and fixed — the theme-aware `--hairline` would vanish on it in light mode. */
+  --sidebar-hairline: hsl(0 0% 100% / 0.08);
+  --sidebar-highlight: inset 0 1px 0 0 hsl(0 0% 100% / 0.06);
 
   /* Semantic colors (Section 2.3 — Light) */
   --color-success: #15803d;

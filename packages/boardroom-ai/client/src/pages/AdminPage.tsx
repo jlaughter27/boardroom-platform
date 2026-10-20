@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { PageWrapper, Button, Skeleton } from '../components/ui';
+import { PageWrapper, PageHeader, Button, Skeleton } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn } from '../lib/motion';
 import * as api from '../lib/api';
@@ -138,6 +138,7 @@ function MemoriesTab() {
           onChange={(e) => { setQ(e.target.value); setOffset(0); }}
           className="flex-1 px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
+        {/* ui-standards: allow select — admin-only tooling; migrates with the forms pass */}
         <select
           value={sourceType}
           onChange={(e) => { setSourceType(e.target.value); setOffset(0); }}
@@ -404,6 +405,7 @@ function DuplicatesTab() {
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       <div className="flex items-center gap-3">
         <label className="text-xs text-muted-foreground">Similarity threshold</label>
+        {/* ui-standards: allow select — admin-only tooling; migrates with the forms pass */}
         <select
           value={threshold}
           onChange={(e) => setThreshold(parseFloat(e.target.value))}
@@ -488,8 +490,7 @@ export default function AdminPage() {
   return (
     <PageWrapper>
       <motion.div {...fadeIn} className="p-6 h-full flex flex-col min-h-0">
-        <h1 className="text-2xl font-semibold text-foreground mb-1">Admin</h1>
-        <p className="text-sm text-muted-foreground mb-5">MCP memory layer overview — cross-agent, cross-tenant.</p>
+        <PageHeader title="Admin" subtitle="MCP memory layer overview — cross-agent, cross-tenant." />
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-border mb-5">
