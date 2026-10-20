@@ -122,6 +122,12 @@ describe('ui standards', () => {
     });
   }
 
+  it('index.html has no inline <script> (production CSP is script-src \'self\'; the theme bootstrap lives in /theme-init.js)', () => {
+    const html = readFileSync(join(SRC, '..', 'index.html'), 'utf8');
+    const inline = [...html.matchAll(/<script\b([^>]*)>/g)].filter(m => !/\bsrc=/.test(m[1]));
+    expect(inline.map(m => m[0])).toEqual([]);
+  });
+
   it('index.html does not load fonts from a third party', () => {
     const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8');
     expect(html).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);

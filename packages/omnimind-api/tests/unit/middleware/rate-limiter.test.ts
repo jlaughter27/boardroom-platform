@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { rateLimiter, rateLimitKeyFor, IP_BUCKET_MULTIPLIER } from '../../../src/middleware/rate-limiter';
+import { rateLimiter, rateLimitKeyFor, IP_BUCKET_MULTIPLIER, USER_READ_RATE_LIMIT_PER_MINUTE } from '../../../src/middleware/rate-limiter';
 // WS-7: use the real shared constant — the test previously hardcoded 60,
 // but `RATE_LIMITS.MAX_QUERIES_PER_MINUTE` is 20 in packages/shared. The
 // arithmetic assertions below scale with it.
@@ -61,13 +61,14 @@ describe('rateLimiter middleware', () => {
     expect(mockRes.status).not.toHaveBeenCalled();
   });
 
-  it('should block requests over the rate limit', () => {
-    // Make 61 requests (one over limit)
+  it('should block WRITE requests over the shared rate limit', () => {
+    mockReq.method = 'POST';
+    // Make MAX+1 requests (one over limit)
     for (let i = 0; i < RATE_LIMITS.MAX_QUERIES_PER_MINUTE + 1; i++) {
       rateLimiter(mockReq as Request, mockRes as Response, mockNext);
     }
     
-    // Should have called next for first 60, then status 429 for 61st
+    // Should have called next for the first MAX, then status 429 for the next
     expect(mockNext).toHaveBeenCalledTimes(RATE_LIMITS.MAX_QUERIES_PER_MINUTE);
     expect(mockRes.status).toHaveBeenCalledWith(429);
     expect(mockRes.json).toHaveBeenCalledWith({
@@ -78,7 +79,8 @@ describe('rateLimiter middleware', () => {
   });
 
   it('should reset bucket after window expires', () => {
-    // Make 60 requests (at limit)
+    mockReq.method = 'POST';
+    // Make MAX requests (at limit)
     for (let i = 0; i < RATE_LIMITS.MAX_QUERIES_PER_MINUTE; i++) {
       rateLimiter(mockReq as Request, mockRes as Response, mockNext);
     }
@@ -92,15 +94,32 @@ describe('rateLimiter middleware', () => {
     expect(mockRes.status).not.toHaveBeenCalled();
   });
 
+  it('reads (GET) get the wider per-user budget: one dashboard + graph load is 20–40 GETs (2026-10-20 e2e)', () => {
+    expect(USER_READ_RATE_LIMIT_PER_MINUTE).toBeGreaterThanOrEqual(120);
+    mockReq.method = 'GET';
+    for (let i = 0; i < USER_READ_RATE_LIMIT_PER_MINUTE; i++) {
+      rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    }
+    expect(mockNext).toHaveBeenCalledTimes(USER_READ_RATE_LIMIT_PER_MINUTE);
+    expect(mockRes.status).not.toHaveBeenCalled();
+    rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.status).toHaveBeenCalledWith(429);
+    expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ message: `Rate limit exceeded. Max ${USER_READ_RATE_LIMIT_PER_MINUTE} requests per minute.` }));
+  });
+
+  it('the read budget never drops below the shared write budget', () => {
+    expect(USER_READ_RATE_LIMIT_PER_MINUTE).toBeGreaterThanOrEqual(RATE_LIMITS.MAX_QUERIES_PER_MINUTE);
+  });
+
   it('should track rate limits per method per user', () => {
     // WS-7: unique per-test IDs so buckets are fresh.
     const userA = `user-a-${testCounter}-${Date.now()}`;
     const userB = `user-b-${testCounter}-${Date.now()}`;
     
-    // User A makes 60 GET requests
+    // User A exhausts the GET budget
     mockReq.headers = { 'x-user-id': userA };
     mockReq.method = 'GET';
-    for (let i = 0; i < RATE_LIMITS.MAX_QUERIES_PER_MINUTE; i++) {
+    for (let i = 0; i < USER_READ_RATE_LIMIT_PER_MINUTE; i++) {
       rateLimiter(mockReq as Request, mockRes as Response, mockNext);
     }
     
@@ -113,13 +132,14 @@ describe('rateLimiter middleware', () => {
     mockReq.method = 'POST';
     rateLimiter(mockReq as Request, mockRes as Response, mockNext);
     
-    expect(mockNext).toHaveBeenCalledTimes(RATE_LIMITS.MAX_QUERIES_PER_MINUTE + 2);
+    expect(mockNext).toHaveBeenCalledTimes(USER_READ_RATE_LIMIT_PER_MINUTE + 2);
     expect(mockRes.status).not.toHaveBeenCalled();
   });
 });
 
 describe('rateLimiter IP fallback (F-105 / F-207)', () => {
-  const IP_LIMIT = RATE_LIMITS.MAX_QUERIES_PER_MINUTE * IP_BUCKET_MULTIPLIER;
+  // The probe below is a GET, so the IP bucket is the READ budget × multiplier.
+  const IP_LIMIT = USER_READ_RATE_LIMIT_PER_MINUTE * IP_BUCKET_MULTIPLIER;
 
   it('never skips: requests without x-user-id are bucketed by req.ip and get limited (widened budget)', () => {
     const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as unknown as Response;

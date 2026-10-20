@@ -102,7 +102,7 @@ export function AppHeader({ onMenuToggle, scrolled = false }: AppHeaderProps) {
         >
           <Logo variant="icon" size={24} />
         </Link>
-        <h1 className="truncate text-lg font-semibold leading-9 tracking-title text-foreground">{title}</h1>
+        <p className="truncate text-lg font-semibold leading-9 tracking-title text-foreground" data-testid="app-header-title">{title}</p>
         {breadcrumbs.length > 0 && (
           <div className="flex items-center gap-1.5 text-sm leading-9">
             {breadcrumbs.map((crumb, i) => (

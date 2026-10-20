@@ -6,6 +6,22 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-20 — Phase 7.5 — End-to-end pass on a live local stack: 3 production bugs fixed, live journey added
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #22) | **Status:** Pushed | **Tests:** omnimind-api 1,167 → 1,175 (+8: partial identity, split read budget); client +1 guard rule; `pnpm test:e2e` 55/55 (was 54/55); new `pnpm e2e:live` journey 22/22
+
+Stack: Postgres 16 + pgvector 0.6 on 5433, OmniMind API 3333 (harness entrypoint), BoardRoom 3001 in production mode serving `client/dist`, MCP HTTP gateway 3334 with a keygen'd gateway agent and a token minted in the UI. No mocks, no LLM key (embeddings → outbox; extraction deferred).
+
+- **Fixed — tenant isolation (E2E-5):** an `x-agent-id` without `x-tenant-id` / `x-source-weight` was logged and *ignored*, so the request fell through to the unscoped BoardRoom path and a search returned rows from both tenants of the user. `agent-context` now fails closed: `400 partial_agent_identity { fields }`. Unit tests + E2E-5 updated to the stricter contract; `docs/contracts/omnimind-api.contract.md` records it. BoardRoom never sends agent headers and the MCP server always sends the full triple or an `omk_` key, so nothing legitimate changes.
+- **Fixed — UI refused by the API's own limiter:** one dashboard load is 21 reads and the graph page 8 more; OmniMind's per-user budget was `MAX_QUERIES_PER_MINUTE` (20) for every method, so the graph page showed "Rate limit exceeded. Max 20 requests per minute." Reads (GET/HEAD) now get `USER_READ_RATE_LIMIT_PER_MINUTE` (default 120, floor 20, `.env.example`); writes keep 20. Unit tests updated; contract updated. Fan-out itself is still worth trimming (three `/outcome-reviews/pending`, two `/decisions`, two `/commitments` on one load — follow-up).
+- **Fixed — production CSP blocked the theme bootstrap:** helmet's default `script-src 'self'` refused the inline `<script>` in `index.html`, so every production load flashed the wrong theme before React applied it. The bootstrap now ships as `client/public/theme-init.js`; `ui-standards` fails on any inline `<script>` in `index.html`.
+- **Fixed — two `<h1>` per page:** AppHeader's toolbar title is a `<p>` (`data-testid="app-header-title"`); the page's `PageHeader` keeps the single level-one heading.
+- **Added — `tests/e2e/live/journey.mjs` (`pnpm e2e:live`)**: 22-step Playwright + MCP journey (register → onboarding gate → dashboard with fan-out/429 counters → seed + links → graph settles → memory → decisions → session → tenant owner → mint token in Settings → MCP initialize / tools/list (20) / memory_write / memory_search / status_get → BoardRoom and the UI show the MCP-written memory with `agentId mcp-token:…` → revoke → `PRINCIPAL_REVOKED` → no page errors). README documents the stack bring-up.
+- **Verified unchanged:** `pnpm test:e2e` harness suite (agent attribution, tenant isolation, sourceWeight, embedding outbox, cross-tenant/ministry/scope bypasses, admin auth) 55/55 on the real stack; MCP gateway refuses unauthenticated `initialize` (401) and revoked sessions within a second.
+- **Findings not fixed here:** `tests/e2e/flows/*` (5 files) target a pre-Phase-6 contract (list endpoints are paginated `{items}`, `POST /memories` needs `title` + `sourceType`, `POST /sessions` needs `mode`, archive is `POST /memories/:id/archive`, `/subscription` returns `{configured, subscription}`) and are not wired into any script — rewrite or delete; the in-memory register limiter (3/hour/IP) makes any multi-user e2e from one host restart-bound; `memory_write` in `sync` mode is refused outright when the extractor is down (`FACT_EXTRACTOR_UNAVAILABLE`) — consider storing the raw row and deferring extraction even in sync mode, or set `OMNIMIND_MCP_WRITE_EXTRACT=async` on Railway; without OAuth configured the PRM endpoint is 404 (expected, documented).
+
+---
+
 ## 2026-10-20 — Phase 7.5 — Apple-grade UI Phase C: shell, route transitions, controls, graph chrome, decision session
 
 **Branch:** `claude/amazing-mccarthy-grvem2` (PR #22, merge `8af3c5c`) | **Status:** Pushed | **Tests:** client 403 → 436 (+33: route transitions, scroll sentinel, controls, mode selector, configurator, sheet, contrast sampler, two new guard rules); server 284 unchanged
