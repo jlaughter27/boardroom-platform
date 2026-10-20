@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { type ReactNode } from 'react';
+import { Select as BaseSelect } from '@base-ui/react/select';
+import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { POPUP_MOTION, POPUP_SURFACE } from './popup-motion';
 
 interface Option {
   value: string;
@@ -14,99 +16,85 @@ interface SelectProps {
   onChange?: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
+  /** Form field name (a hidden input is rendered). */
+  name?: string;
+  'aria-label'?: string;
 }
 
-export function Select({ options, value, onChange, placeholder = 'Select...', className }: SelectProps) {
-  const [open, setOpen] = useState(false);
-  const [focusIndex, setFocusIndex] = useState(-1);
-  const ref = useRef<HTMLDivElement>(null);
-
-  const selected = options.find((o) => o.value === value);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      if (open && focusIndex >= 0) {
-        onChange?.(options[focusIndex].value);
-        setOpen(false);
-      } else {
-        setOpen(true);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (!open) setOpen(true);
-      setFocusIndex((i) => Math.min(i + 1, options.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setFocusIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Escape') {
-      setOpen(false);
-    }
-  };
-
+/**
+ * Single-value select on Base UI: typeahead, arrow keys, home/end and a
+ * native hidden input for forms. The popup opens 0.96 → 1 in 140 ms from the
+ * trigger and never overlaps it.
+ */
+export function Select({ options, value, onChange, placeholder = 'Select...', className, disabled, name, 'aria-label': ariaLabel }: SelectProps) {
+  const items = options.map((o) => ({ label: o.label, value: o.value }));
   return (
-    <div ref={ref} className={cn('relative', className)}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        onKeyDown={handleKeyDown}
+    <BaseSelect.Root<string | null>
+      items={items}
+      value={value ?? null}
+      onValueChange={(next) => { if (typeof next === 'string') onChange?.(next); }}
+      disabled={disabled}
+      name={name}
+    >
+      <BaseSelect.Trigger
+        aria-label={ariaLabel}
         className={cn(
-          'flex w-full items-center justify-between h-9 px-3 rounded-xl border border-border',
-          'bg-card text-sm transition-all duration-fast',
-          'focus:ring-2 focus:ring-ring focus:border-primary/40 outline-none',
-          selected ? 'text-foreground' : 'text-muted-foreground'
+          'group flex w-full items-center justify-between gap-2 h-9 px-3 rounded-control border border-border bg-card text-sm text-foreground',
+          'transition-[border-color,box-shadow,background-color] duration-fast ease-out',
+          'hover:border-hairline-strong data-[popup-open]:border-primary/40 data-[popup-open]:ring-2 data-[popup-open]:ring-ring',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/40',
+          'data-[placeholder]:text-muted-foreground data-[disabled]:opacity-50 data-[disabled]:pointer-events-none',
+          className
         )}
       >
-        <span className="flex items-center gap-2 truncate">
-          {selected?.icon}
-          {selected?.label || placeholder}
-        </span>
-        <svg className={cn('w-4 h-4 text-muted-foreground transition-transform', open && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        <BaseSelect.Value placeholder={placeholder} className="flex min-w-0 items-center gap-2 truncate">
+          {(current: string | null) => {
+            const selected = options.find((o) => o.value === current);
+            return selected ? <>{selected.icon}<span className="truncate">{selected.label}</span></> : placeholder;
+          }}
+        </BaseSelect.Value>
+        <BaseSelect.Icon className="shrink-0 text-muted-foreground">
+          <ChevronDown
+            size={16}
+            strokeWidth={1.75}
+            aria-hidden="true"
+            className="transition-transform duration-fast ease-out group-data-[popup-open]:rotate-180"
+          />
+        </BaseSelect.Icon>
+      </BaseSelect.Trigger>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-[var(--z-dropdown)] mt-1 w-full rounded-xl border border-border bg-card shadow-lg overflow-hidden"
+      <BaseSelect.Portal>
+        <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-dropdown outline-none">
+          <BaseSelect.Popup
+            className={cn(
+              POPUP_MOTION,
+              POPUP_SURFACE,
+              'min-w-[var(--anchor-width)] max-h-[min(20rem,var(--available-height))] overflow-y-auto p-1'
+            )}
           >
-            {options.map((option, i) => (
-              <button
-                key={option.value}
-                onClick={() => {
-                  onChange?.(option.value);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors',
-                  'hover:bg-muted',
-                  option.value === value && 'text-primary bg-primary/10',
-                  i === focusIndex && 'bg-muted',
-                  option.value !== value && 'text-foreground'
-                )}
-              >
-                {option.icon}
-                {option.label}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+            <BaseSelect.List>
+              {options.map((option) => (
+                <BaseSelect.Item
+                  key={option.value}
+                  value={option.value}
+                  label={option.label}
+                  className={cn(
+                    'flex cursor-default select-none items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground outline-none',
+                    'data-[highlighted]:bg-muted data-[selected]:text-primary data-[disabled]:opacity-50'
+                  )}
+                >
+                  {option.icon}
+                  <BaseSelect.ItemText className="truncate">{option.label}</BaseSelect.ItemText>
+                  <BaseSelect.ItemIndicator className="ml-auto flex shrink-0 text-primary">
+                    <Check size={14} strokeWidth={2} aria-hidden="true" />
+                  </BaseSelect.ItemIndicator>
+                </BaseSelect.Item>
+              ))}
+            </BaseSelect.List>
+          </BaseSelect.Popup>
+        </BaseSelect.Positioner>
+      </BaseSelect.Portal>
+    </BaseSelect.Root>
   );
 }

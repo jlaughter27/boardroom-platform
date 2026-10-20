@@ -1,92 +1,80 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
+import { X } from 'lucide-react';
+import { cn } from '../../lib/cn';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Optional one-line description under the title (wired to `aria-describedby`). */
+  description?: string;
+  /** Panel width on ≥ 640 px viewports. Below that the modal is always a bottom sheet. */
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
 }
 
-const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const SIZE = { sm: 'sm:max-w-sm', md: 'sm:max-w-lg', lg: 'sm:max-w-2xl' } as const;
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const modal = modalRef.current;
-    if (!modal) return;
-
-    // Focus first focusable element
-    const focusable = modal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    if (focusable.length) focusable[0].focus();
-
-    const handleTab = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const focusableEls = modal.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-      if (!focusableEls.length) return;
-      const first = focusableEls[0];
-      const last = focusableEls[focusableEls.length - 1];
-
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', handleTab);
-    return () => document.removeEventListener('keydown', handleTab);
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
+/**
+ * Modal dialog on Base UI: focus trap, scroll lock, `inert` page, Escape and
+ * outside-press come from the primitive. The panel enters 0.96 → 1 with an
+ * 8 px rise on the sheet curve (320 ms); under 640 px it is a bottom sheet
+ * sliding up. The global reduced-motion rule collapses both transitions.
+ */
+export function Modal({ isOpen, onClose, title, children, description, size = 'md', className }: ModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
-
-      {/* Content */}
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={title} className="relative z-10 w-full max-w-lg bg-card rounded-xl border border-border shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-            aria-label="Close modal"
+    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop
+          className={cn(
+            'fixed inset-0 z-modal-backdrop min-h-dvh bg-black/40 backdrop-blur-sm',
+            'transition-opacity duration-normal ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
+            'supports-[-webkit-touch-callout:none]:absolute'
+          )}
+        />
+        <Dialog.Viewport className="fixed inset-0 z-modal grid place-items-center overflow-y-auto p-4 sm:p-6 max-sm:items-end max-sm:p-0">
+          <Dialog.Popup
+            aria-label={title}
+            aria-modal="true"
+            className={cn(
+              'relative w-full bg-card text-card-foreground rounded-xl shadow-xl ring-1 ring-hairline outline-none',
+              '[--parent-radius:var(--radius-xl)] [--parent-pad:1.5rem]',
+              // Enter 0.96 → 1 and rise 8 px; exit settles close to rest.
+              'scale-100 translate-y-0 transition-[opacity,transform] duration-sheet ease-sheet',
+              'data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:translate-y-2',
+              'data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.98]',
+              // Bottom sheet under 640 px: slides up from the edge, square bottom corners.
+              'max-sm:rounded-b-none max-sm:pb-[env(safe-area-inset-bottom)]',
+              'max-sm:data-[starting-style]:scale-100 max-sm:data-[starting-style]:translate-y-full',
+              'max-sm:data-[ending-style]:scale-100 max-sm:data-[ending-style]:translate-y-full',
+              SIZE[size],
+              className
+            )}
           >
-            <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-4">{children}</div>
-      </div>
-    </div>
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-border">
+              <div className="min-w-0">
+                <Dialog.Title className="text-lg font-semibold tracking-title text-foreground">{title}</Dialog.Title>
+                {description && (
+                  <Dialog.Description className="mt-0.5 text-sm text-muted-foreground">{description}</Dialog.Description>
+                )}
+              </div>
+              <Dialog.Close
+                aria-label="Close modal"
+                className={cn(
+                  '-mr-2 -mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground',
+                  'transition-[background-color,color,transform] duration-fast ease-out hover:bg-muted hover:text-foreground active:scale-[0.97]',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                )}
+              >
+                <X size={16} strokeWidth={1.75} aria-hidden="true" />
+              </Dialog.Close>
+            </div>
+            <div className="px-6 py-4">{children}</div>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

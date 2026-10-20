@@ -9,7 +9,8 @@ describe('Input', () => {
     expect(input).toBeInTheDocument();
     expect(input).toHaveClass('bg-card');
     expect(input).toHaveClass('border-border');
-    expect(input).toHaveClass('rounded-xl');
+    // Controls share one radius token (`--radius-control`) — see UI-FOUNDATION.md.
+    expect(input).toHaveClass('rounded-control');
   });
 
   it('renders with label', () => {
