@@ -83,7 +83,8 @@ export function Modal({ isOpen, onClose, title, children, description, size = 'm
       <Dialog.Portal>
         <Dialog.Backdrop
           className={cn(
-            'fixed inset-0 z-modal-backdrop min-h-dvh bg-black/40 backdrop-blur-sm',
+            // `modal-backdrop`: index.css drops the blur under reduced transparency.
+            'modal-backdrop fixed inset-0 z-modal-backdrop min-h-dvh bg-black/40 backdrop-blur-sm',
             'transition-opacity duration-normal ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
             'supports-[-webkit-touch-callout:none]:absolute'
           )}

@@ -73,6 +73,8 @@ export function AppHeader({ onMenuToggle, scrolled = false }: AppHeaderProps) {
       data-scrolled={scrolled || undefined}
       className={cn(
         'sticky top-0 z-sticky flex h-14 shrink-0 items-center justify-between px-4 md:px-6',
+        // Secondary text in the header always uses the on-glass step, so nothing shifts colour when the material switches on.
+        '[--color-muted-foreground:var(--color-muted-foreground-on-glass)]',
         'border-b transition-[background-color,border-color] duration-normal ease-out',
         scrolled
           ? 'material !shadow-none border-hairline'
@@ -137,7 +139,7 @@ export function AppHeader({ onMenuToggle, scrolled = false }: AppHeaderProps) {
         >
           <Search size={14} strokeWidth={1.75} aria-hidden="true" />
           <span className="leading-none">Search</span>
-          <kbd className="font-mono leading-none text-[11px] text-muted-foreground/80">{'⌘'}K</kbd>
+          <kbd className="font-mono leading-none text-[11px]">{'⌘'}K</kbd>
         </button>
 
         {/* Notifications */}

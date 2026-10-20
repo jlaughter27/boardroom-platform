@@ -202,7 +202,9 @@ html:active-view-transition-type(nav-back)::view-transition-new(page) { animatio
 .material,
 .material-clear,
 .material-sidebar {
-  position: relative;
+  /* `isolation` alone gives the stacking context the blur needs; the recipe
+   * never sets `position`, so it composes with `absolute` / `sticky` / `fixed`
+   * chrome (floating graph bars, the sticky header) instead of overriding them. */
   isolation: isolate;
   -webkit-backdrop-filter: blur(20px) saturate(1.8);
   backdrop-filter: blur(20px) saturate(1.8);
@@ -211,6 +213,12 @@ html:active-view-transition-type(nav-back)::view-transition-new(page) { animatio
 .material {
   background: color-mix(in oklab, var(--color-card) 72%, transparent);
   box-shadow: var(--highlight), 0 0 0 1px var(--hairline), var(--shadow-md);
+}
+
+/* Secondary text on glass takes the darker step so it holds 4.5:1 over whatever shows through. */
+.material,
+.material-clear {
+  --color-muted-foreground: var(--color-muted-foreground-on-glass);
 }
 
 /* Clear: for media-rich backdrops. Needs a dimming layer behind it; prefer `.material`. */
@@ -253,14 +261,23 @@ html:active-view-transition-type(nav-back)::view-transition-new(page) { animatio
   }
 }
 
+/* The modal scrim loses its blur too; the 40 % dim stays. */
+@media (prefers-reduced-transparency: reduce) {
+  .modal-backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /*
  * The same fallback behind a class, for environments that cannot emulate the
  * media query (the visual harness; a future in-app "reduce transparency"
- * setting). Keep in lockstep with the block above.
+ * setting). Keep in lockstep with the blocks above.
  */
 :root.reduce-transparency .material,
 :root.reduce-transparency .material-clear,
-:root.reduce-transparency .material-sidebar {
+:root.reduce-transparency .material-sidebar,
+:root.reduce-transparency .modal-backdrop {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

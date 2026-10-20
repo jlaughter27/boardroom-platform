@@ -18,6 +18,14 @@
   --color-ring: rgba(181, 137, 10, 0.3);
   --color-destructive: #b91c1c;
   --color-destructive-foreground: #ffffff;
+  /*
+   * Secondary text on glass. A material shows the page through a 72 % fill,
+   * so whatever scrolls beneath darkens the backdrop; the regular muted
+   * foreground (5.5:1 on white) dips toward 4.5:1 there. `.material` surfaces
+   * and the header swap in this step (7.7:1 on white) — measured by
+   * tools/visual-preview/contrast.mjs.
+   */
+  --color-muted-foreground-on-glass: #55534b;
 
   /*
    * Elevation ladder. In light mode every elevated surface is white and depth
@@ -239,6 +247,7 @@
   --color-ring: rgba(212, 163, 26, 0.3);
   --color-destructive: #ef4444;
   --color-destructive-foreground: #111110;
+  --color-muted-foreground-on-glass: #aaa89f;
 
   /* Elevation ladder — higher surfaces are lighter, like macOS dark. */
   --surface-1: var(--color-card);
