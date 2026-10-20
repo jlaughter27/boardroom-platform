@@ -1,10 +1,12 @@
 import { useLocation, Link } from 'react-router-dom';
+import { Menu as MenuIcon, Search } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSessionStore } from '../../stores/session.store';
 import { useCommandPaletteStore } from '../../stores/commandPalette.store';
 import { Avatar } from '../ui/Avatar';
 import { Logo } from './Logo';
 import { NotificationCenter } from './NotificationCenter';
+import { cn } from '../../lib/cn';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -21,6 +23,12 @@ function getPageTitle(pathname: string): string {
   return pageTitles[pathname] || 'BoardRoom AI';
 }
 
+/** Icon-only header control: 36 px hit area, hairline hover, press feedback. */
+const ICON_BUTTON = cn(
+  'inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground',
+  'transition-[background-color,color,transform] duration-fast ease-out hover:bg-muted hover:text-foreground active:scale-[0.97]',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+);
 
 export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const location = useLocation();
@@ -34,7 +42,7 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
     if (location.pathname.startsWith('/decisions/')) {
       const sessionLabel = currentSession?.question
         ? currentSession.question.length > 40
-          ? currentSession.question.slice(0, 40) + '\u2026'
+          ? currentSession.question.slice(0, 40) + '…'
           : currentSession.question
         : 'Session';
       return [
@@ -46,18 +54,23 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
   })();
 
   return (
-    <header className="sticky top-0 z-[var(--z-sticky)] flex items-center justify-between h-14 px-4 md:px-6 border-b border-border bg-background/80 backdrop-blur-md">
+    // The header is the navigation layer: material surface that reads the page
+    // scrolling beneath it; the hairline replaces a hard border.
+    <header
+      className={cn(
+        'sticky top-0 z-sticky flex h-14 items-center justify-between px-4 md:px-6',
+        'material-clear !shadow-none border-b border-hairline'
+      )}
+    >
       <div className="flex items-center gap-3 min-w-0">
         {/* Mobile hamburger */}
         {onMenuToggle && (
           <button
             onClick={onMenuToggle}
-            className="md:hidden p-2 -ml-2 text-muted-foreground hover:text-foreground transition-colors"
+            className={cn(ICON_BUTTON, 'md:hidden -ml-2')}
             aria-label="Open menu"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
+            <MenuIcon size={18} strokeWidth={1.75} aria-hidden="true" />
           </button>
         )}
         {/* Mobile-only brand mark — Sidebar holds the brand on desktop, but on
@@ -70,14 +83,14 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
         >
           <Logo variant="icon" size={24} />
         </Link>
-        <h1 className="text-lg font-semibold text-foreground truncate">{title}</h1>
+        <h1 className="text-lg font-semibold tracking-title text-foreground truncate">{title}</h1>
         {breadcrumbs.length > 0 && (
           <div className="flex items-center gap-1.5 text-sm">
             {breadcrumbs.map((crumb, i) => (
               <span key={i} className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">{'\u203A'}</span>
+                <span className="text-muted-foreground">{'›'}</span>
                 {crumb.path ? (
-                  <Link to={crumb.path} className="text-muted-foreground hover:text-primary transition-colors">
+                  <Link to={crumb.path} className="text-muted-foreground transition-colors duration-fast ease-out hover:text-primary">
                     {crumb.label}
                   </Link>
                 ) : (
@@ -89,23 +102,23 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5">
         {/* Search icon (mobile) */}
-        <button
-          onClick={toggle}
-          className="sm:hidden p-2 text-muted-foreground hover:text-foreground transition-colors"
-          aria-label="Search"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+        <button onClick={toggle} className={cn(ICON_BUTTON, 'sm:hidden')} aria-label="Search">
+          <Search size={18} strokeWidth={1.75} aria-hidden="true" />
         </button>
         {/* Cmd+K hint (desktop) */}
         <button
           onClick={toggle}
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          className={cn(
+            'hidden sm:inline-flex h-8 items-center gap-1.5 rounded-md border border-hairline-strong px-2.5 text-xs text-muted-foreground',
+            'transition-[background-color,color,border-color,transform] duration-fast ease-out hover:bg-muted hover:text-foreground active:scale-[0.97]',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          )}
+          aria-label="Open command palette"
         >
-          <kbd className="font-mono">{'\u2318'}K</kbd>
+          <Search size={14} strokeWidth={1.75} aria-hidden="true" />
+          <kbd className="font-mono">{'⌘'}K</kbd>
         </button>
 
         {/* Notifications */}
@@ -113,7 +126,7 @@ export function AppHeader({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
         {/* User avatar */}
         {user && (
-          <Avatar name={user.name || 'User'} size="sm" className="cursor-pointer" />
+          <Avatar name={user.name || 'User'} size="sm" className="ml-1.5 cursor-pointer" />
         )}
       </div>
     </header>
