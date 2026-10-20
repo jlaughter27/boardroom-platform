@@ -138,7 +138,7 @@ function gridStep(scale: number): number {
   return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * pow;
 }
 
-const GLASS = 'bg-card supports-[backdrop-filter]:bg-card/80 supports-[backdrop-filter]:backdrop-blur-md [@media(prefers-reduced-transparency:reduce)]:bg-card [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none';
+const GLASS = 'bg-card supports-[backdrop-filter]:bg-card/80 supports-[backdrop-filter]:backdrop-blur-md [@media(prefers-reduced-transparency:reduce)]:bg-card [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none'; // ui-standards: allow backdrop-blur — hover card floats over the canvas (navigation layer); reduced-transparency fallback inline
 
 export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(function KnowledgeGraphView(
   {

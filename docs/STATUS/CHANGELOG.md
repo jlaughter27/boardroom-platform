@@ -6,6 +6,19 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-20 — Phase 7.5 — Apple-grade UI foundation (Phases A, B, D) merged onto the viz branch
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #22) | **Status:** Pushed | **Tests:** client +25 (standards guard, Modal, primitives); server unchanged
+
+- **Tokens (Phase A):** self-hosted Inter Variable with the `opsz` face + JetBrains Mono Variable (`@fontsource-variable/*`; Google Fonts link removed), `font-optical-sizing: auto`, `text-wrap` pretty/balance, `.tnum`; `--text-4xl`, `--tracking-display/title`; ease-out / in-out / sheet curves with Apple-parameter springs in `lib/motion.ts` (`springs.default` = response 0.55, no bounce) and a global reduced-motion rule; layered hue-matched shadows + 1 px inset highlight + `--hairline`; dark elevation ladder `--surface-1..3`; `--radius-control/container/capsule` + `.concentric`; `.material` / `.material-clear` / `.material-sidebar` with solid fallbacks for no `backdrop-filter` and `prefers-reduced-transparency`; `z-*` tokens mapped in Tailwind; `cn()` taught the token scales
+- **Primitives (Phase B) on `@base-ui/react` 1.9:** `shared/Modal` (Dialog: 40 % scrim + blur, hairline ring, CSS `starting-style` on `--ease-sheet`, bottom sheet < 640 px, Base UI focus/scroll-lock/inert; hand-rolled trap deleted), `Tooltip` (+ `TooltipProvider` in `App.tsx`, 300 ms intent delay, origin-aware), `Select`, `Tabs` (shared `layoutId` indicator, instant on keyboard), new `Popover` and `Menu` (solid `surface-2`, never glass on glass); `Button` (explicit transition properties, `active:scale-[0.97]`, `glass` variant, `capsule` shape, width-stable `loading`), `Card` (no hover lift; shadow step; `elevation` 0–3; publishes `--parent-radius/--parent-pad`), `Toast` (material, bottom-right, `springs.snappy`, pause on hover, swipe to dismiss), `CommandPalette` (material, no animation on arrow keys), `Input` on the control radius, `Progress` with `role=progressbar`; `ShortcutsModal` now uses the shared Modal
+- **Icons:** `lucide-react` 1.59 at 1.75 px stroke replaces hand-inlined paths in Sidebar, AppHeader, NotificationCenter and both EmptyStates; AppHeader is the material layer with a hairline
+- **Sweep:** every `transition-all` replaced with explicit property lists; no `ease-in` entrances; Onboarding enters from 0.96 instead of 0.5; two latent class typos fixed in passing (`border-borderrounded-md`, `border-border-mx-6`)
+- **Guardrails (Phase D):** `client/tests/ui-standards.test.ts` fails on `transition-all`, `ease-in`, scale-0 entrances, literal `z-50`/`z-[`, third-party font URLs and `backdrop-blur` outside the navigation layer (documented per-line exception: `// ui-standards: allow backdrop-blur — <reason>`; the graph hover card carries one); `docs/02-reference/UI-FOUNDATION.md`; ADR-015 in `DECISIONS.md`
+- Deliberate deviations from the research snippets: dark base colours kept (`#111110` / `#1a1a18`; the ladder builds on them), `--text-xs` stays 12 px, light highlight alpha 0.5, Modal animates with CSS rather than Motion springs, drag-to-dismiss on the mobile sheet deferred (Base UI Drawer later), Tooltip/Popover/Menu have no consumers yet (jsdom-tested, not shot)
+
+---
+
 ## 2026-10-20 — Phase 7.5 — Visualization upgrade: communities graph + dashboard chart system + screenshot harness
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR opened | **Tests:** client 378 (was 245); all other packages unchanged
