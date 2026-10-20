@@ -6,6 +6,42 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-19 — Phase 7 — Blind spots closed, deployment-ready
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR opened | **Tests:** 2,107 passing + 45 eval (was 2,039)
+
+- verified from primary docs (support.claude.com, claude.com/docs, code.claude.com, Gemini/VS Code/Zed source repos; OpenAI secondary): ChatGPT connectors are OAuth or no-auth only (no header field); Claude.ai "Request headers" is a limited beta, otherwise OAuth (CIMD / DCR / own client); Claude Code `--scope user`; Gemini CLI `httpUrl` + `gemini mcp add`; VS Code `type: "http"` + `inputs`; Zed native `url` (no bridge); Windsurf plaintext; clients break on `/mcp` → `/mcp/` redirects — snippets, agent configs, runbook §6/§9 and CLAUDE.md limitation 14 now state these without hedging
+- OAuth path made production-usable: OIDC userinfo fallback when access tokens lack `email`/`email_verified` (`OMNIMIND_MCP_OAUTH_USERINFO`), issuer trailing-slash tolerance, cached discovery, admin `POST /mcp/identities` manual link (+ list-all, unlinked attempts logged by subject hash), runbook §9 identity-provider recipe (WorkOS AuthKit / Auth0 / Ory, DCR + resource indicator + redirect URIs), new checklist step 5
+- revocation effective immediately for data access: API evicts synchronously; MCP server returns `PRINCIPAL_REVOKED`, evicts the credential, closes the session; `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` (30 s default) bounds only idle sessions
+- no-redirect guarantee tested for `/mcp`, `/mcp/`, `/` and the PRM paths; `scripts/pre-deploy-check.sh` covers omnimind-mcp (typecheck, Docker, required files) and probes the live front door when `OMNIMIND_MCP_PUBLIC_URL` is set
+- `.env.example` 81 vars (`OMNIMIND_MCP_PRINCIPAL_CACHE_MS`, `OMNIMIND_MCP_OAUTH_USERINFO` added)
+- still unverified in the sandbox: first real `docker (omnimind-mcp)` CI build (runs on the PR); OAuth against a real provider
+
+---
+
+## 2026-10-18/19 — Phase 7 — Universal memory MCP front door + searchable graph
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed (2 commits: build `7fce388`, review fixes) | **Tests:** 2,039 passing + 45 eval (was 1,481)
+
+- five lanes against one contract: OmniMind identity API (McpToken / McpOauthIdentity, introspect/resolve, delegated identity, admin tenant + identity routes, audit stats), MCP server front door (static / `omt_` / OAuth JWT principals, PRM, session binding, `search`/`fetch`, instructions, async extract, bench), BoardRoom "Connected AI tools" (tokens + per-client snippets), searchable graph (spotlight, local-first, edge filter, history, timeline, Memory Explorer filters, render tests), ops (Dockerfile, CI matrix, compose, `.dockerignore`, runbook, agent configs, drift fixes)
+- four adversarial reviews, all findings fixed: delegated principals moved from deny-lists to a route **allow-list** (closed `/auth/*` reach and self-minted write tokens); rejected `initialize` no longer leaks a server; deferred extraction survives session close; sessions bound to scope digest; failed-auth per-IP limiter; static sessions never carry the gateway key; stuck lazy-fetch and stale-spotlight bugs; select vs focus split (no relayout on click); runbook reordered so nothing is used before it exists and the false rotation claim removed
+- new env: `OMNIMIND_MCP_TOKEN_AUTH`, `OMNIMIND_MCP_PUBLIC_URL`, `OMNIMIND_MCP_OAUTH_*`, `OMNIMIND_MCP_APP_URL`, `OMNIMIND_MCP_WRITE_EXTRACT`, `OMNIMIND_MCP_STATIC_AGENT_KEY`, `OMNIMIND_MCP_TRUST_PROXY`, `MCP_OAUTH_ALLOWED_ISSUERS`, BoardRoom `OMNIMIND_MCP_PUBLIC_URL` / `APP_PUBLIC_URL`
+- pnpm override `proxy-addr >=2.0.8` (new critical advisory under express, also red on `main`)
+- not verified in the sandbox: first real `docker (omnimind-mcp)` CI build; live client dialogs (header-field availability); OAuth against a real issuer
+
+---
+
+## 2026-10-11 — Research — Universal memory MCP and graph UX landscape
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (reset from `main` after #20 merged) | **Status:** Pushed | **Report:** `docs/research/MCP-MEMORY-LANDSCAPE-2026-10-11.md` (+ five evidence notes under `docs/research/mcp-landscape-2026-10-11/notes/`)
+
+- five-researcher study: AI-memory MCP competitors (17 products), PKM tools with MCP + graph views, MCP spec 2026-07-28 + client support matrix, graph-visualization/search UX state of the art, read-only inventory of our own MCP + graph code
+- verdict: the data-model bundle (bi-temporal `asOf`, supersede-with-provenance, trigram hybrid retrieval, `Idempotency-Key`, per-agent scopes, decision/commitment/task entities, cortex artifacts, graph UI) is unmatched by any single product; the distribution layer (OAuth remote MCP, multi-user per URL) is commoditized and is where we are behind
+- blind spots recorded: spec 2026-07-28 deprecates DCR (Phase 10 assumes it) and removes sessions; no chat client subscribes to resource updates, so "stay up to date" must be turn-time tool calls, not push; HTTP MCP is single-identity per process; richest search (`POST /memories/search`) is not used by Memory Explorer / ⌘K / graph; graph render components have no tests
+- ranked roadmap in the report: do-now (OAuth with CIMD + DCR + static clients, public HTTPS install docs per client, ChatGPT `search`/`fetch` pair, freshness contract via `instructions`; ⌘K hybrid-search spotlight, local-graph default + edge-type filter + focus history, timeline scrubber, graph render tests), do-next, do-not
+
+---
+
 ## 2026-10-03 — Phase 6 — Independent pre-merge review: 42 findings, 42 fixed
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** 1,481 passing | **Report:** `docs/audits/REVIEW-2026-10-03.md`

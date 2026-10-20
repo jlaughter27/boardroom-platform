@@ -7,6 +7,7 @@ import { cn } from '../../lib/cn';
 import { ShapeGlyph } from './GraphControls';
 import { EntityPicker, type PickerOption } from './EntityPicker';
 import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR, entityRoute } from './graph-theme';
+import { groupNeighboursByEdgeType } from './graph-filters';
 import { useToastStore } from '../ui';
 
 interface Props {
@@ -193,12 +194,16 @@ function LinkEditors({ node, linkedIds, onLinked }: { node: KnowledgeGraphNode; 
  * (includes memories beyond the page's capped set); falls back to the local
  * edges when the request fails. Groups neighbours by type, each row re-selects.
  */
-export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, onClose, onLinked, className }: Props) {
-  const [remote, setRemote] = useState<{ nodeId: string; groups: LinkedGroup[] } | null>(null);
-  const [loadingRemote, setLoadingRemote] = useState(false);
+type Pair = { other: KnowledgeGraphNode; edge: KnowledgeGraphEdge };
+type GroupBy = 'edge' | 'type';
 
-  const localGroups = useMemo(() => {
-    const pairs: Array<{ other: KnowledgeGraphNode; edge: KnowledgeGraphEdge }> = [];
+export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, onClose, onLinked, className }: Props) {
+  const [remote, setRemote] = useState<{ nodeId: string; pairs: Pair[] } | null>(null);
+  const [loadingRemote, setLoadingRemote] = useState(false);
+  const [groupBy, setGroupBy] = useState<GroupBy>('edge');
+
+  const localPairs = useMemo(() => {
+    const pairs: Pair[] = [];
     for (const e of edges) {
       let otherId: string | null = null;
       if (e.source === node.id) otherId = e.target;
@@ -207,7 +212,7 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
       const other = nodesById.get(otherId);
       if (other) pairs.push({ other, edge: e });
     }
-    return groupLinks(pairs);
+    return pairs;
   }, [node.id, nodesById, edges]);
 
   useEffect(() => {
@@ -216,15 +221,22 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
     api.getGraphBacklinks(node.id)
       .then((res) => {
         if (cancelled) return;
-        setRemote({ nodeId: node.id, groups: groupLinks(res.backlinks.map((b) => ({ other: b.node, edge: b.edge }))) });
+        setRemote({ nodeId: node.id, pairs: res.backlinks.map((b) => ({ other: b.node, edge: b.edge })) });
       })
       .catch(() => { if (!cancelled) setRemote(null); }) // fall back to local edges
       .finally(() => { if (!cancelled) setLoadingRemote(false); });
     return () => { cancelled = true; };
   }, [node.id, edges]);
 
-  const groups = remote && remote.nodeId === node.id ? remote.groups : localGroups;
   const usingRemote = !!remote && remote.nodeId === node.id;
+  const pairs = usingRemote ? remote!.pairs : localPairs;
+  const groups = useMemo(() => groupLinks(pairs), [pairs]);
+  const edgeGroups = useMemo(() => {
+    const byId = new Map<string, KnowledgeGraphNode>(nodesById);
+    const es: KnowledgeGraphEdge[] = [];
+    for (const p of pairs) { byId.set(p.other.id, p.other); es.push(p.edge); }
+    return groupNeighboursByEdgeType(node.id, es, byId);
+  }, [pairs, nodesById, node.id]);
   const total = groups.reduce((s, g) => s + g.items.length, 0);
   const linkedIds = useMemo(() => new Set(groups.flatMap((g) => g.items.map((i) => i.n.id))), [groups]);
   const route = entityRoute(node.type, node.refId, node.meta);
@@ -262,8 +274,13 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
       </div>
 
       <div className="flex gap-2 border-b border-border px-4 py-2.5">
-        <button type="button" onClick={onFocusLocal} className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90">
-          Focus local graph
+        <button
+          type="button"
+          onClick={onFocusLocal}
+          className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90"
+          title="Re-root the local graph on this node (a single click on the canvas only selects)"
+        >
+          Focus here
         </button>
         {route && (
           <Link to={route} className="flex h-8 items-center rounded-md border border-border px-3 text-xs text-foreground hover:bg-muted">
@@ -275,16 +292,67 @@ export function NodeInspector({ node, nodesById, edges, onSelect, onFocusLocal, 
       <LinkEditors node={node} linkedIds={linkedIds} onLinked={onLinked} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <div className="mb-2 flex items-baseline justify-between">
+        <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Linked{loadingRemote && !usingRemote ? <span className="ml-1 normal-case tracking-normal">· updating…</span> : null}
           </h3>
-          <span className="text-xs tabular-nums text-muted-foreground" title={usingRemote ? 'From /graph/backlinks' : 'From the loaded graph'}>{total}</span>
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 overflow-hidden rounded-md border border-border text-[11px]" role="group" aria-label="Group linked nodes by">
+              <button
+                type="button"
+                onClick={() => setGroupBy('edge')}
+                aria-pressed={groupBy === 'edge'}
+                className={cn('px-2', groupBy === 'edge' ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                By link
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupBy('type')}
+                aria-pressed={groupBy === 'type'}
+                className={cn('border-l border-border px-2', groupBy === 'type' ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                By type
+              </button>
+            </div>
+            <span className="text-xs tabular-nums text-muted-foreground" title={usingRemote ? 'From /graph/backlinks' : 'From the loaded graph'}>{total}</span>
+          </div>
         </div>
         {total === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing links here yet. Link this {TYPE_SINGULAR[node.type].toLowerCase()} from a memory, project or goal and it will appear in the graph.
           </p>
+        ) : groupBy === 'edge' ? (
+          <div className="flex flex-col gap-3" data-testid="neighbours-by-edge-type">
+            {edgeGroups.map((g) => (
+              <section key={g.type} aria-label={g.label}>
+                <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{g.label}</span>
+                  <span className="tabular-nums" data-testid={`edge-group-count-${g.type}`}>{g.items.length}</span>
+                </div>
+                <ul className="flex flex-col">
+                  {g.items.map(({ node: n, edge, direction }) => (
+                    <li key={`${edge.id}|${n.id}`}>
+                      <button
+                        type="button"
+                        onClick={() => selectRow(n.id)}
+                        className={cn('flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-muted', !nodesById.has(n.id) && 'text-muted-foreground')}
+                        title={direction === 'out' ? `${node.label} → ${n.label}` : `${n.label} → ${node.label}`}
+                      >
+                        <span className="shrink-0" style={{ color: `var(--color-entity-${n.type})` }}>
+                          <ShapeGlyph shape={TYPE_SHAPE[n.type]} color="currentColor" size={10} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{n.label}</span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {edge.label && edge.label !== 'relates_to' ? edge.label : direction === 'in' ? '←' : '→'}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {groups.map((g) => (

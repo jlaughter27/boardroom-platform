@@ -18,6 +18,7 @@ import { withAudit, auditRefusal, redactInputForAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
 import { MAX_PAGE_SIZE } from '../lib/cursor';
 import { LruTtlCache, replayCacheKey } from '../lib/replay-cache';
+import { PROVENANCE, McpProvenanceSchema } from '../lib/provenance';
 import type { OmniMindClient, MemoryRecord } from '../lib/client';
 import {
   ADDITIVE_WRITE_ANNOTATIONS,
@@ -25,7 +26,40 @@ import {
   IDEMPOTENT_WRITE_ANNOTATIONS,
   READ_ONLY_ANNOTATIONS,
 } from '../types';
-import type { AgentContext, McpTool, MemoryWriteResult, MemoryWriteSuccess } from '../types';
+import type { AgentContext, FactWithAction, McpTool, MemoryWriteResult, MemoryWriteSuccess } from '../types';
+
+/** Shared schemas + the front-door additions (`provenance` on reads, `extraction` on writes). */
+export const MemorySearchOutputSchema = McpMemorySearchOutputSchema.extend({ provenance: McpProvenanceSchema });
+export const MemoryWriteOutputSchema = McpMemoryWriteOutputSchema.extend({ extraction: z.enum(['sync', 'async']).optional() });
+
+/**
+ * `OMNIMIND_MCP_WRITE_EXTRACT` — `sync` (default) runs Haiku fact extraction
+ * inside the `memory_write` call; `async` stores the prose as one memory row,
+ * returns its id immediately, and runs extraction after responding (the
+ * extracted facts supersede the raw row). Flip to `async` when the `bench`
+ * subcommand shows p95 above ~20 s — Claude Code backgrounds MCP calls past
+ * two minutes and several clients time out at 60 s.
+ */
+export type WriteExtractMode = 'sync' | 'async';
+
+export function resolveWriteExtractMode(env: NodeJS.ProcessEnv = process.env): WriteExtractMode {
+  return env.OMNIMIND_MCP_WRITE_EXTRACT?.trim().toLowerCase() === 'async' ? 'async' : 'sync';
+}
+
+export interface MemoryWriteToolOptions {
+  /** Defaults to `resolveWriteExtractMode(process.env)`. */
+  extractMode?: WriteExtractMode;
+  /**
+   * M-2 — client the deferred extraction runs on in `async` mode. Over the HTTP
+   * front door this is a second client bound to the same principal that
+   * outlives the session (owned by the app's `DeferredWorkQueue`), so a DELETE
+   * / idle sweep / eviction racing the 2-5 s Haiku call no longer loses the
+   * facts and the `memory_write:extract` audit row. Defaults to `client`.
+   */
+  deferredClient?: OmniMindClient;
+  /** Receives the deferred-extraction promise in `async` mode (already error-handled): the HTTP app tracks it for drain-on-shutdown; tests await it. */
+  onDeferred?: (done: Promise<void>) => void;
+}
 
 /**
  * Normalize domain so refusal gates (ministry) cannot be bypassed by case or
@@ -59,6 +93,16 @@ export const FACT_KEY_PREFIX_LENGTH = 32;
 export function deriveFactIdempotencyKey(userKey: string, factText: string): string {
   const digest = createHash('sha256').update(`${userKey}:${factText}`).digest('hex').slice(0, 64);
   return `${userKey.slice(0, FACT_KEY_PREFIX_LENGTH)}:${digest}`;
+}
+
+/**
+ * L-8 — `Idempotency-Key` for the async tail's `PATCH … { supersedes: raw }`.
+ * Derived from the raw row id alone so a replay after a process restart (the
+ * in-memory replay cache is empty, the row writes replay via their own keys)
+ * does not apply the supersede twice. 75 chars, under OmniMind's 128 cap.
+ */
+export function deriveSupersedeIdempotencyKey(rawId: string): string {
+  return `supersedes:${createHash('sha256').update(`supersedes:${rawId}`).digest('hex')}`;
 }
 
 /**
@@ -119,13 +163,61 @@ function refused(error: 'MINISTRY_DEFERRED' | 'FACT_EXTRACTOR_UNAVAILABLE', mess
   return { ok: false, error, message, created: [], updated: [], skipped: 0 };
 }
 
-export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
+type MemoryWriteParsedInput = z.infer<typeof MemoryWriteInput>;
+
+interface FactWriteTally {
+  created: string[];
+  updated: string[];
+  skipped: number;
+}
+
+/**
+ * Write extracted facts: `create` → `POST /memories` (a near-duplicate is
+ * auto-superseded server-side and reported as `updated`, M-107); `update` →
+ * explicit `PATCH /memories/:supersedes` (`supersedes` is NOT accepted on POST).
+ * One idempotency key covers the whole call; each fact gets a derived key so a
+ * replay returns the same N rows, not one.
+ */
+async function writeFacts(client: OmniMindClient, ctx: AgentContext, input: MemoryWriteParsedInput, facts: FactWithAction[]): Promise<FactWriteTally> {
+  const tally: FactWriteTally = { created: [], updated: [], skipped: 0 };
+  const factOpts = (factText: string) =>
+    input.idempotencyKey ? { idempotencyKey: deriveFactIdempotencyKey(input.idempotencyKey, factText) } : undefined;
+  for (const fact of facts) {
+    if (fact.action === 'create') {
+      const r = await client.createMemory({
+        title: fact.text.slice(0, 80),
+        content: fact.text,
+        domain: input.domain,
+        tags: [...input.tags, fact.type],
+        importance: input.importance,
+        sourceType: 'MCP_AGENT',
+        agentId: ctx.agentId,
+        tenantId: ctx.tenantId,
+        sourceWeight: ctx.sourceWeight,
+      }, input.userId, factOpts(fact.text));
+      (r.status === 'updated' ? tally.updated : tally.created).push(r.id);
+    } else if (fact.action === 'update' && fact.supersedes) {
+      const mem = await client.updateMemory(fact.supersedes, {
+        content: fact.text,
+        sourceType: 'MCP_AGENT',
+        agentId: ctx.agentId,
+      }, input.userId, factOpts(fact.text));
+      tally.updated.push(mem.id);
+    } else {
+      tally.skipped++;
+    }
+  }
+  return tally;
+}
+
+export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext, opts: MemoryWriteToolOptions = {}) {
+  const extractMode = opts.extractMode ?? resolveWriteExtractMode();
   return {
     name: 'memory_write',
     title: 'Write memory',
     description: 'Write one or more memories to the shared store. Fact extraction and dedup runs automatically — duplicate facts are updated, not duplicated. Pass idempotencyKey to make retries safe.',
     inputSchema: MemoryWriteInput,
-    outputSchema: McpMemoryWriteOutputSchema,
+    outputSchema: MemoryWriteOutputSchema,
     annotations: ADDITIVE_WRITE_ANNOTATIONS,
     async execute(raw: unknown): Promise<MemoryWriteResult> {
       requireScope(ctx, 'memory:write');
@@ -153,83 +245,46 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
         }
       }
 
+      /** The prose as one memory row (skipExtraction, no facts extracted, or the async raw row). */
+      const createRawRow = () => client.createMemory({
+        title: input.content.slice(0, 80),
+        content: input.content,
+        domain: input.domain,
+        tags: input.tags,
+        importance: input.importance,
+        sourceType: 'MCP_AGENT',
+        agentId: ctx.agentId,
+        tenantId: ctx.tenantId,
+        sourceWeight: ctx.sourceWeight,
+      }, input.userId, writeOpts);
+
+      // M-107: report the server's verdict — a near-duplicate is auto-superseded
+      // server-side and comes back as status 'updated', not 'created'.
+      const tallyOf = (r: { id: string; status: 'created' | 'updated' }): FactWriteTally =>
+        r.status === 'updated' ? { created: [], updated: [r.id], skipped: 0 } : { created: [r.id], updated: [], skipped: 0 };
+
+      if (!input.skipExtraction && extractMode === 'async') {
+        // Async mode: respond as soon as the raw row exists; extract afterwards.
+        const result = await withAudit(client, ctx, 'memory_write', auditInput, async (): Promise<MemoryWriteSuccess> => {
+          const raw = await createRawRow();
+          return { ok: true, ...tallyOf(raw), extraction: 'async' };
+        });
+        if (replayKey) memoryWriteReplayCache.set(replayKey, result);
+        const rawId = result.created[0] ?? result.updated[0];
+        const deferred = runDeferredExtraction(opts.deferredClient ?? client, ctx, input, auditInput, rawId);
+        opts.onDeferred?.(deferred);
+        return result;
+      }
+
       try {
         const result = await withAudit(client, ctx, 'memory_write', auditInput, async (): Promise<MemoryWriteSuccess> => {
-          const created: string[] = [];
-          const updated: string[] = [];
-
-          // M-107: report the server's verdict — a near-duplicate is auto-superseded
-          // server-side and comes back as status 'updated', not 'created'.
-          const record = (r: { id: string; status: 'created' | 'updated' }) => {
-            (r.status === 'updated' ? updated : created).push(r.id);
-          };
-
-          if (input.skipExtraction) {
-            record(await client.createMemory({
-              title: input.content.slice(0, 80),
-              content: input.content,
-              domain: input.domain,
-              tags: input.tags,
-              importance: input.importance,
-              sourceType: 'MCP_AGENT',
-              agentId: ctx.agentId,
-              tenantId: ctx.tenantId,
-              sourceWeight: ctx.sourceWeight,
-            }, input.userId, writeOpts));
-            return { ok: true, created, updated, skipped: 0 };
-          }
+          if (input.skipExtraction) return { ok: true, ...tallyOf(await createRawRow()) };
 
           const facts = await extractAndDedup(input.content, ctx, client, input.userId);
-          let skipped = 0;
+          // No facts extracted → store raw content as a single context memory
+          if (facts.length === 0) return { ok: true, ...tallyOf(await createRawRow()) };
 
-          if (facts.length === 0) {
-            // No facts extracted → store raw content as a single context memory
-            record(await client.createMemory({
-              title: input.content.slice(0, 80),
-              content: input.content,
-              domain: input.domain,
-              tags: input.tags,
-              importance: input.importance,
-              sourceType: 'MCP_AGENT',
-              agentId: ctx.agentId,
-              tenantId: ctx.tenantId,
-              sourceWeight: ctx.sourceWeight,
-            }, input.userId, writeOpts));
-            return { ok: true, created, updated, skipped: 0 };
-          }
-
-          // One idempotency key covers the whole call; each extracted fact gets
-          // a derived key so a replay returns the same N rows, not one.
-          const factOpts = (factText: string) =>
-            input.idempotencyKey ? { idempotencyKey: deriveFactIdempotencyKey(input.idempotencyKey, factText) } : undefined;
-
-          for (const fact of facts) {
-            if (fact.action === 'create') {
-              record(await client.createMemory({
-                title: fact.text.slice(0, 80),
-                content: fact.text,
-                domain: input.domain,
-                tags: [...input.tags, fact.type],
-                importance: input.importance,
-                sourceType: 'MCP_AGENT',
-                agentId: ctx.agentId,
-                tenantId: ctx.tenantId,
-                sourceWeight: ctx.sourceWeight,
-              }, input.userId, factOpts(fact.text)));
-            } else if (fact.action === 'update' && fact.supersedes) {
-              // Explicit supersede — `supersedes` is NOT accepted on POST /memories.
-              const mem = await client.updateMemory(fact.supersedes, {
-                content: fact.text,
-                sourceType: 'MCP_AGENT',
-                agentId: ctx.agentId,
-              }, input.userId, factOpts(fact.text));
-              updated.push(mem.id);
-            } else {
-              skipped++;
-            }
-          }
-
-          return { ok: true, created, updated, skipped };
+          return { ok: true, ...(await writeFacts(client, ctx, input, facts)) };
         });
         if (replayKey) memoryWriteReplayCache.set(replayKey, result);
         return result;
@@ -244,13 +299,55 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext) {
   } satisfies McpTool;
 }
 
+/** What the `memory_write:extract` audit row says happened to the raw prose row. */
+export const RAW_ROW_KEPT_NO_FACTS = 'no facts extracted; raw row kept';
+export const RAW_ROW_KEPT_UPDATES_ONLY = 'facts updated existing rows only (no new fact row to supersede it); raw row kept';
+
+/**
+ * Async-mode tail of `memory_write`: extract facts from the prose that was
+ * already stored as `rawId`, write them, and — when at least one new fact row
+ * was created — supersede the raw row with the first one (the prose survives
+ * in version history / `consolidatedFrom`; nothing is deleted). When every
+ * fact was an *update* of an existing row there is nothing to supersede it
+ * with, so the raw row is kept and the audit row says so (`rawRowKept`,
+ * `reason`). Audited as `memory_write:extract`; failures are logged, never
+ * thrown (the caller has already received its response).
+ */
+export function runDeferredExtraction(
+  client: OmniMindClient,
+  ctx: AgentContext,
+  input: MemoryWriteParsedInput,
+  auditInput: unknown,
+  rawId: string | undefined
+): Promise<void> {
+  return withAudit(client, ctx, 'memory_write:extract', auditInput, async () => {
+    const facts = await extractAndDedup(input.content, ctx, client, input.userId);
+    if (facts.length === 0) return { ok: true, created: [], updated: [], skipped: 0, rawId, rawRowKept: true, reason: RAW_ROW_KEPT_NO_FACTS };
+    const tally = await writeFacts(client, ctx, input, facts);
+    if (rawId && tally.created.length > 0 && !tally.created.includes(rawId)) {
+      await client.updateMemory(
+        tally.created[0],
+        { supersedes: rawId, agentId: ctx.agentId },
+        input.userId,
+        { idempotencyKey: deriveSupersedeIdempotencyKey(rawId) }
+      );
+      return { ok: true, ...tally, rawId, rawRowKept: false };
+    }
+    return { ok: true, ...tally, rawId, rawRowKept: true, ...(tally.updated.length > 0 && tally.created.length === 0 ? { reason: RAW_ROW_KEPT_UPDATES_ONLY } : {}) };
+  })
+    .then(() => undefined)
+    .catch(err => {
+      console.error(`[memory_write] deferred extraction failed${rawId ? ` (raw row ${rawId} kept)` : ''}:`, (err as Error).message);
+    });
+}
+
 export function memorySearchTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'memory_search',
     title: 'Search memories',
     description: 'Hybrid search over the shared memory store (semantic + full-text + trigram, recency-weighted). Paginated: pass `cursor` from `nextCursor` for the next page (max 20 per page).',
     inputSchema: MemorySearchInput,
-    outputSchema: McpMemorySearchOutputSchema,
+    outputSchema: MemorySearchOutputSchema,
     annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       requireScope(ctx, 'memory:read');
@@ -267,7 +364,7 @@ export function memorySearchTool(client: OmniMindClient, ctx: AgentContext) {
           asOf: input.asOf,
           cursor: input.cursor,
         }, input.userId);
-        return { memories: items, count: items.length, nextCursor };
+        return { memories: items, count: items.length, nextCursor, provenance: PROVENANCE };
       });
     },
   } satisfies McpTool;

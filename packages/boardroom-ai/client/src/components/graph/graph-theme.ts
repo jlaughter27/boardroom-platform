@@ -102,8 +102,22 @@ export function readGraphPalette(): GraphPalette {
   };
 }
 
-/** Draw a node glyph centred at (0,0) in an already-translated context. */
-export function drawShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: number, fill: string, stroke?: string): void {
+export type ShapeMode = 'fill' | 'hollow';
+
+/**
+ * Draw a node glyph centred at (0,0) in an already-translated context.
+ * `mode: 'hollow'` paints the outline only (used for memories whose validity
+ * has ended inside the timeline window).
+ */
+export function drawShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: number, fill: string, stroke?: string, mode: ShapeMode = 'fill'): void {
+  if (mode === 'hollow') {
+    traceShape(ctx, shape, r);
+    ctx.lineWidth = Math.max(1.2, r * 0.3);
+    ctx.strokeStyle = fill;
+    ctx.stroke();
+    if (stroke) { ctx.lineWidth = 1.5; ctx.strokeStyle = stroke; ctx.stroke(); }
+    return;
+  }
   ctx.beginPath();
   switch (shape) {
     case 'diamond':
@@ -144,6 +158,37 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: nu
   ctx.fillStyle = fill;
   ctx.fill();
   if (stroke) { ctx.lineWidth = 1.5; ctx.strokeStyle = stroke; ctx.stroke(); }
+}
+
+/** Outline path for a shape (no fill / stroke) — the ring shape is its own outline. */
+function traceShape(ctx: CanvasRenderingContext2D, shape: NodeShape, r: number): void {
+  ctx.beginPath();
+  switch (shape) {
+    case 'diamond':
+      ctx.moveTo(0, -r * 1.25); ctx.lineTo(r * 1.1, 0); ctx.lineTo(0, r * 1.25); ctx.lineTo(-r * 1.1, 0); ctx.closePath();
+      return;
+    case 'square': {
+      const s = r * 0.95;
+      ctx.rect(-s, -s, s * 2, s * 2);
+      return;
+    }
+    case 'triangle':
+      ctx.moveTo(0, -r * 1.2); ctx.lineTo(r * 1.1, r * 0.85); ctx.lineTo(-r * 1.1, r * 0.85); ctx.closePath();
+      return;
+    case 'hexagon':
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i - Math.PI / 6;
+        const x = Math.cos(a) * r * 1.1; const y = Math.sin(a) * r * 1.1;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      return;
+    case 'ring':
+    case 'dot':
+    case 'circle':
+    default:
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+  }
 }
 
 /** Where an entity "lives" in the app, for the inspector's Open link. */

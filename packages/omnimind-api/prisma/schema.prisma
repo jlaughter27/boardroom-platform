@@ -31,6 +31,9 @@ model User {
   sessions        Session[]         @relation("SessionCreator")
   profile         UserProfile?
   decisionSessions DecisionSession[]
+  // Lane A1 hardening: per-user MCP credentials die with the user (cascade).
+  mcpTokens          McpToken[]
+  mcpOauthIdentities McpOauthIdentity[]
 
   @@map("users")
 }
@@ -829,6 +832,61 @@ model McpAuditLog {
   @@index([agentId, createdAt])
   @@index([tenantId, createdAt])
   @@map("mcp_audit_logs")
+}
+
+// ============================================================
+// Lane A1 (2026-10-18): per-user MCP tokens + OAuth identities
+//
+// A gateway Agent (scope `mcp:delegate`) resolves one of these rows and acts
+// as it via `x-mcp-principal: token:<id>|oauth:<id>`. `agentName` is what gets
+// stamped as agentId on writes / audit rows so per-principal attribution and
+// rate buckets work without a second Agent row per user.
+// ============================================================
+
+model McpToken {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  tenantId     String    @map("tenant_id")
+  name         String
+  /// `mcp-token:<slug(name)>-<last 8 chars of id>` — unique per row by construction.
+  agentName    String    @unique @map("agent_name")
+  /// First 12 chars of the raw `omt_` token, for display only.
+  prefix       String
+  /// sha256 hex of the raw token. The raw token is never stored.
+  tokenHash    String    @unique @map("token_hash")
+  scopes       String[]
+  sourceWeight Float     @default(1.0) @map("source_weight")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastUsedAt   DateTime? @map("last_used_at")
+  expiresAt    DateTime? @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mcp_tokens")
+}
+
+model McpOauthIdentity {
+  id           String    @id @default(cuid())
+  issuer       String
+  subject      String
+  userId       String    @map("user_id")
+  tenantId     String    @map("tenant_id")
+  /// `oauth:<clientId or issuer host>-<last 8 chars of id>` — unique per row
+  /// (one rate bucket / audit agentId per identity, never per OAuth client).
+  agentName    String    @unique @map("agent_name")
+  scopes       String[]
+  sourceWeight Float     @default(1.0) @map("source_weight")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastUsedAt   DateTime? @map("last_used_at")
+  revokedAt    DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, subject])
+  @@index([userId])
+  @@map("mcp_oauth_identities")
 }
 
 // ============================================================

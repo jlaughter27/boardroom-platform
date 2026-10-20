@@ -82,3 +82,6 @@ does not re-run or checksum-verify applied migrations.
 | `20261002000000_base_importance` | O-103 — `base_importance` so decay never compounds |
 | `20261002000001_tenant_owner_user_id` | O-107 — `tenants.owner_user_id` for job-written memories |
 | `20261002000002_agents_api_key_hash_idx` | M-103 — index for `x-agent-key` lookups |
+| `20261002100000_phase6_foundation` | Phase 6 foundation tables/columns |
+| `20261018000000_mcp_tokens` | Lane A1 — `mcp_tokens`, `mcp_oauth_identities` |
+| `20261018000001_mcp_identity_hardening` | Lane A1 review — unique OAuth `agent_name`, FKs → `users` (cascade), drop redundant `token_hash` index |

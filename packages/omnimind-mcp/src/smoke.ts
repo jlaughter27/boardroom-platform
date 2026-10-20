@@ -11,6 +11,8 @@ export const REQUIRED_TOOLS = [
   'status_get',
   // Phase 6
   'memory_reflect', 'memory_consolidate', 'graph_neighborhood',
+  // Front door — ChatGPT connector pair
+  'search', 'fetch',
 ] as const;
 
 export const REQUIRED_PROMPTS = ['session_start', 'decision_review', 'session_end'] as const;
@@ -33,7 +35,7 @@ function textOf(result: unknown): string {
  * Smoke test.
  *
  *   Tier 1 (always): spawn the stdio server, list tools / prompts / resource
- *   templates, assert all 18 tools (each with annotations + outputSchema),
+ *   templates, assert all 20 tools (each with annotations + outputSchema),
  *   3 prompts and 4 resource templates are present.
  *   Tier 2 (M-108, opt-in): when `OMNIMIND_MCP_SMOKE_USER_ID` is set, actually
  *   execute `status_get`, `memory_search` and — using the first memory the

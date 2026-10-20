@@ -1,0 +1,11 @@
+{
+  "_comment": "Windsurf (Cascade) → hosted OmniMind MCP. File: ~/.codeium/windsurf/mcp_config.json (or Windsurf → Settings → Cascade → MCP → Configure), then Refresh in the MCP panel. Windsurf uses `serverUrl` (not `url`) for a remote Streamable HTTP server and sends the static header on every request. The file is global only (no per-project config) and has no environment-variable interpolation, so the token sits here in plain text — prefer a read-mostly token. Token: BoardRoom Settings → Connected AI tools (omt_…). Windsurf caps the total tool count at 100 across all servers; OmniMind contributes 20. Add a .windsurfrules line 'Start with status_get; log decisions with decision_log' for the freshness contract (docs/runbooks/omnimind-mcp.md §8).",
+  "mcpServers": {
+    "omnimind": {
+      "serverUrl": "https://omnimind-mcp-production.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"
+      }
+    }
+  }
+}

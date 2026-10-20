@@ -1,6 +1,26 @@
 {
-  "_comment": "Claude Desktop MCP configuration for josh-personal tenant. Merge into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS). OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
+  "_comment": "Claude Desktop → OmniMind. PREFERRED: Claude Desktop shares claude.ai's connector list and dialog (remote connectors are brokered through the Claude account) — add the hosted server once as a custom connector per claude-ai-connector.md: OAuth sign-in when the operator has enabled it (Authentication 'Sign in when needed', OAuth client 'Register automatically'), or Authentication 'No sign-in' + a Request header named authorization = 'Bearer omt_…' where your organization has that beta section. If you don't see Request headers and OAuth is not enabled, merge mcpServers.omnimind below (the hosted URL bridged with mcp-remote — no dialog involved, works regardless of the beta; token from BoardRoom Settings → Connected AI tools) into ~/.config/claude/claude_desktop_config.json (Linux) or ~/Library/Application Support/Claude/claude_desktop_config.json (macOS). Authentication settings of a connector cannot be edited after creation — remove and re-add it. LEGACY (stdio): mcpServers.omnimind-personal runs the server in-process as agent claude-desktop-josh (josh-personal, rw, sourceWeight 0.85). OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key; OMNIMIND_MCP_STATIC_AGENT_KEY is honoured first when set); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is optional: the user the omnimind:// resources read as; tools always take userId explicitly.",
+  "hosted_connector": {
+    "name": "OmniMind",
+    "url": "https://omnimind-mcp-production.up.railway.app/mcp",
+    "scopes_recommended": "memory:read (add memory:write after a week of dogfooding)",
+    "authentication": "OAuth ('Sign in when needed' + 'Register automatically') when the operator has enabled it (read-only by default); otherwise 'No sign-in' + Request header authorization = Bearer omt_… — only if the Request headers beta section is visible in your organization's dialog",
+    "request_header": {
+      "name": "authorization",
+      "value": "Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"
+    }
+  },
   "mcpServers": {
+    "omnimind": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://omnimind-mcp-production.up.railway.app/mcp",
+        "--header",
+        "Authorization:Bearer REPLACE_WITH_PERSONAL_TOKEN_omt_"
+      ]
+    },
     "omnimind-personal": {
       "command": "node",
       "args": [

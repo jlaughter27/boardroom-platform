@@ -40,7 +40,7 @@
 **Scope:** Three more jobs, same pattern as Task 16.3.
 
 **Prompt:**
-> Mirror the pattern from Task 16.3 for three more jobs: pattern-detection (`'0 3 * * 1'`, Monday 3am UTC), contradiction-alerts (`'0 21 * * 2'`, Tuesday 9pm UTC), outcome-review-nudges (`'0 12 * * 5'`, Friday noon UTC — verify the actual schedule from `cortex-scheduler.ts`). Each goes into its own file in `packages/omnimind-cron/src/jobs/`. Each respects the `CORTEX_IN_API` feature flag.
+> Mirror the pattern from Task 16.3 for three more jobs: pattern-detection (`'0 3 * * 1'`, Monday 3am UTC), contradiction-alerts (`'0 4 * * 1'`, Monday 4am UTC — `CORTEX_CONFIG.contradictionScanSchedule`), outcome-review-nudges (`'0 12 * * 5'`, Friday noon UTC — verify the actual schedule from `cortex-scheduler.ts`). Each goes into its own file in `packages/omnimind-cron/src/jobs/`. Each respects the `CORTEX_IN_API` feature flag.
 
 **Verification:** Each job runs cleanly when triggered manually; observability shows traces.
 

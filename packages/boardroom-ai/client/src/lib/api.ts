@@ -22,6 +22,10 @@ import type {
   SubscriptionData,
   KnowledgeGraph,
   KnowledgeGraphQuery,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenListResponse,
+  McpTokenOptions,
 } from '@boardroom/shared';
 import type { ClientUserMode } from '../types/debate';
 
@@ -1172,4 +1176,106 @@ export function hybridSearchMemories(params: HybridSearchParams) {
     '/memories/search',
     { method: 'POST', body: JSON.stringify(params) },
   );
+}
+
+// ── Graph search (Lane D) ──
+// Spotlight search + lazy neighbourhood fetch for the knowledge graph. Thin
+// wrappers over endpoints that already exist; no new server routes.
+
+export interface SpotlightSearchParams {
+  query: string;
+  limit?: number;
+  /** `YYYY-MM-DD`; converted to an ISO instant at the end of that UTC day */
+  asOfDay?: string | null;
+  tags?: string[];
+  status?: string;
+  includeArchived?: boolean;
+  cursor?: string | null;
+}
+
+/**
+ * `POST /memories/search` shaped for the UI: `null` cursor / empty asOf are
+ * omitted (the server schema rejects `cursor: null`), `asOfDay` becomes an
+ * ISO `Z` instant.
+ */
+export function spotlightSearchMemories(params: SpotlightSearchParams) {
+  const body: HybridSearchParams = { query: params.query, limit: params.limit ?? 20 };
+  if (params.tags?.length) body.tags = params.tags;
+  if (params.status) body.status = params.status;
+  if (params.includeArchived) body.includeArchived = true;
+  if (params.cursor) body.cursor = params.cursor;
+  if (params.asOfDay && /^\d{4}-\d{2}-\d{2}$/.test(params.asOfDay)) {
+    const ms = Date.parse(`${params.asOfDay}T23:59:59.999Z`);
+    if (!Number.isNaN(ms)) body.asOf = new Date(ms).toISOString();
+  }
+  return hybridSearchMemories(body);
+}
+
+/**
+ * 1-hop neighbourhoods for several node ids via `GET /graph/backlinks/:nodeId`,
+ * fetched in parallel; failures are dropped so one missing node never blocks
+ * the rest.
+ */
+export async function getGraphNeighbourhoods(nodeIds: string[]): Promise<GraphBacklinksResponse[]> {
+  const settled = await Promise.allSettled(nodeIds.map((id) => getGraphBacklinks(id)));
+  const out: GraphBacklinksResponse[] = [];
+  for (const s of settled) if (s.status === 'fulfilled') out.push(s.value);
+  return out;
+}
+
+// ── MCP tokens (Lane C) ──
+// Settings → "Connected AI tools". BoardRoom pins userId to the JWT user, so
+// the browser never sends one.
+
+// Record / response shapes are the shared wire contract (CLAUDE.md rule 4).
+export type {
+  McpScope,
+  McpScopeDescriptor,
+  McpTokenCreateResponse,
+  McpTokenListResponse,
+  McpTokenOptions,
+  McpTokenRecord,
+} from '@boardroom/shared';
+
+/**
+ * Browser → BoardRoom create body: the shared request minus `userId` (BoardRoom
+ * pins it to the JWT user). `expiresInDays: null` means "never expires";
+ * omitting it lets OmniMind apply its default expiry (365 days).
+ */
+export type McpTokenCreateInput = Omit<McpTokenCreateRequest, 'userId'>;
+
+export interface McpConnectInfo {
+  /** Public Streamable-HTTP MCP endpoint, or null when the operator has not set OMNIMIND_MCP_PUBLIC_URL. */
+  mcpUrl: string | null;
+  /** Public URL of this app from APP_PUBLIC_URL, or null when unset (never derived from the request). */
+  appUrl: string | null;
+  oauthEnabled: boolean;
+}
+
+/** `GET /mcp/tokens` → `{ tokens }` for the current user (revoked ones included). */
+export function listMcpTokens() {
+  return request<McpTokenListResponse>('/mcp/tokens');
+}
+
+/** `POST /mcp/tokens` → 201 `{ token, record }`. 403 tenant_not_owned, 409 token_limit surface as ApiError. */
+export function createMcpToken(input: McpTokenCreateInput) {
+  return request<McpTokenCreateResponse>('/mcp/tokens', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `DELETE /mcp/tokens/:id` → 204. */
+export function revokeMcpToken(id: string) {
+  return request<void>(`/mcp/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** `GET /mcp/tokens/options` → tenants the user owns + the scope catalog. */
+export function getMcpTokenOptions() {
+  return request<McpTokenOptions>('/mcp/tokens/options');
+}
+
+/** `GET /mcp/tokens/connect-info` → MCP URL, app URL and whether OAuth is on. */
+export function getMcpConnectInfo() {
+  return request<McpConnectInfo>('/mcp/tokens/connect-info');
 }

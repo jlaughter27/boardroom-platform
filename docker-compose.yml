@@ -40,6 +40,12 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/boardroom_dev
       REDIS_URL: redis://redis:6379
       OMNIMIND_API_KEY: ${OMNIMIND_API_KEY:-dev-key-local-only}
+      # x-admin-key for /admin/*, POST /mcp/agents (keygen) and /mcp/identities. Empty
+      # under NODE_ENV=development leaves those routes open behind OMNIMIND_API_KEY
+      # (warned once); set it to exercise the production path.
+      OMNIMIND_ADMIN_KEY: ${OMNIMIND_ADMIN_KEY:-}
+      # Optional OAuth issuer allow-list for POST /mcp/identities/resolve.
+      MCP_OAUTH_ALLOWED_ISSUERS: ${MCP_OAUTH_ALLOWED_ISSUERS:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OMNIMIND_PORT: "3333"
@@ -64,6 +70,66 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       BOARDROOM_PORT: "3001"
       CORS_ORIGINS: http://localhost:3001,http://localhost:5173
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      - omnimind-api
+
+  # OmniMind MCP server in Streamable HTTP mode (port 3334, endpoint /mcp). Sends
+  # per-request identity to omnimind-api over the compose network; inbound auth is
+  # either the legacy static bearer (OMNIMIND_MCP_API_KEY) or per-user omt_ tokens
+  # (OMNIMIND_MCP_TOKEN_AUTH=true + the gateway agent key). See
+  # docs/runbooks/omnimind-mcp.md. Values come from .env (see .env.example) — there
+  # is deliberately NO default inbound bearer: the port is published on all
+  # interfaces, so a known default would be a shared credential.
+  omnimind-mcp:
+    build:
+      context: .
+      dockerfile: packages/omnimind-mcp/Dockerfile
+    ports:
+      - "3334:3334"
+    environment:
+      PORT: "3334"
+      OMNIMIND_API_URL: http://omnimind-api:3333
+      OMNIMIND_API_KEY: ${OMNIMIND_API_KEY:-dev-key-local-only}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Process identity — read only by the legacy static-bearer mode (and by
+      # bench/smoke). With OMNIMIND_MCP_TOKEN_AUTH=true the gateway identity and
+      # its scope ceiling come from the agent row behind OMNIMIND_MCP_AGENT_KEY
+      # (keygen it with mcp:delegate + all seven grantable scopes); these four
+      # variables are then not read.
+      OMNIMIND_MCP_AGENT_NAME: ${OMNIMIND_MCP_AGENT_NAME:-claude-code-local}
+      OMNIMIND_MCP_TENANT_ID: ${OMNIMIND_MCP_TENANT_ID:-josh-business}
+      OMNIMIND_MCP_SCOPES: ${OMNIMIND_MCP_SCOPES:-memory:read,memory:write,decision:write,task:write,project:write,commitment:write,code:write}
+      OMNIMIND_MCP_SOURCE_WEIGHT: ${OMNIMIND_MCP_SOURCE_WEIGHT:-1.0}
+      # Gateway agent key (required with OMNIMIND_MCP_TOKEN_AUTH=true or an OAuth
+      # issuer; the server refuses to start without it in those modes).
+      OMNIMIND_MCP_AGENT_KEY: ${OMNIMIND_MCP_AGENT_KEY:-}
+      # Static identity's own agent key (legacy static-bearer mode only).
+      OMNIMIND_MCP_STATIC_AGENT_KEY: ${OMNIMIND_MCP_STATIC_AGENT_KEY:-}
+      # Inbound auth. REQUIRED from .env (no default): set OMNIMIND_MCP_API_KEY to a
+      # random value for the static-bearer mode, or leave it empty and set
+      # OMNIMIND_MCP_TOKEN_AUTH=true + OMNIMIND_MCP_AGENT_KEY for per-user omt_
+      # tokens. The server exits 1 when neither is configured — never runs open.
+      OMNIMIND_MCP_API_KEY: ${OMNIMIND_MCP_API_KEY?set OMNIMIND_MCP_API_KEY in .env (static inbound bearer; may be empty only when OMNIMIND_MCP_TOKEN_AUTH=true)}
+      OMNIMIND_MCP_TOKEN_AUTH: ${OMNIMIND_MCP_TOKEN_AUTH:-false}
+      # Exact Host headers accepted (DNS-rebinding guard). Add your LAN/public
+      # host here or MCP calls get 403 Invalid Host header (/health is exempt).
+      OMNIMIND_MCP_ALLOWED_HOSTS: ${OMNIMIND_MCP_ALLOWED_HOSTS:-127.0.0.1:3334,localhost:3334,omnimind-mcp:3334}
+      OMNIMIND_MCP_PUBLIC_URL: ${OMNIMIND_MCP_PUBLIC_URL:-http://localhost:3334/mcp}
+      OMNIMIND_MCP_APP_URL: ${OMNIMIND_MCP_APP_URL:-http://localhost:3001}
+      OMNIMIND_MCP_DOCS_URL: ${OMNIMIND_MCP_DOCS_URL:-}
+      OMNIMIND_MCP_WRITE_EXTRACT: ${OMNIMIND_MCP_WRITE_EXTRACT:-sync}
+      OMNIMIND_MCP_SESSION_IDLE_MS: ${OMNIMIND_MCP_SESSION_IDLE_MS:-1800000}
+      # Positive credential-cache TTL (ms, clamped 5000..300000): bounds only how long an
+      # IDLE client keeps a session after its token is revoked; data calls fail at once.
+      OMNIMIND_MCP_PRINCIPAL_CACHE_MS: ${OMNIMIND_MCP_PRINCIPAL_CACHE_MS:-30000}
+      # Per-IP auth-failure limiter source: false here (no proxy); true on Railway.
+      OMNIMIND_MCP_TRUST_PROXY: ${OMNIMIND_MCP_TRUST_PROXY:-false}
+      OMNIMIND_MCP_OAUTH_ISSUER: ${OMNIMIND_MCP_OAUTH_ISSUER:-}
+      OMNIMIND_MCP_OAUTH_JWKS_URL: ${OMNIMIND_MCP_OAUTH_JWKS_URL:-}
+      OMNIMIND_MCP_OAUTH_AUDIENCE: ${OMNIMIND_MCP_OAUTH_AUDIENCE:-}
+      # OIDC userinfo fallback for email/email_verified when the access token lacks them.
+      OMNIMIND_MCP_OAUTH_USERINFO: ${OMNIMIND_MCP_OAUTH_USERINFO:-true}
       NODE_ENV: ${NODE_ENV:-development}
     depends_on:
       - omnimind-api

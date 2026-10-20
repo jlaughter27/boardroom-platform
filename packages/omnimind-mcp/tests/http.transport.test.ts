@@ -3,7 +3,7 @@
  *
  * Boots the real server on an ephemeral port and drives it with the SDK's
  * own StreamableHTTPClientTransport + Client: initialize →
- * notifications/initialized → tools/list, asserting 18 tools. Also covers
+ * notifications/initialized → tools/list, asserting 20 tools. Also covers
  * fail-closed auth, /health, session routing, DELETE, 413 and host checks.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
@@ -11,8 +11,8 @@ import { request as httpRequest } from 'http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
-  startHttpServer, createHttpApp, resolveHttpConfig, resolveSessionIdleMs, keysMatch, extractPresentedKey,
-  MAX_BODY_BYTES, DEFAULT_SESSION_IDLE_MS, type StartedHttpServer, type Session,
+  startHttpServer, createHttpApp, resolveHttpConfig, resolveSessionIdleMs, keysMatch, extractPresentedKey, parsePort,
+  MAX_BODY_BYTES, DEFAULT_SESSION_IDLE_MS, DEFAULT_PORT, type StartedHttpServer, type Session,
 } from '../src/transports/http';
 import type { AgentContext } from '../src/types';
 
@@ -29,8 +29,10 @@ const EXPECTED_TOOLS = [
   'commitment_log', 'commitment_list', 'status_get',
   // Phase 6
   'memory_reflect', 'memory_consolidate', 'graph_neighborhood',
+  // Front door — ChatGPT connector pair
+  'search', 'fetch',
 ].sort();
-const TOOL_COUNT = 18;
+const TOOL_COUNT = 20;
 
 let started: StartedHttpServer;
 let baseUrl: string;
@@ -83,6 +85,14 @@ describe('config / auth helpers', () => {
     expect(keysMatch(undefined, 'abc')).toBe(false);
   });
 
+  it('L-10: parsePort accepts 1..65535, defaults when unset, and refuses garbage (so listen(NaN) can never happen)', () => {
+    expect(parsePort(undefined)).toBe(DEFAULT_PORT);
+    expect(parsePort('')).toBe(DEFAULT_PORT);
+    expect(parsePort(' 8080 ')).toBe(8080);
+    expect(parsePort('65535')).toBe(65535);
+    for (const bad of ['0', '65536', '-1', 'abc', '80.5', '1e3', '0x50', '3334 extra']) expect(parsePort(bad), bad).toBeUndefined();
+  });
+
   it('parses Bearer case-insensitively and x-mcp-api-key', () => {
     expect(extractPresentedKey({ headers: { authorization: 'BEARER tok' } } as never)).toBe('tok');
     expect(extractPresentedKey({ headers: { authorization: 'bearer  tok ' } } as never)).toBe('tok');
@@ -92,7 +102,7 @@ describe('config / auth helpers', () => {
 });
 
 describe('Streamable HTTP end-to-end (M-101)', () => {
-  it('initialize → initialized → tools/list over HTTP returns all 18 tools (with annotations + outputSchema)', async () => {
+  it('initialize → initialized → tools/list over HTTP returns all 20 tools (with annotations + outputSchema)', async () => {
     const { client, transport, connect } = connectClient();
     await connect();
     expect(transport.sessionId).toBeTruthy();

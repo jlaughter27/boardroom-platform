@@ -494,7 +494,7 @@ CS-1 Client Engagement Tracker, CS-2 Proposal Generator, CS-3 Expertise Inventor
 
 ## Cortex Evolution — detailed plan
 
-Current (3 scheduled + 1 on-demand): Weekly Memo (Sun 6pm), Pattern Detection (Mon 3am), Contradiction Scan (Mon 4am — verified from `CORTEX_CONFIG`; prior "Tue 9pm" in drafts was inaccurate), Simulation (on-demand via `POST /cortex/simulate`).
+Current (3 scheduled + 1 on-demand): Weekly Memo (Sun 6pm), Pattern Detection (Mon 3am), Contradiction Scan (Mon 4am — `'0 4 * * 1'`, verified from `CORTEX_CONFIG`; the Tuesday-evening value in earlier drafts was inaccurate), Simulation (on-demand via `POST /cortex/simulate`).
 
 Target: 12 scheduled + Simulation = 13 total Cortex operations. Add 9 new scheduled jobs per roadmap Cortex Evolution table.
 

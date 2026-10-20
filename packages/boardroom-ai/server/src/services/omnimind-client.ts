@@ -1,4 +1,10 @@
-import type { KnowledgeGraph } from '@boardroom/shared';
+import type {
+  KnowledgeGraph,
+  McpTokenCreateRequest,
+  McpTokenCreateResponse,
+  McpTokenListResponse,
+  McpTokenOptions,
+} from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -691,6 +697,30 @@ export class OmniMindClient {
 
   async triggerAdminDecay() {
     return this.request('POST', '/admin/decay/run');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lane C — personal MCP tokens (OmniMind /mcp/tokens, owned by Lane A1).
+  // userId travels BOTH as the `x-user-id` header and as the query/body field
+  // A1's contract reads; the route layer pins it to the JWT user.
+  // ---------------------------------------------------------------------------
+  async listMcpTokens(userId: string) {
+    const qs = new URLSearchParams({ userId }).toString();
+    return this.request<McpTokenListResponse>('GET', `/mcp/tokens?${qs}`, userId);
+  }
+
+  async createMcpToken(userId: string, body: McpTokenCreateRequest) {
+    return this.request<McpTokenCreateResponse>('POST', '/mcp/tokens', userId, { ...body, userId });
+  }
+
+  async revokeMcpToken(userId: string, tokenId: string) {
+    const qs = new URLSearchParams({ userId }).toString();
+    return this.request<void>('DELETE', `/mcp/tokens/${encodeURIComponent(tokenId)}?${qs}`, userId);
+  }
+
+  async getMcpTokenOptions(userId: string) {
+    const qs = new URLSearchParams({ userId }).toString();
+    return this.request<McpTokenOptions>('GET', `/mcp/tokens/options?${qs}`, userId);
   }
 }
 

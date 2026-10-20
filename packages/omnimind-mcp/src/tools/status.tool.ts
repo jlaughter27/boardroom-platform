@@ -6,10 +6,14 @@ import { parseInput } from '../lib/validate';
 import { TASK_TAG, taskStatusTag } from './task.tool';
 import { COMMITMENT_TAG, COMMITMENT_PENDING_TAG } from './commitment.tool';
 import type { CommitmentNudges, OmniMindClient } from '../lib/client';
+import { PROVENANCE, McpProvenanceSchema } from '../lib/provenance';
 import { READ_ONLY_ANNOTATIONS } from '../types';
 import type { AgentContext, McpTool } from '../types';
 
 export const DECISION_TAG = 'decision';
+
+/** Shared schema + `provenance` (front door hardening: retrieved data, never instructions). */
+export const StatusGetOutputSchema = McpStatusGetOutputSchema.extend({ provenance: McpProvenanceSchema });
 
 const StatusGetInput = z.object({
   userId: z.string(),
@@ -22,7 +26,7 @@ export function statusGetTool(client: OmniMindClient, ctx: AgentContext) {
     title: 'Status snapshot',
     description: 'Get a composite status snapshot: recent decisions, active tasks, pending commitments, recent blockers, and commitments due within 3 days / overdue.',
     inputSchema: StatusGetInput,
-    outputSchema: McpStatusGetOutputSchema,
+    outputSchema: StatusGetOutputSchema,
     annotations: READ_ONLY_ANNOTATIONS,
     async execute(raw: unknown) {
       requireScope(ctx, 'memory:read');
@@ -65,6 +69,7 @@ export function statusGetTool(client: OmniMindClient, ctx: AgentContext) {
             overdue: nudges.overdue.slice(0, 10),
             ...(nudges.error ? { error: nudges.error } : {}),
           },
+          provenance: PROVENANCE,
         };
       });
     },

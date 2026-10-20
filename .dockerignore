@@ -1,0 +1,17 @@
+# Docker build context = repo root for every service Dockerfile
+# (packages/omnimind-api, packages/boardroom-ai, packages/omnimind-mcp).
+# Keep local artefacts out so a fresh `pnpm install --frozen-lockfile` and
+# `tsc` inside the image are never overlaid by host node_modules / dist.
+#
+# Deliberately NOT excluded (the images need them): docs/prompts (runtime
+# persona prompts), scripts/check-prompts-integrity.sh, pnpm-lock.yaml,
+# every package.json / pnpm-workspace.yaml / turbo.json / tsconfig*.json,
+# and packages/*/prisma (schema + migrations).
+node_modules
+**/node_modules
+.git
+**/dist
+research_notes
+reports
+coverage
+*.log

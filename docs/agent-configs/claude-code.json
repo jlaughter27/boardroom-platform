@@ -1,7 +1,14 @@
 {
-  "_comment": "Claude Code MCP configuration for josh-business tenant. Add to project .claude/mcp.json or global ~/.claude/mcp.json. claude-code-josh has full write scopes and sourceWeight=1.0. OMNIMIND_MCP_AGENT_KEY is the omk_ key printed by keygen for THIS agent (sent as x-agent-key); OMNIMIND_API_KEY is the shared service key. OMNIMIND_MCP_USER_ID is OPTIONAL (Phase 6): the user the omnimind:// resources read as; tools always take userId explicitly. Remove the line to disable resources.",
+  "_comment": "Claude Code → OmniMind. PREFERRED: the hosted server with a personal omt_ token from BoardRoom Settings → Connected AI tools: `claude mcp add --transport http --scope user omnimind https://omnimind-mcp-production.up.railway.app/mcp --header \"Authorization: Bearer omt_…\"` (--scope user stores it in ~/.claude.json for every project; the default local scope loads it in the current project only; `claude mcp list` should report it connected). The JSON under mcpServers.omnimind is what that command produces; the ${OMNIMIND_TOKEN} form keeps the token out of a committed .mcp.json — Claude Code expands ${VAR} in url and headers (use a name like OMNIMIND_TOKEN; credential-looking names such as ANTHROPIC_AUTH_TOKEN are read as empty there). OAuth alternative once the operator enables it (runbook §9): omit headers and run `claude mcp login omnimind`. LEGACY (stdio, local checkout): mcpServers.omnimind-local runs the server in-process as agent claude-code-josh (josh-business, full write, sourceWeight 1.0) with an omk_ agent key from keygen; OMNIMIND_API_KEY is the shared service key; OMNIMIND_MCP_USER_ID is optional (user the omnimind:// resources read as). Server `instructions` load at session start and tell the model to call status_get / memory_search at the start of relevant turns — see docs/runbooks/omnimind-mcp.md §8.",
   "mcpServers": {
     "omnimind": {
+      "type": "http",
+      "url": "https://omnimind-mcp-production.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OMNIMIND_TOKEN}"
+      }
+    },
+    "omnimind-local": {
       "command": "node",
       "args": [
         "/path/to/boardroom-platform/packages/omnimind-mcp/dist/index.js"
