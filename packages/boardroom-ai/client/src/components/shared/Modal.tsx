@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -24,6 +24,7 @@ const SIZE = { sm: 'sm:max-w-sm', md: 'sm:max-w-lg', lg: 'sm:max-w-2xl' } as con
  * sliding up. The global reduced-motion rule collapses both transitions.
  */
 export function Modal({ isOpen, onClose, title, children, description, size = 'md', className }: ModalProps) {
+  const popupRef = useRef<HTMLDivElement>(null);
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <Dialog.Portal>
@@ -36,10 +37,15 @@ export function Modal({ isOpen, onClose, title, children, description, size = 'm
         />
         <Dialog.Viewport className="fixed inset-0 z-modal grid place-items-center overflow-y-auto p-4 sm:p-6 max-sm:items-end max-sm:p-0">
           <Dialog.Popup
+            ref={popupRef}
+            // Focus lands on the panel itself (like a native sheet), not on the
+            // close button, so opening never paints a focus ring; Tab reaches
+            // the first control from there.
+            initialFocus={popupRef}
             aria-label={title}
             aria-modal="true"
             className={cn(
-              'relative w-full bg-card text-card-foreground rounded-xl shadow-xl ring-1 ring-hairline outline-none',
+              'relative w-full bg-card text-card-foreground rounded-xl shadow-xl ring-1 ring-hairline outline-none focus-visible:outline-none',
               '[--parent-radius:var(--radius-xl)] [--parent-pad:1.5rem]',
               // Enter 0.96 → 1 and rise 8 px; exit settles close to rest.
               'scale-100 translate-y-0 transition-[opacity,transform] duration-sheet ease-sheet',
