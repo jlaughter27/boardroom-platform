@@ -1,6 +1,40 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { Modal } from '../../../src/components/shared/Modal';
+import { Modal, SHEET_DISMISS_OFFSET, SHEET_DISMISS_VELOCITY, shouldDismissSheet } from '../../../src/components/shared/Modal';
+
+describe('Modal — sheet variant', () => {
+  it('renders as a sheet with a scrolling body and no drag grabber on a desktop viewport', () => {
+    render(
+      <Modal isOpen onClose={() => {}} title="CEO Synthesis" variant="sheet" size="lg">
+        <p>Report</p>
+      </Modal>
+    );
+    const dialog = screen.getByRole('dialog', { name: 'CEO Synthesis' });
+    expect(dialog).toHaveAttribute('data-variant', 'sheet');
+    // matchMedia is mocked to `matches: false` (≥ 640 px), so there is nothing to drag.
+    expect(screen.queryByTestId('sheet-grabber')).toBeNull();
+    expect(screen.getByText('Report').parentElement?.className).toContain('overflow-y-auto');
+  });
+
+  it('dismisses past 120 px of travel or a 600 px/s flick, otherwise settles back', () => {
+    expect(SHEET_DISMISS_OFFSET).toBe(120);
+    expect(SHEET_DISMISS_VELOCITY).toBe(600);
+    expect(shouldDismissSheet({ offset: { x: 0, y: 121 }, velocity: { x: 0, y: 0 } })).toBe(true);
+    expect(shouldDismissSheet({ offset: { x: 0, y: 40 }, velocity: { x: 0, y: 601 } })).toBe(true);
+    expect(shouldDismissSheet({ offset: { x: 0, y: 119 }, velocity: { x: 0, y: 599 } })).toBe(false);
+    expect(shouldDismissSheet({ offset: { x: 0, y: -200 }, velocity: { x: 0, y: -900 } })).toBe(false);
+  });
+
+  it('shows header actions before the close button', () => {
+    render(
+      <Modal isOpen onClose={() => {}} title="Sheet" variant="sheet" headerActions={<button type="button">Export</button>}>
+        <p>Body</p>
+      </Modal>
+    );
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((b) => b.textContent || b.getAttribute('aria-label'))).toEqual(['Export', 'Close modal']);
+  });
+});
 
 describe('Modal', () => {
   it('renders a labelled dialog with its content when open', () => {
