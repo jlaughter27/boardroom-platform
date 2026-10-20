@@ -138,7 +138,15 @@ function gridStep(scale: number): number {
   return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * pow;
 }
 
-const GLASS = 'bg-card supports-[backdrop-filter]:bg-card/80 supports-[backdrop-filter]:backdrop-blur-md [@media(prefers-reduced-transparency:reduce)]:bg-card [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none'; // ui-standards: allow backdrop-blur — hover card floats over the canvas (navigation layer); reduced-transparency fallback inline
+/**
+ * Chrome floating over the canvas (legend, minimap, hover card) is the
+ * navigation layer: the shared `.material` recipe — 72 % card fill, blur +
+ * saturation, hairline ring, top highlight — with solid fallbacks for no
+ * `backdrop-filter` and reduced transparency baked into index.css. The canvas
+ * underneath, and everything inside these bars, stays flat: never two
+ * materials stacked.
+ */
+const FLOATING = 'material rounded-lg';
 
 export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(function KnowledgeGraphView(
   {
@@ -854,8 +862,8 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
           role="tooltip"
           data-testid="graph-tooltip"
           className={cn(
-            'pointer-events-none absolute left-0 top-0 z-10 w-[260px] rounded-lg border border-border/80 p-2.5 shadow-lg',
-            GLASS,
+            'pointer-events-none absolute left-0 top-0 z-10 w-[260px] p-2.5',
+            FLOATING,
             !reducedMotion && 'motion-safe:animate-[graph-card-in_180ms_cubic-bezier(0.23,1,0.32,1)]',
           )}
         >
@@ -881,7 +889,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
       {/* Legend bar: type chips that double as the filter */}
       {typeFilter && onToggleType && (
         <div
-          className={cn('absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1 rounded-lg border border-border/80 p-1 shadow-md', GLASS)}
+          className={cn('absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1 p-1', FLOATING)}
           role="group"
           aria-label="Legend and type filter"
           data-testid="graph-legend"
@@ -913,7 +921,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
 
       {/* Minimap */}
       {showMinimap && (
-        <div className={cn('absolute bottom-3 right-3 z-10 rounded-lg border border-border/80 p-1 shadow-md', GLASS)}>
+        <div className={cn('absolute bottom-3 right-3 z-10 p-1', FLOATING)}>
           <GraphMinimap
             ref={minimapRef}
             colors={palette.type}
