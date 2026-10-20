@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { DURATION, EASE_OUT } from '../lib/motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { useToastStore } from '../components/ui';
@@ -53,7 +54,7 @@ function CelebrationScreen() {
             scale: 0.5,
             rotate: p.rotation,
           }}
-          transition={{ duration: 1.5, delay: p.delay, ease: 'easeOut' }}
+          transition={{ duration: 1.5, delay: p.delay, ease: EASE_OUT }}
           className="absolute rounded-full"
           style={{
             width: p.size,
@@ -65,9 +66,9 @@ function CelebrationScreen() {
 
       {/* Checkmark */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.5 }}
+        initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
+        transition={{ duration: DURATION.slow, ease: EASE_OUT }}
         className="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mb-6"
       >
         <span className="text-success text-3xl">{'\u2713'}</span>
@@ -76,7 +77,7 @@ function CelebrationScreen() {
       <motion.h2
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+        transition={{ delay: 0.2, duration: DURATION.slow, ease: EASE_OUT }}
         className="text-2xl font-semibold text-foreground mb-2"
       >
         You're all set!
@@ -84,7 +85,7 @@ function CelebrationScreen() {
       <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
+        transition={{ delay: 0.4, duration: DURATION.slow, ease: EASE_OUT }}
         className="text-muted-foreground"
       >
         Redirecting to your dashboard...
@@ -179,7 +180,7 @@ export default function OnboardingPage() {
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              transition={{ duration: DURATION.slow, ease: EASE_OUT }}
             >
               {step === 0 && (
                 <div className="bg-card rounded-xl border border-border shadow-lg p-6 sm:p-8">

@@ -1,9 +1,11 @@
 export { Button, buttonVariants, type ButtonProps } from './Button';
-export { Card } from './Card';
+export { Card, type CardElevation } from './Card';
 export { Input } from './Input';
 export { Badge } from './Badge';
 export { Skeleton } from './Skeleton';
-export { Tooltip } from './Tooltip';
+export { Tooltip, TooltipProvider, type TooltipSide } from './Tooltip';
+export { Popover, type PopoverSide, type PopoverAlign } from './Popover';
+export { Menu, type MenuEntry, type MenuItemDef, type MenuSeparatorDef } from './Menu';
 export { Avatar } from './Avatar';
 export { Progress } from './Progress';
 export { Tabs } from './Tabs';

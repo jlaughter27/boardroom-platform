@@ -71,7 +71,7 @@ export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full text-left p-3 rounded-lg border transition-all',
+        'w-full text-left p-3 rounded-lg border transition-[border-color,box-shadow,background-color] duration-fast ease-out',
         isSelected
           ? 'border-primary ring-2 ring-primary/40 bg-card'
           : 'border-border bg-card hover:bg-card hover:border-border'
