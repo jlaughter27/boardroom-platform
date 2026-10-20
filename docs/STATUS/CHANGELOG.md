@@ -6,6 +6,17 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-20 — Phase 7 — One-command MCP go-live (laptop + phone)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (fresh from `main` after PR #21) | **Status:** Uncommitted | **Tests:** `scripts/tests/mcp-go-live.test.sh` (7 scenarios, stubbed railway/curl/openssl/claude) added to CI
+
+- `scripts/mcp-go-live.sh` (`pnpm go-live:mcp`): runbook §0–§7 in one idempotent run — admin key (+ wait for the redeploy via the admin route), gateway agent with `MCP_GATEWAY_CEILING_SCOPES` read from shared, tenant owners (skip owned, warn on a different owner), `omnimind-mcp` service create / variables / domain / `railway up`, BoardRoom variables, first token + `claude mcp add`, §7 verification, summary table (also to `$GITHUB_STEP_SUMMARY`); `--dry-run`, `--yes`, `--no-token`, secrets redacted in every line but the two sanctioned ones; user id resolved through the existing `POST /auth/login {email}` (no admin user-lookup route exists)
+- `.github/workflows/mcp-go-live.yml`: `workflow_dispatch` wrapper (dry_run default true, `RAILWAY_TOKEN` project token, `::add-mask::` on the admin + gateway keys, no token minted in CI)
+- Railway CLI flags verified against github.com/railwayapp/cli source (v5.71.0, not v4): `variable list/set`, `service list`, `add --service`, `domain` (note `--project` long-only, `-p` = port), `up -s -e -p --detach`, `link -p -e`, token semantics; unverified (docs.railway.com unreachable): `RAILWAY_DOCKERFILE_PATH`, config-as-code path (dashboard-only), project-token rights for `add`/`domain`
+- runbook "One-command path" + DEPLOYMENT-RUNBOOK checklist pointer; manual steps kept as the reference
+
+---
+
 ## 2026-10-19 — Phase 7 — Blind spots closed, deployment-ready
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR opened | **Tests:** 2,107 passing + 45 eval (was 2,039)

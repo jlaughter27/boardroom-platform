@@ -4,7 +4,7 @@
 **Last update:** 2026-10-19 (blind spots closed; PR opened)
 **Updated by:** Claude (research → build → review session, branch `claude/amazing-mccarthy-grvem2`)
 
-**Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key.
+**Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key. **One command does the checklist** (2026-10-20): `pnpm go-live:mcp -- --project <id> --owner-email <e-mail> --yes` from a laptop, or GitHub → Actions → *MCP go-live* from a phone (runbook "One-command path").
 
 ---
 
