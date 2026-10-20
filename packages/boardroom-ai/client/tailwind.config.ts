@@ -41,6 +41,17 @@ export default {
         },
         border: 'var(--color-border)',
         ring: 'var(--color-ring)',
+        // Hairline: foreground at ~9% (12% dark) — the edge of a floating surface.
+        hairline: {
+          DEFAULT: 'var(--hairline)',
+          strong: 'var(--hairline-strong)',
+        },
+        // Elevation ladder (dark mode lightens per step; light mode uses shadows).
+        surface: {
+          1: 'var(--surface-1)',
+          2: 'var(--surface-2)',
+          3: 'var(--surface-3)',
+        },
         destructive: {
           DEFAULT: 'var(--color-destructive)',
           foreground: 'var(--color-destructive-foreground)',
@@ -98,25 +109,57 @@ export default {
         mono: ['var(--font-mono)'],
         display: ['var(--font-display)'],
       },
+      fontSize: {
+        // 34 px Large Title; display tracking baked in.
+        '4xl': ['var(--text-4xl)', { lineHeight: '1.2', letterSpacing: 'var(--tracking-display)' }],
+      },
+      letterSpacing: {
+        display: 'var(--tracking-display)',
+        title: 'var(--tracking-title)',
+      },
       borderRadius: {
         sm: 'var(--radius-sm)',
         md: 'var(--radius-md)',
         lg: 'var(--radius-lg)',
         xl: 'var(--radius-xl)',
+        control: 'var(--radius-control)',
+        container: 'var(--radius-container)',
+        capsule: 'var(--radius-capsule)',
       },
       boxShadow: {
         sm: 'var(--shadow-sm)',
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
+        xl: 'var(--shadow-xl)',
+        // Hairline ring without a shadow — for flat floating chrome.
+        hairline: '0 0 0 1px var(--hairline)',
+        highlight: 'var(--highlight)',
       },
       transitionDuration: {
+        instant: 'var(--duration-instant)',
         fast: 'var(--duration-fast)',
         normal: 'var(--duration-normal)',
         slow: 'var(--duration-slow)',
+        sheet: 'var(--duration-sheet)',
+      },
+      transitionTimingFunction: {
+        // `ease-out` / `ease-in-out` now resolve to the foundation curves.
+        DEFAULT: 'var(--ease-out)',
+        out: 'var(--ease-out)',
+        'in-out': 'var(--ease-in-out)',
+        sheet: 'var(--ease-sheet)',
+      },
+      zIndex: {
+        dropdown: 'var(--z-dropdown)',
+        sticky: 'var(--z-sticky)',
+        'modal-backdrop': 'var(--z-modal-backdrop)',
+        modal: 'var(--z-modal)',
+        'command-palette': 'var(--z-command-palette)',
+        toast: 'var(--z-toast)',
       },
       animation: {
         'pulse-live': 'pulse-live 1.5s ease-in-out infinite',
-        'fade-in': 'fade-in 300ms ease-out',
+        'fade-in': 'fade-in var(--duration-normal) var(--ease-out)',
       },
       keyframes: {
         'pulse-live': {
@@ -124,7 +167,7 @@ export default {
           '50%': { opacity: '0.4' },
         },
         'fade-in': {
-          from: { opacity: '0', transform: 'translateY(6px)' },
+          from: { opacity: '0', transform: 'translateY(4px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
       },

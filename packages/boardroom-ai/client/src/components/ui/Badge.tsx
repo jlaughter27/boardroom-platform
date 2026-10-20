@@ -2,7 +2,8 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/cn';
 
 const badgeVariants = cva(
-  'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
+  // Capsule shape; tabular figures so counts ("3", "12") keep their width stable.
+  'inline-flex items-center rounded-capsule px-2.5 py-0.5 text-xs font-medium tnum transition-colors duration-fast',
   {
     variants: {
       variant: {
