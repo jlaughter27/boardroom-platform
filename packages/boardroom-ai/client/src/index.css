@@ -116,6 +116,62 @@ h3, h4 {
   }
 }
 
+/* === ROUTE TRANSITIONS ===
+ * The routed page root carries `view-transition-name: page` (React
+ * `<ViewTransition name="page">` in shared/Layout.tsx). A route change is one
+ * View Transition: the old page fades out, the new one fades in, and both
+ * slide 10 px — in from the right on forward navigation, reversed on back.
+ * The direction arrives as a transition type (`addTransitionType` in
+ * hooks/useRouteTransition.ts) and is read with `:active-view-transition-type()`.
+ * 180 ms on --ease-out. Reduced motion: opacity only. Browsers without the
+ * API never reach these rules.
+ */
+@keyframes vt-fade-in { from { opacity: 0; } }
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-slide-from-right { from { transform: translateX(10px); } }
+@keyframes vt-slide-to-left { to { transform: translateX(-10px); } }
+@keyframes vt-slide-from-left { from { transform: translateX(-10px); } }
+@keyframes vt-slide-to-right { to { transform: translateX(10px); } }
+
+/* The shell (sidebar, header) does not change between routes: no root cross-fade to wait on. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0s;
+}
+
+::view-transition-group(page) {
+  animation-duration: var(--duration-normal);
+  animation-timing-function: var(--ease-out);
+  overflow: clip;
+}
+
+::view-transition-old(page),
+::view-transition-new(page) {
+  animation-duration: var(--duration-normal);
+  animation-timing-function: var(--ease-out);
+  animation-fill-mode: both;
+  /* Both snapshots keep their own size; no UA height morph while the slide runs. */
+  height: auto;
+  mix-blend-mode: normal;
+}
+
+/* Untyped route change (programmatic navigate without a direction): fade only. */
+::view-transition-old(page) { animation-name: vt-fade-out; }
+::view-transition-new(page) { animation-name: vt-fade-in; }
+
+html:active-view-transition-type(nav-forward)::view-transition-old(page) { animation-name: vt-fade-out, vt-slide-to-left; }
+html:active-view-transition-type(nav-forward)::view-transition-new(page) { animation-name: vt-fade-in, vt-slide-from-right; }
+html:active-view-transition-type(nav-back)::view-transition-old(page) { animation-name: vt-fade-out, vt-slide-to-right; }
+html:active-view-transition-type(nav-back)::view-transition-new(page) { animation-name: vt-fade-in, vt-slide-from-left; }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(page) { animation-duration: 0s; }
+  html:active-view-transition-type(nav-forward)::view-transition-old(page),
+  html:active-view-transition-type(nav-back)::view-transition-old(page) { animation-name: vt-fade-out; }
+  html:active-view-transition-type(nav-forward)::view-transition-new(page),
+  html:active-view-transition-type(nav-back)::view-transition-new(page) { animation-name: vt-fade-in; }
+}
+
 /* === TYPOGRAPHY UTILITIES === */
 
 /*
@@ -195,6 +251,25 @@ h3, h4 {
   .material-sidebar {
     background: var(--color-sidebar-bg);
   }
+}
+
+/*
+ * The same fallback behind a class, for environments that cannot emulate the
+ * media query (the visual harness; a future in-app "reduce transparency"
+ * setting). Keep in lockstep with the block above.
+ */
+:root.reduce-transparency .material,
+:root.reduce-transparency .material-clear,
+:root.reduce-transparency .material-sidebar {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root.reduce-transparency .material,
+:root.reduce-transparency .material-clear {
+  background: var(--color-card);
+}
+:root.reduce-transparency .material-sidebar {
+  background: var(--color-sidebar-bg);
 }
 
 /* === SKELETON SHIMMER === */

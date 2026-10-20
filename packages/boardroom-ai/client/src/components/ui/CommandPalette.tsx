@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router-dom';
+import { useTransitionNavigate } from '../../hooks/useRouteTransition';
 import {
   ChevronLeft,
   Drama,
@@ -60,7 +60,8 @@ function formatScore(score: number): string {
 export function CommandPalette() {
   // Cmd/Ctrl+K is bound once, in useKeyboardShortcuts (Layout) — see C-116.
   const { open, close } = useCommandPaletteStore();
-  const navigate = useNavigate();
+  // Palette picks are rare route changes: they get the same directional view transition as a link click.
+  const navigate = useTransitionNavigate();
   const [search, setSearch] = useState('');
   const { goals, projects, people, decisions, tasks, commitments, fetchTasks, fetchCommitments } = useEntitiesStore();
   const paletteMode = useGraphStore((s) => s.paletteMode);

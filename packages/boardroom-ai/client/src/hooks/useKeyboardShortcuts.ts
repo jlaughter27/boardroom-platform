@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useTransitionNavigate } from './useRouteTransition';
 import { useCommandPaletteStore } from '../stores/commandPalette.store';
 import { useGraphStore } from '../stores/graph.store';
 import { useUIStore } from '../stores/ui.store';
@@ -28,7 +28,7 @@ export function setShortcutsModalToggle(fn: () => void) {
 }
 
 export function useKeyboardShortcuts() {
-  const navigate = useNavigate();
+  const navigate = useTransitionNavigate();
   const { toggle: togglePalette } = useCommandPaletteStore();
   const { openModal } = useUIStore();
   const pendingChord = useRef<{ key: string; at: number } | null>(null);
