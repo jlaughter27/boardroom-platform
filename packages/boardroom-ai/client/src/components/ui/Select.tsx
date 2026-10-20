@@ -19,15 +19,30 @@ interface SelectProps {
   disabled?: boolean;
   /** Form field name (a hidden input is rendered). */
   name?: string;
+  /** `md` (default) is the 36 px form control; `sm` is a 28 px control for dense rows and toolbars. */
+  size?: 'sm' | 'md';
+  /** Id on the trigger, so a visible `<label htmlFor>` can point at it. */
+  id?: string;
+  /** Native tooltip on the trigger (e.g. why a control is disabled). */
+  title?: string;
   'aria-label'?: string;
+  'data-testid'?: string;
 }
+
+const TRIGGER_SIZE = {
+  sm: 'h-7 px-2 text-xs gap-1.5 rounded-md',
+  md: 'h-9 px-3 text-sm gap-2 rounded-control',
+} as const;
 
 /**
  * Single-value select on Base UI: typeahead, arrow keys, home/end and a
  * native hidden input for forms. The popup opens 0.96 → 1 in 140 ms from the
  * trigger and never overlaps it.
  */
-export function Select({ options, value, onChange, placeholder = 'Select...', className, disabled, name, 'aria-label': ariaLabel }: SelectProps) {
+export function Select({
+  options, value, onChange, placeholder = 'Select...', className, disabled, name, size = 'md', id, title,
+  'aria-label': ariaLabel, 'data-testid': testId,
+}: SelectProps) {
   const items = options.map((o) => ({ label: o.label, value: o.value }));
   return (
     <BaseSelect.Root<string | null>
@@ -38,9 +53,13 @@ export function Select({ options, value, onChange, placeholder = 'Select...', cl
       name={name}
     >
       <BaseSelect.Trigger
+        id={id}
+        title={title}
         aria-label={ariaLabel}
+        data-testid={testId}
         className={cn(
-          'group flex w-full items-center justify-between gap-2 h-9 px-3 rounded-control border border-border bg-card text-sm text-foreground',
+          'group flex w-full items-center justify-between border border-border bg-card text-foreground',
+          TRIGGER_SIZE[size],
           'transition-[border-color,box-shadow,background-color] duration-fast ease-out',
           'hover:border-hairline-strong data-[popup-open]:border-primary/40 data-[popup-open]:ring-2 data-[popup-open]:ring-ring',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary/40',
@@ -56,7 +75,7 @@ export function Select({ options, value, onChange, placeholder = 'Select...', cl
         </BaseSelect.Value>
         <BaseSelect.Icon className="shrink-0 text-muted-foreground">
           <ChevronDown
-            size={16}
+            size={size === 'sm' ? 14 : 16}
             strokeWidth={1.75}
             aria-hidden="true"
             className="transition-transform duration-fast ease-out group-data-[popup-open]:rotate-180"
@@ -81,6 +100,7 @@ export function Select({ options, value, onChange, placeholder = 'Select...', cl
                   label={option.label}
                   className={cn(
                     'flex cursor-default select-none items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground outline-none',
+                    size === 'sm' && 'py-1 text-xs',
                     'data-[highlighted]:bg-muted data-[selected]:text-primary data-[disabled]:opacity-50'
                   )}
                 >

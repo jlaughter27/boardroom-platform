@@ -31,6 +31,8 @@ const buttonVariants = cva(
         sm: 'h-8 px-3 text-xs',
         md: 'h-9 px-4 text-sm',
         lg: 'h-11 px-6 text-base',
+        // Icon-only control: a 32 px square hit area. Pass `aria-label`.
+        icon: 'h-8 w-8 p-0 text-sm',
       },
       shape: {
         default: '',
@@ -41,12 +43,13 @@ const buttonVariants = cva(
       { shape: 'default', size: 'sm', className: 'rounded-md' },
       { shape: 'default', size: 'md', className: 'rounded-control' },
       { shape: 'default', size: 'lg', className: 'rounded-control' },
+      { shape: 'default', size: 'icon', className: 'rounded-md' },
     ],
     defaultVariants: { variant: 'primary', size: 'md', shape: 'default' },
   }
 );
 
-const LABEL_GAP = { sm: 'gap-1.5', md: 'gap-2', lg: 'gap-2.5' } as const;
+const LABEL_GAP = { sm: 'gap-1.5', md: 'gap-2', lg: 'gap-2.5', icon: 'gap-0' } as const;
 
 export interface ButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
