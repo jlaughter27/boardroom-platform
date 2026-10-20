@@ -26,6 +26,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMockApi } from './mock-api.mjs';
+import { measureTextContrast } from './contrast.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(here, '..', '..');
@@ -137,11 +138,38 @@ const SETTLED = '[data-testid="knowledge-graph-view"][data-settled="true"]';
 async function runAction(page, step, log) {
   if (step.wait) return page.waitForSelector(step.wait, { timeout: step.timeout ?? 15000 });
   if (step.waitGone) return page.waitForSelector(step.waitGone, { state: 'detached', timeout: step.timeout ?? 15000 });
-  if (step.click) return page.click(step.click, { timeout: step.timeout ?? 10000 });
+  if (step.click) {
+    // `optional: true` skips a control that an older build does not have (round-0 "before" shots).
+    if (step.optional && !(await page.$(step.click))) { log(`  (optional click skipped — ${step.click} not present)`); return undefined; }
+    return page.click(step.click, { timeout: step.timeout ?? 10000 });
+  }
   if (step.type) { await page.click(step.type.selector); return page.type(step.type.selector, step.type.text, { delay: 15 }); }
   if (step.press) return page.keyboard.press(step.press);
   if (step.sleep) return page.waitForTimeout(step.sleep);
   if (step.evaluate) return page.evaluate(step.evaluate);
+  // { scroll: { selector, top } } — scroll a container (the page's `main`) without a wheel gesture.
+  if (step.scroll) return page.$eval(step.scroll.selector, (el, top) => { el.scrollTo({ top, behavior: 'instant' }); }, step.scroll.top ?? 0);
+  // { style: 'css' } — inject a stylesheet (e.g. slow a View Transition down so a frame can be captured mid-way).
+  if (step.style) return page.addStyleTag({ content: step.style });
+  // { hoverCanvas: { selector, until } } — sweep the real pointer over a canvas until `until` appears (a node hover card).
+  if (step.hoverCanvas) {
+    const box = await page.$eval(step.hoverCanvas.selector, (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+    const points = [];
+    for (const fy of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74]) for (const fx of [0.5, 0.44, 0.56, 0.38, 0.62, 0.32, 0.68, 0.26, 0.74, 0.2, 0.8]) points.push([fx, fy]);
+    for (const [fx, fy] of points) {
+      await page.mouse.move(box.x + box.w * fx, box.y + box.h * fy, { steps: 3 });
+      await page.waitForTimeout(70);
+      if (await page.$(step.hoverCanvas.until)) return undefined;
+    }
+    log(`  (no ${step.hoverCanvas.until} after ${points.length} hover points)`);
+    return undefined;
+  }
+  // { assert: 'js expression', message } — fail the shot when the expression is falsy (the DOM / CSS wiring checks).
+  if (step.assert) {
+    const ok = await page.evaluate(step.assert);
+    if (!ok) throw new Error(`assert failed: ${step.message ?? step.assert}`);
+    return undefined;
+  }
   if (step.settle) {
     // Prefer the view's own settled flag; fall back to a fixed wait for builds that do not expose it.
     try { await page.waitForSelector(SETTLED, { timeout: step.timeout ?? 9000 }); await page.waitForTimeout(250); }
@@ -200,23 +228,37 @@ export async function shootPages(pages, outDir = DEFAULT_OUT, options = {}) {
     for (const spec of pages) {
       if (options.onlyNames && !options.onlyNames.includes(spec.name)) continue;
       for (const theme of spec.themes ?? themes) {
-        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: 'no-preference', deviceScaleFactor: 1, ignoreHTTPSErrors: true });
+        // `reducedMotion` emulates prefers-reduced-motion; `initScript` runs before the app
+        // (the harness uses it to toggle the `.reduce-transparency` class and to record
+        // View Transition types); `suffix` keeps variant shots apart on disk.
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: options.reducedMotion ?? 'no-preference', deviceScaleFactor: 1, ignoreHTTPSErrors: true });
         const storage = { local: { theme, ...(spec.storage?.local ?? {}) }, session: spec.storage?.session ?? {} };
         await context.addInitScript((s) => {
           for (const [k, v] of Object.entries(s.local)) localStorage.setItem(k, v);
           for (const [k, v] of Object.entries(s.session)) sessionStorage.setItem(k, v);
         }, storage);
+        if (options.initScript) await context.addInitScript(options.initScript);
         const page = await context.newPage();
         const errors = [];
         page.on('pageerror', (e) => errors.push(String(e)));
         page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-        const file = join(outDir, `${spec.name}-${theme}.png`);
-        log(`▸ ${spec.name} [${theme}]`);
+        const shotName = `${spec.name}${options.suffix ?? ''}`;
+        const file = join(outDir, `${shotName}-${theme}.png`);
+        log(`▸ ${shotName} [${theme}]`);
         try {
           await page.goto(baseUrl + spec.path, { waitUntil: 'networkidle', timeout: 30000 });
           for (const step of spec.actions ?? []) await runAction(page, step, log);
           await page.screenshot({ path: file, fullPage: false });
-          const result = { name: spec.name, theme, file };
+          const result = { name: shotName, theme, file };
+          // Contrast-on-glass: `spec.contrast = [{ selector, label }]`, measured on the live page after the shot.
+          if (spec.contrast?.length) {
+            result.contrast = [];
+            for (const target of spec.contrast) {
+              const row = await measureTextContrast(page, target.selector, target.label ?? target.selector);
+              result.contrast.push(row);
+              log(`  contrast ${row.label}: ${row.error ? `skipped (${row.error})` : `${row.ratio}:1 ${row.pass ? '✓' : '✗ below 4.5'}`}`);
+            }
+          }
           if (spec.measure) {
             result.perf = await measureFrames(page, options.measureMs ?? 2500);
             writeFileSync(join(outDir, `${spec.name}-${theme}.perf.json`), JSON.stringify(result.perf, null, 2));
