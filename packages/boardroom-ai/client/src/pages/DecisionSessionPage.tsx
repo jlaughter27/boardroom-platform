@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { BILLING_SETTINGS_PATH } from '../components/shared/TrialBanner';
@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useSessionStore } from '../stores/session.store';
 import { ModeSelector } from '../components/decision/ModeSelector';
 import { PersonaCard } from '../components/decision/PersonaCard';
-import { SynthesisPanel } from '../components/decision/SynthesisPanel';
+import { SynthesisPanel, SynthesisSheet } from '../components/decision/SynthesisPanel';
 import { SufficiencyBanner } from '../components/decision/SufficiencyBanner';
 import { SimulationButton } from '../components/decision/SimulationButton';
 import { SimulationPanel } from '../components/decision/SimulationPanel';
@@ -16,7 +16,7 @@ import * as api from '../lib/api';
 import type { PersonaId, CustomPersona, PersonaResponse, SufficiencyScore } from '@boardroom/shared';
 import { CLIENT_MODE_CONFIGS, type ClientUserMode, type ExtendedSynthesisReport } from '../types/debate';
 import { useDebounce } from '../hooks/useDebounce';
-import { PageWrapper, Button, Badge, Card } from '../components/ui';
+import { PageWrapper, PageHeader, Button, Badge, Card } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { AINudge } from '../components/shared/AINudge';
 import { slideUp, scaleIn, staggerContainer, staggerItem } from '../lib/motion';
@@ -90,6 +90,16 @@ export default function DecisionSessionPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isNew]);
+
+  // The synthesis sheet opens once, when a synthesis finishes streaming in this
+  // visit (not for a report that was already there on load); the inline panel
+  // stays on the page, and the header button can reopen the sheet any time.
+  const [synthesisSheetOpen, setSynthesisSheetOpen] = useState(false);
+  const wasSynthesizing = useRef(false);
+  useEffect(() => {
+    if (wasSynthesizing.current && !isSynthesizing && synthesis) setSynthesisSheetOpen(true);
+    wasSynthesizing.current = isSynthesizing;
+  }, [isSynthesizing, synthesis]);
 
   const hasPersonas = Object.keys(personaResponses).length > 0 || streamingPersonas.size > 0;
   const allPersonasDone = currentSession
@@ -177,12 +187,12 @@ export default function DecisionSessionPage() {
           {phase === 'input' && (
             <motion.div key="input" {...slideUp} className="space-y-6">
               <div className="max-w-2xl mx-auto space-y-6">
-                <div className="text-center">
-                  <h1 className="text-2xl font-semibold text-foreground mb-1">New Decision</h1>
-                  <p className="text-muted-foreground text-sm">
-                    Describe your question, choose a mode, then analyze.
-                  </p>
-                </div>
+                <PageHeader
+                  align="center"
+                  className="mb-0"
+                  title="New Decision"
+                  subtitle="Describe your question, choose a mode, then analyze."
+                />
 
                 <div>
                   <textarea
@@ -246,10 +256,14 @@ export default function DecisionSessionPage() {
                     report={synthesis ?? undefined}
                     streamingText={synthesisStreaming}
                     isStreaming={isSynthesizing}
+                    onExpand={synthesis ? () => setSynthesisSheetOpen(true) : undefined}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
+            {synthesis && (
+              <SynthesisSheet report={synthesis} isOpen={synthesisSheetOpen} onClose={() => setSynthesisSheetOpen(false)} />
+            )}
 
             {/* Decision commit (Phase 6) — shown once synthesis is complete */}
             {phase === 'synthesis' && synthesis && !isSynthesizing && (
