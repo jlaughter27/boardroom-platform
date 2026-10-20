@@ -5,6 +5,7 @@ import { Layout } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { Toaster } from './components/ui/Toast';
 import { TooltipProvider } from './components/ui/Tooltip';
+import { RouteTransitionArmer } from './hooks/useRouteTransition';
 
 const CommandPalette = lazy(() => import('./components/ui/CommandPalette').then(m => ({ default: m.CommandPalette })));
 import * as api from './lib/api';
@@ -105,6 +106,9 @@ export default function App() {
   }, [checkAuth]);
 
   return (
+    <>
+    {/* Before the router on purpose: its popstate listener must register first (see hooks/useRouteTransition.ts). */}
+    <RouteTransitionArmer />
     <BrowserRouter>
       <TooltipProvider>
       <Toaster />
@@ -140,5 +144,6 @@ export default function App() {
       </Suspense>
       </TooltipProvider>
     </BrowserRouter>
+    </>
   );
 }

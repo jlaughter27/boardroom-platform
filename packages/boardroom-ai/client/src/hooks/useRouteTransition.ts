@@ -1,4 +1,4 @@
-import { addTransitionType, startTransition, useCallback, useEffect, useRef } from 'react';
+import { addTransitionType, startTransition, useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import { useLocation, useNavigate, type NavigateOptions, type To } from 'react-router-dom';
 
 /**
@@ -46,10 +46,33 @@ export function isRouterLinkClick(e: MouseEvent): boolean {
 }
 
 /**
+ * Render once, as a sibling *before* `<BrowserRouter>` (App.tsx), so its
+ * popstate listener is registered ahead of the router's.
+ *
+ * React flushes the first transition it sees during a `popstate` event
+ * synchronously (history moves should feel instant), and a synchronous commit
+ * never starts a View Transition — so browser back would always be a hard
+ * swap. That eager slot is taken once per event. Window listeners fire in
+ * registration order, so this one, registered first, spends the slot on a
+ * no-op update; the router's own update, scheduled by its listener next,
+ * stays asynchronous and animates. If a browser ever orders listeners
+ * differently, back simply swaps instantly, exactly as before.
+ */
+export function RouteTransitionArmer() {
+  const [, claimEagerSlot] = useReducer((n: number) => n + 1, 0);
+  useLayoutEffect(() => {
+    const onPop = () => { startTransition(() => claimEagerSlot()); };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  return null;
+}
+
+/**
  * Mount once in the shell. Tags router link clicks as forward and popstate as
  * back / forward. Both listeners run *after* the router has scheduled its
- * transition (bubble phase for clicks, registration order for popstate), so
- * the type lands on that same transition.
+ * transition (bubble phase for clicks; registered after the router's for
+ * popstate), so the type lands on that same transition.
  */
 export function useRouteTransitionTypes() {
   const location = useLocation();
