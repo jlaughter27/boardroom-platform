@@ -147,6 +147,8 @@ interface SynthesisSheetProps {
   report: ExtendedSynthesisReport;
   isOpen: boolean;
   onClose: () => void;
+  /** The question under the title, so the sheet stands on its own. */
+  question?: string;
 }
 
 /**
@@ -154,7 +156,7 @@ interface SynthesisSheetProps {
  * desktop, a draggable bottom sheet on phones. The inline panel stays on the
  * page underneath, so dismissing never loses the report.
  */
-export function SynthesisSheet({ report, isOpen, onClose }: SynthesisSheetProps) {
+export function SynthesisSheet({ report, isOpen, onClose, question }: SynthesisSheetProps) {
   return (
     <Modal
       isOpen={isOpen}
@@ -162,7 +164,7 @@ export function SynthesisSheet({ report, isOpen, onClose }: SynthesisSheetProps)
       variant="sheet"
       size="lg"
       title="CEO Synthesis"
-      description={report.recommendation}
+      description={question ?? report.recommendation}
     >
       <div data-testid="synthesis-sheet-body" className="-mt-4">
         <SynthesisReportBody report={report} />
@@ -194,7 +196,7 @@ export function SynthesisReportBody({ report }: { report: ExtendedSynthesisRepor
         <ol className="space-y-2">
           {report.nextActions.map((action, i) => (
             <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <span className="flex-shrink-0 w-5 h-5 rounded-md bg-card text-muted-foreground text-xs flex items-center justify-center mt-0.5">
+              <span className="flex-shrink-0 w-5 h-5 rounded-md bg-muted text-muted-foreground text-xs tnum flex items-center justify-center mt-0.5">
                 {i + 1}
               </span>
               <span>{action}</span>

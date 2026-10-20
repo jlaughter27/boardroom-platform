@@ -186,7 +186,8 @@ export default function DecisionSessionPage() {
         <AnimatePresence mode="wait">
           {phase === 'input' && (
             <motion.div key="input" {...slideUp} className="space-y-6">
-              <div className="max-w-2xl mx-auto space-y-6">
+              {/* 768 px: wide enough for the seven-mode segmented control on one line. */}
+              <div className="max-w-3xl mx-auto space-y-6">
                 <PageHeader
                   align="center"
                   className="mb-0"
@@ -262,7 +263,7 @@ export default function DecisionSessionPage() {
               )}
             </AnimatePresence>
             {synthesis && (
-              <SynthesisSheet report={synthesis} isOpen={synthesisSheetOpen} onClose={() => setSynthesisSheetOpen(false)} />
+              <SynthesisSheet report={synthesis} question={currentSession?.question} isOpen={synthesisSheetOpen} onClose={() => setSynthesisSheetOpen(false)} />
             )}
 
             {/* Decision commit (Phase 6) — shown once synthesis is complete */}

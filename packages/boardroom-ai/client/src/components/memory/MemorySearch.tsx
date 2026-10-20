@@ -64,8 +64,9 @@ export function MemorySearch() {
     search({});
   }
 
+  // One 36 px row: inputs, selects and toggles share the control radius and height.
   const selectClass =
-    'bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary/40';
+    'h-9 bg-card border border-border rounded-control px-3 text-sm text-foreground outline-none hover:border-hairline-strong focus:border-primary/40 focus:ring-2 focus:ring-ring transition-[border-color,box-shadow] duration-fast ease-out';
 
   return (
     <div className="space-y-3">
@@ -111,7 +112,6 @@ export function MemorySearch() {
         />
 
         <Select
-          size="sm"
           className="w-auto min-w-[8.5rem]"
           value={filters.memoryClass ?? ALL}
           onChange={(v) => setFilters({ memoryClass: v === ALL ? undefined : v })}
@@ -122,7 +122,6 @@ export function MemorySearch() {
         />
 
         <Select
-          size="sm"
           className="w-auto min-w-[8.5rem]"
           value={filters.status ?? ALL}
           onChange={(v) => setFilters({ status: v === ALL ? undefined : v })}
@@ -131,7 +130,6 @@ export function MemorySearch() {
         />
 
         <Select
-          size="sm"
           className="w-auto min-w-[7.5rem]"
           value={filters.sortBy ?? 'createdAt'}
           onChange={(v) => setFilters({ sortBy: v })}
@@ -154,7 +152,7 @@ export function MemorySearch() {
             })
           }
           disabled={hybridActive}
-          className={cn('bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground hover:bg-card transition-colors', hybridActive && 'opacity-50 cursor-not-allowed')}
+          className={cn('h-9 bg-card border border-border rounded-control px-3 text-sm text-foreground hover:border-hairline-strong transition-[border-color,box-shadow] duration-fast ease-out', hybridActive && 'opacity-50 cursor-not-allowed')}
           title={hybridActive ? 'Hybrid results are ranked by relevance; sorting applies to the list' : `Sort ${filters.sortOrder === 'asc' ? 'ascending' : 'descending'}`}
         >
           {filters.sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
@@ -187,7 +185,7 @@ export function MemorySearch() {
             onClick={() => setFilters({ includeArchived: filters.includeArchived ? undefined : true })}
             aria-pressed={!!filters.includeArchived}
             className={cn(
-              'rounded border px-2 py-1.5 text-sm transition-colors',
+              'h-9 rounded-control border px-3 text-sm transition-[background-color,color,border-color] duration-fast ease-out',
               filters.includeArchived ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
             )}
             title="Include archived memories (hybrid search)"

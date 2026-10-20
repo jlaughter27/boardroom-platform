@@ -1,5 +1,5 @@
 import { useId, type ComponentType } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { Lightbulb, ListChecks, RotateCcw, Scale, ShieldAlert, TriangleAlert, Zap, type LucideProps } from 'lucide-react';
 import { CLIENT_MODE_LIST, type ClientUserMode } from '../../types/debate';
 import { Tabs } from '../ui/Tabs';
@@ -60,20 +60,18 @@ export function ModeSelector({ selectedMode, onSelect }: ModeSelectorProps) {
         })}
       />
       <div id={helperId} className="relative min-h-[2.5rem] px-1 text-sm" aria-live="polite">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.p
-            key={current.id}
-            initial={reducedMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={reducedMotion ? undefined : { opacity: 0 }}
-            transition={{ duration: DURATION.fast, ease: EASE_OUT }}
-            className="text-muted-foreground"
-          >
-            <span className="text-foreground">{MODE_HELPER[current.id] ?? current.description}</span>
-            <span className="mx-1.5 text-hairline-strong" aria-hidden="true">·</span>
-            <span className="tnum">{table}</span>
-          </motion.p>
-        </AnimatePresence>
+        {/* Keyed on the mode: the new line fades in over 120 ms; the old one is simply replaced (no exit to wait on). */}
+        <motion.p
+          key={current.id}
+          initial={reducedMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: DURATION.fast, ease: EASE_OUT }}
+          className="text-muted-foreground"
+        >
+          <span className="text-foreground">{MODE_HELPER[current.id] ?? current.description}</span>
+          <span className="mx-1.5 text-hairline-strong" aria-hidden="true">·</span>
+          <span className="tnum">{table}</span>
+        </motion.p>
       </div>
     </div>
   );
