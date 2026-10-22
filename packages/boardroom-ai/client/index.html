@@ -30,15 +30,10 @@
     <meta name="twitter:title" content="BoardRoom AI" />
     <meta name="twitter:description" content="Your AI-powered executive team." />
     <meta name="twitter:image" content="/logo/og-image.png" />
-    <script>
-    (function(){
-      var t = localStorage.getItem('theme');
-      if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme:dark)').matches))
-        document.documentElement.classList.add('dark');
-    })();
-    </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <!-- Pre-paint theme bootstrap: external file because the production CSP is script-src 'self' (no inline scripts). -->
+    <script src="/theme-init.js"></script>
+    <!-- Type is self-hosted (Inter Variable with the opsz axis + JetBrains Mono Variable),
+         imported from client/src/index.css — no third-party font request. -->
   </head>
   <body>
     <div id="root"></div>

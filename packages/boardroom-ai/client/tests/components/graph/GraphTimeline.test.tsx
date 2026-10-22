@@ -22,9 +22,11 @@ describe('GraphTimeline', () => {
     const onHide = vi.fn();
     render(<GraphTimeline nodes={nodes} window={null} onChange={vi.fn()} hideOutside={false} onHideOutsideChange={onHide} inWindow={4} />);
     expect(screen.getByTestId('timeline-range-label')).toHaveTextContent('3 Aug 2026 – 1 Sep 2026');
-    const bars = screen.getByTestId('timeline-histogram').querySelectorAll('rect');
+    const bars = screen.getByTestId('timeline-histogram').querySelectorAll('rect[data-count]');
     expect(bars).toHaveLength(5); // 5 ISO weeks from 3 Aug to 1 Sep
     expect(bars[0]).toHaveAttribute('data-count', '2');
+    // the area sparkline is drawn over the same buckets
+    expect(screen.getByTestId('timeline-area').getAttribute('d')).toMatch(/^M0(\.00)? /);
     fireEvent.click(screen.getByRole('button', { name: 'Hide outside' }));
     expect(onHide).toHaveBeenCalledWith(true);
     expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();

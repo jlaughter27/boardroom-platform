@@ -133,6 +133,24 @@ describe('agentContextMiddleware (M-103)', () => {
     expect(mockPrisma.agent.findFirst).not.toHaveBeenCalled(); // no x-api-key hash fallback any more
   });
 
+  it('legacy: a PARTIAL triple (x-agent-id without x-tenant-id) → 400 partial_agent_identity, no context, no fall-through (E2E-5)', async () => {
+    const { req, res, next } = mk({ 'x-agent-id': 'solo', 'x-source-weight': '1.0' });
+    await agentContextMiddleware(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'partial_agent_identity', fields: ['x-tenant-id'] }));
+    expect(req.agentContext).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+    expect(mockPrisma.agent.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('legacy: x-agent-id alone → 400 naming both missing fields', async () => {
+    const { req, res, next } = mk({ 'x-agent-id': 'solo' });
+    await agentContextMiddleware(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'partial_agent_identity', fields: ['x-tenant-id', 'x-source-weight'] }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('OMNIMIND_REQUIRE_AGENT_KEY=true: x-agent-id without x-agent-key → 401', async () => {
     process.env.OMNIMIND_REQUIRE_AGENT_KEY = 'true';
     const { req, res, next } = mk({ 'x-agent-id': 'legacy-agent', 'x-tenant-id': 'josh-personal', 'x-source-weight': '1' });

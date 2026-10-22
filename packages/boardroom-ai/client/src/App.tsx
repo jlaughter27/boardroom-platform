@@ -4,6 +4,8 @@ import { useAuthStore } from './stores/auth.store';
 import { Layout } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { Toaster } from './components/ui/Toast';
+import { TooltipProvider } from './components/ui/Tooltip';
+import { RouteTransitionArmer } from './hooks/useRouteTransition';
 
 const CommandPalette = lazy(() => import('./components/ui/CommandPalette').then(m => ({ default: m.CommandPalette })));
 import * as api from './lib/api';
@@ -104,7 +106,11 @@ export default function App() {
   }, [checkAuth]);
 
   return (
+    <>
+    {/* Before the router on purpose: its popstate listener must register first (see hooks/useRouteTransition.ts). */}
+    <RouteTransitionArmer />
     <BrowserRouter>
+      <TooltipProvider>
       <Toaster />
       <Suspense fallback={null}>
         <CommandPalette />
@@ -136,6 +142,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+      </TooltipProvider>
     </BrowserRouter>
+    </>
   );
 }

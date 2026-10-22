@@ -1,48 +1,58 @@
-import { useState, useRef, type ReactNode } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import type { ReactNode } from 'react';
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import { cn } from '../../lib/cn';
+import { POPUP_MOTION } from './popup-motion';
+
+export type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
 
 interface TooltipProps {
-  content: string;
+  content: ReactNode;
   children: ReactNode;
   className?: string;
+  side?: TooltipSide;
+  align?: 'start' | 'center' | 'end';
+  /** Hover intent, in ms. */
+  delay?: number;
 }
 
-export function Tooltip({ content, children, className }: TooltipProps) {
-  const [show, setShow] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const handleEnter = () => {
-    timeoutRef.current = setTimeout(() => setShow(true), 300);
-  };
-
-  const handleLeave = () => {
-    clearTimeout(timeoutRef.current);
-    setShow(false);
-  };
-
+/**
+ * Mount once near the app root. Tooltips opened within `timeout` ms of another
+ * closing skip the open delay, so moving across a toolbar feels instant.
+ */
+export function TooltipProvider({ children }: { children: ReactNode }) {
   return (
-    <div
-      className={cn('relative inline-flex', className)}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-    >
+    <BaseTooltip.Provider delay={300} closeDelay={0} timeout={400}>
       {children}
-      <AnimatePresence>
-        {show && (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.15 }}
-            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[var(--z-dropdown)]"
+    </BaseTooltip.Provider>
+  );
+}
+
+/**
+ * Hover/focus label. 300 ms open delay, none when moving between siblings;
+ * scales 0.96 → 1 in 140 ms from the side it opened on (`--transform-origin`).
+ */
+export function Tooltip({ content, children, className, side = 'top', align = 'center', delay = 300 }: TooltipProps) {
+  return (
+    <BaseTooltip.Root>
+      <BaseTooltip.Trigger
+        delay={delay}
+        closeDelay={0}
+        render={<span className={cn('inline-flex', className)} />}
+      >
+        {children}
+      </BaseTooltip.Trigger>
+      <BaseTooltip.Portal>
+        <BaseTooltip.Positioner side={side} align={align} sideOffset={6} className="z-dropdown">
+          <BaseTooltip.Popup
+            className={cn(
+              POPUP_MOTION,
+              'rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background shadow-md whitespace-nowrap'
+            )}
           >
-            <div className="bg-foreground text-background text-xs px-2 py-1 rounded-lg shadow-md whitespace-nowrap">
-              {content}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+            {content}
+          </BaseTooltip.Popup>
+        </BaseTooltip.Positioner>
+      </BaseTooltip.Portal>
+    </BaseTooltip.Root>
   );
 }

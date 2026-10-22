@@ -5,7 +5,7 @@ import * as api from '../lib/api';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
-import { EmptyState, Skeleton } from '../components/ui';
+import { EmptyState, PageHeader, Skeleton } from '../components/ui';
 import { KnowledgeGraphView, type KnowledgeGraphViewHandle, type SpotlightState } from '../components/graph/KnowledgeGraphView';
 import { GraphControls, type GraphFilters } from '../components/graph/GraphControls';
 import { NodeInspector } from '../components/graph/NodeInspector';
@@ -20,6 +20,7 @@ import {
 } from '../components/graph/graph-focus';
 import { applyTimeline, type TimeWindow } from '../components/graph/graph-timeline';
 import { maxScore, mergeBacklinks, missingHitIds, scoreMap } from '../components/graph/graph-search';
+import { detectCommunities } from '../components/graph/graph-communities';
 import { useGraphStore } from '../stores/graph.store';
 import { useCommandPaletteStore } from '../stores/commandPalette.store';
 import { cn } from '../lib/cn';
@@ -204,6 +205,20 @@ export default function GraphPage() {
     return c;
   }, [graph]);
 
+  // ── Communities: Louvain over the LOADED graph (not the filtered view), so
+  //    hull membership never changes with filters, selection or focus. Ids are
+  //    kept stable against the previous partition across refetches / merges.
+  const prevCommunities = useRef<ReadonlyMap<string, number> | null>(null);
+  const communityResult = useMemo(() => {
+    if (!graph || graph.nodes.length === 0) return null;
+    const res = detectCommunities(graph.nodes, graph.edges, prevCommunities.current);
+    prevCommunities.current = res.communityOf;
+    return res;
+  }, [graph]);
+  useEffect(() => {
+    useGraphStore.getState().setCommunities(communityResult?.communityOf ?? new Map(), communityResult?.communities ?? []);
+  }, [communityResult]);
+
   const hitIds = useMemo(() => new Set(spotlight.hits.map((h) => h.nodeId)), [spotlight.hits]);
   const loadedHits = useMemo(() => [...hitIds].filter((id) => nodesById.has(id)).length, [hitIds, nodesById]);
   const unavailableHits = useMemo(() => [...hitIds].filter((id) => unavailable.has(id) && !nodesById.has(id)).length, [hitIds, unavailable, nodesById]);
@@ -330,6 +345,13 @@ export default function GraphPage() {
     if (id) jumpTo(id);
   }, [jumpTo]);
 
+  /** Legend chip → the same type filter the controls row edits (never empties the set). */
+  const toggleType = useCallback((t: KnowledgeGraphNodeType) => {
+    const next = new Set(filters.types);
+    if (next.has(t)) { if (next.size > 1) next.delete(t); } else next.add(t);
+    setFilters({ ...filters, types: next });
+  }, [filters, setFilters]);
+
   // Single click on the canvas: select only (inspector opens, no relayout).
   const onCanvasSelect = useCallback((id: string | null) => { setSelectedId(id); }, []);
   // Double click on the canvas: explicit focus (re-roots the local graph, enters the history).
@@ -431,38 +453,45 @@ export default function GraphPage() {
   );
 
   return (
-    <div className="flex h-[calc(100dvh-var(--header-h,0px))] min-h-[520px] flex-col gap-3 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Knowledge Graph</h1>
-          <p className="text-sm text-muted-foreground" data-testid="graph-summary">
+    <div className="flex h-full min-h-[520px] flex-col gap-3">
+      <PageHeader
+        className="mb-0"
+        title="Knowledge Graph"
+        subtitle={
+          <span data-testid="graph-summary">
             {loading ? 'Loading…' : total === 0 ? 'No linked entities yet.' : (
               <>
-                <span className="tabular-nums text-foreground">{nodes.length}</span> of <span className="tabular-nums">{total}</span> nodes ·{' '}
-                <span className="tabular-nums">{edges.length}</span> links
+                <span className="tnum text-foreground">{nodes.length}</span> of <span className="tnum">{total}</span> nodes ·{' '}
+                <span className="tnum">{edges.length}</span> links
+                {communityResult && communityResult.communities.length > 1 && <> · <span className="tnum">{communityResult.communities.length}</span> communities</>}
                 {focused && filters.depth > 0 && <> · local {filters.depth}° around <span className="text-foreground">{focused.label}</span></>}
                 {truncated && ' · memories capped at 200 by importance'}
               </>
             )}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {hovered && !selected && (
-            <div className="hidden text-xs text-muted-foreground md:block">
-              Hovering <span className="text-foreground">{hovered.label}</span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowMentions((v) => !v)}
-            aria-pressed={showMentions}
-            className={cn('h-8 rounded-md border px-3 text-xs', showMentions ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground')}
-            title="Memories that mention a person, project or goal without being linked to it"
-          >
-            Unlinked mentions{mentionCount !== null ? ` · ${mentionCount}` : ''}
-          </button>
-        </div>
-      </div>
+          </span>
+        }
+        actions={
+          <>
+            {hovered && !selected && (
+              <div className="hidden text-xs text-muted-foreground md:block">
+                Hovering <span className="text-foreground">{hovered.label}</span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowMentions((v) => !v)}
+              aria-pressed={showMentions}
+              className={cn(
+                'h-8 rounded-control border px-3 text-xs transition-[background-color,color,border-color] duration-fast ease-out',
+                showMentions ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
+              )}
+              title="Memories that mention a person, project or goal without being linked to it"
+            >
+              Unlinked mentions{mentionCount !== null ? ` · ${mentionCount}` : ''}
+            </button>
+          </>
+        }
+      />
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
@@ -503,7 +532,7 @@ export default function GraphPage() {
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border shadow-sm">
         {loading && !graph ? (
           <div className="flex h-full flex-col gap-3 p-6">
             <Skeleton className="h-6 w-48" />
@@ -538,6 +567,11 @@ export default function GraphPage() {
               depthById={depthById}
               spotlight={spotlightState}
               timeline={timelineOverlay}
+              communityOf={communityResult?.communityOf ?? null}
+              communities={communityResult?.communities ?? null}
+              typeFilter={filters.types}
+              onToggleType={toggleType}
+              typeCounts={visibleCounts}
               className="h-full min-w-0 flex-1"
             />
             {selected ? (

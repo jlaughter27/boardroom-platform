@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { Briefcase, PanelRight } from 'lucide-react';
 import * as api from '../../lib/api';
 import type { ExtendedSynthesisReport } from '../../types/debate';
-import { Card, Badge } from '../ui';
+import { Card, Badge, Button } from '../ui';
+import { Modal } from '../shared/Modal';
 
 /** Most memory ids resolved per synthesis; the rest render as shortened ids. */
 export const DROPPED_RESOLVE_CAP = 10;
@@ -56,6 +58,22 @@ interface SynthesisPanelProps {
   report?: ExtendedSynthesisReport;
   streamingText?: string;
   isStreaming: boolean;
+  /** When given, the card header offers "Open as sheet" (see `SynthesisSheet`). */
+  onExpand?: () => void;
+}
+
+/** Card / sheet title row: the CEO mark, the model badge and optional controls. */
+function SynthesisTitle({ children }: { children?: React.ReactNode }) {
+  return (
+    <div className="mb-4 flex items-center gap-2">
+      <span className="flex items-center gap-2 text-lg font-semibold tracking-title text-foreground">
+        <Briefcase size={18} strokeWidth={1.75} aria-hidden="true" className="text-persona-ceo" />
+        CEO Synthesis
+      </span>
+      <Badge variant="accent">sonnet</Badge>
+      {children && <span className="ml-auto flex items-center gap-1">{children}</span>}
+    </div>
+  );
 }
 
 function CollapsibleSection({
@@ -95,14 +113,11 @@ function CollapsibleSection({
   );
 }
 
-export function SynthesisPanel({ report, streamingText, isStreaming }: SynthesisPanelProps) {
+export function SynthesisPanel({ report, streamingText, isStreaming, onExpand }: SynthesisPanelProps) {
   if (isStreaming && !report) {
     return (
-      <Card className="border-t-2 border-primary p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-lg font-semibold text-foreground">{'\uD83D\uDCBC'} CEO Synthesis</span>
-          <Badge variant="accent">sonnet</Badge>
-        </div>
+      <Card className="border-t-2 border-primary border-x-hairline border-b-hairline p-6" data-testid="synthesis-panel">
+        <SynthesisTitle />
         <div className="text-sm text-muted-foreground whitespace-pre-wrap">
           {streamingText}
           <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
@@ -113,13 +128,55 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
 
   if (!report) return null;
 
+  // Content layer: a flat card with the hairline edge; only the top rule carries colour.
   return (
-    <Card className="border-t-2 border-primary p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-lg font-semibold text-foreground">{'\uD83D\uDCBC'} CEO Synthesis</span>
-        <Badge variant="accent">sonnet</Badge>
-      </div>
+    <Card className="border-t-2 border-primary border-x-hairline border-b-hairline p-6" data-testid="synthesis-panel">
+      <SynthesisTitle>
+        {onExpand && (
+          <Button variant="ghost" size="icon" onClick={onExpand} aria-label="Open synthesis as a sheet" title="Open as sheet">
+            <PanelRight size={16} strokeWidth={1.75} aria-hidden="true" />
+          </Button>
+        )}
+      </SynthesisTitle>
+      <SynthesisReportBody report={report} />
+    </Card>
+  );
+}
 
+interface SynthesisSheetProps {
+  report: ExtendedSynthesisReport;
+  isOpen: boolean;
+  onClose: () => void;
+  /** The question under the title, so the sheet stands on its own. */
+  question?: string;
+}
+
+/**
+ * The synthesis as a sheet (shared Modal, `variant="sheet"`): a side sheet on
+ * desktop, a draggable bottom sheet on phones. The inline panel stays on the
+ * page underneath, so dismissing never loses the report.
+ */
+export function SynthesisSheet({ report, isOpen, onClose, question }: SynthesisSheetProps) {
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      variant="sheet"
+      size="lg"
+      title="CEO Synthesis"
+      description={question ?? report.recommendation}
+    >
+      <div data-testid="synthesis-sheet-body" className="-mt-4">
+        <SynthesisReportBody report={report} />
+      </div>
+    </Modal>
+  );
+}
+
+/** The report sections \u2014 shared by the inline card and the sheet. */
+export function SynthesisReportBody({ report }: { report: ExtendedSynthesisReport }) {
+  return (
+    <>
       <CollapsibleSection title="Disagreement Map" defaultOpen={false}>
         <p className="text-sm text-muted-foreground whitespace-pre-wrap">{report.disagreementMap}</p>
       </CollapsibleSection>
@@ -139,7 +196,7 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
         <ol className="space-y-2">
           {report.nextActions.map((action, i) => (
             <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <span className="flex-shrink-0 w-5 h-5 rounded-md bg-card text-muted-foreground text-xs flex items-center justify-center mt-0.5">
+              <span className="flex-shrink-0 w-5 h-5 rounded-md bg-muted text-muted-foreground text-xs tnum flex items-center justify-center mt-0.5">
                 {i + 1}
               </span>
               <span>{action}</span>
@@ -199,6 +256,6 @@ export function SynthesisPanel({ report, streamingText, isStreaming }: Synthesis
           Sources: {report.sourceMemoryIds.join(', ')}
         </div>
       )}
-    </Card>
+    </>
   );
 }

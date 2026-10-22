@@ -208,7 +208,7 @@ export function BootstrapStep({
         {/* File upload */}
         <label
           htmlFor="bootstrap-file-input"
-          className={`group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border bg-card px-6 py-10 text-center transition-all hover:border-primary/60 hover:bg-primary/5 ${
+          className={`group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border bg-card px-6 py-10 text-center transition-[border-color,background-color] duration-fast ease-out hover:border-primary/60 hover:bg-primary/5 ${
             isProcessing ? 'pointer-events-none opacity-50' : ''
           }`}
         >

@@ -186,3 +186,61 @@ export function fromDateInputValue(v: string): number | null {
   const ms = Date.parse(`${v}T00:00:00.000Z`);
   return Number.isNaN(ms) ? null : ms;
 }
+
+/** Ease-out cubic — the playhead decelerates into the newest nodes. */
+export function easeOutCubic(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - c, 3);
+}
+
+/**
+ * Window end for an eased playback: `progress` 0..1 of the playback duration
+ * maps onto `[from, extent.max]` through the easing. Reduced motion skips
+ * the easing (callers step by whole weeks instead).
+ */
+export function easedWindowEnd(progress: number, from: number, extent: TimeExtent, reducedMotion = false): number {
+  const p = Math.max(0, Math.min(1, progress));
+  const span = Math.max(0, extent.max - from);
+  return Math.min(extent.max, from + span * (reducedMotion ? p : easeOutCubic(p)));
+}
+
+/** Playback length in ms for a speed multiplier (whole extent at 1× takes PLAYBACK_MS). */
+export const PLAYBACK_MS = 9000;
+export function playbackDuration(speed: number): number {
+  return PLAYBACK_MS / Math.max(0.25, speed);
+}
+
+/**
+ * Smooth area sparkline through the week buckets, in a `width × height`
+ * box (y grows downward). Returns an SVG path for the filled area and one for
+ * the top line; empty strings when there is nothing to draw. Monotone cubic
+ * interpolation keeps the curve from overshooting below zero.
+ */
+export function areaPath(buckets: readonly WeekBucket[], width: number, height: number, maxCount = buckets.reduce((m, b) => Math.max(m, b.count), 0)): { area: string; line: string } {
+  if (buckets.length === 0 || width <= 0 || height <= 0) return { area: '', line: '' };
+  const max = Math.max(1, maxCount);
+  const n = buckets.length;
+  const xs = buckets.map((_, i) => (n === 1 ? width / 2 : (i / (n - 1)) * width));
+  const ys = buckets.map((b) => height - (b.count / max) * (height - 1.5));
+  if (n === 1) {
+    const line = `M0 ${ys[0].toFixed(2)} L${width} ${ys[0].toFixed(2)}`;
+    return { area: `${line} L${width} ${height} L0 ${height} Z`, line };
+  }
+  // Fritsch–Carlson monotone tangents
+  const d: number[] = []; const m: number[] = new Array(n).fill(0);
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / Math.max(1e-6, xs[i + 1] - xs[i]));
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i]; const b = m[i + 1] / d[i]; const h = Math.hypot(a, b);
+    if (h > 3) { m[i] = (3 * a) / h * d[i]; m[i + 1] = (3 * b) / h * d[i]; }
+  }
+  let line = `M${xs[0].toFixed(2)} ${ys[0].toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const dx = (xs[i + 1] - xs[i]) / 3;
+    line += ` C${(xs[i] + dx).toFixed(2)} ${(ys[i] + m[i] * dx).toFixed(2)} ${(xs[i + 1] - dx).toFixed(2)} ${(ys[i + 1] - m[i + 1] * dx).toFixed(2)} ${xs[i + 1].toFixed(2)} ${ys[i + 1].toFixed(2)}`;
+  }
+  const area = `${line} L${width} ${height} L0 ${height} Z`;
+  return { area, line };
+}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { IntegrationCard } from '../components/integrations/IntegrationCard';
 import { EmailScanner } from '../components/integrations/EmailScanner';
-import { PageWrapper, Card, Skeleton } from '../components/ui';
+import { PageWrapper, PageHeader, Card, Skeleton } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import * as api from '../lib/api';
 
@@ -90,12 +90,11 @@ export default function IntegrationsPage() {
   return (
     <PageWrapper>
       <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Integrations</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Connect your tools to enrich your decision context
-          </p>
-        </div>
+        <PageHeader
+          className="mb-0"
+          title="Integrations"
+          subtitle="Connect your tools to enrich your decision context"
+        />
 
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 

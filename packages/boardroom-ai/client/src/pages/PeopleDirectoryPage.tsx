@@ -7,7 +7,7 @@ import { PeopleDuplicatesBanner } from '../components/memory/PeopleDuplicatesBan
 import { cn } from '../lib/cn';
 import { RelationshipGraph } from '../components/memory/RelationshipGraph';
 import { useRelationshipData } from '../hooks/useRelationshipData';
-import { PageWrapper, Button, Card, Input, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
+import { PageWrapper, PageHeader, Button, Card, Input, Skeleton, EmptyState, Tabs, Avatar } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { AINudge } from '../components/shared/AINudge';
 import { staggerContainer, staggerItem, scaleIn } from '../lib/motion';
@@ -74,12 +74,14 @@ export default function PeopleDirectoryPage() {
     <PageWrapper>
       <div className="p-6 max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-semibold text-foreground">People Directory</h1>
-          <Button variant="primary" size="sm" onClick={() => setShowAdd(!showAdd)}>
-            {showAdd ? 'Cancel' : '+ Add Person'}
-          </Button>
-        </div>
+        <PageHeader
+          title="People Directory"
+          actions={
+            <Button variant="primary" size="sm" onClick={() => setShowAdd(!showAdd)}>
+              {showAdd ? 'Cancel' : '+ Add Person'}
+            </Button>
+          }
+        />
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
 

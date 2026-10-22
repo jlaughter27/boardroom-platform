@@ -1,6 +1,23 @@
 # OmniMind-MCP Runbook — from checkout to "live"
 
-Last updated: 2026-10-19 | Hosted MCP front door (per-user `omt_` tokens, OAuth resource server, `search`/`fetch`, Dockerfile + Railway service)
+Last updated: 2026-10-20 | Hosted MCP front door (per-user `omt_` tokens, OAuth resource server, `search`/`fetch`, Dockerfile + Railway service)
+
+## One-command path
+
+`scripts/mcp-go-live.sh` runs §0–§7 below in order, idempotently (every step reads before it writes; re-running skips what exists). The manual sections stay the reference for what each step does and how to recover when one fails.
+
+**From a laptop** (`railway login` done, `curl`, `node`, `openssl` on PATH; `railway` via `npm i -g @railway/cli`):
+```bash
+pnpm go-live:mcp -- --project <railway project id> --owner-email <your BoardRoom e-mail> --dry-run   # plan only
+pnpm go-live:mcp -- --project <railway project id> --owner-email <your BoardRoom e-mail> --yes       # execute
+```
+It sets `OMNIMIND_ADMIN_KEY` (printed once — store it in 1Password) and `ADMIN_EMAILS`, creates the gateway agent with the scope ceiling, patches tenant owners, creates the `omnimind-mcp` service with every variable from §3, generates its domain, runs `railway up`, sets the BoardRoom variables from §4, mints the first token (`Claude Code (laptop)`, all seven scopes, 365 days) and prints the `claude mcp add` line (runs it when `claude` is on PATH and `--yes` was given), then runs the §7 checks and prints a summary table. `--help` lists every flag (`--owner-user-id` when the e-mail lookup fails, `--gateway-key` when the agent already exists, `--oauth-issuer`, `--no-token`, …).
+
+**From a phone** (GitHub → Actions → *MCP go-live* → *Run workflow*): add the repository secret `RAILWAY_TOKEN` first (a Railway **project** token: project → Settings → Tokens, for the `production` environment). The workflow (`.github/workflows/mcp-go-live.yml`) installs the CLI, runs the same script with `--yes --no-token` and writes the verification table to the job summary. *dry_run* is ticked by default — run once to see the plan, then again unticked. No personal token is minted in CI: afterwards mint the first one in BoardRoom → Settings → Connected AI tools (§5) and install it (§6). If the project token is refused for creating the service or the domain, add an account token as `RAILWAY_API_TOKEN` instead.
+
+**Still manual after either route** (the script prints these too): Railway → `omnimind-mcp` → Settings → *Config-as-code* → `packages/omnimind-mcp/railway.toml` (no CLI flag exists); Settings → *Source* → connect this repository (branch `main`, root `/`) — the first `railway up` deploys the checkout once, and connecting the repo is what makes later pushes to `main` redeploy it (until then re-run the script or the workflow); OAuth (§9) when a ChatGPT / claude.ai user needs in; `OMNIMIND_REQUIRE_AGENT_KEY=true` on omnimind-api once the gateway is the only MCP writer. Railway CLI flags the script relies on were verified against the CLI source (v5.71.0); the header of the script lists what was and was not verified.
+
+---
 
 This is the operator path. **Follow §0–§7 in order the first time** — each step creates something the next step needs, and nothing is used before it exists (the MCP service in §3 refuses to start without the gateway key from §1). Afterwards jump to the section you need. Protocol-level detail (tool semantics, scopes, pagination) stays in `docs/MEMORY-PROTOCOL.md`; the OmniMind endpoints referenced here are specified in `docs/contracts/omnimind-api.contract.md`. Code of record: `packages/omnimind-mcp/src/lib/principal.ts` (credential → principal), `packages/omnimind-api/src/middleware/agent-context.ts` (delegation), `packages/omnimind-api/src/services/mcp-token.service.ts` (tokens), `packages/shared/src/types/mcp-token.types.ts` (`MCP_SCOPES`, `MCP_GATEWAY_CEILING_SCOPES`), `packages/boardroom-ai/client/src/components/settings/mcp-snippets.ts` (install snippets).
 

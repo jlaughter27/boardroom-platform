@@ -239,10 +239,10 @@ describe('E2E-5: tenantId header injection attempts are refused or safely normal
 
   it('completely missing x-tenant-id does not return memories from arbitrary tenants', async () => {
     // No tenant header at all, no matching Agent row, just a valid API key.
-    // Pre-WS-1 behavior would return all tenants (unfiltered query).
-    // Post-WS-1 behavior: BoardRoom AI-style fallthrough is allowed in the
-    // service layer, BUT only when no agentContext is attached. The defense:
-    // a query that returns rows from BOTH seeded tenants is the failure mode.
+    // Pre-WS-1 behavior would return all tenants (unfiltered query). Until
+    // 2026-10-20 the middleware silently IGNORED a partial triple and the
+    // request fell through to the unscoped BoardRoom path — which returned
+    // rows from both tenants (this test caught it). It now fails closed.
     const res = await apiSearch(
       harness.config.apiBaseUrl,
       harness.config.apiKey,
@@ -255,12 +255,17 @@ describe('E2E-5: tenantId header injection attempts are refused or safely normal
       'E2E-5'
     );
 
-    expect(res.status).toBe(200);
+    // Since the agent-context middleware fails CLOSED on a partial identity,
+    // the expected answer is 400 `partial_agent_identity` (the request never
+    // reaches the service layer, so it can never read across tenants). A 200
+    // is still tolerated for older builds, but only without rows from BOTH
+    // seeded tenants — that is the cross-tenant leak we're guarding against.
+    expect([200, 400]).toContain(res.status);
+    if (res.status === 400) {
+      expect(res.body).toMatchObject({ error: 'partial_agent_identity', fields: ['x-tenant-id'] });
+      return;
+    }
     const body = res.body as SearchResponse;
-
-    // Capture explicit failure mode: we can tolerate "0 results" or
-    // "results from a single tenant", but NEVER "results from both tenants
-    // at once." That's the cross-tenant leak we're guarding against.
     const tenants = new Set(body.items.map(i => i.tenantId));
     expect(tenants.has('josh-business') && tenants.has('josh-personal')).toBe(false);
   });

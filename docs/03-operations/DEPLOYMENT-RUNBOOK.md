@@ -186,6 +186,8 @@ railway domain -s omnimind-api
 
 ## MCP live checklist
 
+**One-command path:** `pnpm go-live:mcp -- --project <railway project id> --owner-email <e-mail> --yes` (`scripts/mcp-go-live.sh`; `--dry-run` first) runs steps 0–4 and 6–8 below idempotently and prints a summary table; from a phone, GitHub → Actions → *MCP go-live* after adding the `RAILWAY_TOKEN` secret (`.github/workflows/mcp-go-live.yml`, runs with `--no-token`: mint the first token in Settings afterwards). Dashboard-only leftovers it prints: config-as-code path `packages/omnimind-mcp/railway.toml`, connecting the service to the GitHub repo (what makes pushes to `main` redeploy it), OAuth (step 5), `OMNIMIND_REQUIRE_AGENT_KEY=true` (step 9). See `docs/runbooks/omnimind-mcp.md` "One-command path".
+
 The step-by-step is `docs/runbooks/omnimind-mcp.md` (§0–§7 in that order — each step creates what the next one needs — plus §9 for OAuth, which ChatGPT and most Claude.ai organizations require). Tick these before telling anyone to connect a client:
 
 0. **Prerequisites** (runbook §0): `OMNIMIND_ADMIN_KEY` set on omnimind-api (keygen, `/admin/*` and the identities routes are `503 admin_disabled` without it); `ADMIN_EMAILS` set on boardroom-ai; `GET /admin/tenants` lists the three tenants; lockfile carries `jose`; CI `docker (omnimind-mcp)` is green.

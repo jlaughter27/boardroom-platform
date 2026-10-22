@@ -1,51 +1,23 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { Bell, CircleCheck, Gauge, Info, Lightbulb, Sparkles, TriangleAlert, X, type LucideProps } from 'lucide-react';
 import { useNotificationStore, type Notification } from '../../stores/notification.store';
 import { Badge } from '../ui/Badge';
-import { Button } from '../ui/Button';
-import { slideUp, staggerContainer, staggerItem } from '../../lib/motion';
+import { DURATION, EASE_OUT, slideUp } from '../../lib/motion';
 import { cn } from '../../lib/cn';
 
+const TYPE_ICON: Partial<Record<Notification['type'], ComponentType<LucideProps>>> = {
+  outcome_review: Bell,
+  contradiction: TriangleAlert,
+  pattern: Lightbulb,
+  cognitive_load: Gauge,
+  memo: Sparkles,
+};
+
 function getIcon(type: Notification['type']) {
-  switch (type) {
-    case 'outcome_review':
-      return (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-        </svg>
-      );
-    case 'contradiction':
-      return (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-        </svg>
-      );
-    case 'pattern':
-      return (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-        </svg>
-      );
-    case 'cognitive_load':
-      return (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      );
-    case 'memo':
-      return (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-        </svg>
-      );
-    default:
-      return (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      );
-  }
+  const Icon = TYPE_ICON[type] ?? Info;
+  return <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 }
 
 function getIconColor(type: Notification['type']) {
@@ -111,19 +83,23 @@ export function NotificationCenter() {
       {/* Bell button */}
       <button
         onClick={toggle}
-        className="relative p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        className={cn(
+          'relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground',
+          'transition-[background-color,color,transform] duration-fast ease-out hover:bg-muted hover:text-foreground active:scale-[0.97]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        )}
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+        aria-expanded={isOpen}
       >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-        </svg>
+        <Bell size={18} strokeWidth={1.75} aria-hidden="true" />
         {unreadCount > 0 && (
           <motion.span
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="absolute top-1 right-1 flex h-2 w-2 rounded-full bg-danger"
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: DURATION.normal, ease: EASE_OUT }}
+            className="absolute top-2 right-2 flex h-2 w-2 rounded-capsule bg-danger ring-2 ring-background"
           >
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-capsule bg-danger opacity-75" />
           </motion.span>
         )}
       </button>
@@ -135,7 +111,7 @@ export function NotificationCenter() {
             {...slideUp}
             role="region"
             aria-label="Notifications"
-            className="absolute right-0 top-full mt-2 w-[360px] rounded-xl border border-border bg-card shadow-lg overflow-hidden z-[var(--z-dropdown)]"
+            className="absolute right-0 top-full z-dropdown mt-2 w-[360px] origin-top-right overflow-hidden rounded-xl bg-surface-2 shadow-lg ring-1 ring-hairline"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -150,32 +126,29 @@ export function NotificationCenter() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-xs text-primary hover:text-primary/80 transition-colors"
+                  className="text-xs text-primary transition-colors duration-fast ease-out hover:text-primary/80"
                 >
                   Mark all read
                 </button>
               )}
             </div>
 
-            {/* Notification list */}
+            {/* Notification list — a frequent surface: rows appear at once, no stagger. */}
             <div className="max-h-[400px] overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-                  <svg className="w-8 h-8 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <CircleCheck size={28} strokeWidth={1.5} aria-hidden="true" className="mb-2 text-success" />
                   <p className="text-sm">All caught up!</p>
                 </div>
               ) : (
-                <motion.div {...staggerContainer}>
+                <div>
                   {notifications.map((n) => (
-                    <motion.div
+                    <div
                       key={n.id}
-                      {...staggerItem}
                       onClick={() => handleClick(n)}
                       className={cn(
                         'flex items-start gap-3 px-4 py-3 border-b border-border cursor-pointer',
-                        'hover:bg-muted transition-colors',
+                        'transition-colors duration-fast ease-out hover:bg-muted',
                         !n.read && 'border-l-2 border-l-primary',
                       )}
                     >
@@ -198,16 +171,17 @@ export function NotificationCenter() {
                           e.stopPropagation();
                           dismiss(n.id);
                         }}
-                        className="flex-shrink-0 p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
+                        className={cn(
+                          'inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground',
+                          'transition-[background-color,color] duration-fast ease-out hover:bg-muted hover:text-foreground'
+                        )}
                         aria-label="Dismiss notification"
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        <X size={14} strokeWidth={1.75} aria-hidden="true" />
                       </button>
-                    </motion.div>
+                    </div>
                   ))}
-                </motion.div>
+                </div>
               )}
             </div>
           </motion.div>

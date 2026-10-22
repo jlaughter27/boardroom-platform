@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeGraphEdgeType, KnowledgeGraphNode, KnowledgeGraphNodeType } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
-import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR, type NodeShape } from './graph-theme';
+import { Select } from '../ui/Select';
+import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR } from './graph-theme';
+import { ShapeGlyph } from './ShapeGlyph';
 import { EDGE_TYPES, EDGE_TYPE_LABEL } from './graph-filters';
 
 export interface GraphFilters {
@@ -31,28 +33,7 @@ interface Props {
   searchRef?: React.RefObject<HTMLInputElement | null>;
 }
 
-/** Tiny SVG glyph matching the canvas shape, used in chips + legend. */
-export function ShapeGlyph({ shape, color, size = 12 }: { shape: NodeShape; color: string; size?: number }) {
-  const h = size / 2;
-  const common = { fill: color, stroke: 'none' } as const;
-  let el: React.ReactNode;
-  switch (shape) {
-    case 'diamond': el = <polygon points={`${h},0 ${size},${h} ${h},${size} 0,${h}`} {...common} />; break;
-    case 'square': el = <rect x={1} y={1} width={size - 2} height={size - 2} rx={2} {...common} />; break;
-    case 'triangle': el = <polygon points={`${h},0.5 ${size},${size - 1} 0,${size - 1}`} {...common} />; break;
-    case 'hexagon': {
-      const pts = Array.from({ length: 6 }, (_, i) => {
-        const a = (Math.PI / 3) * i - Math.PI / 6;
-        return `${h + Math.cos(a) * h},${h + Math.sin(a) * h}`;
-      }).join(' ');
-      el = <polygon points={pts} {...common} />; break;
-    }
-    case 'ring': el = <circle cx={h} cy={h} r={h - 1.5} fill="none" stroke={color} strokeWidth={2.2} />; break;
-    case 'dot': el = <circle cx={h} cy={h} r={h * 0.5} {...common} />; break;
-    default: el = <circle cx={h} cy={h} r={h - 1} {...common} />;
-  }
-  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">{el}</svg>;
-}
+export { ShapeGlyph } from './ShapeGlyph';
 
 export function GraphControls({ filters, onChange, counts, edgeCounts, domains, nodes, hasSelection, onPick, onFit, onSpotlight, searchRef }: Props) {
   const [q, setQ] = useState('');
@@ -156,16 +137,14 @@ export function GraphControls({ filters, onChange, counts, edgeCounts, domains, 
         )}
 
         {/* Domain */}
-        <select
+        <Select
           id="graph-domain"
+          className="w-auto min-w-[9rem] rounded-md"
           value={filters.domain}
-          onChange={(e) => onChange({ ...filters, domain: e.target.value })}
-          className="h-9 rounded-md border border-border bg-card px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          onChange={(domain) => onChange({ ...filters, domain })}
           aria-label="Filter by domain"
-        >
-          <option value="all">All domains</option>
-          {domains.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+          options={[{ value: 'all', label: 'All domains' }, ...domains.map((d) => ({ value: d, label: d }))]}
+        />
 
         {/* Local ↔ Global */}
         <div className="flex h-9 items-center overflow-hidden rounded-md border border-border bg-card text-xs" role="group" aria-label="Graph scope">
@@ -259,7 +238,7 @@ export function GraphControls({ filters, onChange, counts, edgeCounts, domains, 
                 <ShapeGlyph shape={TYPE_SHAPE[t]} color="currentColor" size={11} />
               </span>
               <span>{TYPE_LABEL[t]}</span>
-              <span className="tabular-nums text-muted-foreground">{counts[t]}</span>
+              <span className="tabular-nums text-muted-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>{counts[t]}</span>
             </button>
           );
         })}

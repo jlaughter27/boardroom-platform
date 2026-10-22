@@ -1,10 +1,26 @@
 # Current Phase
 
-**Phase in flight:** ✅ **Phase 7 — Universal memory MCP: built, independently reviewed, awaiting Railway deploy + operator checklist**
-**Last update:** 2026-10-19 (blind spots closed; PR opened)
+**Phase in flight:** 🎨 **Phase 7.5 — Visualization + Apple-grade UI foundation** (PR #22: viz upgrade + UI foundation Phases A/B/C/D, all merged on the branch). Phase 7 MCP front door is merged (PR #21) and awaits the Railway go-live checklist.
+**Last update:** 2026-10-20 (Phase C merged onto PR #22)
 **Updated by:** Claude (research → build → review session, branch `claude/amazing-mccarthy-grvem2`)
 
-**Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key.
+**Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key. **One command does the checklist** (2026-10-20): `pnpm go-live:mcp -- --project <id> --owner-email <e-mail> --yes` from a laptop, or GitHub → Actions → *MCP go-live* from a phone (runbook "One-command path").
+
+---
+
+## 🎨 Phase 7.5 — Visualization upgrade + Apple-grade UI foundation (2026-10-20)
+
+**Done (PR open):** communities knowledge graph (Louvain + hulls + anchored labels + cluster force, minimap, legend-as-filter, focus glow, hover card, deduped spotlight hits, eased timeline), dashboard chart system (`components/viz/`, 11 SVG primitives, validated palettes, partial-week handling), cockpit row + memory pulse + what's moving + commitment horizon, calibration reliability diagram, diff-style change timeline, screenshot harness (`tools/visual-preview/`). Client tests 245 → 378. Details: `CHANGELOG.md` 2026-10-20.
+
+**Done (merged into PR #22, `d3d48f2`):** UI foundation per `docs/research/APPLE-GRADE-UI-2026-10-20.md` — Phase A tokens (self-hosted Inter variable with optical sizing + tabular figures, ease-out motion tokens + Apple-parameter springs, layered hue-matched shadows + inset highlight + hairline, concentric radius helper, `.material` with reduced-transparency fallback, dark elevation ladder), Phase B primitives on Base UI (`@base-ui/react`: Dialog, Tooltip, Select, Tabs, Popover, Menu; Button press feedback + glass/capsule; Card elevation; Toast swipe; command palette material; Lucide icons), Phase D guardrails (`ui-standards` test, `UI-FOUNDATION.md`, ADR-015).
+
+**Done (Phase C, merged into PR #22, `8af3c5c`):** React 19.3.1 + `<ViewTransition>` route transitions keyed by direction (forward slides in from the right, back reverses; verified mid-flight), header that turns to material once scrolled (IntersectionObserver sentinel), sidebar pill indicator + hairline tokens, `PageHeader` on every page, `Switch` / `Slider` / segmented `Tabs` / `Select size="sm"` / icon `Button` replacing the native controls in the configurator, Settings, Memory Explorer and graph controls, graph legend / minimap / hover card on `.material` (reference layering model), segmented `ModeSelector`, `Modal variant="sheet"` with drag-to-dismiss on phones + `SynthesisSheet`, `shoot-pages.mjs` harness with the contrast-on-glass gate and reduced-motion / reduced-transparency variants, two new `ui-standards` rules. Details: `CHANGELOG.md` 2026-10-20 (Phase C); reference: `UI-FOUNDATION.md` §3 / §6 / §7 / §8.
+
+**E2E (2026-10-20, live local stack — Postgres+pgvector, OmniMind, BoardRoom prod build, MCP gateway):** `pnpm test:e2e` 55/55, new `pnpm e2e:live` journey 22/22 (UI register → graph → token mint → MCP write/search → cross-client visibility → revoke). Found and fixed on the branch: partial agent identity fell through unscoped (now `400 partial_agent_identity`), per-user read budget too low for the UI (`USER_READ_RATE_LIMIT_PER_MINUTE`, default 120), production CSP blocked the inline theme script (now `/theme-init.js`), two `<h1>` per page. Details: `CHANGELOG.md` 2026-10-20 e2e entry.
+
+**Next:** merge PR #22 (Josh's call), Railway go-live for the MCP service (operator checklist), then the forms pass for the four remaining native selects (MCP token form, entity form, admin, decision-lab filter).
+
+**Decisions taken (user approved the research 2026-10-20, recommendations adopted):** Base UI as the headless layer; React 19.3 bump for view transitions; Lucide as the single icon set; no Tailwind v4 migration; no displacement "liquid" lensing on content.
 
 ---
 

@@ -1,7 +1,24 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router-dom';
+import { useTransitionNavigate } from '../../hooks/useRouteTransition';
+import {
+  ChevronLeft,
+  Drama,
+  LayoutDashboard,
+  Plug,
+  Plus,
+  Scale,
+  Database,
+  Search,
+  Settings,
+  Users,
+  Waypoints,
+  X,
+  type LucideProps,
+} from 'lucide-react';
+import type { ComponentType } from 'react';
+import { DURATION, EASE_OUT } from '../../lib/motion';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { shouldRefetch, useCommandPaletteStore } from '../../stores/commandPalette.store';
 import { useGraphStore } from '../../stores/graph.store';
@@ -11,19 +28,22 @@ import { cn } from '../../lib/cn';
 
 export { useCommandPaletteStore } from '../../stores/commandPalette.store';
 
-const pages = [
-  { name: 'Dashboard', path: '/', icon: '⌂' },
-  { name: 'Decision Lab', path: '/decisions', icon: '⚖' },
-  { name: 'Memory Explorer', path: '/memory', icon: '☁' },
-  { name: 'Knowledge Graph', path: '/graph', icon: '⬡' },
-  { name: 'People Directory', path: '/people', icon: '☆' },
-  { name: 'Settings', path: '/settings', icon: '⚙' },
-  { name: 'Custom Personas', path: '/personas', icon: '☺' },
-  { name: 'Integrations', path: '/integrations', icon: '⚡' },
+const pages: { name: string; path: string; icon: ComponentType<LucideProps> }[] = [
+  { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+  { name: 'Decision Lab', path: '/decisions', icon: Scale },
+  { name: 'Memory Explorer', path: '/memory', icon: Database },
+  { name: 'Knowledge Graph', path: '/graph', icon: Waypoints },
+  { name: 'People Directory', path: '/people', icon: Users },
+  { name: 'Settings', path: '/settings', icon: Settings },
+  { name: 'Custom Personas', path: '/personas', icon: Drama },
+  { name: 'Integrations', path: '/integrations', icon: Plug },
 ];
 
 const GROUP_CLASS = '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground';
+// No `transition-*` here on purpose: arrow-key navigation is the most frequent
+// action in the palette and the highlight must move instantly.
 const ITEM_CLASS = 'flex items-center gap-3 rounded-md px-3 py-2 text-sm text-foreground cursor-pointer data-[selected=true]:bg-muted';
+const ICON_CLASS = 'flex w-5 shrink-0 items-center justify-center text-muted-foreground';
 
 /** Opens the palette in "Search memory" mode (used by ⌘⇧K and the graph page's `/`). */
 export function openMemorySearchPalette() {
@@ -40,7 +60,8 @@ function formatScore(score: number): string {
 export function CommandPalette() {
   // Cmd/Ctrl+K is bound once, in useKeyboardShortcuts (Layout) — see C-116.
   const { open, close } = useCommandPaletteStore();
-  const navigate = useNavigate();
+  // Palette picks are rare route changes: they get the same directional view transition as a link click.
+  const navigate = useTransitionNavigate();
   const [search, setSearch] = useState('');
   const { goals, projects, people, decisions, tasks, commitments, fetchTasks, fetchCommitments } = useEntitiesStore();
   const paletteMode = useGraphStore((s) => s.paletteMode);
@@ -129,30 +150,32 @@ export function CommandPalette() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[var(--z-command-palette)] bg-black/60 backdrop-blur-sm"
+            transition={{ duration: DURATION.normal, ease: EASE_OUT }}
+            className="fixed inset-0 z-command-palette bg-black/40 backdrop-blur-sm"
             onClick={closePalette}
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: -10 }}
+            initial={{ opacity: 0, scale: 0.96, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -10 }}
-            transition={{ duration: 0.15 }}
-            className="fixed top-[20%] left-1/2 -translate-x-1/2 z-[var(--z-command-palette)] w-full max-w-xl"
+            exit={{ opacity: 0, scale: 0.98, y: -4, transition: { duration: DURATION.fast, ease: EASE_OUT } }}
+            transition={{ duration: 0.14, ease: EASE_OUT }}
+            className="fixed top-[20%] left-1/2 -translate-x-1/2 z-command-palette w-full max-w-xl origin-top"
           >
             <Command
-              className="rounded-xl border border-border bg-card/95 backdrop-blur-xl shadow-lg overflow-hidden"
+              className="material rounded-xl overflow-hidden"
               shouldFilter={false}
               label={memoryMode ? 'Search memory' : 'Command palette'}
             >
-              <div className="flex items-center border-b border-border">
+              <div className="flex items-center border-b border-hairline">
                 {memoryMode && (
                   <button
                     type="button"
                     onClick={() => useGraphStore.getState().setPaletteMode('commands')}
-                    className="ml-2 h-7 shrink-0 rounded-md border border-border bg-card px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className="ml-2 inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-hairline-strong px-2 text-xs text-muted-foreground transition-colors duration-fast ease-out hover:text-foreground"
                     aria-label="Back to commands"
                   >
-                    ‹ Commands
+                    <ChevronLeft size={12} strokeWidth={1.75} aria-hidden="true" />
+                    Commands
                   </button>
                 )}
                 <Command.Input
@@ -180,7 +203,7 @@ export function CommandPalette() {
                   {asOfLabel && (
                     <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-foreground" data-testid="palette-asof-chip">
                       {asOfLabel}
-                      <button type="button" onClick={() => useGraphStore.getState().setAsOf(null)} aria-label="Clear as-of date" className="text-muted-foreground hover:text-foreground">×</button>
+                      <button type="button" onClick={() => useGraphStore.getState().setAsOf(null)} aria-label="Clear as-of date" className="flex text-muted-foreground transition-colors duration-fast ease-out hover:text-foreground"><X size={12} strokeWidth={1.75} aria-hidden="true" /></button>
                     </span>
                   )}
                   {spotlight.error && <span className="text-destructive">{spotlight.error}</span>}
@@ -242,7 +265,7 @@ export function CommandPalette() {
                     <Command.Group heading="Navigation" className={GROUP_CLASS}>
                       {pages.map((page) => (
                         <Command.Item key={page.path} value={page.name} onSelect={() => navigateTo(page.path)} className={ITEM_CLASS}>
-                          <span className="text-base w-5 text-center">{page.icon}</span>
+                          <span className={ICON_CLASS}><page.icon size={16} strokeWidth={1.75} aria-hidden="true" /></span>
                           {page.name}
                         </Command.Item>
                       ))}
@@ -318,12 +341,12 @@ export function CommandPalette() {
 
                     <Command.Group heading="Actions" className={GROUP_CLASS}>
                       <Command.Item value="search-memory" onSelect={enterMemoryMode} className={ITEM_CLASS}>
-                        <span className="text-base w-5 text-center text-primary">{'⌕'}</span>
+                        <span className={cn(ICON_CLASS, 'text-primary')}><Search size={16} strokeWidth={1.75} aria-hidden="true" /></span>
                         {search.trim() ? <>Search memory for <span className="truncate font-medium">“{search.trim()}”</span></> : 'Search memory'}
                         <kbd className="ml-auto rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">⌘⇧K</kbd>
                       </Command.Item>
                       <Command.Item value="new-decision" onSelect={() => navigateTo('/decisions')} className={ITEM_CLASS}>
-                        <span className="text-base w-5 text-center text-success">+</span>
+                        <span className={cn(ICON_CLASS, 'text-success')}><Plus size={16} strokeWidth={1.75} aria-hidden="true" /></span>
                         New Decision Session
                       </Command.Item>
                     </Command.Group>
@@ -331,7 +354,7 @@ export function CommandPalette() {
                 )}
               </Command.List>
 
-              <div className="border-t border-border px-4 py-2 flex items-center justify-between text-xs text-muted-foreground">
+              <div className="border-t border-hairline px-4 py-2 flex items-center justify-between text-xs text-muted-foreground">
                 <span>{memoryMode ? (graphMounted ? '↵ focus hit in graph' : '↵ open hit in graph') : 'Type to search across everything'}</span>
                 <span>
                   <kbd className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">esc</kbd>

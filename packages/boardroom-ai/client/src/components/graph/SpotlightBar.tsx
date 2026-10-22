@@ -26,7 +26,7 @@ export function SpotlightBar({
   const asOf = formatAsOf(spotlight.asOf);
   return (
     <div
-      className={cn('flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs text-foreground', className)}
+      className={cn('flex flex-wrap items-center gap-2 rounded-control border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs text-foreground', className)}
       role="status"
       data-testid="spotlight-bar"
     >

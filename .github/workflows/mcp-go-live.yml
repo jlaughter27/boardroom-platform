@@ -1,0 +1,150 @@
+# MCP go-live from a phone: Actions → "MCP go-live" → Run workflow.
+#
+# Runs scripts/mcp-go-live.sh --yes --no-token (runbook §0–§7: admin key,
+# gateway agent, tenant owners, omnimind-mcp service + variables + domain +
+# deploy, BoardRoom variables, verification). NO personal token is minted or
+# printed here — mint the first one in BoardRoom → Settings → Connected AI
+# tools afterwards. The admin key and the gateway key are written to Railway
+# variables only; the script masks them (::add-mask::) and never prints them.
+#
+# Railway authentication — which token type (railwayapp/cli README "Tokens",
+# src/config.rs, src/client.rs; see the header of scripts/mcp-go-live.sh):
+#   * RAILWAY_TOKEN  = a PROJECT token (Railway → project → Settings → Tokens),
+#     scoped to ONE project + environment. `railway up`, `railway variable …`,
+#     `railway service list`, `railway domain` and `railway add` all resolve the
+#     project and environment from it, so no `railway link` is needed (and
+#     `railway whoami` / `railway link` cannot work — a project token carries no
+#     user; the script skips them in this mode). This is the secret to add.
+#   * RAILWAY_API_TOKEN = an ACCOUNT / workspace token (Railway → Account →
+#     Tokens). Use it instead ONLY if the project token turns out not to be
+#     allowed to create the service or the domain (not verifiable from the CLI
+#     source); the script then runs `railway link -p … -e …` non-interactively.
+#
+# After the first run connects nothing to GitHub: `railway up` deploys the
+# checkout once. Connecting the omnimind-mcp service to this repository in the
+# Railway dashboard (service → Settings → Source, branch main, root directory /)
+# is what makes later pushes to main redeploy it automatically; until then,
+# re-running this workflow (or `railway up`) is how it redeploys. The
+# config-as-code path (packages/omnimind-mcp/railway.toml) is also dashboard-only.
+#
+# dry_run defaults to TRUE: the first run prints the plan with placeholders and
+# touches nothing. Flip it to false to execute.
+name: MCP go-live
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: Railway project id (project → Settings → General)
+        required: true
+        type: string
+      environment:
+        description: Railway environment
+        required: false
+        default: production
+        type: string
+      owner_email:
+        description: BoardRoom login e-mail of the tenant owner
+        required: true
+        type: string
+      owner_user_id:
+        description: Optional user id (skips the e-mail lookup)
+        required: false
+        default: ""
+        type: string
+      tenants:
+        description: Comma-separated tenants to own
+        required: false
+        default: josh-business,josh-personal,tgfc-ministry
+        type: string
+      admin_emails:
+        description: ADMIN_EMAILS for boardroom-ai (default = owner_email)
+        required: false
+        default: ""
+        type: string
+      oauth_issuer:
+        description: Optional OAuth issuer URL (runbook §9)
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: Print the plan only; make no changes
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-go-live
+  cancel-in-progress: false
+
+jobs:
+  go-live:
+    name: Go live (${{ inputs.dry_run && 'dry run' || 'execute' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      CI: "true"
+      INPUT_PROJECT_ID: ${{ inputs.project_id }}
+      INPUT_ENVIRONMENT: ${{ inputs.environment }}
+      INPUT_OWNER_EMAIL: ${{ inputs.owner_email }}
+      INPUT_OWNER_USER_ID: ${{ inputs.owner_user_id }}
+      INPUT_TENANTS: ${{ inputs.tenants }}
+      INPUT_ADMIN_EMAILS: ${{ inputs.admin_emails }}
+      INPUT_OAUTH_ISSUER: ${{ inputs.oauth_issuer }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # README "Installation" documents `bash <(curl -fsSL railway.com/install.sh) -y`
+      # and the npm package; npm is used here because it pins a major version
+      # (registry.npmjs.org/@railway/cli, 5.71.0 on 2026-10-19).
+      - name: Install Railway CLI (non-interactive)
+        run: |
+          npm install -g @railway/cli@5
+          railway --version
+
+      - name: Check a Railway token is configured
+        run: |
+          if [ -z "${RAILWAY_TOKEN}${RAILWAY_API_TOKEN}" ]; then
+            echo "::error::Add the repository secret RAILWAY_TOKEN (a Railway PROJECT token for this project + environment) under Settings → Secrets and variables → Actions, then re-run."
+            exit 1
+          fi
+
+      - name: Run scripts/mcp-go-live.sh
+        run: |
+          args=(--yes --no-token
+                --project "$INPUT_PROJECT_ID"
+                --environment "$INPUT_ENVIRONMENT"
+                --owner-email "$INPUT_OWNER_EMAIL"
+                --tenants "$INPUT_TENANTS")
+          [ -n "$INPUT_OWNER_USER_ID" ] && args+=(--owner-user-id "$INPUT_OWNER_USER_ID")
+          [ -n "$INPUT_ADMIN_EMAILS" ]  && args+=(--admin-emails "$INPUT_ADMIN_EMAILS")
+          [ -n "$INPUT_OAUTH_ISSUER" ]  && args+=(--oauth-issuer "$INPUT_OAUTH_ISSUER")
+          [ "$INPUT_DRY_RUN" = "true" ]  && args+=(--dry-run)
+          # The script appends its summary table to $GITHUB_STEP_SUMMARY itself
+          # (secrets redacted) and emits ::add-mask:: for the admin + gateway keys.
+          bash scripts/mcp-go-live.sh "${args[@]}"
+
+      - name: What to do next
+        if: always()
+        run: |
+          {
+            echo
+            echo "### Next"
+            if [ "$INPUT_DRY_RUN" = "true" ]; then
+              echo "- This was a **dry run**. Re-run the workflow with *dry_run* unticked to execute."
+            else
+              echo "- Mint the first personal token in **BoardRoom → Settings → Connected AI tools** (no token is minted in CI), then install it per runbook §6 and verify per §7b."
+              echo "- Railway dashboard → omnimind-mcp → Settings → **Config-as-code** → \`packages/omnimind-mcp/railway.toml\`; Settings → **Source** → connect this repository (branch \`main\`, root \`/\`) so pushes redeploy it. Until then, re-run this workflow to redeploy."
+              echo "- The admin key is in the Railway variable \`OMNIMIND_ADMIN_KEY\` on omnimind-api (never printed here)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

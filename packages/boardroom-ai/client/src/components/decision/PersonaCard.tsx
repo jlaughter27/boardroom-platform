@@ -104,7 +104,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
   // Waiting state
   if (!response && !isStreaming) {
     return (
-      <Card className={`border-t-[3px] ${colorClass}`}>
+      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`}>
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {[0, 1, 2].map((i) => (
@@ -126,7 +126,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
   // Streaming state
   if (isStreaming && !response) {
     return (
-      <Card className={`border-t-[3px] ${colorClass} shadow-md`}>
+      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass} shadow-md`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
@@ -144,7 +144,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
   // Complete state
   if (response) {
     return (
-      <Card className={`border-t-[3px] ${colorClass}`}>
+      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>

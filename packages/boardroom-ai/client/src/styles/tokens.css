@@ -18,6 +18,23 @@
   --color-ring: rgba(181, 137, 10, 0.3);
   --color-destructive: #b91c1c;
   --color-destructive-foreground: #ffffff;
+  /*
+   * Secondary text on glass. A material shows the page through a 72 % fill,
+   * so whatever scrolls beneath darkens the backdrop; the regular muted
+   * foreground (5.5:1 on white) dips toward 4.5:1 there. `.material` surfaces
+   * and the header swap in this step (7.7:1 on white) — measured by
+   * tools/visual-preview/contrast.mjs.
+   */
+  --color-muted-foreground-on-glass: #55534b;
+
+  /*
+   * Elevation ladder. In light mode every elevated surface is white and depth
+   * comes from the layered shadows below; in dark mode each step is lighter
+   * (macOS-style), so a popover reads as "above" a card without a heavy shadow.
+   */
+  --surface-1: var(--color-card);
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
 
   /*
    * Sidebar colors. The sidebar is INTENTIONALLY dark independent of
@@ -30,6 +47,10 @@
   --color-sidebar-border: #2a2a28;
   --color-sidebar-foreground: #f1f1ec;
   --color-sidebar-foreground-muted: rgba(241, 241, 236, 0.55);
+  /* The sidebar is dark in both themes, so its hairline and top highlight are
+   * white-based and fixed — the theme-aware `--hairline` would vanish on it in light mode. */
+  --sidebar-hairline: hsl(0 0% 100% / 0.08);
+  --sidebar-highlight: inset 0 1px 0 0 hsl(0 0% 100% / 0.06);
 
   /* Semantic colors (Section 2.3 — Light) */
   --color-success: #15803d;
@@ -60,6 +81,25 @@
   --graph-edge-strong: rgba(26, 26, 22, 0.55);
   --graph-label: #1a1a16;
   --graph-label-halo: rgba(250, 250, 246, 0.85);
+  /*
+   * Graph atmosphere + community hulls (Light). Community hues are the dataviz
+   * reference categorical slots in the order orange → blue → yellow → green →
+   * violet → red, validated adjacent-pair for this surface (worst ΔE 16.2
+   * protan, normal 30.3; yellow sits at 2.07:1 and always carries a text
+   * label). A seventh community and beyond fold into the neutral slot.
+   */
+  --graph-grid: rgba(26, 26, 22, 0.05);
+  --graph-vignette: rgba(26, 26, 22, 0.07);
+  --graph-glow: rgba(181, 137, 10, 0.35);
+  --graph-community-1: #eb6834;
+  --graph-community-2: #2a78d6;
+  --graph-community-3: #eda100;
+  --graph-community-4: #008300;
+  --graph-community-5: #6250d6;
+  --graph-community-6: #e34948;
+  --graph-community-neutral: #898781;
+  --graph-hull-fill-alpha: 0.11;
+  --graph-hull-stroke-alpha: 0.42;
 
   /* Persona colors — one hue per advisor (same values both themes; tailwind `persona.*`). */
   --color-persona-optimist: #22c55e;
@@ -70,15 +110,48 @@
   --color-persona-doer: #f97316;
   --color-persona-ceo: #06b6d4;
 
-  /* Shadows (Light) */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  /* === DEPTH (Light) ===
+   * One light source, straight above. Shadows are stacked in 4–5 layers and
+   * tinted with the surface hue (warm neutral) instead of flat black, so they
+   * read as shade rather than grey smudges. Elevation comes mostly from the
+   * hairline ring and the 1 px inset top highlight; the outer layers stay soft.
+   */
+  --shadow-color: 48 10% 20%;
+  --highlight: inset 0 1px 0 0 hsl(0 0% 100% / 0.5);
+  --hairline: color-mix(in oklab, var(--color-foreground) 9%, transparent);
+  --hairline-strong: color-mix(in oklab, var(--color-foreground) 16%, transparent);
+  --shadow-sm:
+    var(--highlight),
+    0 1px 1px hsl(var(--shadow-color) / 0.06),
+    0 1px 2px hsl(var(--shadow-color) / 0.08),
+    0 2px 4px hsl(var(--shadow-color) / 0.04);
+  --shadow-md:
+    var(--highlight),
+    0 1px 1px hsl(var(--shadow-color) / 0.05),
+    0 2px 4px hsl(var(--shadow-color) / 0.05),
+    0 6px 12px hsl(var(--shadow-color) / 0.06),
+    0 12px 24px hsl(var(--shadow-color) / 0.06);
+  --shadow-lg:
+    var(--highlight),
+    0 1px 2px hsl(var(--shadow-color) / 0.06),
+    0 4px 8px hsl(var(--shadow-color) / 0.06),
+    0 12px 24px hsl(var(--shadow-color) / 0.08),
+    0 24px 48px hsl(var(--shadow-color) / 0.1);
+  --shadow-xl:
+    var(--highlight),
+    0 1px 2px hsl(var(--shadow-color) / 0.08),
+    0 6px 12px hsl(var(--shadow-color) / 0.08),
+    0 16px 32px hsl(var(--shadow-color) / 0.1),
+    0 32px 64px hsl(var(--shadow-color) / 0.14);
 
-  /* === TYPOGRAPHY === */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  --font-display: 'Inter', var(--font-sans);
+  /* === TYPOGRAPHY ===
+   * Inter 4 variable, self-hosted with the `opsz` axis (14–32): the browser
+   * picks the Display cut for headings and the Text cut for body on its own
+   * (`font-optical-sizing: auto` on body), the way SF Pro does.
+   */
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, 'Fira Code', monospace;
+  --font-display: var(--font-sans);
 
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -87,16 +160,19 @@
   --text-xl: 1.125rem;
   --text-2xl: 1.375rem;
   --text-3xl: 1.75rem;
+  --text-4xl: 2.125rem; /* 34 px — Large Title */
 
   /* Line heights */
   --leading-tight: 1.25;
   --leading-normal: 1.5;
   --leading-relaxed: 1.625;
 
-  /* Letter spacing */
+  /* Letter spacing. Display (≥ 20 px) tightens the most; titles (17–19 px) a little. */
   --tracking-tight: -0.01em;
   --tracking-normal: 0;
   --tracking-wide: 0.025em;
+  --tracking-display: -0.02em;
+  --tracking-title: -0.011em;
 
   /* === SPACING === */
   --space-0: 0;
@@ -117,13 +193,29 @@
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
   --radius-full: 9999px;
+  /* Shape roles: a control (button, input, menu item) · a container (card,
+   * dialog, popover) · a capsule (radius = height / 2, for pills and standout
+   * actions). Nested corners stay concentric via `.concentric` (index.css). */
+  --radius-control: 0.625rem;
+  --radius-container: 1rem;
+  --radius-capsule: 999px;
 
-  /* === TRANSITIONS === */
-  --duration-fast: 150ms;
-  --duration-normal: 250ms;
-  --duration-slow: 400ms;
-  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  /* === MOTION ===
+   * Enter/exit: ease-out — fast start, nothing happens late while the user is
+   * watching. On-screen movement (reorder, resize): ease-in-out. Sheets and
+   * drawers: the iOS sheet curve. Nothing on the UI layer eases in.
+   * Durations stay under 300 ms; keyboard-driven and very frequent actions get
+   * `--duration-instant`.
+   */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-default: var(--ease-out);
+  --duration-instant: 0ms;
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 240ms;
+  --duration-sheet: 320ms;
 
   /* === Z-INDEX SCALE === */
   --z-base: 0;
@@ -155,6 +247,12 @@
   --color-ring: rgba(212, 163, 26, 0.3);
   --color-destructive: #ef4444;
   --color-destructive-foreground: #111110;
+  --color-muted-foreground-on-glass: #aaa89f;
+
+  /* Elevation ladder — higher surfaces are lighter, like macOS dark. */
+  --surface-1: var(--color-card);
+  --surface-2: #212120;
+  --surface-3: #292927;
 
   /* Semantic colors (Section 2.3 — Dark) */
   --color-success: #34d399;
@@ -173,6 +271,19 @@
   --graph-edge-strong: rgba(232, 232, 226, 0.6);
   --graph-label: #e8e8e2;
   --graph-label-halo: rgba(17, 17, 16, 0.85);
+  /* Graph atmosphere + community hulls (Dark) — same slot order, dark steps; worst adjacent ΔE 6.9 protan (labelled), normal 22.5. */
+  --graph-grid: rgba(232, 232, 226, 0.045);
+  --graph-vignette: rgba(0, 0, 0, 0.55);
+  --graph-glow: rgba(212, 163, 26, 0.4);
+  --graph-community-1: #d95926;
+  --graph-community-2: #3987e5;
+  --graph-community-3: #c98500;
+  --graph-community-4: #008300;
+  --graph-community-5: #9085e9;
+  --graph-community-6: #e66767;
+  --graph-community-neutral: #898781;
+  --graph-hull-fill-alpha: 0.15;
+  --graph-hull-stroke-alpha: 0.5;
 
   /* Persona colors (Dark) — unchanged hues; defined per theme so a future re-step is one edit. */
   --color-persona-optimist: #22c55e;
@@ -189,11 +300,34 @@
   --color-info: #60a5fa;
   --color-info-muted: rgba(96, 165, 250, 0.12);
 
-  /* Shadows (Dark) */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
-
+  /* Depth (Dark) — darker shadow color, a whisper of a top highlight, a lighter hairline. */
+  --shadow-color: 48 8% 2%;
+  --highlight: inset 0 1px 0 0 hsl(0 0% 100% / 0.06);
+  --hairline: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+  --hairline-strong: color-mix(in oklab, var(--color-foreground) 20%, transparent);
+  --shadow-sm:
+    var(--highlight),
+    0 1px 1px hsl(var(--shadow-color) / 0.3),
+    0 1px 2px hsl(var(--shadow-color) / 0.3),
+    0 2px 4px hsl(var(--shadow-color) / 0.2);
+  --shadow-md:
+    var(--highlight),
+    0 1px 1px hsl(var(--shadow-color) / 0.25),
+    0 2px 4px hsl(var(--shadow-color) / 0.25),
+    0 6px 12px hsl(var(--shadow-color) / 0.25),
+    0 12px 24px hsl(var(--shadow-color) / 0.2);
+  --shadow-lg:
+    var(--highlight),
+    0 1px 2px hsl(var(--shadow-color) / 0.3),
+    0 4px 8px hsl(var(--shadow-color) / 0.3),
+    0 12px 24px hsl(var(--shadow-color) / 0.3),
+    0 24px 48px hsl(var(--shadow-color) / 0.35);
+  --shadow-xl:
+    var(--highlight),
+    0 1px 2px hsl(var(--shadow-color) / 0.35),
+    0 6px 12px hsl(var(--shadow-color) / 0.35),
+    0 16px 32px hsl(var(--shadow-color) / 0.4),
+    0 32px 64px hsl(var(--shadow-color) / 0.45);
 }
 
 /* === KEYFRAMES === */
@@ -203,7 +337,13 @@
   50% { opacity: 0.4; }
 }
 
+/* Graph hover card: origin-aware scale-in, ease-out, under 200 ms (reduced motion skips it). */
+@keyframes graph-card-in {
+  from { opacity: 0; scale: 0.97; }
+  to { opacity: 1; scale: 1; }
+}
+
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }

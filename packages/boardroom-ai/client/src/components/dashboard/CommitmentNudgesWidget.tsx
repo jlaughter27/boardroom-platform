@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Commitment } from '@boardroom/shared';
 import * as api from '../../lib/api';
 import { useEntitiesStore } from '../../stores/entities.store';
+import { useVizSlice, useVizStore } from '../../stores/viz.store';
 import type { CommitmentNudgesResponse } from '../../types/debate';
 import { Card, Badge, Skeleton, useToastStore } from '../ui';
+import { CommitmentHorizon, HORIZON_DAYS, isOpenCommitment } from './CommitmentHorizon';
+import { horizon } from '../viz/aggregate';
 
 /** "in 2 days" / "today" / "3 days overdue" — relative to now, day granularity. */
 export function relativeDue(deadline: Date | string | null, now: number = Date.now()): string {
@@ -60,6 +63,8 @@ export function CommitmentNudgesWidget() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { people, fetchPeople } = useEntitiesStore();
+  // Every open commitment (cached 60 s) feeds the 14-day horizon above the nudge list.
+  const allCommitments = useVizSlice('commitments');
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +92,12 @@ export function CommitmentNudgesWidget() {
     try {
       await api.updateCommitment(id, { status: 'COMPLETED', completedAt: new Date().toISOString() });
       useToastStore.getState().addToast('Commitment marked done', 'success');
+      // Drop the dot from the horizon without waiting for a refetch, then refresh the cache.
+      const viz = useVizStore.getState();
+      if (viz.commitments.data) {
+        useVizStore.setState({ commitments: { ...viz.commitments, data: viz.commitments.data.filter((c) => c.id !== id) } });
+      }
+      void viz.load('commitments', true);
     } catch (e: unknown) {
       setData((cur) => {
         const put = (list: Commitment[], from: Commitment[]) => {
@@ -114,9 +125,11 @@ export function CommitmentNudgesWidget() {
   }
 
   // Quietly disappear when the endpoint is unavailable or there is nothing to nudge.
-  if (error || !data) return null;
-  const total = data.overdue.length + data.dueSoon.length;
-  if (total === 0) return null;
+  const total = data ? data.overdue.length + data.dueSoon.length : 0;
+  const onHorizon = allCommitments.data
+    ? (() => { const h = horizon(allCommitments.data, (c) => c.deadline, isOpenCommitment, HORIZON_DAYS); return h.overdue.length + h.upcoming.length; })()
+    : 0;
+  if ((error || !data || total === 0) && onHorizon === 0) return null;
 
   return (
     <Card className="border-t-2 border-t-warning" data-testid="commitment-nudges">
@@ -125,18 +138,22 @@ export function CommitmentNudgesWidget() {
           Commitments to keep
         </h3>
         <div className="flex gap-1.5">
-          {data.overdue.length > 0 && <Badge variant="danger">{data.overdue.length} overdue</Badge>}
-          {data.dueSoon.length > 0 && <Badge variant="warning">{data.dueSoon.length} due soon</Badge>}
+          {data && data.overdue.length > 0 && <Badge variant="danger">{data.overdue.length} overdue</Badge>}
+          {data && data.dueSoon.length > 0 && <Badge variant="warning">{data.dueSoon.length} due soon</Badge>}
+          {onHorizon > 0 && <Badge variant="default">{onHorizon} in {HORIZON_DAYS} d</Badge>}
         </div>
       </div>
-      <ul className="divide-y divide-border">
+      {onHorizon > 0 && allCommitments.data && (
+        <CommitmentHorizon commitments={allCommitments.data} nameById={nameById} className="mb-3 border-b border-border pb-3" />
+      )}
+      {data && total > 0 && <ul className="divide-y divide-border">
         {data.overdue.map((c) => (
           <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue onDone={markDone} busy={busyIds.has(c.id)} />
         ))}
         {data.dueSoon.map((c) => (
           <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue={false} onDone={markDone} busy={busyIds.has(c.id)} />
         ))}
-      </ul>
+      </ul>}
     </Card>
   );
 }

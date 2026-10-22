@@ -5,7 +5,7 @@ import { useMemoryStore } from '../stores/memory.store';
 import { MemorySearch } from '../components/memory/MemorySearch';
 import { MemoryList } from '../components/memory/MemoryList';
 import { MemoryDetail } from '../components/memory/MemoryDetail';
-import { PageWrapper, Button } from '../components/ui';
+import { PageWrapper, PageHeader, Button } from '../components/ui';
 import { AINudge } from '../components/shared/AINudge';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { slideIn } from '../lib/motion';
@@ -26,14 +26,15 @@ export default function MemoryExplorerPage() {
   return (
     <PageWrapper>
       <div className="p-6 h-full flex flex-col min-h-0">
-        <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h1 className="text-2xl font-semibold text-foreground">Memory Explorer</h1>
-          {hybridActive && filters.q && (
-            <p className="text-xs text-muted-foreground" data-testid="hybrid-caption">
+        <PageHeader
+          className="mb-4"
+          title="Memory Explorer"
+          subtitle={hybridActive && filters.q ? (
+            <span data-testid="hybrid-caption">
               Hybrid search for “{filters.q}” · semantic + full-text + fuzzy, ranked by relevance
-            </p>
-          )}
-        </div>
+            </span>
+          ) : undefined}
+        />
 
         {error && <ErrorBanner message={error} onDismiss={clearError} />}
 

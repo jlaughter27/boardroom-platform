@@ -18,6 +18,9 @@
  *      `x-source-weight` with NO `x-agent-key` are trusted as-is, with a
  *      warn logged once per agent id. Set `OMNIMIND_REQUIRE_AGENT_KEY=true`
  *      to turn this path off (→ 401 when `x-agent-id` arrives without a key).
+ *      A PARTIAL triple (x-agent-id without x-tenant-id / x-source-weight) is
+ *      refused with 400 `partial_agent_identity` — it never falls through to
+ *      the unscoped path (E2E-5).
  *
  *   3. No agent headers at all (BoardRoom AI, internal jobs): `agentContext`
  *      stays undefined and services fall back to their defaults.
@@ -326,11 +329,26 @@ export async function agentContextMiddleware(
           verified: false,
         };
       } else {
-        logger.warn('agent-context: partial agent headers ignored (need x-agent-key, or x-agent-id + x-tenant-id + x-source-weight)', {
+        // Fail CLOSED (E2E-5): an asserted agent identity with a missing tenant
+        // or weight must not fall through to the unscoped BoardRoom path, or a
+        // mis-configured agent reads across every tenant of the user. BoardRoom
+        // AI never sends agent headers and the MCP server always sends the
+        // full triple (or an omk_ key), so nothing legitimate lands here.
+        logger.warn('agent-context: partial agent headers refused (need x-agent-key, or x-agent-id + x-tenant-id + x-source-weight)', {
           agentId: headerAgentId,
           hasTenant: !!headerTenantId,
           hasSourceWeight: headerSourceWeight !== null,
+          path: req.path,
         });
+        res.status(400).json({
+          error: 'partial_agent_identity',
+          message: 'x-agent-id must be accompanied by x-tenant-id and x-source-weight (or send the agent\'s omk_ key in x-agent-key)',
+          fields: [
+            ...(headerTenantId ? [] : ['x-tenant-id']),
+            ...(headerSourceWeight !== null ? [] : ['x-source-weight']),
+          ],
+        });
+        return;
       }
     }
 

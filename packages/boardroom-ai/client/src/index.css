@@ -1,3 +1,11 @@
+/*
+ * Self-hosted type. Inter's `opsz` face carries both the weight and the
+ * optical-size axes, so it is the only Inter file we need; the browser picks
+ * the Display cut for headings on its own (see `font-optical-sizing` below).
+ */
+@import '@fontsource-variable/inter/opsz.css';
+@import '@fontsource-variable/inter/opsz-italic.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
 @import './styles/tokens.css';
 
 @tailwind base;
@@ -12,8 +20,24 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: var(--leading-normal);
+  font-optical-sizing: auto;
+  font-feature-settings: 'calt', 'case';
+  text-wrap: pretty;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings balance their line breaks and tighten tracking like SF Display. */
+h1, h2, h3, h4, .display {
+  text-wrap: balance;
+}
+
+h1, h2, .display {
+  letter-spacing: var(--tracking-display);
+}
+
+h3, h4 {
+  letter-spacing: var(--tracking-title);
 }
 
 /* === SELECTION === */
@@ -78,14 +102,191 @@ body {
   background: var(--color-primary);
 }
 
-/* === REDUCED MOTION === */
+/* === REDUCED MOTION ===
+ * Global: Tailwind transitions, keyframes and smooth scrolling all collapse.
+ * Motion-driven animations check `useReducedMotion()` / `MotionConfig` too.
+ */
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+/* === ROUTE TRANSITIONS ===
+ * The routed page root carries `view-transition-name: page` (React
+ * `<ViewTransition name="page">` in shared/Layout.tsx). A route change is one
+ * View Transition: the old page fades out, the new one fades in, and both
+ * slide 10 px — in from the right on forward navigation, reversed on back.
+ * The direction arrives as a transition type (`addTransitionType` in
+ * hooks/useRouteTransition.ts) and is read with `:active-view-transition-type()`.
+ * 180 ms on --ease-out. Reduced motion: opacity only. Browsers without the
+ * API never reach these rules.
+ */
+@keyframes vt-fade-in { from { opacity: 0; } }
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-slide-from-right { from { transform: translateX(10px); } }
+@keyframes vt-slide-to-left { to { transform: translateX(-10px); } }
+@keyframes vt-slide-from-left { from { transform: translateX(-10px); } }
+@keyframes vt-slide-to-right { to { transform: translateX(10px); } }
+
+/* The shell (sidebar, header) does not change between routes: no root cross-fade to wait on. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0s;
+}
+
+::view-transition-group(page) {
+  animation-duration: var(--duration-normal);
+  animation-timing-function: var(--ease-out);
+  overflow: clip;
+}
+
+::view-transition-old(page),
+::view-transition-new(page) {
+  animation-duration: var(--duration-normal);
+  animation-timing-function: var(--ease-out);
+  animation-fill-mode: both;
+  /* Both snapshots keep their own size; no UA height morph while the slide runs. */
+  height: auto;
+  mix-blend-mode: normal;
+}
+
+/* Untyped route change (programmatic navigate without a direction): fade only. */
+::view-transition-old(page) { animation-name: vt-fade-out; }
+::view-transition-new(page) { animation-name: vt-fade-in; }
+
+html:active-view-transition-type(nav-forward)::view-transition-old(page) { animation-name: vt-fade-out, vt-slide-to-left; }
+html:active-view-transition-type(nav-forward)::view-transition-new(page) { animation-name: vt-fade-in, vt-slide-from-right; }
+html:active-view-transition-type(nav-back)::view-transition-old(page) { animation-name: vt-fade-out, vt-slide-to-right; }
+html:active-view-transition-type(nav-back)::view-transition-new(page) { animation-name: vt-fade-in, vt-slide-from-left; }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(page) { animation-duration: 0s; }
+  html:active-view-transition-type(nav-forward)::view-transition-old(page),
+  html:active-view-transition-type(nav-back)::view-transition-old(page) { animation-name: vt-fade-out; }
+  html:active-view-transition-type(nav-forward)::view-transition-new(page),
+  html:active-view-transition-type(nav-back)::view-transition-new(page) { animation-name: vt-fade-in; }
+}
+
+/* === TYPOGRAPHY UTILITIES === */
+
+/*
+ * Tabular, lining figures for anything numeric that updates in place (stat
+ * tiles, counters, timers, scores) so the digits do not jitter sideways.
+ */
+.tnum,
+[data-numeric] {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* === SHAPE: CONCENTRIC RADII ===
+ * A nested corner only looks right when inner = outer − padding. Containers
+ * (Card, Modal) publish `--parent-radius` / `--parent-pad`; a child opts in
+ * with `.concentric` and gets the matching radius, clamped at 0.
+ */
+.concentric {
+  border-radius: max(0px, calc(var(--parent-radius, var(--radius-container)) - var(--parent-pad, 0px)));
+}
+
+/* === MATERIAL ===
+ * The frosted "Regular" material: translucent fill, blur + saturation of what
+ * is behind, a hairline ring and a 1 px top highlight. Reserved for the
+ * navigation layer that floats above content (header, command palette, toasts,
+ * sheets, floating toolbars). Never on cards, tables or rows, and never a
+ * material inside a material.
+ */
+.material,
+.material-clear,
+.material-sidebar {
+  /* `isolation` alone gives the stacking context the blur needs; the recipe
+   * never sets `position`, so it composes with `absolute` / `sticky` / `fixed`
+   * chrome (floating graph bars, the sticky header) instead of overriding them. */
+  isolation: isolate;
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+}
+
+.material {
+  background: color-mix(in oklab, var(--color-card) 72%, transparent);
+  box-shadow: var(--highlight), 0 0 0 1px var(--hairline), var(--shadow-md);
+}
+
+/* Secondary text on glass takes the darker step so it holds 4.5:1 over whatever shows through. */
+.material,
+.material-clear {
+  --color-muted-foreground: var(--color-muted-foreground-on-glass);
+}
+
+/* Clear: for media-rich backdrops. Needs a dimming layer behind it; prefer `.material`. */
+.material-clear {
+  background: color-mix(in oklab, var(--color-card) 40%, transparent);
+  box-shadow: var(--highlight), 0 0 0 1px var(--hairline);
+}
+
+/* Sidebar/dark-chrome variant: keeps the sidebar's own dark surface in both themes. */
+.material-sidebar {
+  background: color-mix(in oklab, var(--color-sidebar-bg) 86%, transparent);
+  box-shadow: inset 0 1px 0 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(0 0% 100% / 0.08);
+}
+
+/* No backdrop-filter → solid surface (the frosted look needs the blur to read). */
+@supports not (backdrop-filter: blur(1px)) {
+  .material,
+  .material-clear {
+    background: var(--color-card);
+  }
+  .material-sidebar {
+    background: var(--color-sidebar-bg);
+  }
+}
+
+/* Reduce Transparency → solid, exactly like the platform fallback. */
+@media (prefers-reduced-transparency: reduce) {
+  .material,
+  .material-clear,
+  .material-sidebar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .material,
+  .material-clear {
+    background: var(--color-card);
+  }
+  .material-sidebar {
+    background: var(--color-sidebar-bg);
+  }
+}
+
+/* The modal scrim loses its blur too; the 40 % dim stays. */
+@media (prefers-reduced-transparency: reduce) {
+  .modal-backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/*
+ * The same fallback behind a class, for environments that cannot emulate the
+ * media query (the visual harness; a future in-app "reduce transparency"
+ * setting). Keep in lockstep with the blocks above.
+ */
+:root.reduce-transparency .material,
+:root.reduce-transparency .material-clear,
+:root.reduce-transparency .material-sidebar,
+:root.reduce-transparency .modal-backdrop {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root.reduce-transparency .material,
+:root.reduce-transparency .material-clear {
+  background: var(--color-card);
+}
+:root.reduce-transparency .material-sidebar {
+  background: var(--color-sidebar-bg);
 }
 
 /* === SKELETON SHIMMER === */

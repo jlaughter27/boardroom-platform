@@ -46,6 +46,19 @@ export function rateLimitKeyFor(req: Request): { key: string; byIp: boolean } {
   return { key: `ip:${req.ip ?? 'unknown'}`, byIp: true };
 }
 
+/**
+ * Per-user READ budget (GET/HEAD) per minute. BoardRoom proxies every client
+ * call with `x-user-id`, and one dashboard or graph page load fans out to
+ * 20–40 GETs (entity lists, viz slices, cortex, sessions, nudges), so the
+ * shared `MAX_QUERIES_PER_MINUTE` (20) used to refuse the UI mid-load
+ * (caught by the 2026-10-20 browser e2e: "Rate limit exceeded. Max 20
+ * requests per minute." on /graph). Writes keep the shared budget.
+ */
+export const USER_READ_RATE_LIMIT_PER_MINUTE = Math.max(
+  RATE_LIMITS.MAX_QUERIES_PER_MINUTE,
+  parseInt(process.env.USER_READ_RATE_LIMIT_PER_MINUTE ?? '120', 10) || 120
+);
+
 export const rateLimiter = (req: Request, res: Response, next: NextFunction): void => {
   if (req.path === '/health') {
     next();
@@ -63,7 +76,9 @@ export const rateLimiter = (req: Request, res: Response, next: NextFunction): vo
   const key = `${subject}:${req.method}`;
   const now = Date.now();
   const windowMs = 60 * 1000; // 1-minute window
-  const maxRequests = RATE_LIMITS.MAX_QUERIES_PER_MINUTE * (byIp ? IP_BUCKET_MULTIPLIER : 1);
+  const isRead = req.method === 'GET' || req.method === 'HEAD';
+  const baseBudget = isRead ? USER_READ_RATE_LIMIT_PER_MINUTE : RATE_LIMITS.MAX_QUERIES_PER_MINUTE;
+  const maxRequests = baseBudget * (byIp ? IP_BUCKET_MULTIPLIER : 1);
 
 
   let bucket = buckets.get(key);

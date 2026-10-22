@@ -57,6 +57,14 @@ jobs:
           for f in services/backup/*.sh services/backup/tests/*.sh; do bash -n "$f"; done
           bash services/backup/tests/restore-drill.test.sh
 
+      # scripts/mcp-go-live.sh is the one-command MCP go-live path (runbook
+      # "One-command path"); the test stubs railway / curl / openssl / claude.
+      - name: Go-live script (bash -n + stubbed test)
+        run: |
+          bash -n scripts/mcp-go-live.sh
+          bash -n scripts/tests/mcp-go-live.test.sh
+          bash scripts/tests/mcp-go-live.test.sh
+
       - name: Dependency audit (high+ fails)
         run: pnpm audit --prod --audit-level high
 

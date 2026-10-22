@@ -75,6 +75,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
 
       <div className="flex flex-wrap gap-3">
         {/* Status */}
+        {/* ui-standards: allow select — dense entity form; migrates with the forms pass */}
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -89,6 +90,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
 
         {/* Level (goals only) */}
         {entityType === 'goal' && (
+          // ui-standards: allow select — dense entity form; migrates with the forms pass
           <select
             value={level}
             onChange={(e) => setLevel(Number(e.target.value))}
@@ -123,6 +125,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
 
         {/* Priority (tasks only) */}
         {entityType === 'task' && (
+          // ui-standards: allow select — dense entity form; migrates with the forms pass
           <select
             value={priority}
             onChange={(e) => setPriority(Number(e.target.value))}
