@@ -27,6 +27,11 @@
 # re-running this workflow (or `railway up`) is how it redeploys. The
 # config-as-code path (packages/omnimind-mcp/railway.toml) is also dashboard-only.
 #
+# Preconditions: a real run aborts before any write unless the latest CI run on
+# main is green AND backup evidence is given (tick backup_ok after a fresh
+# pg_dump + restore drill, or pass backup_check_url with the repository secret
+# BACKUP_CHECK_API_KEY). A dry run reports both without enforcing them.
+#
 # dry_run defaults to TRUE: the first run prints the plan with placeholders and
 # touches nothing. Flip it to false to execute.
 name: MCP go-live
@@ -67,14 +72,27 @@ on:
         required: false
         default: ""
         type: string
+      backup_ok:
+        description: I attest a fresh prod pg_dump + restore drill exists (BACKUP-DRILLS.md)
+        required: false
+        default: false
+        type: boolean
+      backup_check_url:
+        description: Or a healthchecks.io v3 check URL (last ping < 26 h; needs secret BACKUP_CHECK_API_KEY)
+        required: false
+        default: ""
+        type: string
       dry_run:
         description: Print the plan only; make no changes
         required: false
         default: true
         type: boolean
 
+# actions: read lets the script's precondition read the latest ci.yml run on
+# main (gh api …/actions/workflows/ci.yml/runs) with the job token.
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: mcp-go-live
@@ -88,6 +106,8 @@ jobs:
     env:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      BACKUP_CHECK_API_KEY: ${{ secrets.BACKUP_CHECK_API_KEY }}
       CI: "true"
       INPUT_PROJECT_ID: ${{ inputs.project_id }}
       INPUT_ENVIRONMENT: ${{ inputs.environment }}
@@ -96,6 +116,8 @@ jobs:
       INPUT_TENANTS: ${{ inputs.tenants }}
       INPUT_ADMIN_EMAILS: ${{ inputs.admin_emails }}
       INPUT_OAUTH_ISSUER: ${{ inputs.oauth_issuer }}
+      INPUT_BACKUP_OK: ${{ inputs.backup_ok }}
+      INPUT_BACKUP_CHECK_URL: ${{ inputs.backup_check_url }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +151,12 @@ jobs:
           [ -n "$INPUT_OWNER_USER_ID" ] && args+=(--owner-user-id "$INPUT_OWNER_USER_ID")
           [ -n "$INPUT_ADMIN_EMAILS" ]  && args+=(--admin-emails "$INPUT_ADMIN_EMAILS")
           [ -n "$INPUT_OAUTH_ISSUER" ]  && args+=(--oauth-issuer "$INPUT_OAUTH_ISSUER")
+          [ "$INPUT_BACKUP_OK" = "true" ] && args+=(--backup-ok)
+          [ -n "$INPUT_BACKUP_CHECK_URL" ] && args+=(--backup-check-url "$INPUT_BACKUP_CHECK_URL")
           [ "$INPUT_DRY_RUN" = "true" ]  && args+=(--dry-run)
+          # Preconditions (step 0b, before any write): the latest ci.yml run on
+          # main must be green (read with GH_TOKEN; repo = GITHUB_REPOSITORY), and
+          # backup evidence must be given (backup_ok or backup_check_url).
           # The script appends its summary table to $GITHUB_STEP_SUMMARY itself
           # (secrets redacted) and emits ::add-mask:: for the admin + gateway keys.
           bash scripts/mcp-go-live.sh "${args[@]}"
