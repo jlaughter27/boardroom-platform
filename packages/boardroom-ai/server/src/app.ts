@@ -13,7 +13,7 @@ import cookieParser from 'cookie-parser';
 import { authMiddleware, optionalAuthMiddleware } from './middleware/auth';
 import { requireAdmin } from './middleware/admin.middleware';
 import { authRouter } from './routes/auth.routes';
-import { healthRouter } from './routes/health.routes';
+import { healthRouter, readyRouter } from './routes/health.routes';
 import { sessionsRouter } from './routes/sessions.routes';
 import { entitiesRouter } from './routes/entities.routes';
 import { onboardingRouter } from './routes/onboarding.routes';
@@ -99,9 +99,11 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   // never stored. /health moves up for the same reason (a browser visit got
   // the SPA). B-107 still applies: direct handlers, not `app.get(path, router)`.
   // optionalAuth lets the handler cross-check state.userId against the cookie
-  // when one IS present.
+  // when one IS present. /ready (M0-A2) sits here for the same reason as
+  // /health: public, and a browser visit must get JSON, not the SPA shell.
   // ---------------------------------------------------------------------------
   app.use('/health', healthRouter);
+  app.use('/ready', readyRouter);
   app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback);
   app.get('/integrations/gmail/callback', optionalAuthMiddleware, gmailCallback);
 

@@ -77,7 +77,8 @@ function mountedPrefixes(): string[] {
 }
 
 // ── Classification ──────────────────────────────────────────────────────────
-const PUBLIC = ['/health'];
+// /ready (M0-A2) is mounted ahead of every auth middleware, like /health is exempted from them.
+const PUBLIC = ['/health', '/ready'];
 const ALLOWED_FAMILIES = ['/memories', '/context', '/decisions', '/tasks', '/goals', '/projects', '/people', '/commitments', '/graph'];
 const FORBIDDEN_FAMILIES = ['/auth', '/oauth', '/admin', '/subscription', '/custom-personas', '/user-profile', '/outcome-reviews', '/relationships', '/cortex'];
 /** Prefixes with an exact-route carve-out: everything else under them is forbidden. */
