@@ -1,10 +1,11 @@
 # Current Phase
 
-**Phase in flight:** 🎨 **Phase 7.5 — Visualization + Apple-grade UI foundation** (PR #22: viz upgrade + UI foundation Phases A/B/C/D, all merged on the branch). Phase 7 MCP front door is merged (PR #21) and awaits the Railway go-live checklist.
-**Last update:** 2026-10-20 (Phase C merged onto PR #22)
-**Updated by:** Claude (research → build → review session, branch `claude/amazing-mccarthy-grvem2`)
+**Phase in flight:** 🧭 **Phase 8 — Dev roadmap** (`docs/roadmap/PHASE-8-ROADMAP.md`): M0 Contain and stay green (W1) → M1 Verified production, MCP live, tenant-safe one memory (W1–W3) → M2 One memory everywhere + Apple-quality floor + dogfood day 1 on 2026-11-12 (W3–W4) → M3 Ops floor and daily loop (W4–W6) → M4 Verdict and pre-signup gate (W7–W8). Per-item status: `PHASE-PROGRESS-TRACKER.md` § Phase 8.
+**Active items:** M0 agent lanes (A: stay green + identifiable deploys; D: status truth). **Founder, urgent:** M0-F2 rotate the R-103 secrets (the repo is public and an early commit holds deploy env values), M0-F1 prod `pg_dump` first, M0-F4 hand-verify the live deploy.
+**Last update:** 2026-10-22 (PR #22 merged as `cdef1ef`, PR #23 SDK security bump as `fc19563`, main CI green; Railway deploy unverified from the sandbox)
+**Updated by:** Claude (multi-agent roadmap: 3 auditors → 2 competing planners → cross-examination → synthesis → 2 validators → revision)
 
-**Next phase (not yet started):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key. **One command does the checklist** (2026-10-20): `pnpm go-live:mcp -- --project <id> --owner-email <e-mail> --yes` from a laptop, or GitHub → Actions → *MCP go-live* from a phone (runbook "One-command path").
+**Next phase (scheduled inside Phase 8, M2 day 1 = 2026-11-12):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key. **One command does the checklist** (2026-10-20): `pnpm go-live:mcp -- --project <id> --owner-email <e-mail> --yes` from a laptop, or GitHub → Actions → *MCP go-live* from a phone (runbook "One-command path").
 
 ---
 

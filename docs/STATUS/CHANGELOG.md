@@ -6,6 +6,18 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-22 — Phase 8 — Dev roadmap built by a multi-agent debate; main back to green
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR opened | **Tests:** docs only
+
+- **Main CI red → green:** two high-severity advisories against `@modelcontextprotocol/sdk` (<1.32.0, GHSA-46jr-4wx8-v453 and GHSA-22jm-h49p-29qw) were published after PR #22's CI ran, so the audit gate failed on the merge commit `cdef1ef`. PR #23 (`fc19563`) bumped the SDK to `^1.32.1`; main CI run 39864122262 is green on every job, including the first omnimind-mcp Docker build on main. No production exposure: only `omnimind-mcp` uses the SDK and it is not launched.
+- **`docs/roadmap/PHASE-8-ROADMAP.md`:** 8 weeks, 5 milestones (M0 contain and stay green → M1 verified production, MCP live for token clients, tenant-safe one memory → M2 one memory everywhere, Apple-quality floor, dogfood day 1 on 2026-11-12 → M3 ops floor and daily loop → M4 verdict and pre-signup gate), 4 agent lanes + founder items, 69 tracked items, 21-row decision ledger, risks, not-doing list, and the exact prompt a lane session uses.
+- **How it was built:** 3 auditors (UI 29 findings, engineering 24, product 18) → 2 planners drafting opposite theses (launch-and-trust first vs experience first) → each cross-examined the other against the repo → synthesis with a decision ledger → 2 validators (repo-truth: 41 checks; coverage: 20) → revision fixed 2 blocking + 4 major issues; 17 minor notes left open in the roadmap's Validation section.
+- **Security finding surfaced by the audit (founder, urgent):** deploy env values were committed in early history and the repo is **public**; removing the file later does not remove it from history. M0-F2 rotates the five affected secrets; the commit reference is deliberately not written into the public docs.
+- `PHASE-PROGRESS-TRACKER.md` gains a Phase 8 section (69 rows, states `todo → in-progress → in-review → merged → done`); `CURRENT-PHASE.md` points at Phase 8.
+
+---
+
 ## 2026-10-20 — Phase 7.5 — End-to-end pass on a live local stack: 3 production bugs fixed, live journey added
 
 **Branch:** `claude/amazing-mccarthy-grvem2` (PR #22) | **Status:** Pushed | **Tests:** omnimind-api 1,167 → 1,175 (+8: partial identity, split read budget); client +1 guard rule; `pnpm test:e2e` 55/55 (was 54/55); new `pnpm e2e:live` journey 22/22
