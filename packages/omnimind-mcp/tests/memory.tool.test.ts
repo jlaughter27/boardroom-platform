@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   memoryWriteTool, memorySearchTool, memorySupersedeT, memoryReflectTool, memoryConsolidateTool,
   chooseKeep, isInvalidatedMemory, deriveFactIdempotencyKey, memoryWriteReplayCache, FACT_KEY_PREFIX_LENGTH,
+  deriveSupersedeIdempotencyKey, EXTRACTION_DEFERRED_MESSAGE, MemoryWriteOutputSchema,
 } from '../src/tools/memory.tool';
 import { ScopeDeniedError, McpValidationError } from '../src/types';
 import type { OmniMindClient } from '../src/lib/client';
@@ -182,24 +183,138 @@ describe('memory_write', () => {
     await tool.execute({ content: 'a', userId: 'user-1', skipExtraction: true });
     await tool.execute({ content: 'a', userId: 'user-1', skipExtraction: true });
     expect(client.createMemory).toHaveBeenCalledTimes(2);
-    const { extractAndDedup } = await import('../src/lib/fact-extractor');
-    vi.mocked(extractAndDedup).mockRejectedValueOnce(Object.assign(new Error('down'), { code: 'FACT_EXTRACTOR_UNAVAILABLE' }));
-    const refused = await tool.execute({ content: 'b', userId: 'user-1', idempotencyKey: 'ref-1' });
+    // A refusal (ministry) is not cached: the same key later on a valid domain really writes.
+    const refused = await tool.execute({ content: 'b', domain: 'ministry', userId: 'user-1', idempotencyKey: 'ref-1' });
     expect(refused.ok).toBe(false);
-    const retried = await tool.execute({ content: 'b', userId: 'user-1', idempotencyKey: 'ref-1' });
-    expect(retried.ok).toBe(true); // extractor recovered → the retry really runs
+    const retried = await tool.execute({ content: 'b', domain: 'business', userId: 'user-1', idempotencyKey: 'ref-1' });
+    expect(retried.ok).toBe(true);
+    expect(client.createMemory).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * M1-B2 — sync-mode `memory_write` used to refuse with FACT_EXTRACTOR_UNAVAILABLE
+ * ("Memory not written") whenever the extractor was down. It now stores the
+ * prose as one row through POST /memories, answers `extraction: 'deferred'`,
+ * and retries extraction in the background.
+ */
+describe('memory_write — extractor outage in sync mode (M1-B2)', () => {
+  const outage = () => Object.assign(new Error('Fact extraction failed (Haiku down).'), { code: 'FACT_EXTRACTOR_UNAVAILABLE' });
+  let client: OmniMindClient;
+  let ctx: AgentContext;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    client = makeMockClient();
+    ctx = makeCtx();
+    memoryWriteReplayCache.clear();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
-  it('surfaces FACT_EXTRACTOR_UNAVAILABLE as a typed refusal', async () => {
+  it('the tool succeeds, createMemory is called exactly once, and output.extraction === "deferred" (was: refused)', async () => {
     const { extractAndDedup } = await import('../src/lib/fact-extractor');
-    const err = Object.assign(new Error('Haiku down'), { code: 'FACT_EXTRACTOR_UNAVAILABLE' });
-    vi.mocked(extractAndDedup).mockRejectedValueOnce(err);
-    const tool = memoryWriteTool(client, ctx);
-    const result = await tool.execute({ content: 'something', userId: 'user-1' });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('unreachable');
-    expect(result.error).toBe('FACT_EXTRACTOR_UNAVAILABLE');
-    expect(client.logAudit).toHaveBeenCalledWith(expect.objectContaining({ errorMessage: expect.stringContaining('Haiku down') }));
+    // The sync attempt and the single background attempt both hit the outage.
+    vi.mocked(extractAndDedup).mockRejectedValueOnce(outage()).mockRejectedValueOnce(outage());
+    let deferred: Promise<void> | undefined;
+    const tool = memoryWriteTool(client, ctx, { extractMode: 'sync', deferredRetryDelaysMs: [0], onDeferred: p => { deferred = p; } });
+    const result = await tool.execute({ content: 'Josh picked Railway for hosting', domain: 'business', userId: 'user-1' });
+
+    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({ ok: true, created: ['mem-1'], updated: [], skipped: 0, extraction: 'deferred' });
+    expect(result).not.toHaveProperty('error');
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.message).toContain('Haiku down');
+    expect(result.message).toContain(EXTRACTION_DEFERRED_MESSAGE);
+    expect(MemoryWriteOutputSchema.parse(result)).toMatchObject({ extraction: 'deferred' });
+    // The raw prose went through POST /memories (validation pipeline) as one row.
+    expect(client.createMemory).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(client.createMemory).mock.calls[0][0]).toMatchObject({
+      content: 'Josh picked Railway for hosting', domain: 'business', sourceType: 'MCP_AGENT', agentId: 'test-agent', tenantId: 'josh-business',
+    });
+    // The memory_write audit row is a success, not an error.
+    const writeAudit = vi.mocked(client.logAudit).mock.calls.find(c => c[0].toolName === 'memory_write')?.[0];
+    expect(writeAudit).toMatchObject({ outputJson: expect.objectContaining({ extraction: 'deferred' }) });
+    expect(writeAudit).not.toHaveProperty('errorMessage');
+
+    // The background extraction failed again: logged, never thrown, raw row kept, still one row.
+    await expect(deferred).resolves.toBeUndefined();
+    expect(client.createMemory).toHaveBeenCalledTimes(1);
+    expect(client.updateMemory).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('deferred extraction failed (raw row mem-1 kept)'), expect.stringContaining('Haiku down'));
+    expect(vi.mocked(client.logAudit).mock.calls.map(c => c[0].toolName)).toEqual(['memory_write', 'memory_write:extract']);
+  });
+
+  it('retries extraction in the background after waiting, then supersedes the raw row with the first fact', async () => {
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    vi.mocked(extractAndDedup)
+      .mockRejectedValueOnce(outage()) // the sync attempt
+      .mockRejectedValueOnce(outage()) // background attempt 1
+      .mockResolvedValueOnce([{ text: 'Hosting is Railway', type: 'decision', action: 'create' }]); // attempt 2
+    vi.mocked(client.createMemory).mockResolvedValueOnce({ id: 'raw-1', status: 'created' } as never);
+    const sleeps: number[] = [];
+    const deferredClient = makeMockClient();
+    vi.mocked(deferredClient.createMemory).mockResolvedValueOnce({ id: 'fact-1', status: 'created' } as never);
+    let deferred: Promise<void> | undefined;
+    const tool = memoryWriteTool(client, ctx, {
+      extractMode: 'sync', deferredClient, deferredRetryDelaysMs: [5, 30, 120],
+      sleep: async ms => { sleeps.push(ms); }, onDeferred: p => { deferred = p; },
+    });
+    const result = await tool.execute({ content: 'Josh picked Railway for hosting', userId: 'user-1', idempotencyKey: 'k-down' });
+    expect(result).toMatchObject({ ok: true, created: ['raw-1'], extraction: 'deferred' });
+    expect(vi.mocked(client.createMemory).mock.calls[0][2]).toEqual({ idempotencyKey: 'k-down' });
+
+    await deferred;
+    // Waited before each attempt; stopped after the first success.
+    expect(sleeps).toEqual([5, 30]);
+    // The tail ran on the long-lived deferred client: fact row (derived key), then supersede of the raw row.
+    expect(client.createMemory).toHaveBeenCalledTimes(1);
+    expect(deferredClient.createMemory).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deferredClient.createMemory).mock.calls[0][0]).toMatchObject({ content: 'Hosting is Railway', tags: ['decision'] });
+    expect((vi.mocked(deferredClient.createMemory).mock.calls[0][2] as { idempotencyKey: string }).idempotencyKey).toBe(deriveFactIdempotencyKey('k-down', 'Hosting is Railway'));
+    expect(deferredClient.updateMemory).toHaveBeenCalledWith('fact-1', { supersedes: 'raw-1', agentId: 'test-agent' }, 'user-1', { idempotencyKey: deriveSupersedeIdempotencyKey('raw-1') });
+    expect(vi.mocked(deferredClient.logAudit).mock.calls[0][0]).toMatchObject({
+      toolName: 'memory_write:extract', outputJson: expect.objectContaining({ ok: true, created: ['fact-1'], rawId: 'raw-1', rawRowKept: false }),
+    });
+  });
+
+  it('idempotency survives the deferred path: a retry with the same key replays and writes no second row', async () => {
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    vi.mocked(extractAndDedup).mockRejectedValueOnce(outage()).mockRejectedValueOnce(outage());
+    const scheduled: Promise<void>[] = [];
+    const tool = memoryWriteTool(client, ctx, { extractMode: 'sync', deferredRetryDelaysMs: [0], onDeferred: p => { scheduled.push(p); } });
+    const first = await tool.execute({ content: 'Josh picked Railway', userId: 'user-1', idempotencyKey: 'retry-down' });
+    const second = await tool.execute({ content: 'Josh picked Railway', userId: 'user-1', idempotencyKey: 'retry-down' });
+    await Promise.all(scheduled);
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ extraction: 'deferred' });
+    expect(client.createMemory).toHaveBeenCalledTimes(1);
+    expect(scheduled).toHaveLength(1); // the replay schedules no second extraction
+    // Across a restart (empty replay cache) the same key reaches POST /memories again, where the server replays the row.
+    expect(vi.mocked(client.createMemory).mock.calls[0][2]).toEqual({ idempotencyKey: 'retry-down' });
+  });
+
+  it('non-outage extractor errors still fail the call (nothing is stored)', async () => {
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    vi.mocked(extractAndDedup).mockRejectedValueOnce(new Error('search exploded'));
+    const tool = memoryWriteTool(client, ctx, { extractMode: 'sync', onDeferred: () => { throw new Error('must not schedule'); } });
+    await expect(tool.execute({ content: 'x', userId: 'user-1' })).rejects.toThrow('search exploded');
+    expect(client.createMemory).not.toHaveBeenCalled();
+  });
+
+  it('the ministry refusal is unchanged: refused before extraction, nothing stored', async () => {
+    const { extractAndDedup } = await import('../src/lib/fact-extractor');
+    const before = vi.mocked(extractAndDedup).mock.calls.length;
+    const result = await memoryWriteTool(client, ctx, { extractMode: 'sync', deferredRetryDelaysMs: [0] })
+      .execute({ content: 'pastoral note', domain: ' Ministry ', userId: 'user-1' });
+    expect(result).toMatchObject({ ok: false, error: 'MINISTRY_DEFERRED' });
+    expect(client.createMemory).not.toHaveBeenCalled();
+    expect(vi.mocked(extractAndDedup).mock.calls.length).toBe(before);
   });
 });
 

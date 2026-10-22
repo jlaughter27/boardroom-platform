@@ -17,6 +17,52 @@ import type { OmniMindClient } from './client';
 
 export const DEFERRED_DRAIN_TIMEOUT_MS = 30_000;
 
+/**
+ * M1-B2 — waits before each attempt of an extraction that was deferred because
+ * the extractor had *just* failed (sync-mode `memory_write` stores the raw row
+ * and retries extraction in the background instead of refusing). Retrying at
+ * once would only hit the same outage, so even the first attempt waits.
+ * Work still sleeping when the process shuts down is abandoned after the drain
+ * timeout; the raw row is already stored, so nothing is lost but the facts.
+ */
+export const DEFERRED_EXTRACTION_RETRY_DELAYS_MS: readonly number[] = [5_000, 30_000, 120_000];
+
+/** Promise-based sleep whose timer never keeps the process alive. */
+export function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise(resolve => {
+    const t = setTimeout(resolve, ms);
+    t.unref?.();
+  });
+}
+
+export interface RetryWithDelaysOptions {
+  /** One attempt per entry; each attempt first waits that many ms. Must be non-empty. */
+  delaysMs: readonly number[];
+  /** Only errors this returns true for are retried; anything else is thrown at once. */
+  retryIf: (err: unknown) => boolean;
+  /** Injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Run `fn` up to `delaysMs.length` times, sleeping `delaysMs[i]` before attempt
+ * `i`. Resolves with the first success; rejects with the last error once the
+ * attempts are used up, or immediately on an error `retryIf` rejects.
+ */
+export async function retryWithDelays<T>(fn: (attempt: number) => Promise<T>, opts: RetryWithDelaysOptions): Promise<T> {
+  if (opts.delaysMs.length === 0) throw new Error('retryWithDelays: delaysMs must not be empty');
+  const wait = opts.sleep ?? sleep;
+  for (let attempt = 0; ; attempt++) {
+    await wait(opts.delaysMs[attempt]);
+    try {
+      return await fn(attempt);
+    } catch (err) {
+      if (attempt >= opts.delaysMs.length - 1 || !opts.retryIf(err)) throw err;
+    }
+  }
+}
+
 interface Owned {
   inflight: number;
   /** The owning session is gone: close as soon as `inflight` reaches 0. */

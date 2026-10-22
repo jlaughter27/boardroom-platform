@@ -47,5 +47,5 @@ OMNIMIND_ADMIN_KEY=$OMNIMIND_ADMIN_KEY OMNIMIND_API_KEY=$OMNIMIND_API_KEY node t
 Notes:
 
 - The register limiter is 3 per hour per IP and in-memory; restart BoardRoom between runs.
-- Without a real `ANTHROPIC_API_KEY`, `memory_write` in the default `sync` mode is **refused** with `FACT_EXTRACTOR_UNAVAILABLE` (by design: the agent retries). `OMNIMIND_MCP_WRITE_EXTRACT=async` stores the raw row first and defers extraction, which is what this run uses.
+- Without a real `ANTHROPIC_API_KEY`, `memory_write` in the default `sync` mode stores the prose as one raw row and answers `extraction: "deferred"` (Phase 8 M1-B2; it used to be refused with `FACT_EXTRACTOR_UNAVAILABLE`). `OMNIMIND_MCP_WRITE_EXTRACT=async` stores the raw row first and defers extraction, which is what this run uses.
 - `pnpm test:e2e` (the `E2E-*` harness suite) is a different, narrower gate: it boots OmniMind + the MCP stdio server on its own and asserts on DB rows. The older `tests/e2e/flows/*` files target a previous API contract and are not wired into any script.

@@ -6,9 +6,14 @@ import type { AgentContext, FactWithAction } from '../types';
 
 /**
  * WS-2.4 — Thrown when the Haiku extraction call fails (no API key, rate limit,
- * timeout, malformed response). The MCP tool layer catches this and returns
- * `{ error: 'FACT_EXTRACTOR_UNAVAILABLE', message }` to the agent so it can
- * retry rather than silently storing un-deduped raw content.
+ * timeout, malformed response). `extractAndDedup` never writes anything, so
+ * when this is thrown no fact row exists yet.
+ *
+ * M1-B2 — `memory_write` no longer refuses on this error: it stores the prose
+ * as one row through `POST /memories` (the validation pipeline still runs),
+ * answers `extraction: 'deferred'`, and retries extraction in the background
+ * (`DEFERRED_EXTRACTION_RETRY_DELAYS_MS`). A refusal used to make agents drop
+ * the memory or retry into the same outage.
  */
 export class FactExtractorUnavailableError extends Error {
   readonly code = 'FACT_EXTRACTOR_UNAVAILABLE' as const;
@@ -128,15 +133,11 @@ export async function extractAndDedup(
   try {
     rawFacts = await extractRawFacts(content, client, userId);
   } catch (err) {
-    // WS-2.4 — Fail loud, do not pollute the store with raw chunks when Haiku is down.
-    // Production memory systems (Mem0, Letta, Anthropic Memory tool) refuse the write
-    // rather than store unstructured fallback. The MCP tool layer should catch this
-    // and surface FACT_EXTRACTOR_UNAVAILABLE to the agent for an explicit retry.
+    // WS-2.4 — Fail loud: never return a fabricated fact list. The caller
+    // decides what to do with the prose (M1-B2: memory_write stores it as one
+    // raw row and defers extraction; the async tail logs and keeps the raw row).
     const message = (err as Error).message;
-    throw new FactExtractorUnavailableError(
-      `Fact extraction failed (${message}). Memory not written. ` +
-        `Retry once Anthropic / fact-extractor is available again.`,
-    );
+    throw new FactExtractorUnavailableError(`Fact extraction failed (${message}).`);
   }
 
   if (rawFacts.length === 0) return [];

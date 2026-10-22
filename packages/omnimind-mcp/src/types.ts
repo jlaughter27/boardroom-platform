@@ -98,8 +98,13 @@ export interface MemoryWriteSuccess {
   created: string[];
   updated: string[];
   skipped: number;
-  /** `'async'` when the prose was stored as one row and fact extraction runs after the response (`OMNIMIND_MCP_WRITE_EXTRACT=async`). */
-  extraction?: 'sync' | 'async';
+  /**
+   * `'async'` when the prose was stored as one row and fact extraction runs after the response (`OMNIMIND_MCP_WRITE_EXTRACT=async`).
+   * `'deferred'` (M1-B2) when sync-mode extraction failed: the prose was stored as one row and extraction is retried in the background; `message` says so.
+   */
+  extraction?: 'sync' | 'async' | 'deferred';
+  /** Set with `extraction: 'deferred'`: why extraction was deferred and that the caller must not repeat the call. */
+  message?: string;
 }
 
 /**
@@ -110,6 +115,7 @@ export interface MemoryWriteSuccess {
  */
 export interface MemoryWriteRefused {
   ok: false;
+  /** `FACT_EXTRACTOR_UNAVAILABLE` is kept for wire compatibility; since M1-B2 `memory_write` answers `extraction: 'deferred'` instead. */
   error: 'MINISTRY_DEFERRED' | 'FACT_EXTRACTOR_UNAVAILABLE';
   message: string;
   created: string[];
