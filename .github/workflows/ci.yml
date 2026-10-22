@@ -173,6 +173,70 @@ jobs:
             | pnpm exec prisma db execute --schema prisma/schema.prisma --stdin
           pnpm exec prisma migrate deploy --schema prisma/schema.prisma
 
+      # M0-A3 — migration drift guard: do prisma/migrations reproduce
+      # schema.prisma? `migrate diff --from-migrations` replays every migration
+      # into a SHADOW database, and Prisma RESETS that database first. So the
+      # shadow is its own `omnimind_shadow` database inside this same pgvector
+      # service, and --shadow-database-url is NEVER $DATABASE_URL (that is
+      # omnimind_eval, the eval database below). The command runs with
+      # DATABASE_URL unset, and a row-count snapshot of omnimind_eval taken
+      # before and after proves it was not touched. This runs before the API
+      # starts, so nothing else writes to omnimind_eval meanwhile.
+      #
+      # Exit 0 = no drift, 2 = drift, anything else = error. The drift Prisma
+      # reports must equal prisma/known-drift.sql (raw-SQL objects that
+      # schema.prisma cannot express) once `--` comments and blank lines are
+      # removed. Anything else fails: add a migration for the schema change.
+      - name: Migration drift guard (separate omnimind_shadow DB)
+        working-directory: packages/omnimind-api
+        env:
+          SHADOW_DATABASE_URL: postgresql://eval:eval@localhost:5432/omnimind_shadow
+        run: |
+          if [ "$SHADOW_DATABASE_URL" = "$DATABASE_URL" ]; then
+            echo "::error::the shadow database URL equals DATABASE_URL; refusing (Prisma resets the shadow database)"
+            exit 1
+          fi
+          snapshot() {
+            PGPASSWORD=eval psql -h localhost -U eval -d omnimind_eval -tAc \
+              "SELECT (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public') || ':' || (SELECT count(*) FROM _prisma_migrations) || ':' || (SELECT count(*) FROM users) || ':' || (SELECT count(*) FROM memory_entries)"
+          }
+          before="$(snapshot)"
+
+          PGPASSWORD=eval psql -h localhost -U eval -d omnimind_eval -c 'CREATE DATABASE omnimind_shadow'
+          PGPASSWORD=eval psql -h localhost -U eval -d omnimind_shadow \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm' \
+            -c 'CREATE EXTENSION IF NOT EXISTS btree_gin'
+
+          rc=0
+          env -u DATABASE_URL pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --script --exit-code > "$RUNNER_TEMP/drift.sql" || rc=$?
+
+          after="$(snapshot)"
+          echo "omnimind_eval public tables:_prisma_migrations:users:memory_entries before=${before} after=${after}"
+          if [ "$before" != "$after" ]; then
+            echo "::error::omnimind_eval changed during the drift check"
+            exit 1
+          fi
+          if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then
+            cat "$RUNNER_TEMP/drift.sql"
+            echo "::error::prisma migrate diff failed (exit ${rc})"
+            exit "$rc"
+          fi
+
+          normalize() { grep -v -e '^--' -e '^[[:space:]]*$' "$1" || true; }
+          if diff -u <(normalize prisma/known-drift.sql) <(normalize "$RUNNER_TEMP/drift.sql"); then
+            echo "migrate diff exit ${rc}: only the accepted drift listed in prisma/known-drift.sql."
+          else
+            echo "::error::schema.prisma and prisma/migrations disagree beyond prisma/known-drift.sql. Add a migration (pnpm exec prisma migrate dev --create-only), or update known-drift.sql only for a deliberate raw-SQL object."
+            echo "Full migrate diff output:"
+            cat "$RUNNER_TEMP/drift.sql"
+            exit 1
+          fi
+
       - name: Start omnimind-api (background)
         working-directory: packages/omnimind-api
         run: |
