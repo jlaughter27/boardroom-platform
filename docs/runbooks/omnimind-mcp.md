@@ -410,7 +410,7 @@ One store, every client reads it at the start of relevant turns, and a write fro
 
 **Why you need it.** ChatGPT's connector dialog has no header or API-key field (OAuth or "No authentication" only), and claude.ai's *Request headers* section is a beta for a limited set of organizations. Without OAuth those two clients cannot use the per-user `omt_` tokens at all. Everything else (Claude Code, Claude Desktop via the `mcp-remote` bridge, Cursor, Windsurf, Gemini CLI, VS Code, Zed) works with tokens alone, so this section is optional until a ChatGPT or claude.ai user needs in.
 
-**What the server is.** An OAuth 2.1 **resource server** only (ADR-014): it verifies JWTs from one configured issuer and maps them to BoardRoom users. There is no built-in authorization server, no consent-time scope picker, and client registration is entirely the issuer's job. `omt_` tokens and OAuth coexist on the same endpoint (the server tells them apart by shape: `omt_` prefix vs compact JWS).
+**What the server is.** An OAuth 2.1 **resource server** only (ADR-016, issuer choice Proposed): it verifies JWTs from one configured issuer and maps them to BoardRoom users. There is no built-in authorization server, no consent-time scope picker, and client registration is entirely the issuer's job. `omt_` tokens and OAuth coexist on the same endpoint (the server tells them apart by shape: `omt_` prefix vs compact JWS).
 
 ### 9.1 Choose an identity provider
 
