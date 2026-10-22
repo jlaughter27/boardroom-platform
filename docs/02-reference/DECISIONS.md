@@ -84,3 +84,30 @@ All architectural decisions are logged here with rationale. Check before proposi
 **Decision:** Adopt one foundation, additively: self-hosted Inter Variable (`opsz`) + JetBrains Mono; ease-out / ease-in-out / sheet curves with durations under 300 ms and no animation on keyboard-driven paths; layered hue-matched shadows with a hairline and inset highlight; a dark elevation ladder; control / container / capsule radii with concentric nesting; a `.material` recipe reserved for the navigation layer; Base UI (`@base-ui/react`) as the headless layer for Dialog, Tooltip, Select, Tabs, Popover and Menu; Lucide as the single icon set at 1.75 px stroke.
 **Consequences:** Every old token name keeps working as an alias, so pages improve without edits; `client/tests/ui-standards.test.ts` fails the build on `transition-all`, ease-in, `scale: 0` entrances, literal z-index, third-party fonts and `backdrop-blur` outside the allow-list. One new runtime dependency (Base UI) replaces ~300 lines of focus/scroll code; drag-to-dismiss sheets, View Transitions (needs React 19.3) and Chromium lensing are deferred.
 **Alternatives rejected:** Radix (slowing cadence; shadcn moved to Base UI), React Aria (deeper than we need until date pickers / data grids), keeping hand-rolled primitives (no scroll lock, no `inert`, fragile focus trap), Tailwind v4 migration (no runtime benefit over our CSS-variable tokens; upgrade tool does not handle our config).
+
+## ADR-016: MCP OAuth issuer
+**Date:** 2026-10-22 | **Status:** Proposed (decision left for the founder: Phase 8 M1-F6 picks, M2-F1 configures and marks Accepted) | **Reference:** [`docs/runbooks/omnimind-mcp.md`](../runbooks/omnimind-mcp.md) §9
+**Context:** `omnimind-mcp` is an OAuth 2.1 **resource server only**: it validates JWTs from exactly one configured issuer (`OMNIMIND_MCP_OAUTH_ISSUER`, optional `_JWKS_URL` / `_AUDIENCE`), publishes RFC 9728 protected-resource metadata at `/.well-known/oauth-protected-resource`, binds the audience per RFC 8707, reads `email` / `email_verified` from the token or the issuer's `userinfo_endpoint`, and auto-links a verified e-mail read-only to the user's oldest owned tenant. There is no built-in authorization server and none will be built (`.claude/CLAUDE.md` Known Limitation 14; Phase 8 "Not doing"). Without an issuer, ChatGPT cannot connect at all (its connector dialog offers only OAuth or no authentication) and most claude.ai organizations cannot (the *Request headers* beta is limited). No issuer has been chosen or configured. This decision was previously referred to as the "ADR-014 provider spike"; ADR-014 is Hybrid Embedding and ADR-015 is the Apple-grade UI foundation, so it is numbered ADR-016.
+**Decision criteria (Phase 8 M1-F6):**
+1. Dynamic Client Registration for public clients with PKCE (`token_endpoint_auth_method: none`) — what ChatGPT, Claude's *Register automatically*, Cursor and Gemini CLI use.
+2. Access-token `aud` = `OMNIMIND_MCP_PUBLIC_URL` (the provider mints exactly the resource indicator the client sends).
+3. `email` / `email_verified` in the access token, **or** a `userinfo_endpoint` the server can call with the same bearer token.
+4. Bonus: Client ID Metadata Documents (CIMD) — preferred by Claude and ChatGPT, but only used when the authorization-server metadata advertises it; otherwise clients fall back to DCR.
+Also record, per M1-F6, whether the founder's ChatGPT plan offers write tools (decides whether ChatGPT is a read or a write client in the dogfood scorecard).
+**Server constraints any candidate must meet (not weighed, already enforced):** asymmetric signing (RS256 / ES256 / EdDSA) with a JWKS endpoint — HS256 tokens are refused; one issuer at a time.
+**Candidates:** WorkOS AuthKit and Auth0. Both document MCP / DCR support per runbook §9.1. CIMD support changes quickly and must be checked on each provider's current docs at decision time. The decision also needs per-candidate notes on redirect URIs (runbook §9.2) and any plan or price limits the founder finds.
+
+| Criterion | WorkOS AuthKit | Auth0 |
+|---|---|---|
+| 1. DCR, public clients, PKCE | _to verify_ | _to verify_ |
+| 2. `aud` = `OMNIMIND_MCP_PUBLIC_URL` | _to verify_ | _to verify_ |
+| 3. `email` / `email_verified` or userinfo | _to verify_ | _to verify_ |
+| 4. CIMD (bonus) | _to verify_ | _to verify_ |
+
+**Decision:** None yet. The founder picks one provider in M1-F6 and records the result per criterion above.
+**Consequences (whichever is chosen):**
+- Adds one external identity dependency; the MCP service trusts exactly that issuer. Changing providers later re-links every OAuth identity (new `(issuer, subject)` pairs).
+- Configuration order is fixed (runbook §9.3, M2-F1): the issuer on `omnimind-mcp` (go-live re-run with `--oauth-issuer`) and `MCP_OAUTH_ALLOWED_ISSUERS` on omnimind-api first; `OMNIMIND_MCP_OAUTH_ISSUER` on boardroom-ai **last**, once verification passes (`scripts/verify-oauth.sh`, to be added by M2-A2), or Settings promises a sign-in the server cannot serve.
+- OAuth identities start read-only (`memory:read`); widening is the admin `PATCH /mcp/identities/:id` until M2-B2 ships self-serve scopes.
+- OAuth is **not** a dogfood day-1 gate: if it slips, ChatGPT and claude.ai active days are pro-rated from the OAuth date (Phase 8 Decision ledger).
+**Alternatives rejected:** a built-in authorization server (Known Limitation 14; Phase 8 "Not doing"); token-only access for ChatGPT (impossible — no header field in its connector dialog).

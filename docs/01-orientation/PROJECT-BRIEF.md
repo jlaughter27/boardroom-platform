@@ -24,40 +24,43 @@ Every decision session runs through multiple AI personas in parallel:
 |---------|------|-------|
 | Optimist | Finds how goals CAN work | Haiku 4.5 |
 | Critic | Identifies weaknesses/pitfalls | Haiku 4.5 |
-| Alternate | Well-researched alternatives | Sonnet 4.6 |
+| Alternate | Well-researched alternatives | Sonnet 5.5 |
 | Technician | Technical feasibility | Haiku 4.5 |
 | Questionnaire | Pre-flight clarifying questions | Haiku 4.5 |
 | Doer | Actionable task breakdown | Haiku 4.5 |
-| CEO | Synthesizes all outputs into final brief | Sonnet 4.6 |
+| CEO | Synthesizes all outputs into final brief | Sonnet 5.5 |
 
 Persona prompts live in `docs/prompts/*.system.md`. The agent runtime is custom (~200 lines), no LangChain/CrewAI.
 
-## Current State (as of 2026-04-08)
+## Current State (as of 2026-10-22)
 
-- **Deployed** on Railway (both services live, health checks green)
+- **Phase:** Phase 8 — Dev roadmap (`docs/roadmap/PHASE-8-ROADMAP.md`). Phases 5.5 through 7.5 are merged; `main` is `c2c6fca` (PR #24) and CI on main is green (run 39868876211). Active items: `docs/STATUS/CURRENT-PHASE.md`.
+- **Deployed** on Railway: BoardRoom AI and OmniMind API (auto-deploy on push to `main`), plus a third service, OmniMind MCP, that has **never been launched**. The deploys since PR #22 (`cdef1ef`) are **unverified** from the sandbox.
 - **Frontend**: `https://boardroom-ai-production-1092.up.railway.app`
 - **OmniMind API**: `https://omnimind-api-production.up.railway.app`
-- **Database**: Railway-hosted PostgreSQL with pgvector + pg_trgm extensions
-- **Phase**: All code through Phase 1 is built. Phase 2 features are spec'd but not coded.
-- **Auth**: JWT via httpOnly cookies. Email/password registration.
+- **Database**: Railway-hosted PostgreSQL with pgvector + pg_trgm extensions, 43 Prisma models
+- **Auth**: JWT via httpOnly cookies (BoardRoom); API key + `x-api-key` (BoardRoom → OmniMind); per-user `omt_` tokens or OAuth JWTs (MCP clients)
+- **Open blockers:** `docs/STATUS/BLOCKERS.md`
 
 ## Stack
 
-- TypeScript everywhere. pnpm workspaces. Turborepo.
-- Express APIs (both services). React + Tailwind + Framer Motion frontend.
+- TypeScript everywhere. pnpm workspaces. Turborepo. Three deployable services: `boardroom-ai`, `omnimind-api`, `omnimind-mcp`.
+- Express APIs. React 19 + Tailwind + Motion frontend, Base UI primitives (ADR-015).
 - PostgreSQL + Prisma. Extensions: pgvector, pg_trgm, tsvector.
-- Anthropic Claude (Sonnet 4.6 + Haiku 4.5). OpenAI for embeddings only.
-- Dark theme UI. Design tokens in CSS custom properties.
+- Anthropic Claude (Sonnet 5.5 + Haiku 4.5; model ids come only from `MODEL_IDS` in `packages/shared/src/constants/model-config.ts`). OpenAI for embeddings only.
+- Light and dark themes. Design tokens in CSS custom properties (`packages/boardroom-ai/client/src/styles/tokens.css`).
 
 ## Key Docs to Read Next
 
 | Need | Read |
 |------|------|
-| Architecture & file paths | `docs/ARCHITECTURE-QUICK-REF.md` |
-| What breaks easily | `docs/FRAGILE-ZONES.md` |
-| Deployment & Railway config | `docs/DEPLOYMENT-RUNBOOK.md` |
-| What's deployed right now | `docs/CURRENT-STATE.md` |
-| Full product spec | `docs/MASTER-FRAMEWORK.md` |
-| Architectural decisions | `docs/DECISIONS.md` |
+| Active phase and items | `docs/STATUS/CURRENT-PHASE.md` |
+| The plan | `docs/roadmap/PHASE-8-ROADMAP.md` |
+| Architecture & file paths | `docs/01-orientation/ARCHITECTURE-QUICK-REF.md` |
+| What breaks easily | `docs/02-reference/FRAGILE-ZONES.md` |
+| Deployment & Railway config | `docs/03-operations/DEPLOYMENT-RUNBOOK.md` |
+| What's deployed right now | `docs/01-orientation/CURRENT-STATE.md` |
+| Full product spec | `docs/02-reference/MASTER-FRAMEWORK.md` |
+| Architectural decisions | `docs/02-reference/DECISIONS.md` |
 | Dev rules & conventions | `.claude/CLAUDE.md` |
-| API contracts | `docs/contracts/boardroom-api.contract.md` + `omnimind-api.contract.md` |
+| API contracts | `docs/contracts/boardroom-api.contract.md` + `docs/contracts/omnimind-api.contract.md` |
