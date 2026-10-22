@@ -18,6 +18,7 @@ import { withAudit, auditRefusal, redactInputForAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
 import { MAX_PAGE_SIZE } from '../lib/cursor';
 import { LruTtlCache, replayCacheKey } from '../lib/replay-cache';
+import { retryWithDelays, DEFERRED_EXTRACTION_RETRY_DELAYS_MS } from '../lib/deferred-work';
 import { PROVENANCE, McpProvenanceSchema } from '../lib/provenance';
 import type { OmniMindClient, MemoryRecord } from '../lib/client';
 import {
@@ -30,7 +31,19 @@ import type { AgentContext, FactWithAction, McpTool, MemoryWriteResult, MemoryWr
 
 /** Shared schemas + the front-door additions (`provenance` on reads, `extraction` on writes). */
 export const MemorySearchOutputSchema = McpMemorySearchOutputSchema.extend({ provenance: McpProvenanceSchema });
-export const MemoryWriteOutputSchema = McpMemoryWriteOutputSchema.extend({ extraction: z.enum(['sync', 'async']).optional() });
+export const MemoryWriteOutputSchema = McpMemoryWriteOutputSchema.extend({ extraction: z.enum(['sync', 'async', 'deferred']).optional() });
+
+/**
+ * M1-B2 — appended to the extractor's error when sync-mode `memory_write`
+ * stores the prose and defers extraction instead of refusing.
+ */
+export const EXTRACTION_DEFERRED_MESSAGE =
+  'The memory was stored as written (one row) and fact extraction was deferred; it is retried in the background and the extracted facts then supersede this row. Do not repeat this call.';
+
+/** True for the extractor-outage error (`FactExtractorUnavailableError`, matched by code so a mocked module still works). */
+export function isFactExtractorUnavailable(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'FACT_EXTRACTOR_UNAVAILABLE';
+}
 
 /**
  * `OMNIMIND_MCP_WRITE_EXTRACT` — `sync` (default) runs Haiku fact extraction
@@ -57,8 +70,12 @@ export interface MemoryWriteToolOptions {
    * facts and the `memory_write:extract` audit row. Defaults to `client`.
    */
   deferredClient?: OmniMindClient;
-  /** Receives the deferred-extraction promise in `async` mode (already error-handled): the HTTP app tracks it for drain-on-shutdown; tests await it. */
+  /** Receives the deferred-extraction promise in `async` mode, and in `sync` mode when extraction was deferred (already error-handled): the HTTP app tracks it for drain-on-shutdown; tests await it. */
   onDeferred?: (done: Promise<void>) => void;
+  /** M1-B2 — waits before each background extraction attempt after a sync-mode extractor failure. Defaults to `DEFERRED_EXTRACTION_RETRY_DELAYS_MS`. */
+  deferredRetryDelaysMs?: readonly number[];
+  /** Injectable sleep for those waits (tests). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -215,7 +232,7 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext, opts:
   return {
     name: 'memory_write',
     title: 'Write memory',
-    description: 'Write one or more memories to the shared store. Fact extraction and dedup runs automatically — duplicate facts are updated, not duplicated. Pass idempotencyKey to make retries safe.',
+    description: 'Write one or more memories to the shared store. Fact extraction and dedup runs automatically — duplicate facts are updated, not duplicated. If extraction is unavailable the memory is still stored and extraction is retried in the background (`extraction: "deferred"`); do not repeat the call. Pass idempotencyKey to make retries safe.',
     inputSchema: MemoryWriteInput,
     outputSchema: MemoryWriteOutputSchema,
     annotations: ADDITIVE_WRITE_ANNOTATIONS,
@@ -276,25 +293,44 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext, opts:
         return result;
       }
 
-      try {
-        const result = await withAudit(client, ctx, 'memory_write', auditInput, async (): Promise<MemoryWriteSuccess> => {
-          if (input.skipExtraction) return { ok: true, ...tallyOf(await createRawRow()) };
+      const result = await withAudit(client, ctx, 'memory_write', auditInput, async (): Promise<MemoryWriteSuccess> => {
+        if (input.skipExtraction) return { ok: true, ...tallyOf(await createRawRow()) };
 
-          const facts = await extractAndDedup(input.content, ctx, client, input.userId);
-          // No facts extracted → store raw content as a single context memory
-          if (facts.length === 0) return { ok: true, ...tallyOf(await createRawRow()) };
-
-          return { ok: true, ...(await writeFacts(client, ctx, input, facts)) };
-        });
-        if (replayKey) memoryWriteReplayCache.set(replayKey, result);
-        return result;
-      } catch (err) {
-        // WS-2.4 — surface Haiku outages as a typed refusal the agent can retry.
-        if ((err as { code?: string }).code === 'FACT_EXTRACTOR_UNAVAILABLE') {
-          return refused('FACT_EXTRACTOR_UNAVAILABLE', (err as Error).message);
+        let facts: FactWithAction[];
+        try {
+          facts = await extractAndDedup(input.content, ctx, client, input.userId);
+        } catch (err) {
+          if (!isFactExtractorUnavailable(err)) throw err;
+          // M1-B2 — the extractor is down (no key, rate limit, timeout). It
+          // wrote nothing, so store the prose as one row through POST /memories
+          // (validation pipeline + the caller's Idempotency-Key, so a retry
+          // replays this same row) and retry extraction in the background.
+          // Refusing here made agents drop the memory or retry into the outage.
+          return {
+            ok: true,
+            ...tallyOf(await createRawRow()),
+            extraction: 'deferred',
+            message: `${(err as Error).message} ${EXTRACTION_DEFERRED_MESSAGE}`,
+          };
         }
-        throw err;
+        // No facts extracted → store raw content as a single context memory
+        if (facts.length === 0) return { ok: true, ...tallyOf(await createRawRow()) };
+
+        return { ok: true, ...(await writeFacts(client, ctx, input, facts)) };
+      });
+      // The deferred result is cached like any success: a retry with the same
+      // key replays it instead of writing (or scheduling extraction) again.
+      if (replayKey) memoryWriteReplayCache.set(replayKey, result);
+      if (result.extraction === 'deferred') {
+        const rawId = result.created[0] ?? result.updated[0];
+        console.warn(`[memory_write] fact extraction unavailable; raw row ${rawId ?? '(unknown)'} stored, extraction deferred`);
+        const deferred = runDeferredExtraction(opts.deferredClient ?? client, ctx, input, auditInput, rawId, {
+          retryDelaysMs: opts.deferredRetryDelaysMs ?? DEFERRED_EXTRACTION_RETRY_DELAYS_MS,
+          ...(opts.sleep ? { sleep: opts.sleep } : {}),
+        });
+        opts.onDeferred?.(deferred);
       }
+      return result;
     },
   } satisfies McpTool;
 }
@@ -304,7 +340,8 @@ export const RAW_ROW_KEPT_NO_FACTS = 'no facts extracted; raw row kept';
 export const RAW_ROW_KEPT_UPDATES_ONLY = 'facts updated existing rows only (no new fact row to supersede it); raw row kept';
 
 /**
- * Async-mode tail of `memory_write`: extract facts from the prose that was
+ * Background tail of `memory_write` (async mode; and sync mode after an
+ * extractor outage, M1-B2, with `retry`): extract facts from the prose that was
  * already stored as `rawId`, write them, and — when at least one new fact row
  * was created — supersede the raw row with the first one (the prose survives
  * in version history / `consolidatedFrom`; nothing is deleted). When every
@@ -313,15 +350,27 @@ export const RAW_ROW_KEPT_UPDATES_ONLY = 'facts updated existing rows only (no n
  * `reason`). Audited as `memory_write:extract`; failures are logged, never
  * thrown (the caller has already received its response).
  */
+export interface DeferredExtractionRetry {
+  /** One extraction attempt per entry, each after waiting that many ms; only extractor outages are retried. */
+  retryDelaysMs: readonly number[];
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export function runDeferredExtraction(
   client: OmniMindClient,
   ctx: AgentContext,
   input: MemoryWriteParsedInput,
   auditInput: unknown,
-  rawId: string | undefined
+  rawId: string | undefined,
+  retry?: DeferredExtractionRetry
 ): Promise<void> {
+  const extract = () => extractAndDedup(input.content, ctx, client, input.userId);
   return withAudit(client, ctx, 'memory_write:extract', auditInput, async () => {
-    const facts = await extractAndDedup(input.content, ctx, client, input.userId);
+    // M1-B2: after a sync-mode outage, wait before each attempt (the async
+    // mode's first attempt runs at once — there is no outage to wait out).
+    const facts = retry && retry.retryDelaysMs.length > 0
+      ? await retryWithDelays(extract, { delaysMs: retry.retryDelaysMs, retryIf: isFactExtractorUnavailable, ...(retry.sleep ? { sleep: retry.sleep } : {}) })
+      : await extract();
     if (facts.length === 0) return { ok: true, created: [], updated: [], skipped: 0, rawId, rawRowKept: true, reason: RAW_ROW_KEPT_NO_FACTS };
     const tally = await writeFacts(client, ctx, input, facts);
     if (rawId && tally.created.length > 0 && !tally.created.includes(rawId)) {

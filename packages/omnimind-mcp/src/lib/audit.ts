@@ -38,6 +38,8 @@ const OUTPUT_SAFE_KEYS = new Set([
   'results', 'url', 'metadata',
   // Async `memory_write:extract` tail (L-8): which raw row, whether it was kept.
   'rawId', 'rawRowKept',
+  // memory_write extraction mode ('async' | 'deferred'): M1-B2 makes deferred writes countable in the audit log.
+  'extraction',
 ]);
 
 /**

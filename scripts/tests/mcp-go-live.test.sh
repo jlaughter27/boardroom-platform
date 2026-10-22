@@ -20,6 +20,17 @@
 #   GL-06  e-mail that resolves to no user → asks for --owner-user-id.
 #   GL-07  GitHub Actions mode: ::add-mask:: emitted, admin key never printed,
 #          project-token mode skips whoami/link, summary lands in GITHUB_STEP_SUMMARY.
+#   Phase 8 M1-A2 (the go-live cannot report false success):
+#   GL-08  omnimind-api PORT=8080 → the private URL uses 8080, no PORT write.
+#   GL-09  PORT unset → PORT=3333 set explicitly (with the admin key, one
+#          redeploy; or on its own); --api-port overrides without a write.
+#   GL-10  bogus-token initialize: 401 invalid_token is ok (also under
+#          --no-token); 503 auth_unavailable is a verification FAILURE (exit 3).
+#   GL-11  red / unfinished / unreadable main CI → abort before any write.
+#   GL-12  no backup evidence → abort before any write; a dead-man check
+#          pinged < 26 h ago passes, a stale one or a missing API key aborts.
+#   (GL-01 also asserts OMNIMIND_MCP_WRITE_EXTRACT=async in MCP_VARS; GL-05 that
+#   the dry run prints the PORT step, the bogus-token check and both preconditions.)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +53,7 @@ TOKEN_AGENT_FIXTURE="mcp-token:claude-code-laptop-a1b2c3d4"
 
 reset_state() {
   rm -rf "$STUB_STATE"; mkdir -p "$STUB_STATE"
-  printf '{"OMNIMIND_API_KEY":"%s","ANTHROPIC_API_KEY":"%s","DATABASE_URL":"postgres://x"}' "$API_KEY_FIXTURE" "$ANTHROPIC_FIXTURE" > "$STUB_STATE/vars-omnimind-api.json"
+  printf '{"OMNIMIND_API_KEY":"%s","ANTHROPIC_API_KEY":"%s","DATABASE_URL":"postgres://x","PORT":"3333"}' "$API_KEY_FIXTURE" "$ANTHROPIC_FIXTURE" > "$STUB_STATE/vars-omnimind-api.json"
   printf '{"JWT_SECRET":"jwt-SECRET","OMNIMIND_API_KEY":"%s"}' "$API_KEY_FIXTURE" > "$STUB_STATE/vars-boardroom-ai.json"
   printf '[{"id":"svc_api","name":"omnimind-api"},{"id":"svc_app","name":"boardroom-ai"}]' > "$STUB_STATE/services.json"
   printf '{"tenants":[{"id":"josh-business","name":"Josh Business","ownerUserId":null},{"id":"josh-personal","name":"Josh Personal","ownerUserId":"user_123"},{"id":"tgfc-ministry","name":"TGFC","ownerUserId":"user_other"}]}' > "$STUB_STATE/tenants.json"
@@ -116,12 +127,13 @@ while [ $# -gt 0 ]; do
 done
 hostpath="${url#https://}"; hostpath="${hostpath#http://}"
 host="${hostpath%%/*}"; path="/${hostpath#*/}"; [ "$hostpath" = "$host" ] && path="/"
-auth=""; admin=""; sid=""
+auth=""; admin=""; sid=""; hckey=""
 for h in "${headers[@]+"${headers[@]}"}"; do
   case "$h" in
     Authorization:*|authorization:*) auth="${h#*: }" ;;
     x-admin-key:*) admin="${h#*: }" ;;
     mcp-session-id:*) sid="${h#*: }" ;;
+    X-Api-Key:*) hckey="${h#*: }" ;;
   esac
 done
 echo "curl $method $url${auth:+ auth=$auth}${sid:+ sid=$sid}${data:+ data=$data}" >> "$STUB_LOG"
@@ -156,12 +168,19 @@ case "$host" in
     esac ;;
   boardroom-ai-production-1092.up.railway.app)
     body='{"status":"ok"}' ;;
+  healthchecks.io)   # healthchecks.io v3: GET /api/v3/checks/<uuid> with X-Api-Key
+    if [ -z "$hckey" ]; then status=401; body='{"error":"missing api key"}'
+    else body="$(node -e 'process.stdout.write(JSON.stringify({name:"backup",status:"up",last_ping:new Date(Date.now()-Number(process.argv[1])*3600000).toISOString()}))' "${STUB_PING_AGE_H:-2}")"; fi ;;
   omnimind-mcp-production.up.railway.app)
     case "$method $path" in
       "GET /health") body='{"status":"ok","uptime":3,"sessions":0}' ;;
       "GET /.well-known/oauth-protected-resource") status=404; body='{"error":"not_found"}' ;;
       "POST /mcp")
         if [ -z "$auth" ]; then status=401; hdrs='WWW-Authenticate: Bearer realm="omnimind-mcp"'; body='{"error":"unauthorized"}'
+        elif [ "$auth" != "Bearer $TOKEN_FIXTURE" ]; then
+          # Unknown token: the server introspects through the gateway key → 401, or 503 when that chain is broken.
+          if [ "${STUB_BOGUS_503:-0}" = "1" ]; then status=503; hdrs='Retry-After: 5'; body='{"error":"auth_unavailable","message":"introspection failed"}'
+          else status=401; hdrs='WWW-Authenticate: Bearer realm="omnimind-mcp", error="invalid_token"'; body='{"error":"invalid_token"}'; fi
         else
           case "$data" in
             *'"method":"initialize"'*) hdrs='mcp-session-id: sess-0001'; body=$'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"omnimind-mcp","version":"0"},"instructions":"OmniMind is the user\'s persistent memory"}}\n' ;;
@@ -180,6 +199,23 @@ esac
 if [ -n "$dumph" ]; then printf 'HTTP/1.1 %s X\r\n%s\r\n\r\n' "$status" "${hdrs:-x-stub: 1}" > "$dumph"; fi
 if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
 if [ -n "$wfmt" ]; then printf '%s' "$status"; fi
+STUB
+
+cat > "$STUBS/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "gh $*" >> "$STUB_LOG"
+[ "${STUB_GH_FAIL:-0}" = "1" ] && { echo "HTTP 401: Bad credentials (https://api.github.com/...)" >&2; exit 1; }
+case "$1 $2" in
+  "api repos/jlaughter27/boardroom-platform/actions/workflows/ci.yml/runs?branch=main&per_page=1")
+    if [ "${STUB_CI_NONE:-0}" = "1" ]; then echo '{"total_count":0,"workflow_runs":[]}'; exit 0; fi
+    conclusion='"success"'
+    if [ -n "${STUB_CI_CONCLUSION+x}" ]; then
+      if [ "$STUB_CI_CONCLUSION" = "null" ]; then conclusion=null; else conclusion="\"$STUB_CI_CONCLUSION\""; fi
+    fi
+    printf '{"total_count":1,"workflow_runs":[{"id":42,"name":"CI","head_branch":"main","head_sha":"%s","status":"%s","conclusion":%s,"html_url":"https://github.com/jlaughter27/boardroom-platform/actions/runs/42"}]}\n' \
+      "${STUB_CI_SHA:-0000000000000000000000000000000000000000}" "${STUB_CI_STATUS:-completed}" "$conclusion" ;;
+  *) echo "unexpected gh call: $*" >&2; exit 9 ;;
+esac
 STUB
 
 cat > "$STUBS/openssl" <<'STUB'
@@ -226,13 +262,19 @@ run_go_live() {
   set +e
   OUT="$(cd "$TMP" && PATH="$STUBS:$PATH" GO_LIVE_HEALTH_TIMEOUT=5 GO_LIVE_POLL_INTERVAL=0 \
         env -u GITHUB_ACTIONS -u GITHUB_STEP_SUMMARY -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN -u OMNIMIND_MCP_AGENT_KEY \
+            -u GITHUB_REPOSITORY -u GO_LIVE_BACKUP_CHECK_URL -u BACKUP_CHECK_API_KEY \
+            STUB_CI_SHA="$HEAD_SHA" \
         "${envs[@]+"${envs[@]}"}" bash "$SCRIPT" "$@" 2> "$TMP/stderr")"
   RC=$?
   set -e
   ERR="$(cat "$TMP/stderr")"
   LOG="$(cat "$STUB_LOG")"
 }
-COMMON=(--project proj_test --owner-email josh@example.com --environment production)
+BASE=(--project proj_test --owner-email josh@example.com --environment production --repo jlaughter27/boardroom-platform)
+COMMON=("${BASE[@]}" --backup-ok)
+HEAD_SHA="$(git -C "$HERE/../.." rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
+# Lines in the stub log that change Railway or OmniMind state.
+WRITES='^railway (variable set|add|up|domain)|^curl (POST|PATCH|DELETE) |^claude '
 
 echo "# GL-01: fresh run, full sequence"
 reset_state
@@ -252,7 +294,7 @@ assert_lacks    "already-owned tenant not patched" "$LOG" 'PATCH .*/admin/tenant
 assert_lacks    "tenant owned by someone else not patched" "$LOG" 'PATCH .*/admin/tenants/tgfc-ministry'
 assert_contains "different owner is warned about" "$ERR" 'tenant tgfc-ministry is owned by a DIFFERENT user \(user_other\)'
 assert_before   "service list before add" '^railway service list -e production -p proj_test --json$' '^railway add --service omnimind-mcp --json$'
-assert_contains "MCP variables set with --skip-deploys, private API URL, gateway key, Dockerfile path" "$LOG" "^railway variable set RAILWAY_DOCKERFILE_PATH=packages/omnimind-mcp/Dockerfile OMNIMIND_API_URL=http://omnimind-api.railway.internal:3333 OMNIMIND_API_KEY=$API_KEY_FIXTURE OMNIMIND_MCP_TOKEN_AUTH=true OMNIMIND_MCP_AGENT_KEY=$GATEWAY_KEY_FIXTURE OMNIMIND_MCP_TRUST_PROXY=true OMNIMIND_MCP_APP_URL=https://boardroom-ai-production-1092.up.railway.app ANTHROPIC_API_KEY=$ANTHROPIC_FIXTURE -s omnimind-mcp -e production -p proj_test --skip-deploys --json$"
+assert_contains "MCP variables set with --skip-deploys, private API URL, gateway key, Dockerfile path" "$LOG" "^railway variable set RAILWAY_DOCKERFILE_PATH=packages/omnimind-mcp/Dockerfile OMNIMIND_API_URL=http://omnimind-api.railway.internal:3333 OMNIMIND_API_KEY=$API_KEY_FIXTURE OMNIMIND_MCP_TOKEN_AUTH=true OMNIMIND_MCP_AGENT_KEY=$GATEWAY_KEY_FIXTURE OMNIMIND_MCP_TRUST_PROXY=true OMNIMIND_MCP_APP_URL=https://boardroom-ai-production-1092.up.railway.app OMNIMIND_MCP_WRITE_EXTRACT=async ANTHROPIC_API_KEY=$ANTHROPIC_FIXTURE -s omnimind-mcp -e production -p proj_test --skip-deploys --json$"
 assert_before   "domain generated after the first variable batch" 'variable set RAILWAY_DOCKERFILE_PATH' '^railway domain -s omnimind-mcp -e production --project proj_test --json$'
 assert_contains "host variables from the generated domain" "$LOG" '^railway variable set OMNIMIND_MCP_ALLOWED_HOSTS=omnimind-mcp-production.up.railway.app OMNIMIND_MCP_PUBLIC_URL=https://omnimind-mcp-production.up.railway.app/mcp -s omnimind-mcp -e production -p proj_test --skip-deploys --json$'
 assert_before   "up after every MCP variable" 'variable set OMNIMIND_MCP_ALLOWED_HOSTS' '^railway up \. -s omnimind-mcp -e production -p proj_test --detach$'
@@ -285,6 +327,17 @@ assert_lacks    "anthropic key never printed" "$ERR$OUT" "$ANTHROPIC_FIXTURE"
 assert_count    "token printed exactly once (the claude mcp add line)" "$ERR" "$TOKEN_FIXTURE" "1"
 assert_contains "the printed line is the claude mcp add command" "$ERR" "^claude mcp add --transport http --scope user omnimind https://omnimind-mcp-production.up.railway.app/mcp --header \"Authorization: Bearer $TOKEN_FIXTURE\"$"
 assert_contains "every external command is echoed" "$ERR" '\[go-live\] \$ railway up \. -s omnimind-mcp'
+# M1-A2
+assert_contains "MCP_VARS contains OMNIMIND_MCP_WRITE_EXTRACT=async" "$LOG" '^railway variable set .*OMNIMIND_MCP_WRITE_EXTRACT=async .*-s omnimind-mcp '
+assert_contains "main CI checked through gh api" "$LOG" '^gh api repos/jlaughter27/boardroom-platform/actions/workflows/ci.yml/runs\?branch=main&per_page=1$'
+assert_before   "CI checked before the first railway call" '^gh api ' '^railway '
+assert_lacks    "PORT already 3333 → no PORT write" "$LOG" 'variable set .*PORT=3333'
+assert_contains "bogus-token initialize sent with an omt_ of BoardRoom's shape" "$LOG" 'curl POST https://omnimind-mcp-production.up.railway.app/mcp auth=Bearer omt_[A-Za-z0-9_-]{43} data=.*"method":"initialize"'
+assert_contains "summary: bogus-token initialize ok" "$OUT" '\| verify: bogus-token initialize \| ok \| 401 invalid_token'
+assert_contains "summary: CI precondition ok" "$OUT" '\| Precondition: main CI \| ok \| ci.yml on main = success'
+assert_contains "summary: backup precondition ok" "$OUT" '\| Precondition: backup \| ok \| operator attested \(--backup-ok\)'
+assert_contains "summary: API port row" "$OUT" '\| omnimind-api PORT \| 3333 \| omnimind-api PORT variable → private URL http://omnimind-api.railway.internal:3333'
+assert_lacks    "checkout matches the green run → no SHA warning" "$ERR" 'deploys THIS checkout'
 
 echo "# GL-02: re-run is idempotent"
 run_go_live -- "${COMMON[@]}" --yes
@@ -322,7 +375,9 @@ run_go_live -- "${COMMON[@]}" --yes --no-token
 assert_eq    "exit 0" "$RC" "0"
 assert_lacks "no token minted" "$LOG" 'POST .*/mcp/tokens'
 assert_lacks "claude not called" "$LOG" '^claude '
-assert_lacks "no authenticated MCP call" "$LOG" 'auth=Bearer'
+assert_lacks "no call with a real token" "$LOG" "auth=Bearer $TOKEN_FIXTURE"
+assert_contains "bogus-token initialize still runs under --no-token" "$LOG" 'curl POST https://omnimind-mcp-production.up.railway.app/mcp auth=Bearer omt_[A-Za-z0-9_-]{43} data=.*"method":"initialize"'
+assert_contains "summary: bogus-token initialize ok under --no-token" "$OUT" '\| verify: bogus-token initialize \| ok \|'
 assert_contains "unauthenticated contract still verified" "$OUT" '\| verify: unauthenticated POST /mcp \| ok \|'
 assert_contains "summary points at Settings" "$OUT" '\| First token \| skipped \(--no-token\) \| mint in BoardRoom → Settings → Connected AI tools \|'
 assert_contains "authenticated round trip marked skipped" "$OUT" '\| verify: authenticated round trip \| skipped \|'
@@ -340,6 +395,21 @@ assert_contains "plan shows the railway commands" "$ERR" '\$ railway variable se
 assert_contains "plan shows the API calls" "$ERR" '\$ curl -X POST https://<omnimind-api-host>/mcp/agents \(x-admin-key\)'
 assert_contains "plan shows the up" "$ERR" '\$ railway up \. -s omnimind-mcp -e production -p proj_test --detach'
 assert_contains "summary marks the dry run" "$OUT" 'This was a dry run — nothing above was executed'
+assert_lacks    "no gh call in a dry run" "$LOG" '^gh '
+assert_contains "plan prints the CI precondition" "$ERR" 'precondition: latest ci.yml run on main must be completed \+ success — \$ gh api repos/jlaughter27/boardroom-platform/actions/workflows/ci.yml/runs\?branch=main&per_page=1'
+assert_contains "plan prints the backup precondition" "$ERR" 'precondition ok: backup evidence attested with --backup-ok'
+assert_contains "plan prints the PORT step" "$ERR" '\$ railway variable set PORT=3333 -s omnimind-api -e production -p proj_test --json'
+assert_contains "plan explains the PORT step" "$ERR" 'PORT is not set on omnimind-api — setting PORT=3333 explicitly'
+assert_contains "plan prints the bogus-token check" "$ERR" 'initialize with a bogus omt_ token → 401 invalid_token \(also under --no-token; 503 auth_unavailable = FAIL\)'
+assert_contains "plan carries OMNIMIND_MCP_WRITE_EXTRACT=async" "$ERR" '\$ railway variable set RAILWAY_DOCKERFILE_PATH=.* OMNIMIND_MCP_WRITE_EXTRACT=async'
+run_go_live -- "${BASE[@]}" --dry-run
+assert_eq       "dry run without backup evidence still exits 0" "$RC" "0"
+assert_contains "dry run warns that a real run would abort without backup evidence" "$ERR" 'precondition: no backup evidence given — a real run aborts here'
+assert_contains "summary marks the missing backup" "$OUT" '\| Precondition: backup \| dry-run \| MISSING \(a real run aborts\)'
+assert_lacks    "still no call" "$LOG" '^(railway|curl|gh|claude|openssl) '
+run_go_live -- -- "${COMMON[@]}" --dry-run
+assert_eq       "a leading -- (what pnpm 10 forwards from 'pnpm go-live:mcp -- …') is accepted" "$RC" "0"
+assert_lacks    "no 'unknown flag: --'" "$ERR" 'unknown flag'
 
 echo "# GL-06: unknown e-mail"
 reset_state
@@ -364,6 +434,110 @@ assert_lacks    "admin key never printed in CI" "$ERR" "$ADMIN_KEY_FIXTURE"
 assert_contains "CI note says where the key lives" "$ERR" 'admin key written to the Railway variable OMNIMIND_ADMIN_KEY on omnimind-api \(not printed here'
 assert_contains "summary written to GITHUB_STEP_SUMMARY" "$(cat "$TMP/summary.md")" '^## MCP go-live summary'
 assert_lacks    "no secret in the step summary" "$(cat "$TMP/summary.md")" "$ADMIN_KEY_FIXTURE|$GATEWAY_HEX_FIXTURE|$API_KEY_FIXTURE"
+
+set_api_port() { # set_api_port <value|-> — "-" deletes PORT from the omnimind-api variables
+  node -e 'const fs=require("fs");const f=process.argv[1];const d=JSON.parse(fs.readFileSync(f,"utf8"));if(process.argv[2]==="-")delete d.PORT;else d.PORT=process.argv[2];fs.writeFileSync(f,JSON.stringify(d))' "$STUB_STATE/vars-omnimind-api.json" "$1"
+}
+
+echo "# GL-08: omnimind-api PORT=8080 → private URL uses 8080"
+reset_state
+set_api_port 8080
+run_go_live -- "${COMMON[@]}" --yes --no-token
+assert_eq       "exit 0" "$RC" "0"
+assert_contains "private URL uses the API's PORT" "$LOG" '^railway variable set .*OMNIMIND_API_URL=http://omnimind-api.railway.internal:8080 '
+assert_lacks    "no :3333 anywhere in the MCP variables" "$LOG" 'railway.internal:3333'
+assert_lacks    "PORT is read, not written" "$LOG" 'variable set .*PORT='
+assert_contains "summary names the port and where it came from" "$OUT" '\| omnimind-api PORT \| 8080 \| omnimind-api PORT variable → private URL http://omnimind-api.railway.internal:8080'
+
+echo "# GL-09: PORT unset → set explicitly; --api-port overrides"
+reset_state
+set_api_port -
+run_go_live -- "${COMMON[@]}" --yes --no-token
+assert_eq       "exit 0" "$RC" "0"
+assert_contains "PORT=3333 set together with the new admin key (one redeploy)" "$LOG" "^railway variable set OMNIMIND_ADMIN_KEY=$ADMIN_KEY_FIXTURE PORT=3333 -s omnimind-api -e production -p proj_test --json$"
+assert_count    "only one variable set on omnimind-api" "$LOG" '^railway variable set .* -s omnimind-api ' "1"
+assert_contains "private URL uses 3333" "$LOG" '^railway variable set .*OMNIMIND_API_URL=http://omnimind-api.railway.internal:3333 '
+assert_contains "summary says it was set explicitly" "$OUT" '\| omnimind-api PORT \| 3333 \| set explicitly; PORT was not set on omnimind-api'
+# Admin key already there (re-run state) but PORT missing → PORT on its own, then /health.
+set_api_port -
+run_go_live -- "${COMMON[@]}" --yes --no-token
+assert_eq       "exit 0 (re-run)" "$RC" "0"
+assert_contains "PORT=3333 set on its own" "$LOG" '^railway variable set PORT=3333 -s omnimind-api -e production -p proj_test --json$'
+assert_before   "API /health awaited after the PORT redeploy" '^railway variable set PORT=3333' 'curl GET https://omnimind-api-production.up.railway.app/health'
+assert_before   "PORT set before the MCP variables" '^railway variable set PORT=3333' 'variable set RAILWAY_DOCKERFILE_PATH'
+reset_state
+set_api_port -
+run_go_live -- "${COMMON[@]}" --yes --no-token --api-port 9000
+assert_eq       "exit 0 with --api-port" "$RC" "0"
+assert_contains "--api-port drives the private URL" "$LOG" 'OMNIMIND_API_URL=http://omnimind-api.railway.internal:9000 '
+assert_lacks    "--api-port writes no PORT" "$LOG" 'variable set .*PORT='
+run_go_live -- "${COMMON[@]}" --yes --api-port 80x
+assert_eq       "non-numeric --api-port is refused" "$RC" "1"
+assert_contains "says why" "$ERR" "--api-port must be a number, got '80x'"
+
+echo "# GL-10: bogus-token initialize 503 → verification failure"
+reset_state
+run_go_live STUB_BOGUS_503=1 -- "${COMMON[@]}" --yes --no-token
+assert_eq       "exit 3 (verification failed) under --no-token" "$RC" "3"
+assert_contains "summary row is FAIL with the reason" "$OUT" '\| verify: bogus-token initialize \| FAIL \| 503 auth_unavailable — introspection failed: OmniMind does not know the gateway key'
+assert_contains "names the private URL to check" "$OUT" 'unreachable over http://omnimind-api.railway.internal:3333 \(check omnimind-api.s PORT\)'
+assert_contains "warned at the end" "$ERR" 'verification check\(s\) failed'
+reset_state
+run_go_live STUB_BOGUS_503=1 -- "${COMMON[@]}" --yes
+assert_eq       "exit 3 with a token too" "$RC" "3"
+assert_contains "the real-token checks still pass" "$OUT" '\| verify: tools/list \| ok \|'
+assert_contains "bogus-token row still FAIL" "$OUT" '\| verify: bogus-token initialize \| FAIL \|'
+
+echo "# GL-11: red main CI → abort before any write"
+reset_state
+run_go_live STUB_CI_CONCLUSION=failure -- "${COMMON[@]}" --yes
+assert_eq       "red main aborts" "$RC" "1"
+assert_contains "says main is red" "$ERR" 'precondition: the latest ci.yml run on main is status=completed conclusion=failure .*aborting before any write'
+assert_contains "links the run" "$ERR" 'https://github.com/jlaughter27/boardroom-platform/actions/runs/42'
+assert_lacks    "no write happened" "$LOG" "$WRITES"
+assert_lacks    "not even a railway call" "$LOG" '^railway '
+reset_state
+run_go_live STUB_CI_STATUS=in_progress STUB_CI_CONCLUSION=null -- "${COMMON[@]}" --yes
+assert_eq       "an unfinished main run aborts" "$RC" "1"
+assert_contains "says it is still running" "$ERR" 'status=in_progress conclusion=none'
+assert_lacks    "no write happened (in progress)" "$LOG" "$WRITES"
+reset_state
+run_go_live STUB_GH_FAIL=1 -- "${COMMON[@]}" --yes
+assert_eq       "unreadable CI status aborts (fail closed)" "$RC" "1"
+assert_contains "points at gh auth" "$ERR" 'is gh authenticated \(gh auth login / GH_TOKEN\)'
+assert_lacks    "no write happened (gh failure)" "$LOG" "$WRITES"
+reset_state
+run_go_live STUB_CI_NONE=1 -- "${COMMON[@]}" --yes
+assert_eq       "no CI run at all aborts" "$RC" "1"
+assert_contains "says no run was found" "$ERR" 'no ci.yml run found on main'
+reset_state
+run_go_live STUB_CI_SHA=1111111111111111111111111111111111111111 -- "${COMMON[@]}" --yes --no-token
+assert_eq       "green run on another SHA continues" "$RC" "0"
+assert_contains "but warns the checkout differs from the green SHA" "$ERR" "but the green main run is 1111111 — 'railway up' deploys THIS checkout"
+
+echo "# GL-12: backup evidence"
+reset_state
+run_go_live -- "${BASE[@]}" --yes
+assert_eq       "no backup evidence aborts" "$RC" "1"
+assert_contains "says what to pass" "$ERR" 'precondition: no backup evidence — pass --backup-ok .* or --backup-check-url'
+assert_lacks    "no write happened (no backup)" "$LOG" "$WRITES"
+assert_lacks    "no railway call (no backup)" "$LOG" '^railway '
+reset_state
+run_go_live BACKUP_CHECK_API_KEY=hc-SECRET-0003 -- "${BASE[@]}" --yes --no-token --backup-check-url https://healthchecks.io/api/v3/checks/0b1c2d3e
+assert_eq       "fresh dead-man ping passes" "$RC" "0"
+assert_contains "the check was read" "$LOG" '^curl GET https://healthchecks.io/api/v3/checks/0b1c2d3e$'
+assert_contains "summary records the ping age" "$OUT" '\| Precondition: backup \| ok \| dead-man last ping 2\.0 h ago'
+assert_lacks    "the healthchecks key is never printed" "$ERR$OUT" 'hc-SECRET-0003'
+reset_state
+run_go_live BACKUP_CHECK_API_KEY=hc-SECRET-0003 STUB_PING_AGE_H=30 -- "${BASE[@]}" --yes --backup-check-url https://healthchecks.io/api/v3/checks/0b1c2d3e
+assert_eq       "stale dead-man ping aborts" "$RC" "1"
+assert_contains "says how old" "$ERR" 'the last backup dead-man ping is 30\.0 h old \(limit 26 h\) — aborting before any write'
+assert_lacks    "no write happened (stale ping)" "$LOG" "$WRITES"
+reset_state
+run_go_live GO_LIVE_BACKUP_CHECK_URL=https://healthchecks.io/api/v3/checks/0b1c2d3e -- "${BASE[@]}" --yes
+assert_eq       "check URL (from env) without an API key aborts" "$RC" "1"
+assert_contains "asks for BACKUP_CHECK_API_KEY" "$ERR" '--backup-check-url needs env BACKUP_CHECK_API_KEY'
+assert_lacks    "no write happened (no API key)" "$LOG" "$WRITES"
 
 echo
 echo "mcp-go-live.test.sh: ${PASS} passed, ${FAIL} failed"
