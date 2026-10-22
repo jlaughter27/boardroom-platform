@@ -3,15 +3,17 @@ import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
 import type { Rebuttal } from '../../types/debate';
-import { Card, Badge, Progress, Skeleton } from '../ui';
+import { RotateCcw, TriangleAlert } from 'lucide-react';
+import { Card, Badge, Button, Progress, Skeleton } from '../ui';
 import { readStreamingProse } from '../../lib/partial-json';
 import { cn } from '../../lib/cn';
 
 /**
- * Every state of the card occupies the same box (M1-C1): the waiting and
- * streaming cards are exactly this tall and the finished card is at least this
- * tall, with long sections clamped behind "Show full analysis". Swapping one
- * state for the next therefore never pushes the grid around.
+ * Every state of the card occupies the same box (M1-C1): the streaming card is
+ * exactly this tall (its prose scrolls inside it); waiting, failed and finished
+ * cards are at least this tall and stretch to their grid row, with long
+ * sections clamped behind "Show full analysis". Swapping one state for the
+ * next therefore never pushes the grid around.
  */
 export const PERSONA_CARD_HEIGHT = 'h-[32rem]';
 export const PERSONA_CARD_MIN_HEIGHT = 'min-h-[32rem]';
@@ -37,6 +39,12 @@ interface PersonaCardProps {
   isRebutting?: boolean;
   /** Debate round 2: completed rebuttal (`rebuttal_complete`). */
   rebuttal?: Rebuttal;
+  /** M1-C2: why this advisor has no answer (`persona_error`, or no answer when the dispatch ended). */
+  error?: string;
+  /** M1-C2: re-run only this advisor. */
+  onRetry?: () => void;
+  /** Retry waits while another dispatch is still streaming. */
+  retryDisabled?: boolean;
 }
 
 /** Inline debate outcome: Defended / Conceded badge, reason, and old → new recommendation. */
@@ -167,29 +175,60 @@ function StreamingBody({ text }: { text: string }) {
   );
 }
 
-export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming, isRebutting, rebuttal }: PersonaCardProps) {
+export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming, isRebutting, rebuttal, error, onRetry, retryDisabled }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
+  const name = config?.name ?? personaId;
   const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
   const [expanded, setExpanded] = useState(false);
-  const frame = `border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`;
+  // `w-full`: the grid cell is a flex row, so a finished card stretches to its row (fixed-height states keep their box).
+  const frame = `w-full border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`;
 
-  // Waiting state
+  // Failed state (M1-C2): say so, show why, offer Retry — never "Thinking..." forever.
+  if (!response && !isStreaming && error) {
+    return (
+      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="error">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="font-medium text-foreground text-sm">{name}</span>
+          <Badge variant="warning">No answer</Badge>
+        </div>
+        <div className="rounded-md border border-warning/30 bg-warning-muted p-3 text-sm" role="group" aria-label={`${name} failed`}>
+          <div className="flex items-start gap-2">
+            <TriangleAlert size={16} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">{name} couldn&rsquo;t finish this analysis.</p>
+              <p className="mt-1 line-clamp-3 break-words text-muted-foreground" data-testid="persona-error-detail">{error}</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {onRetry && (
+            <Button variant="secondary" size="sm" onClick={onRetry} disabled={retryDisabled}>
+              <RotateCcw size={16} strokeWidth={1.75} aria-hidden="true" />
+              Retry
+            </Button>
+          )}
+          {retryDisabled && <span className="text-xs text-muted-foreground">Available when the other advisors finish.</span>}
+        </div>
+        <p className="mt-auto text-xs text-muted-foreground">
+          The CEO can still synthesize without this advisor; the synthesis will say so.
+        </p>
+      </Card>
+    );
+  }
+
+  // Waiting state: queued, not started yet. A static skeleton in the reserved box (no endless loop).
   if (!response && !isStreaming) {
     return (
-      <Card className={cn(frame, PERSONA_CARD_HEIGHT)} data-testid="persona-card" data-state="waiting">
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
-              <motion.div
-                key={i}
-                className="w-1.5 h-1.5 rounded-full bg-text-tertiary"
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-              />
-            ))}
-          </div>
-          <span className="text-muted-foreground text-sm">Thinking...</span>
-          <span className="text-muted-foreground text-xs ml-auto">{config?.name ?? personaId}</span>
+      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="waiting">
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-medium text-foreground text-sm">{name}</span>
+          <span className="text-xs text-muted-foreground">Waiting to start</span>
+        </div>
+        <div className="space-y-2.5 pt-1" aria-hidden="true">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-11/12" />
+          <Skeleton className="h-3.5 w-4/5" />
         </div>
       </Card>
     );

@@ -148,7 +148,13 @@ Where `DecisionSessionSummary`:
 
 Fires personas for a session. Returns SSE stream.
 
-**Request:** (empty body — mode determines which personas fire)
+**Request:** empty body — the mode determines which personas fire. Optional (M1-C2, `DispatchSessionBodySchema` / `DispatchSessionRequest`):
+
+```typescript
+{ personaIds?: PersonaId[] }   // re-run only these advisors (Retry on a failed card)
+```
+
+A retry streams only the named advisors, **never re-runs the debate round** (zero `rebuttal_*` events), records them as late advisors (the ledger is rebuilt deterministically and the CEO is told they joined after round 2), and ends with `dispatch_complete { personaCount, durationMs, rebuttalCount: 0, retriedPersonaIds }`. A malformed body → 422 `validation_failed`; an id that is not an advisor of this session (mode roster + the user's active custom personas) → 400 `unknown_persona`. A persona whose context fetch fails now emits `persona_error` instead of no event.
 
 **SSE Event Stream:**
 

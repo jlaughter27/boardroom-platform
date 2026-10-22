@@ -50,16 +50,16 @@ describe('PersonaCard — streaming shows prose, never JSON (M1-C1)', () => {
     expect(screen.getByText(/^Seat pricing/)).toBeInTheDocument();
   });
 
-  it('reserves the same height for waiting and streaming, and at least that for the finished card', () => {
+  it('reserves 32rem: exactly for streaming, at least for waiting and finished cards', () => {
     const { rerender } = render(<PersonaCard personaId="critic" isStreaming={false} />);
     const waiting = screen.getByTestId('persona-card');
     expect(waiting.dataset.state).toBe('waiting');
-    expect(waiting.className).toContain('h-[32rem]');
+    expect(waiting.className).toContain('min-h-[32rem]');
 
     rerender(<PersonaCard personaId="critic" isStreaming streamingText={raw.slice(0, 80)} />);
     const streaming = screen.getByTestId('persona-card');
     expect(streaming.dataset.state).toBe('streaming');
-    expect(streaming.className).toContain('h-[32rem]');
+    expect(streaming.className.split(' ')).toContain('h-[32rem]');
     expect(streaming).toHaveAttribute('aria-busy', 'true');
 
     rerender(<PersonaCard personaId="critic" isStreaming={false} response={response} streamingText={raw} />);

@@ -53,7 +53,8 @@ export default function DecisionSessionPage() {
     synthesis, synthesisStreaming, isDispatching, isSynthesizing,
     sufficiency, simulation, isSimulating, error, errorStatus,
     rebuttals, rebuttingPersonas, committedDecision, isCommitting,
-    createSession, dispatch, synthesize, checkAmbiguity, runSimulation, commitDecision, reset, clearError,
+    personaErrors, dispatchScope, synthesisWithout,
+    createSession, dispatch, retryPersona, synthesize, checkAmbiguity, runSimulation, commitDecision, reset, clearError,
   } = useSessionStore();
 
   // Loader keyed on the route id (C-107): navigating A → B must not render A's
@@ -120,22 +121,33 @@ export default function DecisionSessionPage() {
     wasSynthesizing.current = isSynthesizing;
   }, [isSynthesizing, synthesis]);
 
-  const hasPersonas = Object.keys(personaResponses).length > 0 || streamingPersonas.size > 0;
+  const hasPersonas = Object.keys(personaResponses).length > 0 || streamingPersonas.size > 0 || Object.keys(personaErrors).length > 0;
   const allPersonasDone = currentSession
     ? !isDispatching && Object.keys(personaResponses).length > 0 && streamingPersonas.size === 0
     : false;
 
-  // One polite live region announces advisors as they finish (not every token).
+  // One polite live region announces advisors as they finish or fail (not every token).
   const [announcement, setAnnouncement] = useState('');
   const announced = useRef<Set<string>>(new Set());
+  const announcedFor = useRef<string | null>(null);
+  const sessionKey = currentSession?.id ?? null;
   useEffect(() => {
-    if (!isDispatching) { announced.current = new Set(Object.keys(personaResponses)); return; }
-    const fresh = Object.keys(personaResponses).filter((pid) => !announced.current.has(pid));
+    const keys = [...Object.keys(personaResponses).map((pid) => `ok:${pid}`), ...Object.keys(personaErrors).map((pid) => `err:${pid}`)];
+    // What a session already held when it loaded is not news; only what arrives afterwards is.
+    if (announcedFor.current !== sessionKey) { announcedFor.current = sessionKey; announced.current = new Set(keys); return; }
+    // Forget keys that went away (a retried error), so a second failure is announced again.
+    announced.current = new Set([...announced.current].filter((k) => keys.includes(k)));
+    const fresh = keys.filter((k) => !announced.current.has(k));
     if (fresh.length === 0) return;
-    for (const pid of fresh) announced.current.add(pid);
-    const names = fresh.map((pid) => PERSONA_CONFIGS[pid]?.name ?? pid).join(' and ');
-    setAnnouncement(`${names} finished.`);
-  }, [personaResponses, isDispatching]);
+    for (const k of fresh) announced.current.add(k);
+    const nameOf = (k: string) => { const pid = k.slice(k.indexOf(':') + 1); return PERSONA_CONFIGS[pid]?.name ?? pid; };
+    const done = fresh.filter((k) => k.startsWith('ok:')).map(nameOf);
+    const failed = fresh.filter((k) => k.startsWith('err:')).map(nameOf);
+    setAnnouncement([
+      done.length ? `${done.join(' and ')} finished.` : '',
+      failed.length ? `${failed.join(' and ')} couldn't finish. Retry is available.` : '',
+    ].filter(Boolean).join(' '));
+  }, [personaResponses, personaErrors, sessionKey]);
 
   // `loading`: an existing id whose session has not arrived yet (never flash the blank composer).
   // `review`: an existing, undispatched session — its question read-only, with Analyze / Edit.
@@ -153,6 +165,24 @@ export default function DecisionSessionPage() {
 
   const modeConfig = (currentSession ? CLIENT_MODE_CONFIGS[currentSession.mode] : CLIENT_MODE_CONFIGS[mode]) ?? CLIENT_MODE_CONFIGS.decide;
   const personaIds: PersonaId[] = modeConfig.personas;
+
+  // M1-C2 — an advisor with no answer is a failure, never an endless "Thinking...":
+  // either the server said so (`persona_error`), or the dispatch that should have
+  // run it is over (a reload, a stream that closed early, a retry of someone else).
+  function advisorError(pid: string): string | undefined {
+    if (personaErrors[pid]) return personaErrors[pid];
+    if (phase !== 'personas' && phase !== 'synthesis') return undefined;
+    if (personaResponses[pid] || streamingPersonas.has(pid)) return undefined;
+    const queued = isDispatching && (!dispatchScope || dispatchScope.includes(pid));
+    return queued ? undefined : 'No answer arrived from this advisor.';
+  }
+  const advisorIds = [...personaIds, ...customPersonas.map((cp) => cp.personaId)];
+  const failedIds = advisorIds.filter((pid) => advisorError(pid));
+  /** "The Critic" → "Critic" for the CTA ("Synthesize without Critic"). */
+  const shortName = (pid: string) => (PERSONA_CONFIGS[pid]?.name ?? customPersonas.find((cp) => cp.personaId === pid)?.name ?? pid).replace(/^The /, '');
+  const failedNames = failedIds.map(shortName);
+  const joinNames = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+  const retryDisabled = isDispatching || isSynthesizing;
   // "What changed since last time" matches the question against known entities
   const whatChangedQuestion = currentSession?.question ?? debouncedQuestion;
 
@@ -217,7 +247,7 @@ export default function DecisionSessionPage() {
   }
 
   async function handleSynthesize() {
-    await synthesize();
+    await synthesize({ without: failedNames });
   }
 
   function handleExport() {
@@ -363,6 +393,7 @@ export default function DecisionSessionPage() {
                     report={synthesis ?? undefined}
                     streamingText={synthesisStreaming}
                     isStreaming={isSynthesizing}
+                    without={synthesisWithout}
                     onExpand={synthesis ? () => setSynthesisSheetOpen(true) : undefined}
                   />
                 </motion.div>
@@ -420,7 +451,7 @@ export default function DecisionSessionPage() {
               className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
             >
               {personaIds.map((pid) => (
-                <motion.div key={pid} {...staggerItem}>
+                <motion.div key={pid} {...staggerItem} className="flex">
                   <PersonaCard
                     personaId={pid}
                     response={personaResponses[pid]}
@@ -428,11 +459,14 @@ export default function DecisionSessionPage() {
                     isStreaming={streamingPersonas.has(pid)}
                     isRebutting={rebuttingPersonas.has(pid)}
                     rebuttal={rebuttals[pid]}
+                    error={advisorError(pid)}
+                    onRetry={() => { void retryPersona(pid); }}
+                    retryDisabled={retryDisabled}
                   />
                 </motion.div>
               ))}
               {customPersonas.map((cp) => (
-                <motion.div key={cp.personaId} {...staggerItem} className="relative">
+                <motion.div key={cp.personaId} {...staggerItem} className="relative flex">
                   <Badge variant="accent" className="absolute top-2 right-2 z-10">Custom</Badge>
                   <PersonaCard
                     personaId={cp.personaId as PersonaId}
@@ -441,6 +475,9 @@ export default function DecisionSessionPage() {
                     isStreaming={streamingPersonas.has(cp.personaId)}
                     isRebutting={rebuttingPersonas.has(cp.personaId)}
                     rebuttal={rebuttals[cp.personaId]}
+                    error={advisorError(cp.personaId)}
+                    onRetry={() => { void retryPersona(cp.personaId); }}
+                    retryDisabled={retryDisabled}
                   />
                 </motion.div>
               ))}
@@ -469,9 +506,15 @@ export default function DecisionSessionPage() {
                       disabled={isSynthesizing}
                       className="w-full"
                     >
-                      {isSynthesizing ? 'Synthesizing...' : '\u2728 Synthesize with CEO'}
+                      {isSynthesizing
+                        ? 'Synthesizing...'
+                        : failedNames.length > 0
+                          ? `Synthesize without ${joinNames(failedNames)}`
+                          : '\u2728 Synthesize with CEO'}
                     </Button>
                   </motion.div>
+                ) : failedIds.length > 0 ? (
+                  <span className="text-sm text-muted-foreground">No advisor answered. Retry an advisor to continue.</span>
                 ) : (
                   <span className="text-sm text-muted-foreground">All advisors have answered.</span>
                 )}
