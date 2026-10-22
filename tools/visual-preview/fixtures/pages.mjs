@@ -41,7 +41,7 @@ const persona = (personaId, situationReading, analysis, recommendation, confiden
   ...extra,
 });
 
-const personaResponses = {
+export const personaResponses = {
   optimist: persona('optimist',
     'Three of five design partners asked for a per-seat plan unprompted. Demand is pulling you there.',
     'Per-seat pricing turns every new hire at a customer into revenue without a sales conversation. Current usage caps are the main reason trials stall in week two, and the seat model removes the cap conversation entirely. The expansion motion becomes automatic.',

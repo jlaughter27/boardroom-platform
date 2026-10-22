@@ -67,6 +67,44 @@ export interface SessionState {
   projectIds?: string[];
   /** Set once the user commits via POST /sessions/:id/decide. */
   decisionId?: string;
+  /**
+   * M1-C2 — advisors whose answer arrived through a per-persona retry, after the
+   * debate round. Their view was never rebutted; the CEO is told so.
+   */
+  lateAdvisors?: PersonaId[];
+}
+
+/** Options for `CEOOrchestrator.dispatch`. */
+export interface DispatchOptions {
+  /** Re-run only these advisors (Retry on a failed card). Never re-runs the debate round. */
+  personaIds?: PersonaId[];
+}
+
+/** Display name for a persona id (built-in config name, else the id). */
+function personaName(id: PersonaId): string {
+  return PERSONA_CONFIGS[id as BuiltInPersonaId]?.name ?? id;
+}
+
+/**
+ * M1-C2 — what the CEO must know about advisors that are missing or late:
+ * missing ones failed and have no answer; late ones answered on a retry after
+ * the debate round, so nobody rebutted them and their ledger rows were rebuilt
+ * deterministically (no round 2).
+ */
+export function formatAdvisorGapsForCEO(session: Pick<SessionState, 'mode' | 'personaResponses' | 'lateAdvisors'>): string {
+  const expected = (MODE_CONFIGS[session.mode]?.personas ?? []) as PersonaId[];
+  const missing = expected.filter((id) => !session.personaResponses.has(id));
+  const late = (session.lateAdvisors ?? []).filter((id) => session.personaResponses.has(id));
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    const rows = missing.map((id) => `- ${personaName(id)}: failed, no answer. Do not attribute any view to this advisor; say the perspective is missing where it matters.`);
+    parts.push(`## Advisors without a response\n${rows.join('\n')}`);
+  }
+  if (late.length > 0) {
+    const rows = late.map((id) => `- ${personaName(id)}: not rebutted by the others; the ledger rows that include it were rebuilt without a round 2.`);
+    parts.push(`## Late advisors (answered on a retry, after the debate round)\n${rows.join('\n')}`);
+  }
+  return parts.join('\n\n');
 }
 
 interface Participant {
@@ -122,20 +160,23 @@ export class CEOOrchestrator {
     session.projectIds = Array.from(ids);
   }
 
-  async dispatch(session: SessionState, res: Response, signal?: AbortSignal): Promise<void> {
+  async dispatch(session: SessionState, res: Response, signal?: AbortSignal, options: DispatchOptions = {}): Promise<void> {
     initSSE(res);
     const start = Date.now();
     const modeConfig = MODE_CONFIGS[session.mode];
-    const personaIds = modeConfig.personas as PersonaId[];
+    // M1-C2 — a retry names the advisors to re-run; everyone else keeps their answer.
+    const retryIds = options.personaIds && options.personaIds.length > 0 ? new Set<string>(options.personaIds) : null;
+    const personaIds = (modeConfig.personas as PersonaId[]).filter((id) => !retryIds || retryIds.has(id));
 
     // Phase 6 — one core-context fetch per dispatch, shared by every call below.
-    const coreContext = await this.ensureCoreContext(session, true);
+    // A retry reuses the block the first dispatch fetched (same cache prefix).
+    const coreContext = await this.ensureCoreContext(session, !retryIds);
     const premortem = this.premortemBlock(session);
 
     // B-112 — quick-take: no persona fan-out; the CEO synthesises directly over
     // the question. Emits the SAME `synthesis_complete` event the synthesize
     // route emits, then `dispatch_complete` (CONTRACT with QuickTakeWidget).
-    if (personaIds.length === 0 && modeConfig.includesCEO) {
+    if (!retryIds && personaIds.length === 0 && modeConfig.includesCEO) {
       await this.runSynthesis(session, res, signal);
       sendSSE(res, { type: 'dispatch_complete', personaCount: 0, durationMs: Date.now() - start });
       res.end();
@@ -146,7 +187,7 @@ export class CEOOrchestrator {
     let activeCustom: CustomPersona[] = [];
     try {
       const customPersonas = await this.omnimind.getCustomPersonas(session.userId) as CustomPersona[];
-      activeCustom = customPersonas.filter((p: CustomPersona) => p.isActive);
+      activeCustom = customPersonas.filter((p: CustomPersona) => p.isActive && (!retryIds || retryIds.has(p.personaId)));
     } catch {
       // If custom personas fetch fails, continue with built-in only
     }
@@ -159,14 +200,27 @@ export class CEOOrchestrator {
       userId: session.userId,
     };
 
+    // M1-C2 — a context fetch that throws used to reject silently: no SSE event,
+    // so the card waited forever. Now it is a `persona_error` like any other.
+    const contextOrError = async (personaId: PersonaId, extra: Record<string, unknown> = {}): Promise<{ items: ContextItem[] } | null> => {
+      try {
+        return await this.omnimind.getContextForPersona(
+          getContextRequest(personaId, session.question, session.userId, { asOf: session.asOf }),
+        ) as { items: ContextItem[] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Context unavailable';
+        sendSSE(res, { type: 'persona_error', personaId, error: `Could not load context: ${message}`, ...extra });
+        return null;
+      }
+    };
+
     // Built-in persona promises
     const builtInPromises = personaIds.map(async (personaId) => {
       // B-114 — per-persona context strategy (maxItems cap + entity focus) is
       // now actually sent to OmniMind instead of being computed and dropped.
       // Phase 6 — persona-specific query rewrite, Critic archived/DECISION, asOf.
-      const contextRes = await this.omnimind.getContextForPersona(
-        getContextRequest(personaId, session.question, session.userId, { asOf: session.asOf }),
-      ) as { items: ContextItem[] };
+      const contextRes = await contextOrError(personaId);
+      if (!contextRes) return null;
       this.rememberProjectIds(session, contextRes.items ?? []);
 
       const config = PERSONA_CONFIGS[personaId];
@@ -201,9 +255,8 @@ export class CEOOrchestrator {
 
     // Custom persona promises
     const customPromises = activeCustom.map(async (cp: CustomPersona) => {
-      const contextRes = await this.omnimind.getContextForPersona(
-        getContextRequest(cp.personaId as PersonaId, session.question, session.userId, { asOf: session.asOf }),
-      ) as { items: ContextItem[] };
+      const contextRes = await contextOrError(cp.personaId as PersonaId, { isCustom: true });
+      if (!contextRes) return null;
       this.rememberProjectIds(session, contextRes.items ?? []);
 
       const config = {
@@ -264,6 +317,23 @@ export class CEOOrchestrator {
         session.personaResponses.set(activeCustom[i].personaId as PersonaId, result.value);
         personaCount++;
       }
+    }
+
+    if (retryIds) {
+      // M1-C2 — a retry NEVER re-runs the debate round (it would re-bill every
+      // rebuttal). The late advisors are recorded and the ledger is rebuilt
+      // deterministically (no LLM call) so its rows include them; the CEO is
+      // told they joined after round 2 (formatAdvisorGapsForCEO).
+      const answered = [...personaIds, ...activeCustom.map((cp) => cp.personaId as PersonaId)]
+        .filter((id) => session.personaResponses.has(id));
+      session.lateAdvisors = Array.from(new Set([...(session.lateAdvisors ?? []), ...answered]));
+      session.ledger = session.personaResponses.size >= 2
+        ? buildDisagreementLedger(session.personaResponses, session.rebuttals ?? new Map())
+        : [];
+      logger.info('[Dispatch] retry done', { sessionId: session.id, retried: Array.from(retryIds), answered, ledgerRows: session.ledger.length });
+      sendSSE(res, { type: 'dispatch_complete', personaCount, durationMs: Date.now() - start, rebuttalCount: 0, retriedPersonaIds: Array.from(retryIds) });
+      res.end();
+      return;
     }
 
     // Phase 6 — round 2 (debate protocol) + ledger. Emits rebuttal_* events
@@ -406,8 +476,9 @@ export class CEOOrchestrator {
     const perspectives = formattedOutputs
       || '(No persona perspectives — this is a quick take. Analyze the question directly and still complete every SynthesisReport field.)';
     const ledgerText = formatLedgerForCEO(session.ledger ?? []);
+    const gaps = formatAdvisorGapsForCEO(session);
     const content: Anthropic.TextBlockParam[] = [
-      { type: 'text', text: `## Original Question\n${session.question}\n\n## Persona Perspectives\n${perspectives}${outcomeContext}${patternContext}` },
+      { type: 'text', text: `## Original Question\n${session.question}\n\n## Persona Perspectives\n${perspectives}${gaps ? `\n\n${gaps}` : ''}${outcomeContext}${patternContext}` },
       ...(ledgerText ? [{ type: 'text' as const, text: ledgerText }] : []),
       { type: 'text', text: `Synthesize into a SynthesisReport JSON${ledgerText ? ' (include one ledgerResolutions entry per ledger row)' : ' (ledgerResolutions: [])'}. No markdown wrapping.` },
     ];

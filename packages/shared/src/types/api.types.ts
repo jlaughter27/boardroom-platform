@@ -86,6 +86,17 @@ export interface SessionSummary {
   createdAt: string;
 }
 
+// --- Session dispatch ---
+
+/**
+ * Body of POST /sessions/:id/dispatch. Omit `personaIds` to run every persona of
+ * the session's mode; pass ids to re-run only those (a retry — the debate round
+ * is not re-run). Companion schema: `DispatchSessionBodySchema`.
+ */
+export interface DispatchSessionRequest {
+  personaIds?: PersonaId[];
+}
+
 // --- Common ---
 
 export interface ValidationError {

@@ -71,6 +71,17 @@ export async function createMockApi(options = {}) {
       let out;
       try { out = await r.handler(req, url, match); }
       catch (e) { out = { status: 500, body: { message: String(e && e.message || e) } }; }
+      // `{ sse: (write, req, res) => Promise }` streams Server-Sent Events: `write(event)` sends one
+      // `data:` frame; the response ends when the promise settles (a held stream never settles
+      // until the client goes away). Used by fixtures/session-stream.mjs.
+      if (typeof out?.sse === 'function') {
+        log(`${method} ${path} → 200 SSE (${r.file})`);
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+        res.flushHeaders?.();
+        try { await out.sse((event) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`); }, req, res); }
+        finally { if (!res.writableEnded) res.end(); }
+        return true;
+      }
       const status = out?.status ?? 200;
       const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(out?.headers ?? {}) };
       log(`${method} ${path} → ${status} (${r.file})`);

@@ -19,6 +19,24 @@ export const CreateSessionBodySchema = z.object({
   asOf: z.string().datetime().optional(),
 });
 
+/**
+ * A persona id on the wire: a built-in id (`critic`) or a custom persona's slug
+ * (`custom_board_advisor`, see omnimind-api custom-personas.routes.ts). Whether the
+ * id belongs to the session is checked by the route (400 `unknown_persona`).
+ */
+export const PersonaIdParamSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/, 'persona ids are lower-case slugs');
+
+/**
+ * POST /sessions/:id/dispatch (M1-C2). Empty body = every persona of the
+ * session's mode. `personaIds` re-runs only those advisors (Retry on a failed
+ * card); a retry never re-runs the debate round. Companion: `DispatchSessionRequest`.
+ */
+export const DispatchSessionBodySchema = z.object({
+  personaIds: z.array(PersonaIdParamSchema).min(1).max(20)
+    .refine((ids) => new Set(ids).size === ids.length, 'personaIds must be unique')
+    .optional(),
+});
+
 export const UpdateUserProfileBodySchema = z.object({
   name: z.string().min(1).max(100).optional(),
   role: z.string().max(100).optional(),

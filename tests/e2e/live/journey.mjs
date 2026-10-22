@@ -6,8 +6,9 @@
 // 4. Cross-client visibility: BoardRoom GET /memories (same user, same cookie) sees the MCP-written memory.
 // 5. Revoke the token in BoardRoom → the next MCP call on the open session is refused.
 import { createRequire } from 'node:module';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 function loadPlaywright() {
@@ -323,6 +324,21 @@ try {
     assert(refused, `expected refusal after revoke, got ${after.status} ${JSON.stringify(after.body).slice(0, 200)}`);
     return { status: after.status, code: after.body?.error?.message ?? after.body?.error?.code ?? after.body?.result?.content?.[0]?.text?.slice(0, 80) };
   });
+
+  // Minimal checks autoloader (Lane C, M1-C1, for checks/cls.mjs). M1-A3 owns the full
+  // version (README, --browser flag); it can replace this block. Each tests/e2e/live/checks/*.mjs
+  // default-exports `{ name, run({ page, api, mcp, metrics }) }` and runs as one journey step.
+  const checksDir = new URL('./checks/', import.meta.url);
+  for (const file of readdirSync(checksDir).filter(f => f.endsWith('.mjs')).sort()) {
+    const def = (await import(pathToFileURL(join(checksDir.pathname, file)).href)).default;
+    if (!def || typeof def.run !== 'function') continue;
+    await check(`check ${file}: ${def.name ?? file}`, () => def.run({
+      page,
+      api: { app: APP, omnimind: API, request: page.request },
+      mcp: { url: MCP, call: mcpCall },
+      metrics: { out: OUT, shot: name => shot(page, name), results },
+    }));
+  }
 
   await check('no uncaught page errors during the journey', async () => {
     const real = consoleErrors.filter(e => !/favicon|manifest|net::ERR_|404|Failed to load resource/i.test(e));
