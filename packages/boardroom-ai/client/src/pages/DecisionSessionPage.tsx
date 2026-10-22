@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { BILLING_SETTINGS_PATH } from '../components/shared/TrialBanner';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSessionStore } from '../stores/session.store';
@@ -13,22 +13,31 @@ import { SimulationPanel } from '../components/decision/SimulationPanel';
 import { DecisionCommitCard } from '../components/decision/DecisionCommitCard';
 import { WhatChangedCard } from '../components/decision/WhatChangedCard';
 import * as api from '../lib/api';
+import { truncate } from '@boardroom/shared';
 import type { PersonaId, CustomPersona, PersonaResponse, SufficiencyScore } from '@boardroom/shared';
 import { CLIENT_MODE_CONFIGS, type ClientUserMode, type ExtendedSynthesisReport } from '../types/debate';
 import { useDebounce } from '../hooks/useDebounce';
-import { PageWrapper, PageHeader, Button, Badge, Card } from '../components/ui';
+import { PageWrapper, PageHeader, Button, Badge, Skeleton } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { AINudge } from '../components/shared/AINudge';
 import { slideUp, scaleIn, staggerContainer, staggerItem } from '../lib/motion';
 
+/** Router state that asks the page to dispatch once the session has loaded (set by Analyze after it created the session). */
+interface SessionRouteState { autoDispatch?: boolean }
+
+/** Tab titles keep the H1's words; long questions are cut with an ellipsis. */
+export const TAB_TITLE_MAX = 60;
+
 export default function DecisionSessionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const isNew = !id || id === 'new';
-  usePageTitle(isNew ? 'New Decision' : 'Decision Session');
 
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<ClientUserMode>('decide');
+  /** Existing, undispatched session: the user chose Edit, so the composer replaces the read-only question. */
+  const [editing, setEditing] = useState(false);
   const debouncedQuestion = useDebounce(question, 600);
   const [customPersonas, setCustomPersonas] = useState<CustomPersona[]>([]);
 
@@ -57,17 +66,26 @@ export default function DecisionSessionPage() {
     if (!id) return;
 
     let cancelled = false;
+    setEditing(false);
+    const autoDispatch = (location.state as SessionRouteState | null)?.autoDispatch === true;
     const { currentSession: existing } = useSessionStore.getState();
     if (existing?.id !== id) {
       reset();
       api.getSession(id).then(session => {
         if (cancelled) return;
+        const personaResponses = (session.personaResponses ?? {}) as Record<string, PersonaResponse>;
         useSessionStore.setState({
           currentSession: { id: session.id, question: session.question, mode: session.mode },
-          personaResponses: (session.personaResponses ?? {}) as Record<string, PersonaResponse>,
+          personaResponses,
           synthesis: session.ceoSynthesis as ExtendedSynthesisReport | null,
           sufficiency: session.sufficiencyScore as SufficiencyScore | null,
         });
+        // Analyze created this session and navigated here: run it now, once.
+        // The state is consumed first so a reload shows the question instead of re-running it.
+        if (autoDispatch && Object.keys(personaResponses).length === 0 && !session.ceoSynthesis) {
+          navigate(location.pathname, { replace: true, state: null });
+          void useSessionStore.getState().dispatch();
+        }
         // A session that already committed a decision shows the success state, not the form.
         if (session.decisionId) {
           const decisionId = session.decisionId;
@@ -106,10 +124,19 @@ export default function DecisionSessionPage() {
     ? !isDispatching && Object.keys(personaResponses).length > 0 && streamingPersonas.size === 0
     : false;
 
-  const phase: 'input' | 'personas' | 'synthesis' =
+  // `loading`: an existing id whose session has not arrived yet (never flash the blank composer).
+  // `review`: an existing, undispatched session — its question read-only, with Analyze / Edit.
+  // `input`: the composer — `/decisions/new`, or an existing session the user chose to edit.
+  const phase: 'loading' | 'input' | 'review' | 'personas' | 'synthesis' =
     synthesis ? 'synthesis' :
     hasPersonas || isDispatching ? 'personas' :
-    'input';
+    isNew || editing ? 'input' :
+    currentSession ? 'review' :
+    'loading';
+
+  // The tab title says what the H1 says: "New Decision", "Edit Decision", or the question itself.
+  const pageTitle = isNew ? 'New Decision' : editing ? 'Edit Decision' : currentSession?.question ?? 'Decision';
+  usePageTitle(truncate(pageTitle, TAB_TITLE_MAX, '\u2026'));
 
   const modeConfig = (currentSession ? CLIENT_MODE_CONFIGS[currentSession.mode] : CLIENT_MODE_CONFIGS[mode]) ?? CLIENT_MODE_CONFIGS.decide;
   const personaIds: PersonaId[] = modeConfig.personas;
@@ -120,16 +147,47 @@ export default function DecisionSessionPage() {
   const [isCheckingClarity, setIsCheckingClarity] = useState(false);
 
   async function handleAnalyze() {
-    if (!question.trim() || isAnalyzing) return;
+    const trimmed = question.trim();
+    if (!trimmed || isAnalyzing) return;
     setIsAnalyzing(true);
     try {
-      await createSession(question.trim(), mode);
-      await dispatch();
+      // Editing an undispatched session without changing it: run it in place.
+      if (!isNew && currentSession && currentSession.question === trimmed && currentSession.mode === mode) {
+        setEditing(false);
+        await dispatch();
+        return;
+      }
+      // Otherwise a new session, addressed by its own URL so a reload finds it again.
+      // The page for that URL loads the session and dispatches it (router state `autoDispatch`).
+      await createSession(trimmed, mode);
+      const created = useSessionStore.getState().currentSession;
+      if (created) {
+        const state: SessionRouteState = { autoDispatch: true };
+        navigate(`/decisions/${created.id}`, { replace: isNew, state });
+      }
     } catch {
       // error handled by store
     } finally {
       setIsAnalyzing(false);
     }
+  }
+
+  /** Read-only question → Analyze: dispatch the stored session as it is. */
+  async function handleAnalyzeStored() {
+    if (isAnalyzing) return;
+    setIsAnalyzing(true);
+    try {
+      await dispatch();
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  function startEditing() {
+    if (!currentSession) return;
+    setQuestion(currentSession.question);
+    setMode(currentSession.mode);
+    setEditing(true);
   }
 
   async function handleCheckClarity() {
@@ -182,8 +240,39 @@ export default function DecisionSessionPage() {
           <WhatChangedCard question={whatChangedQuestion} currentSessionId={currentSession?.id ?? null} />
         )}
 
-        {/* Phase 1: Input */}
+        {/* Phase 1: Input (composer), review (stored question), or loading */}
         <AnimatePresence mode="wait">
+          {phase === 'loading' && (
+            <div key="loading" className="max-w-3xl mx-auto space-y-4" data-testid="session-loading" aria-busy="true">
+              <Skeleton className="h-9 w-3/4" />
+              <Skeleton className="h-5 w-24" />
+            </div>
+          )}
+
+          {phase === 'review' && currentSession && (
+            <motion.div key="review" {...slideUp} className="max-w-3xl mx-auto space-y-6" data-testid="session-review">
+              <PageHeader
+                className="mb-0"
+                title={currentSession.question}
+                subtitle="Not analyzed yet. Run your advisors on this question, or edit it first."
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="accent">{modeConfig.label}</Badge>
+                <span className="text-sm text-muted-foreground">
+                  {modeConfig.personas.length > 0
+                    ? `${modeConfig.personas.length} advisors${modeConfig.includesCEO ? ' + CEO synthesis' : ''}`
+                    : 'CEO quick take'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button variant="primary" size="lg" onClick={handleAnalyzeStored} disabled={isAnalyzing}>
+                  {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                </Button>
+                <Button variant="ghost" onClick={startEditing}>Edit</Button>
+              </div>
+            </motion.div>
+          )}
+
           {phase === 'input' && (
             <motion.div key="input" {...slideUp} className="space-y-6">
               {/* 768 px: wide enough for the seven-mode segmented control on one line. */}
@@ -191,8 +280,8 @@ export default function DecisionSessionPage() {
                 <PageHeader
                   align="center"
                   className="mb-0"
-                  title="New Decision"
-                  subtitle="Describe your question, choose a mode, then analyze."
+                  title={pageTitle}
+                  subtitle={editing ? 'Change the question or the mode, then analyze. A changed question starts a new session.' : 'Describe your question, choose a mode, then analyze.'}
                 />
 
                 <div>
@@ -222,9 +311,13 @@ export default function DecisionSessionPage() {
                   <Button variant="primary" size="lg" onClick={handleAnalyze} disabled={!question.trim() || isAnalyzing}>
                     {isAnalyzing ? 'Analyzing...' : 'Analyze'}
                   </Button>
-                  <Button variant="ghost" onClick={handleCheckClarity} disabled={!question.trim() || isCheckingClarity}>
-                    {isCheckingClarity ? 'Checking...' : 'Check Clarity'}
-                  </Button>
+                  {editing ? (
+                    <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+                  ) : (
+                    <Button variant="ghost" onClick={handleCheckClarity} disabled={!question.trim() || isCheckingClarity}>
+                      {isCheckingClarity ? 'Checking...' : 'Check Clarity'}
+                    </Button>
+                  )}
                 </div>
               </div>
             </motion.div>
