@@ -4,14 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly dependency audit (M0-A1). Advisories are published without any push
+  # to this repo, so a quiet week would otherwise never re-run the audit. Only
+  # the `scheduled-audit` job runs on this event; every other job is skipped.
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
 
+# Superseded PR runs are cancelled; runs on main never are (M0-A1). On main the
+# group also carries the run id, so every main run is its own group: neither
+# cancel-in-progress nor GitHub's "a newer pending run replaces the older
+# pending run" rule can cancel a main run when merges land back to back.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   verify:
     name: Install, typecheck, test
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -216,3 +226,29 @@ jobs:
           path: eval/results/*
           if-no-files-found: warn
           retention-days: 30
+
+  # Weekly audit-only run (M0-A1); runs on the schedule event and nothing else.
+  # `pnpm audit` reads pnpm-lock.yaml directly, so there is no install. High+
+  # fails the run (the same gate as `verify`); the full report, moderates
+  # included, is printed first so a new moderate advisory shows up in the log.
+  scheduled-audit:
+    name: Scheduled dependency audit
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Full audit report (informational)
+        run: pnpm audit --prod || true
+
+      - name: Dependency audit (high+ fails)
+        run: pnpm audit --prod --audit-level high
