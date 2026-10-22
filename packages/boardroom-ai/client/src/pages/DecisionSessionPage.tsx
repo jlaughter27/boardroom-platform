@@ -14,6 +14,7 @@ import { DecisionCommitCard } from '../components/decision/DecisionCommitCard';
 import { WhatChangedCard } from '../components/decision/WhatChangedCard';
 import * as api from '../lib/api';
 import { truncate } from '@boardroom/shared';
+import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, CustomPersona, PersonaResponse, SufficiencyScore } from '@boardroom/shared';
 import { CLIENT_MODE_CONFIGS, type ClientUserMode, type ExtendedSynthesisReport } from '../types/debate';
 import { useDebounce } from '../hooks/useDebounce';
@@ -123,6 +124,18 @@ export default function DecisionSessionPage() {
   const allPersonasDone = currentSession
     ? !isDispatching && Object.keys(personaResponses).length > 0 && streamingPersonas.size === 0
     : false;
+
+  // One polite live region announces advisors as they finish (not every token).
+  const [announcement, setAnnouncement] = useState('');
+  const announced = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isDispatching) { announced.current = new Set(Object.keys(personaResponses)); return; }
+    const fresh = Object.keys(personaResponses).filter((pid) => !announced.current.has(pid));
+    if (fresh.length === 0) return;
+    for (const pid of fresh) announced.current.add(pid);
+    const names = fresh.map((pid) => PERSONA_CONFIGS[pid]?.name ?? pid).join(' and ');
+    setAnnouncement(`${names} finished.`);
+  }, [personaResponses, isDispatching]);
 
   // `loading`: an existing id whose session has not arrived yet (never flash the blank composer).
   // `review`: an existing, undispatched session — its question read-only, with Analyze / Edit.
@@ -401,21 +414,6 @@ export default function DecisionSessionPage() {
               />
             )}
 
-            {/* Synthesize button */}
-            {phase === 'personas' && allPersonasDone && modeConfig.includesCEO && (
-              <motion.div {...scaleIn} className="text-center">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleSynthesize}
-                  disabled={isSynthesizing}
-                  className="w-full max-w-md"
-                >
-                  {isSynthesizing ? 'Synthesizing...' : '\u2728 Synthesize with CEO'}
-                </Button>
-              </motion.div>
-            )}
-
             {/* Persona grid */}
             <motion.div
               {...staggerContainer}
@@ -448,13 +446,41 @@ export default function DecisionSessionPage() {
               ))}
             </motion.div>
 
-            {isDispatching && (
-              <div className="text-center text-sm text-muted-foreground">
-                {rebuttingPersonas.size > 0 ? 'Advisors are debating…' : 'Dispatching personas...'}
+            {/* Footer: dispatch status, then the CEO step. Below the grid and sticky, one constant
+                height, so the call to action appearing never moves the cards (M1-C1). */}
+            {phase === 'personas' && (
+              <div
+                className="material sticky bottom-0 z-10 -mx-6 rounded-none border-t border-hairline !shadow-none px-6 h-16 flex items-center justify-center gap-3"
+                data-testid="session-footer"
+              >
+                {isDispatching ? (
+                  <span className="text-sm text-muted-foreground">
+                    {rebuttingPersonas.size > 0 ? 'Advisors are debating…' : 'Dispatching personas...'}
+                    <span className="tnum ml-2">
+                      {Object.keys(personaResponses).length} of {personaIds.length + customPersonas.length} done
+                    </span>
+                  </span>
+                ) : allPersonasDone && modeConfig.includesCEO ? (
+                  <motion.div {...scaleIn} className="w-full max-w-md">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      onClick={handleSynthesize}
+                      disabled={isSynthesizing}
+                      className="w-full"
+                    >
+                      {isSynthesizing ? 'Synthesizing...' : '\u2728 Synthesize with CEO'}
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">All advisors have answered.</span>
+                )}
               </div>
             )}
           </motion.div>
         )}
+
+        <div aria-live="polite" role="status" className="sr-only" data-testid="persona-announcer">{announcement}</div>
       </div>
     </PageWrapper>
   );

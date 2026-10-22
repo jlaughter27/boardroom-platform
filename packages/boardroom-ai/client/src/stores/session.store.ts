@@ -99,6 +99,53 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
+// ── Token-delta batching (M1-C1) ─────────────────────────────────────────────
+// A persona streams hundreds of tiny deltas; one store update per delta
+// re-rendered every card per token. Deltas collect here and reach the store at
+// most once per animation frame.
+
+type FrameScheduler = (cb: () => void) => number;
+type FrameCanceller = (handle: number) => void;
+
+const scheduleFrame: FrameScheduler = (cb) =>
+  typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => cb()) : (setTimeout(cb, 16) as unknown as number);
+const cancelFrame: FrameCanceller = (handle) => {
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(handle);
+  else clearTimeout(handle);
+};
+
+let pendingDeltas: Record<string, string> = {};
+let pendingFrame: number | null = null;
+
+/** Apply every buffered delta in one update. Called by the frame, and before any event that reads the text. */
+function flushDeltas(): void {
+  if (pendingFrame !== null) { cancelFrame(pendingFrame); pendingFrame = null; }
+  const batch = pendingDeltas;
+  pendingDeltas = {};
+  const ids = Object.keys(batch);
+  if (ids.length === 0) return;
+  useSessionStore.setState((state) => {
+    const personaStreaming = { ...state.personaStreaming };
+    for (const id of ids) {
+      // A persona that already finished (or was reset) keeps no stale preview.
+      if (!state.streamingPersonas.has(id)) continue;
+      personaStreaming[id] = (personaStreaming[id] ?? '') + batch[id];
+    }
+    return { personaStreaming };
+  });
+}
+
+function bufferDelta(personaId: string, text: string): void {
+  pendingDeltas[personaId] = (pendingDeltas[personaId] ?? '') + text;
+  if (pendingFrame === null) pendingFrame = scheduleFrame(flushDeltas);
+}
+
+/** Drop buffered deltas without applying them (new session, reset). */
+function discardDeltas(): void {
+  if (pendingFrame !== null) { cancelFrame(pendingFrame); pendingFrame = null; }
+  pendingDeltas = {};
+}
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   currentSession: null,
   personaResponses: {},
@@ -126,6 +173,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // writing persona cards into the new session (C-107).
     const { abortController: inFlight } = get();
     if (inFlight) inFlight.abort();
+    discardDeltas();
     set({ isDispatching: false, isSynthesizing: false, abortController: null, error: null, errorStatus: null });
 
     try {
@@ -181,20 +229,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             break;
           }
           case 'delta': {
-            // Server sends personaId on dispatch deltas (extension of SSEDelta)
+            // Server sends personaId on dispatch deltas (extension of SSEDelta).
+            // Buffered: the store sees at most one update per animation frame.
             const personaId = (typed as DispatchEvent).personaId as string | undefined;
-            if (personaId) {
-              set(state => ({
-                personaStreaming: {
-                  ...state.personaStreaming,
-                  [personaId]: (state.personaStreaming[personaId] ?? '') + typed.text,
-                },
-              }));
-            }
+            if (personaId) bufferDelta(personaId, typed.text);
             break;
           }
           case 'persona_complete': {
             const { personaId, response } = typed;
+            flushDeltas();
             set(state => {
               const streaming = new Set(state.streamingPersonas);
               streaming.delete(personaId);
@@ -207,6 +250,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
           case 'persona_error': {
             const { personaId } = typed;
+            flushDeltas();
             set(state => {
               const streaming = new Set(state.streamingPersonas);
               streaming.delete(personaId);
@@ -232,11 +276,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             break;
           }
           case 'dispatch_complete': {
+            flushDeltas();
             set({ isDispatching: false, abortController: null });
             break;
           }
         }
       }
+      flushDeltas();
       // Stream ended without dispatch_complete (server closed early) — don't stay stuck
       if (get().abortController === abortController) {
         set({ isDispatching: false, abortController: null });
@@ -246,6 +292,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (isAbortError(err)) {
         return;
       }
+      flushDeltas();
       const { message, status } = describeSessionError(err, 'Dispatch failed');
       useToastStore.getState().addToast(message, 'error');
       set({ error: message, errorStatus: status, isDispatching: false, abortController: null });
@@ -360,6 +407,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (abortController) {
       abortController.abort();
     }
+    discardDeltas();
     set({
       currentSession: null,
       personaResponses: {},

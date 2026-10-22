@@ -1,9 +1,22 @@
-import { useState, memo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
 import type { Rebuttal } from '../../types/debate';
-import { Card, Badge, Progress } from '../ui';
+import { Card, Badge, Progress, Skeleton } from '../ui';
+import { readStreamingProse } from '../../lib/partial-json';
+import { cn } from '../../lib/cn';
+
+/**
+ * Every state of the card occupies the same box (M1-C1): the waiting and
+ * streaming cards are exactly this tall and the finished card is at least this
+ * tall, with long sections clamped behind "Show full analysis". Swapping one
+ * state for the next therefore never pushes the grid around.
+ */
+export const PERSONA_CARD_HEIGHT = 'h-[32rem]';
+export const PERSONA_CARD_MIN_HEIGHT = 'min-h-[32rem]';
+/** Above this many characters the clamped analysis offers "Show full analysis". */
+const LONG_TEXT = 200;
 
 const PERSONA_COLORS: Record<string, string> = {
   optimist: 'border-t-persona-optimist',
@@ -80,7 +93,8 @@ function CollapsibleSection({
         <span className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}
       </button>
-      <AnimatePresence>
+      {/* initial={false}: a section that starts open is simply there — growing it from 0 on mount shifted the card. */}
+      <AnimatePresence initial={false}>
         {open && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
@@ -97,14 +111,72 @@ function CollapsibleSection({
   );
 }
 
+/** Streaming preview: prose only, read out of the partial JSON — never braces or keys. */
+function StreamingBody({ text }: { text: string }) {
+  const { situationReading, analysis } = useMemo(() => readStreamingProse(text), [text]);
+  // The newest words stay in view by scrolling the clipped box, not by moving the
+  // text: a scroll is not a layout shift, a paragraph sliding up inside its box is.
+  const analysisBox = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = analysisBox.current;
+    if (!box) return;
+    box.scrollTop = box.scrollHeight;
+    box.dataset.clipped = String(box.scrollHeight > box.clientHeight);
+  }, [analysis]);
+  const caret = <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" aria-hidden />;
+
+  if (!situationReading && !analysis) {
+    return (
+      <div className="space-y-2.5 pt-1" data-testid="persona-skeleton">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-11/12" />
+        <Skeleton className="h-3.5 w-4/5" />
+        <Skeleton className="mt-4 h-3 w-16" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-10/12" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 text-sm text-muted-foreground">
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Situation Reading</div>
+        <p className="line-clamp-5 leading-relaxed">
+          {situationReading}
+          {!analysis && caret}
+        </p>
+      </div>
+      {analysis && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Analysis</div>
+          {/* Clipped at its own height; once it has scrolled, the top edge fades out. */}
+          <div
+            ref={analysisBox}
+            className="relative min-h-0 flex-1 overflow-hidden data-[clipped=true]:[mask-image:linear-gradient(to_bottom,transparent,#000_1.5rem)]"
+          >
+            <p className="whitespace-pre-wrap leading-relaxed">
+              {analysis}
+              {caret}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming, isRebutting, rebuttal }: PersonaCardProps) {
   const config = PERSONA_CONFIGS[personaId];
   const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
+  const [expanded, setExpanded] = useState(false);
+  const frame = `border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`;
 
   // Waiting state
   if (!response && !isStreaming) {
     return (
-      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`}>
+      <Card className={cn(frame, PERSONA_CARD_HEIGHT)} data-testid="persona-card" data-state="waiting">
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {[0, 1, 2].map((i) => (
@@ -123,28 +195,31 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
     );
   }
 
-  // Streaming state
+  // Streaming state — fixed height; prose grows inside it.
   if (isStreaming && !response) {
     return (
-      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass} shadow-md`}>
+      <Card
+        className={cn(frame, PERSONA_CARD_HEIGHT, 'flex flex-col shadow-md')}
+        data-testid="persona-card"
+        data-state="streaming"
+        aria-busy="true"
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
           </div>
         </div>
-        <div className="text-sm text-muted-foreground whitespace-pre-wrap">
-          {streamingText}
-          <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
-        </div>
+        <StreamingBody text={streamingText ?? ''} />
       </Card>
     );
   }
 
-  // Complete state
+  // Complete state — the Zod-validated `persona_complete` payload.
   if (response) {
+    const long = response.analysis.length > LONG_TEXT || response.situationReading.length > LONG_TEXT;
     return (
-      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`}>
+      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT)} data-testid="persona-card" data-state="complete">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
@@ -165,7 +240,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
         </div>
 
         <CollapsibleSection title="Situation Reading" defaultOpen>
-          <p>{response.situationReading}</p>
+          <p className={cn(!expanded && 'line-clamp-4')}>{response.situationReading}</p>
         </CollapsibleSection>
 
         {response.keyAssumptions.length > 0 && (
@@ -180,7 +255,17 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
 
         <div className="mt-3">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Analysis</div>
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{response.analysis}</p>
+          <p className={cn('text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed', !expanded && 'line-clamp-5')}>{response.analysis}</p>
+          {long && (
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              aria-expanded={expanded}
+              className="mt-1 text-xs font-medium text-primary hover:underline"
+            >
+              {expanded ? 'Show less' : 'Show full analysis'}
+            </button>
+          )}
         </div>
 
         <div className="mt-3 p-3 bg-primary/10 rounded-md">
