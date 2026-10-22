@@ -13,6 +13,13 @@ Format:
 
 ---
 
+## 2026-10-22 — DEC-005 — ADR-017 (entity tenancy) proposed; awaiting the founder's default-tenant pick (Phase 8, M1-B0)
+
+**Decision:** Record ADR-017 in `docs/02-reference/DECISIONS.md` as **Proposed**: add `tenantId` to Decision, Commitment, Task, Person, Project and Goal; agent callers are filtered by and stamped with `req.agentContext.tenantId` (cross-tenant update or link → 404); non-agent callers (BoardRoom) are unchanged; new non-agent rows take a column default the founder picks in M1-F7 (proposed `josh-personal`, matching `MemoryEntry`). Linked-memory filtering (option b) is rejected because BoardRoom-created entities have no linked memory. Nothing is implemented until ADR-017 is Accepted; M1-B4 (migration + scoped routes) depends on M1-F7, and M1-B1 (re-pointing the MCP entity tools) on M1-B4.
+**Rationale:** Without a tenant on the entity tables, re-pointed MCP tools would let a `josh-personal` token read `josh-business` decisions, breaking the Three Tenants rule in `.claude/CLAUDE.md`.
+**Source:** `docs/roadmap/PHASE-8-ROADMAP.md` M1-B0 and the Decision ledger row on one-tenant-per-token; schema facts checked against `packages/omnimind-api/prisma/schema.prisma` at `c2c6fca`. Lane D, 2026-10-22.
+**Reversibility:** HIGH while Proposed; MED once the M1-B4 migration has run (dropping the column is easy, re-assigning rows is not)
+
 ## 2026-10-22 — DEC-004 — Phase triage for roadmap phases 10–19 and a do-not-build list (Phase 8, M0-D2)
 
 **Decision:** Each memory-system roadmap phase 10–19 (`docs/roadmap/04-roadmap/`) gets one status for the length of Phase 8 (`docs/roadmap/PHASE-8-ROADMAP.md`, 2026-10-22 → 2026-12-16). Keep: the Phase 10 remainder and the Phase 14 minimum. Shrink: Phase 11, to a one-shot export (M4-B1). Park with triggers: 12, 13, 16, 18, 19. Kill for now: 17. Phase 15 shipped. Nothing parked or killed is built until its trigger fires **and** the M4-F1 dogfood verdict (or a later DECISIONS-LOG entry) unparks it.
