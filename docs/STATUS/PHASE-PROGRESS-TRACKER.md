@@ -4,11 +4,42 @@
 **Purpose:** Per-task tracker across all phases. Initially empty. Updated by every session that completes a task.
 **Format:** Append-only edits within rows. Don't delete rows; if a task is dropped, mark `done` with a note explaining the cut and link to the DECISIONS-LOG entry.
 
-**Status legend:** `todo` = not started · `wip` = in progress this session · `done` = completed and signed off · `blocked` = waiting on something (see notes column + BLOCKERS.md)
+**State legend (from 2026-10-22; source: `docs/roadmap/PHASE-8-ROADMAP.md` → "How to run a lane"):** `todo → in-progress → in-review → merged → done`
 
-**How to update:** When you start a task, change `todo` → `wip` and put your session date in `Date`. When you finish, change `wip` → `done` and update `Notes` with a one-line outcome (commit SHA, eval delta, etc.). When blocked, change to `blocked` and open or reference an entry in `BLOCKERS.md`.
+| State | Meaning | Who sets it |
+|---|---|---|
+| `todo` | Not started | — |
+| `in-progress` | A lane session has claimed it | The lane session, after its dependency check |
+| `in-review` | PR open | The session that opens the PR (with the PR link in Notes) |
+| `merged` | PR merged to `main` and the CI run on the merge SHA is all-green | Whoever merges; otherwise the next lane session, after `gh pr view <n> --json state,mergeCommit` and `gh run list --commit <sha>` |
+| `done` | `merged`, plus, for items whose acceptance includes production behaviour, a green post-deploy-verify run on that SHA (or the named founder evidence) | The founder, for founder items and production-acceptance items |
+
+**Dependency rule:** an agent dependency is satisfied at `merged` or `done`; a founder dependency only at `done`, with its evidence in `CHANGELOG.md` / `docs/03-operations/BACKUP-DRILLS.md`. A session whose dependency is unmet stops, reports the item as blocked, and records why in Notes (and in `BLOCKERS.md` if it needs the founder).
+
+**Legacy rows:** the Phase 0–19 sections below date from the 2026-04-18 roadmap scaffold and were never updated as work shipped; they still use the old `todo` / `wip` / `done` / `blocked` vocabulary (`wip` = `in-progress`). Read them through "Shipped phases → roadmap phases" below rather than at face value.
 
 > **This tracker is the canonical "which task am I on" source for cold-start sessions.** Pair it with `STATUS/CURRENT-PHASE.md` "Active task (within current phase)" line.
+
+---
+
+## Shipped phases → roadmap phases (as of 2026-10-22)
+
+**Two numbering schemes.** "Phase 5.5 … 7.5" and "Phase 8 — Dev roadmap" are *delivery* phases, named in `CHANGELOG.md` and `CURRENT-PHASE.md`. The numbered sections below (Phase 0 … 19) are the 2026-04-18 *memory-system roadmap* (`docs/roadmap/04-roadmap/`). They are different things: roadmap "Phase 8" is the deferred cross-encoder reranker, unrelated to delivery Phase 8. Keep/park/kill status for roadmap phases 10–19 is in `DECISIONS-LOG.md` DEC-004.
+
+SHAs are the commits on `main` (`git log --first-parent main`). PR #20 and #21 were merge commits, so their branch commits are also on `main`; PR #22–#24 were squashed.
+
+| Delivery phase | PRs → `main` SHA | Merged | Roadmap phases it advanced (evidence) | Still open in those roadmap phases |
+|---|---|---|---|---|
+| 5.5 — Post-Hermes fix-everything | #10 `21493ef`, #11 `56a4f60`, #12 `57c0aba`, #13 `60e4017`, #14 `bcbe1d1`, #15 `8b57f50`; closeout #16 `0475664` | 2026-05-14/15 | **7a** partial — exponential-decay recall strength driven by `recallCount` (#10, migration `20260514_recall_count`). **10** partial — agent context (`agentId`, `tenantId`, `sourceWeight`) propagated end to end (#11); `agent_id` NOT NULL and the embedding outbox (#13, migrations `20260515_agent_id_required`, `20260515_embedding_outbox`). | 7a has no eval-measured ranker change recorded. |
+| 5.6 — Test infra + bug audit | #17 `284c54c`, #18 `930273d` | 2026-05-15 | None (green test suite, outbox retry scheduler wiring, an audit report). | — |
+| 5.7 — Audit remediation (82 findings) | commits `fea0e4e`…`d77d932`, merged with PR #20 as `89fad1d` | 2026-10-09 (work dated 2026-10-02) | **15** — baseline migration `0_init` added in `e28f397`; `docker-entrypoint.sh` runs `prisma migrate deploy` with baseline detection; no `--accept-data-loss` remains in the entrypoint. CI gate `.github/workflows/ci.yml` (`f165bcb`; no roadmap phase). | 15: a migration-drift guard (Phase 8 M0-A3). |
+| 6 — Research backlog (8 moves) + pre-merge review | commits `d12181d`…`cf0ffd2` (graph view `d3b5c7c` before them), merged with PR #20 as `89fad1d` | 2026-10-09 (work dated 2026-10-02/03) | **0.5** — 114-query labeled retrieval gold set, recall@k / MRR / nDCG runner, gated in the CI `retrieval-eval` job (`c8d8178`). **4** — `graph_neighborhood` BFS over backlinks, ≤2 hops, 60 nodes (`2ae9cdf`; not a recursive CTE). **10** — MCP conformance: annotations, structured output, cursor pagination, `idempotencyKey`, resources, prompts (`2ae9cdf`). **14** partial — OTel behind `OTEL_EXPORTER_OTLP_ENDPOINT` (`a5e8047`, `b6902d9`). | 3: no HNSW index and no RRF fusion in `retrieval/`. 14: no alerts or metrics export (Phase 8 M3-A1, M3-F1). |
+| 7 — Universal memory MCP front door | #21 `77607bf` (branch commits `ad957c6` research, `7fce388`, `6758cc1`, `c87a5ab`, `97bfbca`) | 2026-10-20 (UTC) | **10** — hosted Streamable HTTP gateway (`packages/omnimind-mcp`, third Railway service), per-user `omt_` tokens, OAuth resource-server mode (RFC 9728 PRM, RFC 8707 audience), delegated identity, 20 tools, migrations `20261018000000_mcp_tokens` and `20261018000001_mcp_identity_hardening`. | 10: issuer selection (ADR-016, M1-F6/M2-F1), tenant-isolation of entity tools (ADR-017, M1-B4/M1-B1, E2E-9), Connector Directory submission (not scheduled). The service has never been launched (M1-F1). |
+| 7.5 — Visualization + Apple-grade UI (ADR-015), live e2e, go-live script | #22 `cdef1ef` | 2026-10-22 | None of 0–19 (UI work is outside the memory-system roadmap). Operational support for **10**: `scripts/mcp-go-live.sh` one-command go-live. | — |
+| 8 kickoff — MCP SDK security bump | #23 `fc19563` | 2026-10-22 | Maintenance of **10** (`@modelcontextprotocol/sdk` `^1.32.1`). | — |
+| 8 — Dev roadmap (docs) | #24 `c2c6fca` | 2026-10-22 | Plan only: `docs/roadmap/PHASE-8-ROADMAP.md`; items tracked in § Phase 8 below. | — |
+
+Not checked against any shipped work: roadmap phases 1, 2, 5a, 5b, 6, 9 (the `_disabled/` trees still exist under `packages/`), 11, 12, 13, 16, 17, 18, 19. Pre-5.5 work (for example PR #5 `a210a3a`, "Phase 0.25 — 29 adversarial audit fixes", 2026-05-08, and the MCP layer Phases 1–4 of 2026-05-09) is not mapped here.
 
 ---
 

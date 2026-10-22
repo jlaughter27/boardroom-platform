@@ -2,7 +2,29 @@
 
 **Audience:** Anyone (Claude or human) wanting the full tour of phases.
 **Purpose:** Visual timeline + dependency graph + per-phase summary. Click into individual `PHASE-*/README.md` for execution detail.
-**Last updated:** 2026-04-18 (Wave 4 validator pass — phase numbering reconciled, Phases 17/18/19 surfaced)
+**Last updated:** 2026-10-22 (Phase 8 triage, M0-D2: status per phase 10–19 below). Previous: 2026-04-18 (Wave 4 validator pass — phase numbering reconciled, Phases 17/18/19 surfaced)
+
+---
+
+## Status as of 2026-10-22 — read this before the plan below
+
+The calendar and sequencing further down are the 2026-04-18 plan and are **not** the execution plan any more. Active work runs from [`../PHASE-8-ROADMAP.md`](../PHASE-8-ROADMAP.md) (2026-10-22 → 2026-12-16), with per-item state in [`../../STATUS/PHASE-PROGRESS-TRACKER.md`](../../STATUS/PHASE-PROGRESS-TRACKER.md).
+
+- **Numbering.** "Phase 8 — Dev roadmap" (the current delivery phase) is not this file's Phase 8 (cross-encoder reranker, still deferred). Delivery phases 5.5 … 7.5 are mapped onto these roadmap phases, with SHAs, in the tracker's "Shipped phases → roadmap phases" section.
+- **Triage of phases 10–19** for the length of Phase 8 ([`../../STATUS/DECISIONS-LOG.md`](../../STATUS/DECISIONS-LOG.md) DEC-004, which also holds the do-not-build list and the full trigger text):
+
+| Phase | Status | Trigger / where it is scheduled |
+|---|---|---|
+| 10 — Memory MCP server | **Keep** (remainder) | Core shipped in Phase 7 (PR #21). Launch M1-F1, tenant-safe entity tools M1-B0/B4/B1 (ADR-017), OAuth issuer M1-F6/M2-F1 (ADR-016). Connector Directory: after the M4-F1 verdict. |
+| 11 — Markdown export + git sync | **Shrink** | One-shot export M4-B1. Sync/re-import: an exported file needs to come back in. |
+| 12 — Webhooks + event bus | **Park** | The first consumer we control that needs push and cannot poll (`.claude/CLAUDE.md` Known Limitation 13: chat clients do not act on MCP notifications). |
+| 13 — Public TypeScript SDK | **Park** | A named third party needs access the MCP tools and the OmniMind contract do not cover. |
+| 14 — Observability suite | **Keep** (minimum) | M0-A2, M1-A1, M3-A1, M3-F1. More: a prod failure the M3-F1 alerts missed. |
+| 15 — Migration history | **Shipped** | `0_init` + `migrate deploy` (PR #20); drift guard M0-A3. |
+| 16 — Cortex isolation | **Park** | ADR-009: a job run > 30 s or > 500 users, or measured API p95 impact during cron. |
+| 17 — Persona marketplace | **Kill for now** | DEF-014: ≥5 customer requests in 90 days, or a strategic decision. |
+| 18 — Resilience + multitenant fairness | **Park** | Scale-out or abuse. (Spend cap M4-A1 and job advisory lock M3-A2 are pulled into Phase 8.) |
+| 19 — Horizontal API scale | **Park** | ~2,000 active users or p95 event-loop lag > 50 ms sustained for 1 h. |
 
 ---
 

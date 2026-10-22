@@ -10,7 +10,7 @@ Executive decision intelligence suite for solo founders, indie hackers, and cons
 
 7-persona system (Optimist, Critic, Alternate, Technician, Questionnaire, Doer, CEO) with persistent cognitive memory, hybrid retrieval (vector + FTS + trigram), and a custom ~200-line agent runtime (no LangChain/CrewAI/LangGraph).
 
-**Current state:** Phase 1 complete. Both services live on Railway. Phase 2 spec'd but not coded.
+**Current state (2026-10-22):** delivery phases through 7.5 are merged (`main` = `c2c6fca`, CI green) and **Phase 8 — Dev roadmap** is active (`docs/roadmap/PHASE-8-ROADMAP.md`; active items in `docs/STATUS/CURRENT-PHASE.md`). BoardRoom AI and OmniMind API auto-deploy to Railway, but no deploy since PR #22 (`cdef1ef`) has been verified; the third service, `omnimind-mcp`, has never been launched. Open blockers: `docs/STATUS/BLOCKERS.md`.
 
 ---
 
@@ -128,7 +128,7 @@ boardroom-platform/
 │   │   └── index.ts                # Barrel export
 │   │
 │   ├── omnimind-api/
-│   │   ├── prisma/schema.prisma    # 26 models, source of truth
+│   │   ├── prisma/schema.prisma    # 43 models, source of truth
 │   │   ├── src/
 │   │   │   ├── routes/             # 17 route files
 │   │   │   ├── services/           # 13 service files
@@ -201,21 +201,23 @@ boardroom-platform/
 
 ## Database (Prisma)
 
-**32 models** in `packages/omnimind-api/prisma/schema.prisma`. Key model groups:
+**43 models** in `packages/omnimind-api/prisma/schema.prisma` (`grep -c '^model ' packages/omnimind-api/prisma/schema.prisma`). Model groups:
 
 | Group | Models |
 |-------|--------|
 | Auth/Team | User, Team, TeamMember |
 | Sessions | Room, Participant, Session, TranscriptEntry, AdvisorMessage, MeetingOutput |
 | Memory | MemoryEntry (with vector(1536) embedding) |
-| Decisions | Decision, DecisionAssumption |
+| Decisions | Decision, DecisionAssumption, DecisionSession |
 | Commitments | Commitment |
 | Entities | Person, Goal, Project, Task |
-| Links | MemoryEntityLink, GoalProjectLink, ProjectPersonLink, ProjectTaskLink, DecisionProjectLink, TaskDependency |
+| Links | MemoryEntityLink, GoalProjectLink, ProjectPersonLink, ProjectTaskLink, DecisionProjectLink, TaskDependency, CommitmentLink |
 | Profile | UserProfile, ContextCapsule |
-| Cortex | ThinkingPattern, ContradictionAlert, WeeklyMemo, OutcomeReviewNudge |
+| Cortex | ThinkingPattern, ContradictionAlert, WeeklyMemo, OutcomeReviewNudge, WeeklyDigest |
 | Personas | CustomPersona |
 | Billing | Subscription, OAuthToken |
+| MCP / agents | Tenant, Agent, McpAuditLog, McpToken, McpOauthIdentity |
+| Ops | EmbeddingOutbox, LlmUsage, IdempotencyKey |
 
 **Important patterns:**
 - Multiple models use `deletedAt DateTime?` for soft deletes — all queries must filter `WHERE deletedAt IS NULL`
@@ -433,13 +435,15 @@ Post-implementation review:
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| 0 — Foundation | ✅ Complete | Prisma schema (34 models), CRUD, validation, retrieval, Docker, agent runtime |
+| 0 — Foundation | ✅ Complete | Prisma schema (43 models as of 2026-10-22), CRUD, validation, retrieval, Docker, agent runtime |
 | 1 — Multi-Persona | ✅ Complete | 7 personas, dispatch, streaming, synthesis, extraction, eval |
 | 2 — Cortex Intelligence | ✅ Complete | Pattern detection (cron Mon 03:00), weekly memos (cron Sun 18:00), contradiction alerts (cron Mon 04:00), simulation — schedules are `CORTEX_CONFIG` in `shared/constants/cortex-config.ts`, server local time. Routes + services + prompts + UI all wired. |
 | 3 — Integrations | ✅ Partial | Google Calendar, Gmail, Stripe billing, custom personas — routes + services exist and are mounted |
 | 4+ — Collaboration | 📋 Future | Multi-user rooms (stub: `// app.use('/rooms', roomsRouter)` in index.ts), scaling |
+| 5.5 – 7.5 — Hardening, research backlog, MCP front door, UI foundation | ✅ Merged | 5.5 closeout `0475664` (PR #16); 5.7 audit remediation + Phase 6 in PR #20 `89fad1d`; Phase 7 PR #21 `77607bf`; Phase 7.5 PR #22 `cdef1ef`. Mapping to the memory-system roadmap phases 0–19: `docs/STATUS/PHASE-PROGRESS-TRACKER.md` → "Shipped phases → roadmap phases". |
+| 8 — Dev roadmap | 🧭 Active (from 2026-10-22) | M0 contain → M1 verified production + tenant-safe one memory → M2 dogfood day 1 (2026-11-12) → M3 ops floor → M4 verdict. Plan: `docs/roadmap/PHASE-8-ROADMAP.md`. |
 
-Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-INDEX.md` for the master index.
+Task specs live in `docs/tasks/phase-{n}/TASK-*.md` (historical; `docs/tasks/_TASK-INDEX.md` is the old index). Live per-item status: `docs/STATUS/PHASE-PROGRESS-TRACKER.md`.
 
 ---
 

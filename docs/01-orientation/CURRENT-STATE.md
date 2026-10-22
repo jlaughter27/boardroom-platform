@@ -2,117 +2,64 @@
 
 > Living document. Update after each deploy or phase completion.
 >
-> **Last updated:** 2026-04-11
+> **Last updated:** 2026-10-22 (Phase 8, M0-D1 status truth pass)
 
-## Deployment Status
+**One-line summary:** the merged code runs the whole loop green locally and in CI, but nothing about production has been observed since PR #22 merged. Phase 8 (`docs/roadmap/PHASE-8-ROADMAP.md`) exists to close that gap, make the memory one tenant-safe memory, and run a 30-day dogfood from 2026-11-12.
 
-| Service | Status | URL | Health |
-|---------|--------|-----|--------|
-| BoardRoom AI | **Live** | `https://boardroom-ai-production-1092.up.railway.app` | `/health` → `{"status":"ok","omnimindConnected":true}` |
-| OmniMind API | **Live** | `https://omnimind-api-production.up.railway.app` | `/health` → `{"status":"ok","dbConnected":true}` |
-| PostgreSQL | **Live** | `postgres.railway.internal:5432` | Connected (pgvector + pg_trgm enabled) |
+## Where `main` is
 
-**Platform:** Railway (auto-deploy on push to `main`)
-**Build time:** ~60 seconds per service
-**Private networking:** Not yet enabled. BoardRoom → OmniMind uses public domain.
+| | |
+|---|---|
+| Head | `c2c6fca` — PR #24, Phase 8 dev roadmap (docs only) |
+| Before it | `fc19563` — PR #23, `@modelcontextprotocol/sdk` bumped to `^1.32.1` for two high advisories; `cdef1ef` — PR #22, Phase 7.5 (visualization, Apple-grade UI foundation, live e2e, MCP go-live script) |
+| CI | Green: run 39868876211 on `c2c6fca` and run 39864122262 on `fc19563`, all five jobs `success` (verify, Docker ×3, Retrieval IR eval); the `fc19563` run was the first omnimind-mcp image build on main. Run 39860431324 on `cdef1ef` failed at the dependency audit. |
+| Branch protection | None on `main` (`docs/STATUS/BLOCKERS.md` BLK-105) |
 
-## Current Phase: SPRINT 8 (Phase 8) - Visionary Platform & Ecosystem
+Shipped-phase history with SHAs: `docs/STATUS/PHASE-PROGRESS-TRACKER.md` → "Shipped phases → roadmap phases".
 
-The project has moved to **Sprint 8 (Phase 8)** focusing on creating a complete decision intelligence ecosystem, including marketplace features, advanced integrations, and platform capabilities.
+## Deployment status
 
-### What's Built (Phase 0 — In Progress)
+| Service | Railway | What is known |
+|---|---|---|
+| BoardRoom AI | `boardroom-ai-production-1092.up.railway.app` | Auto-deploys every push to `main`. **The deploys of `cdef1ef`, `fc19563` and `c2c6fca` are unverified**: the sandbox has no Railway credential and cannot reach `*.up.railway.app`. |
+| OmniMind API | `omnimind-api-production.up.railway.app` | Same. Migrations run at boot (`docker-entrypoint.sh` → `prisma migrate deploy`); whether `20261018000000_mcp_tokens` and `20261018000001_mcp_identity_hardening` applied in prod is the first thing M0-F4 checks. |
+| OmniMind MCP | `packages/omnimind-mcp` (third service, `railway.toml` present) | **Never launched.** No OAuth issuer is configured (ADR-016 Proposed). Launch is founder item M1-F1. |
+| PostgreSQL | Railway plugin (pgvector + pg_trgm) | **No backup since the 2026-05-09 drill**; `services/backup` is not deployed (BLK-104). |
 
-**Core Infrastructure Complete:**
-- Prisma schema with all entities (12+ models)
-- Shared TypeScript types and Zod validation schemas
-- Docker Compose dev setup
-- Golden test scenarios (50+)
-- Utility functions (cryptography, dates, tokens)
+All three `railway.toml` files use `healthcheckPath = "/health"` and `numReplicas = 1`. BoardRoom still reaches OmniMind over the public domain (private networking is Phase 8 M3-F2).
 
-**Active Development (Phase 0 tasks):**
-- Memory CRUD endpoints (in progress)
-- Sync validation pipeline (in progress) 
-- Custom agent runtime (in progress)
-- Entity CRUD routes (people, goals, projects, tasks, decisions, commitments)
-- Context assembler + cross-entity search
+## What's built
 
-**Deferred to After Phase 8:**
-- Phase 1 (Multi-Persona Intelligence): Persona prompts, parallel dispatch, CEO synthesis
-- Phase 2 (Dashboard & Intelligence): Thinking pattern detection, weekly briefing, cross-project scan
-- Phase 3 (Agentic Upgrades + External Cortex): Tool-enabled agent runtime, Google Calendar integration, Stripe subscriptions, cortex intelligence layer
-- Phase 4 (Intelligence Layer + Scale Features): Semantic search, custom personas, decision simulations, dynamic widgets, relationship visualization, email integration
-- Phase 5 (Pre-Launch Hardening + Railway Deployment): Static file serving, env validation, Railway config, E2E tests, production readiness
-- Phase 6 (Scale & Growth Features): Team boards, mobile app, enterprise features, multi-model evaluation
-- Phase 7 (Future Vision & Advanced AI): Predictive analytics, advanced decision simulations, AI-powered research assistant
+- **BoardRoom AI** — 7-persona decision sessions with a debate protocol, disagreement ledger, pre-mortem mode, decision commit with a required forecast, outcome reviews and calibration; dashboard chart system and communities knowledge graph; Settings → Connected AI tools (mint and revoke per-user `omt_` tokens).
+- **OmniMind API** — all persistent data (43 Prisma models), validation pipeline, hybrid retrieval (vector + FTS + trigram), `asOf` temporal validity, reflection capsules, commitment nudges, cortex jobs, per-call LLM usage, idempotency keys, delegated MCP identity.
+- **OmniMind MCP** — hosted Streamable HTTP gateway, 20 tools, 3 prompts, 4 resource templates; per-user tokens and OAuth resource-server mode.
+- **Shared** — types, Zod schemas, constants, pure utils.
 
-### Phase 8 Focus: Visionary Platform & Ecosystem
+Detail by phase: `docs/STATUS/CURRENT-PHASE.md`; full changelog: `docs/STATUS/CHANGELOG.md`.
 
-**Sprint 8 Tasks (800-807):**
-1. **Persona Marketplace** — Community-driven persona sharing and discovery
-2. **Advanced Integration Framework** — Unified platform for third-party tool integration
-3. **Automated Research Synthesis Engine** — AI-powered analysis of external research
-4. **Cross-User Pattern Analysis** — Anonymous insights from aggregated decision patterns
-5. **Decision Quality Scoring System** — Automated assessment of decision quality over time
-6. **Advanced Visualization Suite** — Interactive data exploration and insight discovery
-7. **Platform API & Developer Tools** — Comprehensive API for external developers
-8. **Ecosystem Growth Features** — Community building, gamification, and network effects
+## Tests
 
-### Infrastructure Status
+Package baselines the Phase 8 roadmap requires every change to keep: shared 151 · mcp 255 · api 1,175 · server 284 · client 436. The last recorded live-stack run (2026-10-20, `CHANGELOG.md`): `pnpm test:e2e` 55/55, `pnpm e2e:live` journey 22/22. CI (`.github/workflows/ci.yml`) runs frozen install, typecheck incl. client, tests, audit, Docker builds and the labeled retrieval eval on every PR.
 
-**Live Services:** Both BoardRoom AI and OmniMind API are deployed and healthy on Railway
-**Database:** PostgreSQL with pgvector + pg_trgm enabled
-**Authentication:** JWT auth with httpOnly cookies
-**Rate Limiting:** In-memory (needs Redis for production scaling)
+## What's next
 
-## Environment Configuration
+Phase 8, milestone M0 (W1, 2026-10-22 → 10-28): rotate the R-103 secrets, take a `pg_dump`, keep `main` green, make deploys identifiable by SHA, add a migration-drift guard, and make the status docs true. Lanes B and C start M1 work in parallel (entity-tenancy ADR-017, deferred-extraction `memory_write`, decision-session honesty). Active items: `docs/STATUS/CURRENT-PHASE.md`. Open blockers: `docs/STATUS/BLOCKERS.md`.
 
-### Railway Variables (both services configured)
+## Known limitations
 
-| Variable | boardroom-ai | omnimind-api |
-|----------|:---:|:---:|
-| `PORT` | auto | auto |
-| `JWT_SECRET` | ✅ | — |
-| `OMNIMIND_API_KEY` | ✅ | ✅ |
-| `OMNIMIND_API_URL` | ✅ | — |
-| `ANTHROPIC_API_KEY` | ✅ | ✅ |
-| `OPENAI_API_KEY` | — | ✅ |
-| `ENCRYPTION_KEY` | — | ✅ |
-| `DATABASE_URL` | — | auto (Railway Postgres plugin) |
+The maintained list is `.claude/CLAUDE.md` → "Known Limitations". The ones that matter most this week: Railway auto-deploys `main` regardless of CI (1), in-memory rate limiting (2), the public domain for service-to-service calls (3), and single replica per service (7).
 
-## Test Suite
-
-- **110+ tests** across both services
-- Run: `npm run test` from monorepo root
-- Typecheck: `npm run typecheck`
-- No CI gate yet — tests are manual pre-push
-
-## Known Limitations
-
-1. **No CI/CD gate** — Tests and typecheck must be run manually before pushing. Railway auto-deploys on push regardless of test status.
-2. **In-memory rate limiting** — Resets on restart, no cross-instance coordination.
-3. **Public domain for service-to-service** — Higher latency than private networking. Switch when both services confirmed on same Railway private network.
-4. **db push instead of migrations** — No rollback history. Safe for v1 with no user data; must migrate to proper migration workflow before production users exist.
-5. **Subscription middleware fails open** — If OmniMind is unreachable, billing checks are skipped and all features are unlocked.
-6. **No monitoring** — Only health check endpoints. No error tracking (Sentry), no metrics (Datadog/Grafana), no alerting.
-7. **Single Railway instance per service** — No horizontal scaling configured.
-
-## Git Branching
-
-- **`main`** — Production branch. Railway auto-deploys on push.
-- Development happens directly on `main`. Feature branches recommended for complex changes.
-
-## Key Files to Start Any Session
+## Key files to start any session
 
 | Need | Read |
 |------|------|
-| Quick context | `docs/PROJECT-BRIEF.md` |
-| Architecture map | `docs/ARCHITECTURE-QUICK-REF.md` |
-| Deployment & Railway | `docs/DEPLOYMENT-RUNBOOK.md` |
-| What breaks easily | `docs/FRAGILE-ZONES.md` |
-| This file | `docs/CURRENT-STATE.md` |
-| Full product spec | `docs/MASTER-FRAMEWORK.md` |
-| Architectural decisions | `docs/DECISIONS.md` |
+| Active phase and items | `docs/STATUS/CURRENT-PHASE.md` |
+| The plan | `docs/roadmap/PHASE-8-ROADMAP.md` |
+| Quick context | `docs/01-orientation/PROJECT-BRIEF.md` |
+| Architecture map | `docs/01-orientation/ARCHITECTURE-QUICK-REF.md` |
+| Deployment & Railway | `docs/03-operations/DEPLOYMENT-RUNBOOK.md` |
+| MCP operator path | `docs/runbooks/omnimind-mcp.md` |
+| What breaks easily | `docs/02-reference/FRAGILE-ZONES.md` |
+| Architectural decisions | `docs/02-reference/DECISIONS.md` |
 | Dev rules & conventions | `.claude/CLAUDE.md` |
-| API contracts | `docs/contracts/*.contract.md` |
-| Sprint 8 Plan | `docs/prompts/PHASE-8-ORCHESTRATOR.md` |
-| Task Tracking | `docs/tasks/_TASK-INDEX.md` |
+| API contracts | `docs/contracts/omnimind-api.contract.md`, `docs/contracts/boardroom-api.contract.md` |
