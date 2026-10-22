@@ -4,16 +4,21 @@
 # GitHub Actions wrapper (.github/workflows/mcp-go-live.yml, RAILWAY_TOKEN).
 #
 # It automates docs/runbooks/omnimind-mcp.md §0–§7 in order:
-#   1. admin key on omnimind-api (+ ADMIN_EMAILS on boardroom-ai)
+#   0. preconditions, checked before ANY write (Phase 8 M1-A2): the latest CI
+#      run on main is `success` (gh api), and backup evidence exists
+#      (--backup-ok, or a dead-man check pinged < 26 h ago)
+#   1. admin key on omnimind-api (+ ADMIN_EMAILS on boardroom-ai); the API's
+#      PORT is read (or set to 3333 explicitly) so the private URL is right
 #   2. gateway agent `omnimind-mcp-gateway` (mcp:delegate + the scope ceiling)
 #   3. tenant owners (PATCH /admin/tenants/:id)
 #   4. the omnimind-mcp Railway service: create, variables, public domain, deploy
 #   5. BoardRoom variables (OMNIMIND_MCP_PUBLIC_URL, APP_PUBLIC_URL, …)
 #   6. first personal token + the `claude mcp add` line (skipped with --no-token)
-#   7. verification (PRM, 401 contract, initialize, tools/list = 20, audit)
+#   7. verification (PRM, 401 contract, bogus-token initialize → 401
+#      invalid_token even under --no-token, initialize, tools/list = 20, audit)
 #
 # Usage:
-#   scripts/mcp-go-live.sh --project <railway project id> --owner-email <email> [--yes] [--dry-run]
+#   scripts/mcp-go-live.sh --project <railway project id> --owner-email <email> --backup-ok [--yes] [--dry-run]
 #   pnpm go-live:mcp -- --project … --owner-email …
 # Run `scripts/mcp-go-live.sh --help` for every flag. Re-running is safe: every
 # step reads before it writes and skips what already exists.
@@ -87,7 +92,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-VERSION="2026-10-20"
+VERSION="2026-10-22"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -108,6 +113,13 @@ GATEWAY_AGENT="omnimind-mcp-gateway"
 API_URL_OVERRIDE=""
 APP_URL_OVERRIDE=""
 MCP_PORT=""
+API_PORT_OVERRIDE=""
+GH_REPO="${GITHUB_REPOSITORY:-}"
+CI_WORKFLOW="ci.yml"
+CI_BRANCH="main"
+BACKUP_OK=0
+BACKUP_CHECK_URL="${GO_LIVE_BACKUP_CHECK_URL:-}"
+BACKUP_MAX_AGE_H=26          # the dead-man window in docs/03-operations/BACKUPS.md
 TOKEN_NAME="Claude Code (laptop)"
 TOKEN_DAYS="365"
 DRY_RUN=0
@@ -124,8 +136,21 @@ mcp-go-live.sh ($VERSION) — PR merged → MCP live → first client connected.
 Required:
   --project <id>             Railway project id (Project → Settings → General)
   --owner-email <email>      BoardRoom login e-mail of the tenant owner (you)
+  backup evidence, one of:
+    --backup-ok              Attest that a fresh prod pg_dump + restore drill exists (BACKUP-DRILLS.md)
+    --backup-check-url <url> healthchecks.io v3 check URL (https://healthchecks.io/api/v3/checks/<uuid>);
+                             read with env BACKUP_CHECK_API_KEY; its last_ping must be < ${BACKUP_MAX_AGE_H} h old
+                             (or env GO_LIVE_BACKUP_CHECK_URL)
+
+Preconditions (checked before any write; a real run aborts when one fails):
+  the latest "$CI_WORKFLOW" run on $CI_BRANCH is completed + success (gh api; needs gh auth / GH_TOKEN),
+  and the backup evidence above.
 
 Optional:
+  --repo <owner/name>        GitHub repo for the CI check   (default: \$GITHUB_REPOSITORY, else the origin remote)
+  --ci-workflow <file>       Workflow file for the CI check (default: ci.yml)
+  --api-port <n>             omnimind-api's PORT for the private URL (default: its PORT variable;
+                             when that is unset the script sets PORT=3333 on omnimind-api explicitly)
   --environment <name>       Railway environment            (default: production)
   --api-service <name>       OmniMind API service name      (default: omnimind-api)
   --app-service <name>       BoardRoom service name         (default: boardroom-ai)
@@ -169,6 +194,11 @@ while [ $# -gt 0 ]; do
     --api-url) API_URL_OVERRIDE="$2"; shift 2 ;;
     --app-url) APP_URL_OVERRIDE="$2"; shift 2 ;;
     --mcp-port) MCP_PORT="$2"; shift 2 ;;
+    --api-port) API_PORT_OVERRIDE="$2"; shift 2 ;;
+    --repo) GH_REPO="$2"; shift 2 ;;
+    --ci-workflow) CI_WORKFLOW="$2"; shift 2 ;;
+    --backup-ok) BACKUP_OK=1; shift ;;
+    --backup-check-url) BACKUP_CHECK_URL="$2"; shift 2 ;;
     --token-name) TOKEN_NAME="$2"; shift 2 ;;
     --token-days) TOKEN_DAYS="$2"; shift 2 ;;
     --no-token) NO_TOKEN=1; shift ;;
@@ -176,6 +206,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY_RUN=1; shift ;;
     --yes|-y) YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
+    --) shift ;;   # pnpm 10 forwards the `--` of `pnpm go-live:mcp -- …` to the script
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
@@ -344,6 +375,82 @@ add_secret "$GATEWAY_KEY"
 log "repo root: $REPO_ROOT"
 log "project=$PROJECT environment=$ENVIRONMENT api=$API_SERVICE app=$APP_SERVICE mcp=$MCP_SERVICE"
 log "owner=${OWNER_EMAIL:-<by id>} tenants=$TENANTS admin_emails=$ADMIN_EMAILS oauth_issuer=${OAUTH_ISSUER:-<none>}"
+if [ -n "$API_PORT_OVERRIDE" ]; then
+  case "$API_PORT_OVERRIDE" in ''|*[!0-9]*) die "--api-port must be a number, got '$API_PORT_OVERRIDE'" ;; esac
+fi
+
+# -----------------------------------------------------------------------------
+# 0b. Preconditions (M1-A2) — checked before ANY Railway or API write, so a red
+#     main or a missing backup aborts with nothing changed.
+# -----------------------------------------------------------------------------
+step "0b. Preconditions (before any write)"
+# (a) The latest CI run on main is completed + success. Deploying from a red
+#     main is how a go-live "succeeds" with broken code.
+if [ -z "$GH_REPO" ]; then
+  origin="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+  GH_REPO="$(printf '%s' "$origin" | sed -nE 's#^(https?://[^/]*github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' | sed -E 's#\.git$##')"
+fi
+CI_RUNS_PATH="repos/${GH_REPO:-<owner/repo>}/actions/workflows/$CI_WORKFLOW/runs?branch=$CI_BRANCH&per_page=1"
+if [ "$DRY_RUN" -eq 1 ]; then
+  log "precondition: latest $CI_WORKFLOW run on $CI_BRANCH must be completed + success — \$ gh api $CI_RUNS_PATH (a real run aborts otherwise)"
+  note "Precondition: main CI" "dry-run" "would require the latest $CI_WORKFLOW run on $CI_BRANCH of ${GH_REPO:-<owner/repo>} = success"
+else
+  [ -n "$GH_REPO" ] || die "precondition: cannot tell which GitHub repo to check — pass --repo <owner/name> (or set GITHUB_REPOSITORY)"
+  command -v gh >/dev/null 2>&1 || die "precondition: the gh CLI is required to check that the latest $CI_BRANCH CI run is green (https://cli.github.com; in Actions set GH_TOKEN: \${{ github.token }} with permissions actions: read)"
+  log "\$ gh api $CI_RUNS_PATH"
+  CI_JSON="$(gh api "$CI_RUNS_PATH" 2>&1)" || die "precondition: gh api $CI_RUNS_PATH failed — is gh authenticated (gh auth login / GH_TOKEN)? Output: $(printf '%s' "$CI_JSON" | head -c 300)"
+  CI_RUN="$(json_get '(d.workflow_runs||[])[0]' <<< "$CI_JSON")"
+  [ -n "$CI_RUN" ] || die "precondition: no $CI_WORKFLOW run found on $CI_BRANCH of $GH_REPO — cannot prove main is green"
+  CI_STATUS="$(json_get 'd.status' <<< "$CI_RUN")"
+  CI_CONCLUSION="$(json_get 'd.conclusion' <<< "$CI_RUN")"
+  CI_SHA="$(json_get 'd.head_sha' <<< "$CI_RUN")"
+  CI_URL="$(json_get 'd.html_url' <<< "$CI_RUN")"
+  if [ "$CI_STATUS" != "completed" ] || [ "$CI_CONCLUSION" != "success" ]; then
+    die "precondition: the latest $CI_WORKFLOW run on $CI_BRANCH is status=${CI_STATUS:-?} conclusion=${CI_CONCLUSION:-none} (${CI_SHA:0:7} ${CI_URL:-}) — aborting before any write. Fix main (or wait for the run to finish) and re-run."
+  fi
+  log "precondition ok: latest $CI_WORKFLOW run on $CI_BRANCH is success (${CI_SHA:0:7} $CI_URL)"
+  LOCAL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [ -n "$LOCAL_SHA" ] && [ -n "$CI_SHA" ] && [ "$LOCAL_SHA" != "$CI_SHA" ]; then
+    warn "this checkout is ${LOCAL_SHA:0:7}, but the green $CI_BRANCH run is ${CI_SHA:0:7} — 'railway up' deploys THIS checkout; check out $CI_BRANCH at ${CI_SHA:0:7} unless that is intended"
+  fi
+  note "Precondition: main CI" "ok" "$CI_WORKFLOW on $CI_BRANCH = success at ${CI_SHA:0:7} ${CI_URL:-}"
+fi
+
+# (b) Backup evidence (DEPLOYMENT-RUNBOOK "MCP live checklist" step 0): the
+#     go-live redeploys omnimind-api, and migrations run at boot.
+BACKUP_EVIDENCE=""
+if [ "$BACKUP_OK" -eq 1 ]; then
+  BACKUP_EVIDENCE="operator attested (--backup-ok)"
+  log "precondition ok: backup evidence attested with --backup-ok"
+elif [ -n "$BACKUP_CHECK_URL" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "precondition: dead-man check $BACKUP_CHECK_URL must show last_ping < ${BACKUP_MAX_AGE_H} h — \$ curl -H 'X-Api-Key: <BACKUP_CHECK_API_KEY>' $BACKUP_CHECK_URL"
+    BACKUP_EVIDENCE="<dead-man last_ping < ${BACKUP_MAX_AGE_H} h>"
+  else
+    [ -n "${BACKUP_CHECK_API_KEY:-}" ] || die "precondition: --backup-check-url needs env BACKUP_CHECK_API_KEY (a healthchecks.io read-only API key)"
+    add_secret "$BACKUP_CHECK_API_KEY"
+    log "\$ curl -H 'X-Api-Key: <redacted>' $BACKUP_CHECK_URL"
+    bc_tmp="$(mktemp)"
+    bc_status="$(curl -sS -m 30 -H "X-Api-Key: $BACKUP_CHECK_API_KEY" -o "$bc_tmp" -w '%{http_code}' "$BACKUP_CHECK_URL" || true)"
+    bc_body="$(cat "$bc_tmp")"; rm -f "$bc_tmp"
+    [ "$bc_status" = "200" ] || die "precondition: dead-man check $BACKUP_CHECK_URL answered $bc_status — cannot prove a recent backup; aborting before any write"
+    bc_age_h="$(json_get 'd.last_ping ? ((Date.now() - Date.parse(d.last_ping)) / 3600000).toFixed(1) : undefined' <<< "$bc_body")"
+    [ -n "$bc_age_h" ] && [ "$bc_age_h" != "NaN" ] || die "precondition: dead-man check has never been pinged (no last_ping) — aborting before any write"
+    if ! node -e 'process.exit(Number(process.argv[1]) < Number(process.argv[2]) ? 0 : 1)' "$bc_age_h" "$BACKUP_MAX_AGE_H"; then
+      die "precondition: the last backup dead-man ping is ${bc_age_h} h old (limit ${BACKUP_MAX_AGE_H} h) — aborting before any write. Run the backup (services/backup) or take a manual pg_dump first."
+    fi
+    BACKUP_EVIDENCE="dead-man last ping ${bc_age_h} h ago"
+    log "precondition ok: backup dead-man pinged ${bc_age_h} h ago"
+  fi
+else
+  if [ "$DRY_RUN" -eq 1 ]; then
+    warn "precondition: no backup evidence given — a real run aborts here. Pass --backup-ok (after a fresh pg_dump + restore drill, BACKUP-DRILLS.md) or --backup-check-url <healthchecks.io check URL> (last ping < ${BACKUP_MAX_AGE_H} h)."
+    BACKUP_EVIDENCE="MISSING (a real run aborts)"
+  else
+    die "precondition: no backup evidence — pass --backup-ok (a fresh prod pg_dump + restore drill exists, docs/03-operations/BACKUP-DRILLS.md) or --backup-check-url <healthchecks.io v3 check URL> (last ping < ${BACKUP_MAX_AGE_H} h). Aborting before any write."
+  fi
+fi
+note "Precondition: backup" "$([ "$DRY_RUN" -eq 1 ] && echo dry-run || echo ok)" "$BACKUP_EVIDENCE"
 
 AUTH_MODE="login"
 if [ -n "${RAILWAY_TOKEN:-}" ]; then
@@ -391,10 +498,29 @@ else
 fi
 [ "$DRY_RUN" -eq 1 ] && ANTHROPIC_KEY="${ANTHROPIC_KEY:-<ANTHROPIC_API_KEY from $ANTHROPIC_FROM>}"
 if [ -z "$ANTHROPIC_KEY" ]; then
-  warn "ANTHROPIC_API_KEY not readable from $ANTHROPIC_FROM — memory_write will fail with FACT_EXTRACTOR_UNAVAILABLE until it is set on $MCP_SERVICE"
+  warn "ANTHROPIC_API_KEY not readable from $ANTHROPIC_FROM — memory_write will store raw rows only (extraction: deferred, never completing) until it is set on $MCP_SERVICE"
   manual "Set ANTHROPIC_API_KEY on the $MCP_SERVICE service (not readable from $ANTHROPIC_FROM)."
 fi
 add_secret "$ANTHROPIC_KEY"
+
+# The private URL's port must be omnimind-api's real PORT
+# (docs/03-operations/PRIVATE-NETWORKING.md): Railway injects a PORT of its own
+# unless one is set, and the old hardcoded :3333 then pointed at nothing.
+API_SET=()   # variables still to set on $API_SERVICE (one call → one redeploy)
+API_PORT_SET=0
+if [ -n "$API_PORT_OVERRIDE" ]; then
+  API_PORT="$API_PORT_OVERRIDE"; API_PORT_SOURCE="--api-port"
+else
+  API_PORT="$(json_get 'd.PORT' <<< "$API_VARS")"; API_PORT_SOURCE="$API_SERVICE PORT variable"
+  if [ -z "$API_PORT" ]; then
+    API_PORT="3333"; API_PORT_SET=1
+    API_PORT_SOURCE="set explicitly; PORT was not set on $API_SERVICE"
+    API_SET+=("PORT=3333")
+  fi
+fi
+case "$API_PORT" in *[!0-9]*) die "$API_SERVICE PORT is '$API_PORT', not a number — pass --api-port <n>" ;; esac
+log "omnimind-api port for the private URL: $API_PORT ($API_PORT_SOURCE)"
+[ "$API_PORT_SET" -eq 1 ] && log "PORT is not set on $API_SERVICE — setting PORT=3333 explicitly so http://$API_SERVICE.railway.internal:3333 is right (this redeploys the API; its public domain follows the port unless a target port is pinned in Settings → Networking)"
 
 if [ -n "$API_URL_OVERRIDE" ]; then API_URL="${API_URL_OVERRIDE%/}"; else API_URL="https://$(rw_domain_host "$API_SERVICE")"; fi
 if [ -n "$APP_URL_OVERRIDE" ]; then APP_URL="${APP_URL_OVERRIDE%/}"; else APP_URL="https://$(rw_domain_host "$APP_SERVICE")"; fi
@@ -408,7 +534,8 @@ if [ -z "$ADMIN_KEY" ]; then
   ADMIN_KEY="$(openssl rand -hex 32)"
   add_secret "$ADMIN_KEY"
   log "OMNIMIND_ADMIN_KEY is not set — generating one and setting it on $API_SERVICE (this redeploys the API)"
-  rw_set "$API_SERVICE" "OMNIMIND_ADMIN_KEY=$ADMIN_KEY"
+  rw_set "$API_SERVICE" "OMNIMIND_ADMIN_KEY=$ADMIN_KEY" "${API_SET[@]+"${API_SET[@]}"}"
+  API_SET=()
   if [ "$QUIET_SECRETS" -eq 1 ]; then
     log "admin key written to the Railway variable OMNIMIND_ADMIN_KEY on $API_SERVICE (not printed here — read it from the Railway dashboard when you need it)"
   else
@@ -423,7 +550,13 @@ else
   add_secret "$ADMIN_KEY"
   log "OMNIMIND_ADMIN_KEY already set on $API_SERVICE — reusing"
 fi
+if [ ${#API_SET[@]} -gt 0 ]; then
+  rw_set "$API_SERVICE" "${API_SET[@]}"
+  [ "$DRY_RUN" -eq 0 ] && sleep 5
+  wait_for "$API_SERVICE /health" "$API_URL/health" '"status":"ok"'
+fi
 note "OMNIMIND_ADMIN_KEY ($API_SERVICE)" "$ADMIN_KEY_STATE" "x-admin-key for /admin/* and POST /mcp/agents"
+note "omnimind-api PORT" "$API_PORT" "$API_PORT_SOURCE → private URL http://$API_SERVICE.railway.internal:$API_PORT"
 
 # =============================================================================
 # 2. Gateway agent
@@ -573,7 +706,10 @@ else
   MCP_SERVICE_STATE="created"
 fi
 
-PRIVATE_API_URL="http://$API_SERVICE.railway.internal:3333"   # docs/03-operations/PRIVATE-NETWORKING.md
+PRIVATE_API_URL="http://$API_SERVICE.railway.internal:$API_PORT"   # docs/03-operations/PRIVATE-NETWORKING.md; port from step 1
+# OMNIMIND_MCP_WRITE_EXTRACT=async: memory_write answers once the raw row exists
+# and extracts afterwards on a client that outlives the session — Haiku latency
+# never reaches the client's 60 s timeout (runbook §7c, Phase 8 M1-A2).
 MCP_VARS=(
   "RAILWAY_DOCKERFILE_PATH=packages/omnimind-mcp/Dockerfile"
   "OMNIMIND_API_URL=$PRIVATE_API_URL"
@@ -582,6 +718,7 @@ MCP_VARS=(
   "OMNIMIND_MCP_AGENT_KEY=$GATEWAY_KEY"
   "OMNIMIND_MCP_TRUST_PROXY=true"
   "OMNIMIND_MCP_APP_URL=$APP_URL"
+  "OMNIMIND_MCP_WRITE_EXTRACT=async"
 )
 [ -n "$ANTHROPIC_KEY" ] && MCP_VARS+=("ANTHROPIC_API_KEY=$ANTHROPIC_KEY")
 rw_set_nodeploy "$MCP_SERVICE" "${MCP_VARS[@]}"
@@ -677,8 +814,8 @@ http() {  # http <METHOD> <url> [data] [headers…] → sets H_STATUS, H_HEADERS
   H_HEADERS="$(cat "$hf")"; H_BODY="$(cat "$bf")"; rm -f "$hf" "$bf"
 }
 if [ "$DRY_RUN" -eq 1 ]; then
-  log "would check: PRM (404 token-only / 200 OAuth), POST /mcp without token → 401 + WWW-Authenticate, initialize → mcp-session-id, tools/list → 20, DELETE session, GET /mcp/audit?tenantId=$FIRST_TENANT&limit=5"
-  note "Verification" "dry-run" "7 checks planned"
+  log "would check: PRM (404 token-only / 200 OAuth), POST /mcp without token → 401 + WWW-Authenticate, initialize with a bogus omt_ token → 401 invalid_token (also under --no-token; 503 auth_unavailable = FAIL), initialize → mcp-session-id, tools/list → 20, DELETE session, GET /mcp/audit?tenantId=$FIRST_TENANT&limit=5"
+  note "Verification" "dry-run" "8 checks planned (incl. bogus-token initialize → 401 invalid_token)"
 else
   http GET "https://$MCP_HOST/.well-known/oauth-protected-resource" ""
   if [ -n "$OAUTH_ISSUER" ]; then
@@ -696,8 +833,22 @@ else
     vfail "unauthenticated POST /mcp" "expected 401 with WWW-Authenticate, got $H_STATUS"
   fi
 
+  # M1-A2 — runs even under --no-token: a syntactically valid but unknown omt_
+  # token forces a real introspection through the gateway key over the private
+  # URL. 401 invalid_token proves that chain works; 503 auth_unavailable means
+  # every real client would fail too (unknown gateway key, wrong private port).
+  init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-go-live","version":"1"}}}'
+  BOGUS_TOKEN="omt_$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64url"))')"   # BoardRoom's shape: omt_ + 43 base64url chars
+  http POST "$MCP_PUBLIC_URL" "$init" "Authorization: Bearer $BOGUS_TOKEN"
+  if [ "$H_STATUS" = "401" ] && printf '%s' "$H_BODY" | grep -q '"error":"invalid_token"'; then
+    vok "bogus-token initialize" "401 invalid_token (introspection via the gateway key works)"
+  elif [ "$H_STATUS" = "503" ]; then
+    vfail "bogus-token initialize" "503 auth_unavailable — introspection failed: OmniMind does not know the gateway key (runbook §1 Rotation) or is unreachable over $PRIVATE_API_URL (check omnimind-api's PORT)"
+  else
+    vfail "bogus-token initialize" "expected 401 invalid_token, got $H_STATUS $(printf '%s' "$H_BODY" | head -c 120)"
+  fi
+
   if [ -n "$TOKEN" ]; then
-    init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-go-live","version":"1"}}}'
     http POST "$MCP_PUBLIC_URL" "$init" "Authorization: Bearer $TOKEN"
     SID="$(printf '%s' "$H_HEADERS" | tr -d '\r' | awk 'tolower($1)=="mcp-session-id:"{print $2}')"
     server_name="$(printf '%s' "$H_BODY" | mcpjson | json_get 'd.result && d.result.serverInfo && d.result.serverInfo.name')"
