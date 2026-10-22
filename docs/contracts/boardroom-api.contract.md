@@ -375,15 +375,31 @@ Export a decision session as a structured package.
 
 ### GET /health
 
-No auth required.
+No auth required. Liveness: always HTTP 200 (every `railway.toml` uses `healthcheckPath = "/health"`), even when OmniMind is down.
 
 **Response 200:**
 ```typescript
 {
-  status: "ok",
+  status: "ok" | "degraded",
   service: "boardroom-ai",
+  version: string,            // RAILWAY_GIT_COMMIT_SHA, or "dev" locally (M0-A2)
   timestamp: string,
   omnimindConnected: boolean  // pings OmniMind /health
+}
+```
+
+### GET /ready
+
+No auth required (M0-A2). Readiness: registered above the SPA fallback, so `/ready` and `/api/ready` always answer JSON.
+
+**Response 200 / 503:**
+```typescript
+{
+  status: "ready" | "not_ready",            // 503 when not_ready
+  service: "boardroom-ai",
+  version: string,
+  timestamp: string,
+  checks: { omnimind: "ok" | "degraded" | "unreachable" }  // 503 unless "ok"
 }
 ```
 

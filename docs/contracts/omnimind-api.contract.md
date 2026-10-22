@@ -6,7 +6,7 @@
 ## Global Conventions
 
 - **Base URL**: `http://localhost:3333` (dev), configurable via `OMNIMIND_API_URL`
-- **Auth**: Every request (except `GET /health`) requires `x-api-key` header matching `OMNIMIND_API_KEY` env var
+- **Auth**: Every request (except `GET /health` and `GET /ready`) requires `x-api-key` header matching `OMNIMIND_API_KEY` env var
 - **User scoping**: Every data-mutating or data-reading endpoint requires `x-user-id` header. ALL queries are scoped to this user. No cross-user data access.
 - **Agent identity (MCP callers, 2026-10-02)**: `x-agent-key: omk_…` is verified against `agents.api_key_hash`; when present, `agentId`/`tenantId`/`scopes`/`sourceWeight` come from the agent row and any disagreeing `x-agent-id` / `x-tenant-id` / `x-source-weight` header → `403 agent_header_mismatch`. Without `x-agent-key` the legacy header triple is accepted unverified (solo mode) unless `OMNIMIND_REQUIRE_AGENT_KEY=true`; a **partial** triple (`x-agent-id` without `x-tenant-id` and/or `x-source-weight`) is refused with `400 partial_agent_identity { fields }` and never falls through to the unscoped BoardRoom path (2026-10-20, E2E-5). Verified agents have `Agent.scopes` enforced per route.
 - **Scope rules (verified agents, 2026-10-03)**: `GET`/`HEAD` on `/memories`, `/context`, `/decisions`, `/tasks`, `/commitments`, `/projects`, `/people`, `/goals`, `/graph`, `/cortex`, `/usage` → `memory:read`. The POST reads `POST /memories/search`, `POST /memories/search-similar`, `POST /memories/validate`, `POST /context/for-persona` → `memory:read` (and are billed against the agent's `read` rate bucket). Writes: `/decisions` → `decision:write`, `/tasks` → `task:write`, `/commitments` → `commitment:write`, `/projects` → `project:write`; `/memories` (+ links), `/people`, `/goals`, `POST /context/reflect`, `/graph` link writers, `/cortex` scans/patches/generate/simulate, `POST /usage/llm` → `memory:write`. Missing scope → `403 insufficient_scope { required, agentId }`. Wildcards: `*`, `<prefix>:*`.
@@ -68,15 +68,31 @@ All errors follow this shape:
 
 ### GET /health
 
-No auth required.
+No auth required. Liveness: always HTTP 200 (`railway.toml` uses `healthcheckPath = "/health"`), even when the database is down.
 
 **Response 200:**
 ```typescript
 {
-  status: "ok",
+  status: "ok" | "degraded",
   service: "omnimind-api",
+  version: string,   // RAILWAY_GIT_COMMIT_SHA, or "dev" locally (M0-A2)
   timestamp: string, // ISO 8601
   dbConnected: boolean
+}
+```
+
+### GET /ready
+
+No auth required (M0-A2). Readiness: `SELECT 1` with a 3 s timeout.
+
+**Response 200 / 503:**
+```typescript
+{
+  status: "ready" | "not_ready",   // 503 when not_ready
+  service: "omnimind-api",
+  version: string,
+  timestamp: string,
+  checks: { db: "ok" | "fail" }
 }
 ```
 

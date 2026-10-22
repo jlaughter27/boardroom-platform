@@ -164,12 +164,12 @@ describe('Streamable HTTP end-to-end (M-101)', () => {
 });
 
 describe('fail-closed auth + hardening (F-203 / M-105)', () => {
-  it('GET /health needs no key and reports only status / uptime / sessions (R-M-05)', async () => {
+  it('GET /health needs no key and reports only status / version / uptime / sessions (R-M-05, M0-A2)', async () => {
     const res = await rawRequest({ method: 'GET', path: '/health' });
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body).toEqual({ status: 'ok', uptime: expect.any(Number), sessions: expect.any(Number) });
-    expect(Object.keys(body).sort()).toEqual(['sessions', 'status', 'uptime']);
+    expect(body).toEqual({ status: 'ok', version: expect.any(String), uptime: expect.any(Number), sessions: expect.any(Number) });
+    expect(Object.keys(body).sort()).toEqual(['sessions', 'status', 'uptime', 'version']);
     expect(res.body).not.toContain('josh-business');
     expect(res.body).not.toContain('http-test-agent');
   });
