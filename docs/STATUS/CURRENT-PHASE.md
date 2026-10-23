@@ -2,12 +2,12 @@
 
 **Phase in flight:** 🧭 **Phase 8 — Dev roadmap** (`docs/roadmap/PHASE-8-ROADMAP.md`): M0 Contain and stay green (W1) → M1 Verified production, MCP live, tenant-safe one memory (W1–W3) → M2 One memory everywhere + Apple-quality floor + dogfood day 1 on 2026-11-12 (W3–W4) → M3 Ops floor and daily loop (W4–W6) → M4 Verdict and pre-signup gate (W7–W8). Per-item status: `PHASE-PROGRESS-TRACKER.md` § Phase 8.
 **Where main is:** PR #22 merged as cdef1ef, PR #23 as fc19563, PR #24 (roadmap) as c2c6fca; main CI green; deploy unverified. (CI run 39868876211 on `c2c6fca` and run 39864122262 on `fc19563`: all five jobs `success`; run 39860431324 on `cdef1ef` failed at the dependency audit. Nothing about any Railway deploy has been observed from the sandbox — see `BLOCKERS.md` BLK-101.)
-**Last update:** 2026-10-22 (wave 1 integrated: Lanes A–D on `claude/amazing-mccarthy-grvem2`, wave-1 PR)
+**Last update:** 2026-10-22 (wave 1 integrated: Lanes A–D on `claude/amazing-mccarthy-grvem2`, PR #25 merged as `d9a5bf3`)
 **Updated by:** Claude (integration)
 
-**Wave 1 — in review** (11 items on the wave-1 PR; per-item state lives in `PHASE-PROGRESS-TRACKER.md` § Phase 8):
+**Wave 1 — merged** (PR #25, squash `d9a5bf3` on 2026-10-23, CI green; M1-B0 stays in review until the founder decides ADR-017; per-item state lives in `PHASE-PROGRESS-TRACKER.md` § Phase 8):
 
-| Lane | Items in review | What it changes |
+| Lane | Items merged | What it changes |
 |---|---|---|
 | A — Release, ops & metrics | M0-A1, M0-A2, M0-A3, M1-A2 | Audit overrides + weekly audit; `/health` version + `/ready` on all three services; migration drift guard; go-live script refuses to run without green main CI and backup evidence (workflow passes `backup_ok` / `backup_check_url`) |
 | B — Memory & MCP | M1-B2 (M1-B0 = ADR-017 Proposed) | Sync `memory_write` stores the row and defers extraction instead of refusing |

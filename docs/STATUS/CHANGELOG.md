@@ -8,7 +8,7 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ## 2026-10-22 — Phase 8 — Wave 1: four agent lanes, 11 roadmap items to review
 
-**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, wave-1 PR | **Tests:** shared 151 → 155; omnimind-api 1,175 → 1,209; omnimind-mcp 255 → 272; server 284 → 302; client 436 → 477; `pnpm test:e2e` 55/55; `pnpm e2e:live` 23/23 (Lane C, private stack); audit: 0 high (2 low, 1 moderate)
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Merged as PR #25 (`d9a5bf3`), CI green | **Tests:** shared 151 → 155; omnimind-api 1,175 → 1,209; omnimind-mcp 255 → 272; server 284 → 302; client 436 → 477; `pnpm test:e2e` 55/55; `pnpm e2e:live` 23/23 (Lane C, private stack); audit: 0 high (2 low, 1 moderate)
 
 Four lanes ran in parallel git worktrees off `c2c6fca`, each with its own gates; they were merged here and the full gate set re-run on the combined branch.
 
