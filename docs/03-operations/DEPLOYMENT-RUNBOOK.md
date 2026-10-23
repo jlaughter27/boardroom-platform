@@ -183,6 +183,7 @@ railway domain -s omnimind-api
 7. Check health: `curl https://omnimind-api-production.up.railway.app/health`
 8. Both should return `{"status":"ok"}`
 9. If the MCP service changed: `curl https://omnimind-mcp-production.up.railway.app/health` → `{"status":"ok","uptime":…,"sessions":…}` and the checklist below
+10. **Automatic post-deploy verify** (`.github/workflows/post-deploy-verify.yml`, `scripts/verify-prod.sh`, Phase 8 M1-A1): after CI succeeds on a push to `main`, polls each service's `/health` until `version` equals that commit (15 min), then runs read-only probes — `/ready` 200 on all three, `/theme-init.js` served with a CSP header, unauthenticated `POST /mcp` → 401 + `WWW-Authenticate`, bogus `omt_` → 401 `invalid_token` (503 is a failure), and `partial_agent_identity` only when the `OMNIMIND_API_KEY` Actions secret exists (otherwise reported *skipped*). Setup (GitHub → Settings → Secrets and variables → Actions): **variables** `BOARDROOM_HOST`, `OMNIMIND_API_HOST`, `OMNIMIND_MCP_HOST` (bare host names); optional **secret** `OMNIMIND_API_KEY`. Automatic runs are skipped until all three variables exist — set `OMNIMIND_MCP_HOST` after the MCP go-live — and *Run workflow* (optional `sha`) works any time. Local: `pnpm verify:prod -- --dry-run` lists the probes; `pnpm test:go-live` runs its mock-server test.
 
 ## MCP live checklist
 

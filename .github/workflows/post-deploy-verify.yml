@@ -46,9 +46,15 @@ concurrency:
 jobs:
   verify:
     name: Verify production deploy
+    # Automatic runs start once all three host variables exist. Until then
+    # (BOARDROOM_HOST / OMNIMIND_API_HOST now, OMNIMIND_MCP_HOST after the MCP
+    # go-live) the job is skipped rather than red on every push to main: a check
+    # that is always red teaches everyone to ignore it. A manual run never
+    # skips; it fails with exit 2 on a missing variable.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+       vars.BOARDROOM_HOST != '' && vars.OMNIMIND_API_HOST != '' && vars.OMNIMIND_MCP_HOST != '')
     runs-on: ubuntu-latest
     # 15 min SHA poll + probes, with headroom.
     timeout-minutes: 25
