@@ -75,6 +75,14 @@ jobs:
           bash -n scripts/tests/mcp-go-live.test.sh
           bash scripts/tests/mcp-go-live.test.sh
 
+      # scripts/verify-prod.sh is what post-deploy-verify.yml runs (M1-A1); the
+      # test drives it against a local node mock of the three services.
+      - name: Post-deploy verify script (bash -n + mock-server test)
+        run: |
+          bash -n scripts/verify-prod.sh
+          bash -n scripts/tests/verify-prod.test.sh
+          bash scripts/tests/verify-prod.test.sh
+
       - name: Dependency audit (high+ fails)
         run: pnpm audit --prod --audit-level high
 
@@ -100,6 +108,65 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  # M1-A3 — the tenant-isolation and scope gate (vitest.e2e.config.ts: E2E-* +
+  # the phase-e tripwire) on every PR and main push. Same pgvector service
+  # pattern as retrieval-eval. The harness itself creates the extensions,
+  # `prisma db push`es the schema into this throwaway database, starts OmniMind
+  # on TEST_OMNIMIND_PORT, and spawns packages/omnimind-mcp/dist (hence the
+  # MCP build). No model or embedding keys: the harness blanks them on purpose
+  # (E2E-4 asserts the outbox path).
+  e2e:
+    name: E2E (tenant isolation + scope gate, pgvector)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: boardroom_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user -d boardroom_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://test_user:test_password@localhost:5433/boardroom_test
+      TEST_OMNIMIND_PORT: "3399"
+    steps:
+      # Full history: phase-e-stub-cleanup-due derives its deadline from
+      # `git log --merges`; a shallow clone would make that tripwire dormant.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @boardroom/omnimind-api exec prisma generate
+
+      - name: Build shared + omnimind-mcp
+        run: |
+          pnpm --filter @boardroom/shared build
+          pnpm --filter @boardroom/omnimind-mcp build
+
+      - name: E2E suite
+        run: pnpm test:e2e
 
   retrieval-eval:
     name: Retrieval IR eval (pgvector, mock embeddings)
