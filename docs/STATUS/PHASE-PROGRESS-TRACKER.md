@@ -330,15 +330,15 @@ States: `todo` → `in-progress` → `in-review` → `merged` → `done` (see th
 | RD-0 | Real-data e2e fixes: POST reads on the read budget, FTS any-word fill, batch memory links + importer link phase, plain-language provider errors | M1 | A/B/C | — | in-review | 2026-10-23 | PR #28, CI green; waits on founder "merge" |
 | RD-F1 | Production vault import (dry-run, then real, links included) | M1 | founder | RD-0, M0-F2, M0-F1 | todo | — | — |
 | RD-F2 | First real decision session + first real MCP search on production data | M1 | founder | RD-F1, M1-F1 | todo | — | — |
-| RD-1 | Memory detail renders markdown; clickable wikilinks; backlinks panel | M2 | D | — | todo | — | — |
-| RD-2 | Ranking stability: title-weighted FTS, deterministic search, keyword + natural-language eval slices on a synthetic vault corpus | M2 | B | RD-0 | todo | — | — |
+| RD-1 | Memory detail renders markdown; clickable wikilinks; backlinks panel | M2 | D | — | in-review | 2026-10-23 | PR #28 — GET /memories/:id/backlinks; react-markdown 10.1.0 + remark-gfm 4.0.1 (lazy chunk, 50 kB gz); visual shots light/dark × desktop/390 |
+| RD-2 | Ranking stability: title-weighted FTS, deterministic search, keyword + natural-language eval slices on a synthetic vault corpus | M2 | B | RD-0 | in-review | 2026-10-23 | PR #28 — title weighted A / body D; ranker total order + id tie-breaks; /memories/search drops recency boost; E2E-9 determinism; vault eval slices (74 notes, 45 queries; keyword slice MRR 1.000 both endpoints, local) |
 | RD-3 | Long-note embeddings: section chunks, best-chunk scoring, backfill | M3 | B | M0-F1, production embeddings | todo | — | — |
-| RD-4 | Budgets soft as documented (curator proposal + warning) and visible per domain | M2 | B | — | todo | — | — |
-| RD-5 | Vault sync: importer --prune (deleted notes, removed wikilinks) + Action in the private vault repo | M2 | A | RD-F1 | todo | — | — |
-| RD-6 | Graph scale: explicit 200-memory cap with show-more, responsive at ~500 nodes | M2 | C | — | todo | — | — |
-| RD-7 | CI guard: synthetic vault fixture + e2e:live vault-import check (import → links → graph → search → idempotent re-run) | M2 | A | RD-0 | todo | — | — |
+| RD-4 | Budgets soft as documented (curator proposal + warning) and visible per domain | M2 | B | — | in-review | 2026-10-23 | PR #28 — over-budget writes 201 + `budget` warning; GET /memories/budget; Settings → Memory budget. No curator proposal store exists — overage logged (`memory_budget_exceeded`) |
+| RD-5 | Vault sync: importer --prune (deleted notes, removed wikilinks) + Action in the private vault repo | M2 | A | RD-F1 | in-review | 2026-10-23 | PR #28 — --prune archives (soft delete) + unlinks stale wikilinks; mass-prune guard; private-vault-repo workflow in runbook (PINNED_SHA to bump after merge). Action not yet installed in the vault repo |
+| RD-6 | Graph scale: explicit 200-memory cap with show-more, responsive at ~500 nodes | M2 | C | — | in-review | 2026-10-23 | PR #28 — memoryLimit 0–1000 (default 200) + stats.memoryTotal; "Show 200 more"; 500-memory settle 4.29 s median |
+| RD-7 | CI guard: synthetic vault fixture + e2e:live vault-import check (import → links → graph → search → idempotent re-run) | M2 | A | RD-0 | in-review | 2026-10-23 | PR #28 — tests/fixtures/vault (synthetic) + checks/vault-import.mjs; runs in the CI E2E job (--standalone) |
 | RD-8 | Ratchet retrieval-eval thresholds after three green main runs | M2 | A | RD-0 | todo | — | — |
-| RD-9 | Lane follow-up backlog (rebuttals on reload, mobile card height, snippet stacking, banner position, old-gold tokens, WebKit cookie) | M2 | C/D | — | todo | — | — |
+| RD-9 | Lane follow-up backlog (rebuttals on reload, mobile card height, snippet stacking, banner position, old-gold tokens, WebKit cookie) | M2 | C/D | — | in-review (f: documented) | 2026-10-23 | PR #28 — a–e done; f (WebKit cookie) documented only — WebKit not installed in the sandbox |
 | RD-10 | Ministry path: local-embedding hosting, lift MINISTRY_DEFERRED, import held-back ministry notes to tgfc-ministry | M3 | founder + B | founder hosting decision | todo | — | — |
 
 ---

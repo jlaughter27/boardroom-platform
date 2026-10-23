@@ -6,6 +6,23 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Phase 8 real-data — Agent wave 3 (RD-1, RD-2, RD-4, RD-5, RD-6, RD-7, RD-9)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (rides PR #28) | **Status:** Pushed | **Tests:** shared 163, mcp 272, api 1,305, server 309, client 582; e2e 58/58; importer 19/19
+
+Four parallel worktree lanes, integrated on the PR #28 branch:
+- **RD-1** Memory Detail renders markdown (sanitizing react-markdown + remark-gfm, no raw HTML); `[[wikilinks]]` resolve via the importer's link rows, then by title, else "Not imported"; "Linked from" via new `GET /memories/:id/backlinks`; card previews are plain text.
+- **RD-2** Root cause of reordering: a non-transitive ±0.05 tie rule in `rankAndDeduplicate`, no id tie-breaks in the lexical layers, and a recency boost fed by `/context/for-persona` writes. Fixed with title-weighted FTS (A/D), a total order + id tie-breaks, and no recency boost on `/memories/search`. Synthetic vault-shaped eval corpus + keyword / natural-language slices. `thresholds.json` unchanged.
+- **RD-4** Domain budgets are soft: over-budget writes succeed with a `budget` warning; `GET /memories/budget`; Settings panel.
+- **RD-5** Importer `--prune` (archive deleted notes, remove dropped wikilinks; mass-prune guard); GET/DELETE `/memories/:id/links` now tenant-scoped for agents; automatic-sync workflow recipe for the private vault repo.
+- **RD-6** Graph `memoryLimit` up to 1000 + `stats.memoryTotal`; "Show 200 more"; 500 memories settle in 4.29 s.
+- **RD-7** Synthetic vault fixture + `tests/e2e/live/checks/vault-import.mjs`, gated in the CI `E2E` job.
+- **RD-9** Rebuttals restored on reload; 20rem waiting/error cards on phones; snippet stacks under Copy at < 640 px; retry banner in the layout; decorative gold on tokens; WebKit cookie fix documented (not reproduced — no WebKit here).
+
+**Open:** RD-8 (ratchet after three green main runs — the new slices restart the count), IVFFlat index built on an empty table (eval noise), persona context empty when a single top note exceeds the token budget (pairs with RD-3), MCP `memory_write` does not surface the budget warning.
+
+---
+
 ## 2026-10-23 — Real-data roadmap
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** docs only
