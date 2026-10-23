@@ -99,6 +99,11 @@ const session = {
   sufficiencyScore: null,
   decisionId: null,
   createdAt: iso(NOW - 2 * DAY),
+  // Debate round 2 as GET /sessions/:id stores it (RD-9a: a reload must still show these).
+  rebuttals: {
+    critic: { personaId: 'critic', stance: 'defend', reason: 'The two largest accounts share seats today; nothing the others said changes what a per-seat bill does to them at renewal.', revisedConfidence: 0.8 },
+    alternate: { personaId: 'alternate', stance: 'concede', reason: 'The Technician is right that the metered pipeline makes a hybrid nearly free to ship; a pure platform fee is not worth the rebuild.', revisedRecommendation: 'Ship platform-plus-usage: a workspace fee with included decisions and metered overage.', revisedConfidence: 0.7 },
+  },
 };
 
 // ── Connected AI tools (Settings) ────────────────────────────────────────────

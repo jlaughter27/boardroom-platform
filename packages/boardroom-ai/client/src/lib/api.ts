@@ -212,6 +212,8 @@ interface SessionDetail {
   sufficiencyScore: unknown | null;
   /** Phase 6 — set once `POST /sessions/:id/decide` has created a Decision. */
   decisionId?: string | null;
+  /** Phase 6 debate round 2, keyed by personaId (validated on hydrate — RD-9a). */
+  rebuttals?: Record<string, unknown>;
   createdAt: string;
 }
 

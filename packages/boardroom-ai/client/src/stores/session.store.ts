@@ -3,6 +3,7 @@ import * as api from '../lib/api';
 import { ApiError } from '../lib/api';
 import type { PersonaResponse, SimulationResult, Decision } from '@boardroom/shared';
 import type { SufficiencyScore, BoardRoomSSEEvent } from '@boardroom/shared';
+import { RebuttalSchema } from '@boardroom/shared';
 import type {
   ClientUserMode,
   DecideSessionRequest,
@@ -86,6 +87,24 @@ export function applyRebuttalEvent(
     rebuttingPersonas: rebutting,
     rebuttals: { ...state.rebuttals, [event.personaId]: rebuttal },
   };
+}
+
+/**
+ * RD-9a — the debate round-2 rebuttals stored on the session (`GET /sessions/:id`
+ * → `rebuttals: { [personaId]: Rebuttal }`), so a reload shows the same
+ * "Defended" / "Conceded" badges and rebuttal blocks the live stream did.
+ * Validated at the boundary with the shared schema; a malformed row is dropped
+ * (the persona then shows its round-1 position, as after a `rebuttal_error`).
+ */
+export function hydrateRebuttals(raw: unknown): Record<string, Rebuttal> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, Rebuttal> = {};
+  for (const [personaId, value] of Object.entries(raw as Record<string, unknown>)) {
+    const parsed = RebuttalSchema.safeParse(value);
+    // The schema is the LLM output shape; personaId is attached server-side — take it from the key.
+    if (parsed.success) out[personaId] = { ...parsed.data, personaId: personaId as Rebuttal['personaId'] };
+  }
+  return out;
 }
 
 /**
