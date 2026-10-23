@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import {
   parseNote, wikilinks, skipReason, isMinistry, classifyDomain, toMemory, planVault,
   makeClient, existingVaultRows, runImport, resolveUserId, domainCounts,
   resolveWikilinks, writeLinks, LINK_BATCH,
+  syncVault, rowsToArchive, massPruneRefusal,
 } from '../vault-import.mjs';
 
 function fixtureVault(files) {
@@ -130,7 +131,9 @@ test('the RD-7 fixture vault (tests/fixtures/vault) plans exactly as its hand-wr
 // ── Mock OmniMind ────────────────────────────────────────────────────────────
 
 function mockOmniMind({ rateLimitFirstWrite = false } = {}) {
-  const rows = new Map(); // id → row
+  const rows = new Map(); // id → row (live)
+  const archived = new Map(); // id → row (DELETE /memories/:id: soft delete, kept)
+  const links = new Map(); // id → link row
   const calls = [];
   let n = 0;
   let limited = !rateLimitFirstWrite;
@@ -159,12 +162,34 @@ function mockOmniMind({ rateLimitFirstWrite = false } = {}) {
         rows.set(id, { id, ...body, tenantId: req.headers['x-tenant-id'] });
         return send(201, { id, status: 'created' });
       }
-      const patch = /^\/memories\/(.+)$/.exec(url.pathname);
+      if (req.method === 'POST' && url.pathname === '/memories/links/batch') {
+        let created = 0; let existing = 0;
+        for (const l of body.links) {
+          if (!rows.has(l.memoryId) || !rows.has(l.entityId)) continue;
+          const dup = [...links.values()].find(x => x.memoryId === l.memoryId && x.entityId === l.entityId && x.linkType === l.linkType);
+          if (dup) { existing++; continue; }
+          const id = `link-${++n}`; links.set(id, { id, ...l }); created++;
+        }
+        return send(200, { created, existing, rejected: [] });
+      }
+      const linkOne = /^\/memories\/([^/]+)\/links\/([^/]+)$/.exec(url.pathname);
+      if (req.method === 'DELETE' && linkOne) {
+        const l = links.get(linkOne[2]);
+        if (!rows.has(linkOne[1]) || !l || l.memoryId !== linkOne[1]) return send(404, { error: 'not_found' });
+        links.delete(linkOne[2]); return send(200, { status: 'deleted' });
+      }
+      const linksOf = /^\/memories\/([^/]+)\/links$/.exec(url.pathname);
+      if (req.method === 'GET' && linksOf) {
+        if (!rows.has(linksOf[1])) return send(404, { error: 'not_found' });
+        return send(200, [...links.values()].filter(l => l.memoryId === linksOf[1]));
+      }
+      const patch = /^\/memories\/([^/]+)$/.exec(url.pathname);
       if (req.method === 'PATCH' && patch && rows.has(patch[1])) { Object.assign(rows.get(patch[1]), body); return send(200, rows.get(patch[1])); }
+      if (req.method === 'DELETE' && patch && rows.has(patch[1])) { archived.set(patch[1], rows.get(patch[1])); rows.delete(patch[1]); return send(200, { id: patch[1], status: 'archived' }); }
       return send(404, { error: 'not_found' });
     });
   });
-  return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, rows, calls, url: `http://127.0.0.1:${server.address().port}` })));
+  return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, rows, archived, links, calls, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
 test('sync: first run creates with dedup:false + agent triple + idempotency key; re-run skips; an edit patches', async () => {
@@ -296,4 +321,126 @@ test('writeLinks sends batches of LINK_BATCH to POST /memories/links/batch and s
     assert.deepEqual(bodies, [{ url: '/memories/links/batch', n: LINK_BATCH }, { url: '/memories/links/batch', n: 7 }]);
     assert.deepEqual(out, { created: LINK_BATCH + 5, existing: 2, rejected: 0, failedBatches: 0 });
   } finally { server.close(); }
+});
+
+// ── Prune (RD-5) ─────────────────────────────────────────────────────────────
+
+const PRUNE_VAULT = {
+  'wiki/entities/Acme Widgets.md': note('type: entity', 'Partners: [[CRM]] and [[Payments]].'),
+  'wiki/entities/CRM.md': note('type: entity', 'Back to [[Acme Widgets]].'),
+  'wiki/entities/Payments.md': note('type: entity', 'Processor for [[Acme Widgets]].'),
+  'wiki/entities/Old Vendor.md': note('type: entity', 'Replaced by [[Payments]].'),
+};
+
+async function seeded(api, dir) {
+  const client = makeClient({ apiUrl: api.url, apiKey: 'svc', userId: 'user-1', tenant: 'josh-business', minWriteGapMs: 0 });
+  const r = await syncVault({ plan: planVault(dir), client, readGapMs: 0 });
+  assert.equal(r.code, 0);
+  assert.equal(api.rows.size, 4);
+  assert.equal(api.links.size, 5);
+  return client;
+}
+const refOf = (api, id) => (api.rows.get(id) ?? api.archived.get(id))?.sourceRef;
+const linkPairs = api => [...api.links.values()].map(l => `${refOf(api, l.memoryId)} → ${refOf(api, l.entityId)}`).sort();
+
+test('--prune: a deleted note is archived (soft delete), links to it are removed; without --prune nothing is', async () => {
+  const dir = fixtureVault(PRUNE_VAULT);
+  const api = await mockOmniMind();
+  try {
+    const client = await seeded(api, dir);
+    unlinkSync(join(dir, 'wiki/entities/Old Vendor.md'));
+    unlinkSync(join(dir, 'wiki/entities/Payments.md'));
+    writeFileSync(join(dir, 'wiki/entities/Payments2.md'), note('type: entity', 'New processor.'));
+
+    const additive = await syncVault({ plan: planVault(dir), client, readGapMs: 0 });
+    assert.equal(additive.prune, null);
+    assert.equal(api.archived.size, 0, 'default stays additive');
+    assert.equal(api.calls.filter(c => c.method === 'DELETE').length, 0);
+
+    const r = await syncVault({ plan: planVault(dir), client, prune: true, readGapMs: 0 });
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.prune.archived, ['wiki/entities/Old Vendor.md', 'wiki/entities/Payments.md']);
+    assert.deepEqual([...api.archived.values()].map(m => m.sourceRef).sort(), ['vault:wiki/entities/Old Vendor.md', 'vault:wiki/entities/Payments.md']);
+    const del = api.calls.filter(c => c.method === 'DELETE' && /^\/memories\/[^/]+$/.test(c.url));
+    assert.equal(del.length, 2, 'archived via DELETE /memories/:id (status ARCHIVED + deletedAt; the row is kept)');
+    assert.ok(del.every(c => c.headers['x-tenant-id'] === 'josh-business' && c.headers['x-agent-id'] === 'vault-import'));
+    // Acme → Payments pointed at a now-archived note: removed. Links ON archived rows are left alone.
+    assert.deepEqual(r.prune.unlink, [{ from: 'wiki/entities/Acme Widgets.md', to: 'wiki/entities/Payments.md' }]);
+    assert.equal(r.prune.unlinked, 1);
+    assert.ok(!linkPairs(api).includes('vault:wiki/entities/Acme Widgets.md → vault:wiki/entities/Payments.md'));
+    assert.ok(linkPairs(api).includes('vault:wiki/entities/Old Vendor.md → vault:wiki/entities/Payments.md'), 'an archived row keeps its own links');
+    assert.ok(api.calls.some(c => c.method === 'GET' && c.url.endsWith('/links')), 'reads the live rows\' links');
+
+    const again = await syncVault({ plan: planVault(dir), client, prune: true, readGapMs: 0 });
+    assert.deepEqual([again.prune.archive.length, again.prune.unlink.length], [0, 0], 'a second prune is a no-op');
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('--prune: a wikilink removed from a note removes that link row only (other link types untouched)', async () => {
+  const dir = fixtureVault(PRUNE_VAULT);
+  const api = await mockOmniMind();
+  try {
+    const client = await seeded(api, dir);
+    const acme = [...api.rows.values()].find(m => m.sourceRef === 'vault:wiki/entities/Acme Widgets.md');
+    const crm = [...api.rows.values()].find(m => m.sourceRef === 'vault:wiki/entities/CRM.md');
+    api.links.set('hand-made', { id: 'hand-made', memoryId: acme.id, entityType: 'memory', entityId: crm.id, linkType: 'relates_to' });
+    writeFileSync(join(dir, 'wiki/entities/Acme Widgets.md'), note('type: entity', 'Partners: [[Payments]] only.'));
+
+    const r = await syncVault({ plan: planVault(dir), client, prune: true, readGapMs: 0 });
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.result.updated, ['wiki/entities/Acme Widgets.md']);
+    assert.deepEqual(r.prune.archived, []);
+    assert.deepEqual(r.prune.unlink, [{ from: 'wiki/entities/Acme Widgets.md', to: 'wiki/entities/CRM.md' }]);
+    const linkDel = api.calls.filter(c => c.method === 'DELETE' && c.url.includes('/links/'));
+    assert.equal(linkDel.length, 1);
+    assert.ok(linkDel[0].url.startsWith(`/memories/${acme.id}/links/link-`));
+    assert.ok(api.links.has('hand-made'), 'a non-wikilink link is never pruned');
+    assert.ok(linkPairs(api).includes('vault:wiki/entities/Acme Widgets.md → vault:wiki/entities/Payments.md'));
+    assert.equal(api.links.size, 5, '5 wikilinks − 1 removed + 1 hand-made');
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('--prune --dry-run lists what it would archive and unlink, and writes nothing', async () => {
+  const dir = fixtureVault(PRUNE_VAULT);
+  const api = await mockOmniMind();
+  try {
+    const client = await seeded(api, dir);
+    unlinkSync(join(dir, 'wiki/entities/Old Vendor.md'));
+    writeFileSync(join(dir, 'wiki/entities/Acme Widgets.md'), note('type: entity', 'Partners: [[Payments]] only.'));
+    writeFileSync(join(dir, 'wiki/entities/New.md'), note('type: entity', 'brand new'));
+    const before = api.calls.length;
+    const lines = [];
+    const r = await syncVault({ plan: planVault(dir), client, prune: true, dryRun: true, readGapMs: 0, log: s => lines.push(s) });
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.prune.archive, ['wiki/entities/Old Vendor.md']);
+    assert.deepEqual(r.prune.unlink, [{ from: 'wiki/entities/Acme Widgets.md', to: 'wiki/entities/CRM.md' }]);
+    assert.deepEqual([r.prune.archived.length, r.prune.unlinked], [0, 0]);
+    assert.deepEqual([r.result.created, r.result.updated], [['wiki/entities/New.md'], ['wiki/entities/Acme Widgets.md']]);
+    const writes = api.calls.slice(before).filter(c => c.method !== 'GET');
+    assert.deepEqual(writes, [], 'dry run sends only GETs');
+    assert.equal(api.rows.size, 4);
+    assert.equal(api.links.size, 5);
+    assert.ok(lines.some(l => l.includes('would archive wiki/entities/Old Vendor.md')));
+    assert.ok(lines.some(l => l.includes('would unlink wiki/entities/Acme Widgets.md → wiki/entities/CRM.md')));
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('--prune refuses to archive most of the vault (mis-mounted vault) unless --allow-mass-prune', async () => {
+  const existing = new Map(Array.from({ length: 10 }, (_, i) => [`wiki/n${i}.md`, { id: `m${i}`, sha256: 'x' }]));
+  const plan = { memories: [toMemory('wiki/n0.md', '# n0'), toMemory('wiki/n1.md', '# n1')] };
+  const archive = rowsToArchive(plan, existing);
+  assert.equal(archive.length, 8);
+  assert.match(massPruneRefusal(archive, existing, false), /would archive 8 of 10/);
+  assert.equal(massPruneRefusal(archive, existing, true), null);
+  assert.equal(massPruneRefusal(archive.slice(0, 5), existing, false), null, 'five or fewer always allowed');
+
+  const dir = fixtureVault({ 'wiki/a/only.md': '# only' });
+  const api = await mockOmniMind();
+  try {
+    for (let i = 0; i < 8; i++) api.rows.set(`old-${i}`, { id: `old-${i}`, tags: ['vault'], tenantId: 'josh-business', sourceRef: `vault:wiki/gone-${i}.md`, metadata: { vault: { path: `wiki/gone-${i}.md` } } });
+    const client = makeClient({ apiUrl: api.url, apiKey: 'svc', userId: 'user-1', tenant: 'josh-business', minWriteGapMs: 0 });
+    const r = await syncVault({ plan: planVault(dir), client, prune: true, readGapMs: 0, logError: () => {} });
+    assert.equal(r.code, 2);
+    assert.equal(api.calls.filter(c => c.method !== 'GET').length, 0, 'refused before any write');
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
 });

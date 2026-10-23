@@ -371,13 +371,16 @@ router.post('/:id/links', async (req, res, next) => {
 });
 
 // GET /memories/:id/links — list links for a memory
+// RD-5: same scoping as POST /memories/links/batch — the memory must be the
+// caller's, and in the agent's tenant when agent headers are present.
 router.get('/:id/links', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    // Verify memory belongs to user
-    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    const memory = await prisma.memoryEntry.findFirst({
+      where: { id: req.params.id, userId, deletedAt: null, ...(req.agentContext?.tenantId ? { tenantId: req.agentContext.tenantId } : {}) },
+    });
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     const links = await prisma.memoryEntityLink.findMany({
@@ -388,14 +391,18 @@ router.get('/:id/links', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// DELETE /memories/:id/links/:linkId — remove a link
+// DELETE /memories/:id/links/:linkId — remove a link (the vault importer's
+// --prune uses it for wikilinks a note no longer contains). Scoped like
+// POST /memories/links/batch: the caller's memory, in the agent's tenant when
+// agent headers are present.
 router.delete('/:id/links/:linkId', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    // Verify memory belongs to user
-    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    const memory = await prisma.memoryEntry.findFirst({
+      where: { id: req.params.id, userId, deletedAt: null, ...(req.agentContext?.tenantId ? { tenantId: req.agentContext.tenantId } : {}) },
+    });
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     const link = await prisma.memoryEntityLink.findFirst({ where: { id: req.params.linkId, memoryId: req.params.id } });

@@ -22,12 +22,16 @@
 //      key is needed: CI and the sandbox have none, so this is the FTS/trigram path.
 //      In the journey, MCP memory_search (josh-business token) finds the keyword too.
 //   5. A second importer run writes 0 notes and creates 0 links.
+//   6. Sync removals (RD-5), on the check's own copy of the vault: one note deleted and
+//      one wikilink removed. `--prune --dry-run` lists exactly that and changes nothing;
+//      `--prune` archives the note (gone from the list and the graph) and removes the
+//      two link rows that no longer exist; a second `--prune` is a no-op.
 //
 // It fails on exactly the regressions the 2026-10-23 real-data run found: an empty
 // graph, all-or-nothing search, and a re-run that writes.
 
 import { spawn } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,6 +194,53 @@ export async function vaultFlow({ http, omnimind, apiKey, user, mcp = null, step
     return { unchanged: res.unchanged.length, linksExisting: r.report.links.existing };
   });
 
+  // RD-5 — sync removals: delete one note and one wikilink in the copy, then --prune.
+  const P = EXPECTED.prune;
+  const pairKey = l => `${l.from} → ${l.to}`;
+  rmSync(join(vault, P.deleteNote));
+  const wl = join(vault, P.removeWikilink.note);
+  const wlText = readFileSync(wl, 'utf8');
+  assert(wlText.includes(P.removeWikilink.text), `fixture note ${P.removeWikilink.note} lost ${P.removeWikilink.text}`);
+  writeFileSync(wl, wlText.replace(P.removeWikilink.text, P.removeWikilink.replaceWith));
+
+  await step('--prune --dry-run lists the deleted note and the removed wikilinks, writes nothing', async () => {
+    const r = await runImporter({ vault, omnimind, apiKey, email: user.email, extraArgs: ['--prune', '--dry-run'], reportPath: join(workDir, 'run3.json') });
+    assert(r.code === 0, `importer exit ${r.code}\n${r.out.slice(-1500)}`);
+    const pr = r.report?.prune;
+    assert(pr, `no prune section in the report\n${r.out.slice(-800)}`);
+    assert(short(pr.archive) === short(P.expectArchived), `would archive ${short(pr.archive)}, expected ${short(P.expectArchived)}`);
+    assert(short(pr.unlink.map(pairKey).sort()) === short(P.expectUnlinked.map(pairKey).sort()), `would unlink ${short(pr.unlink)}`);
+    assert(pr.archived.length === 0 && pr.unlinked === 0, 'dry run reported writes');
+    const after = await listVault(http);
+    assert(after.length === EXPECTED.imported.length, `dry run changed the vault rows: ${after.length}`);
+    const g = await graphWikilinks(http, new Map(after.map(m => [m.id, vaultPath(m)])));
+    assert(g.pairs.size === EXPECTED.links.count, `dry run changed the graph: ${g.pairs.size} edges`);
+    return { wouldArchive: pr.archive.length, wouldUnlink: pr.unlink.length };
+  });
+
+  await step('--prune archives the deleted note and removes the dropped wikilinks; a second prune is a no-op', async () => {
+    const r = await runImporter({ vault, omnimind, apiKey, email: user.email, extraArgs: ['--prune'], reportPath: join(workDir, 'run4.json') });
+    assert(r.code === 0, `importer exit ${r.code}\n${r.out.slice(-1500)}`);
+    const { result, prune: pr } = r.report;
+    assert(short(result.updated) === short(P.expectUpdated) && result.created.length === 0, `notes: updated ${short(result.updated)}, created ${result.created.length}`);
+    assert(short(pr.archived) === short(P.expectArchived), `archived ${short(pr.archived)}`);
+    assert(pr.unlinked === P.expectUnlinked.length && pr.failed.length === 0, `unlinked ${pr.unlinked}, failed ${short(pr.failed)}`);
+    const after = await listVault(http);
+    const paths = after.map(vaultPath);
+    assert(after.length === EXPECTED.imported.length - P.expectArchived.length, `vault rows after prune ${after.length}`);
+    for (const p of P.expectArchived) assert(!paths.includes(p), `${p} is still a live memory`);
+    const g = await graphWikilinks(http, new Map(after.map(m => [m.id, vaultPath(m)])));
+    assert(g.pairs.size === P.linksAfter, `graph has ${g.pairs.size} vault wikilink edges after prune, expected ${P.linksAfter}`);
+    for (const l of P.expectUnlinked) assert(!g.pairs.has(pairKey(l)), `edge still drawn: ${pairKey(l)}`);
+    const again = await runImporter({ vault, omnimind, apiKey, email: user.email, extraArgs: ['--prune'], reportPath: join(workDir, 'run5.json') });
+    assert(again.code === 0, `second prune exit ${again.code}\n${again.out.slice(-800)}`);
+    const a = again.report;
+    assert(a.result.created.length + a.result.updated.length === 0 && a.prune.archive.length === 0 && a.prune.unlink.length === 0 && a.links.created === 0,
+      `second prune was not a no-op: ${short({ result: { c: a.result.created.length, u: a.result.updated.length }, prune: a.prune, links: a.links })}`);
+    summary.pruned = { archived: pr.archived.length, unlinked: pr.unlinked, edgesAfter: g.pairs.size };
+    return summary.pruned;
+  });
+
   return summary;
 }
 
@@ -220,7 +271,7 @@ export async function run({ user, api, mcp }) {
   } finally { rmSync(workDir, { recursive: true, force: true }); }
 }
 
-export default { name: 'vault import: import → links → graph → search → idempotent re-run', run };
+export default { name: 'vault import: import → links → graph → search → idempotent re-run → prune', run };
 
 // ── Standalone (CI): OmniMind + BoardRoom, no browser, no MCP ─────────────────
 //   BOARDROOM_URL=http://127.0.0.1:3001 OMNIMIND_URL=http://127.0.0.1:3333 \

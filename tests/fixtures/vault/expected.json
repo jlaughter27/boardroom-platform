@@ -62,5 +62,17 @@
   "search": [
     { "kind": "keyword", "query": "chargeback", "expect": "wiki/entities/Quill Payments.md" },
     { "kind": "question", "query": "How do we spot customers who are about to cancel?", "expect": "wiki/concepts/Churn Early Warning.md" }
-  ]
+  ],
+  "prune": {
+    "$comment": "RD-5: the check edits a copy of the vault this way, then runs the importer with --prune (dry run first).",
+    "deleteNote": "wiki/decisions/Sunset the Free Tier.md",
+    "removeWikilink": { "note": "wiki/concepts/Weekly Operating Review.md", "text": "[[Harbor]]", "replaceWith": "Harbor" },
+    "expectArchived": ["wiki/decisions/Sunset the Free Tier.md"],
+    "expectUpdated": ["wiki/concepts/Weekly Operating Review.md"],
+    "expectUnlinked": [
+      { "from": "wiki/concepts/Pricing Ladder.md", "to": "wiki/decisions/Sunset the Free Tier.md" },
+      { "from": "wiki/concepts/Weekly Operating Review.md", "to": "wiki/entities/Harbor Analytics.md" }
+    ],
+    "linksAfter": 44
+  }
 }

@@ -27,6 +27,14 @@
 // note overwrite another. Writes are paced under the 20/min per-user write
 // limit and honour Retry-After on 429.
 //
+// Without --prune the sync is additive. With --prune it also mirrors removals:
+// vault rows whose note is gone from the plan (deleted, now plumbing, now
+// ministry) are archived (DELETE /memories/:id — status ARCHIVED + deletedAt,
+// the row is kept), and `wikilink` link rows the notes no longer contain are
+// removed (DELETE /memories/:id/links/:linkId). It refuses to archive more than
+// half of the vault rows unless --allow-mass-prune (a mis-mounted vault would
+// otherwise archive everything). --prune --dry-run lists both, writes nothing.
+//
 // Env: OMNIMIND_API_URL, OMNIMIND_API_KEY (service key), OMNIMIND_USER_ID or
 //      VAULT_IMPORT_USER_EMAIL, optional OMNIMIND_AGENT_KEY (omk_ key of an
 //      agent in the target tenant; required when OMNIMIND_REQUIRE_AGENT_KEY=true).
@@ -356,21 +364,94 @@ export async function writeLinks(client, links, log = () => {}) {
   return out;
 }
 
+// ── Prune (--prune) ──────────────────────────────────────────────────────────
+
+/** Share of the vault rows --prune may archive in one run without --allow-mass-prune. */
+export const MASS_PRUNE_SHARE = 0.5;
+/** Pace for the per-note link reads: under the 120/min read budget, leaving room for the user's own UI. */
+export const PRUNE_READS_PER_MIN = 90;
+
+/** Vault rows in the tenant whose path is no longer a note to import (deleted, now plumbing, now ministry). */
+export function rowsToArchive(plan, existing) {
+  const keep = new Set(plan.memories.map(m => m.path));
+  return [...existing].filter(([path]) => !keep.has(path)).map(([path, row]) => ({ path, id: row.id })).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Why --prune must not run (null when it may): a vault that suddenly lost most of its notes is more likely mis-mounted than emptied. */
+export function massPruneRefusal(archive, existing, allowMass) {
+  if (allowMass || archive.length <= 5 || archive.length <= existing.size * MASS_PRUNE_SHARE) return null;
+  return `--prune would archive ${archive.length} of ${existing.size} vault rows (more than ${MASS_PRUNE_SHARE * 100}%) — is --vault the right folder? Re-run with --allow-mass-prune if this is intended; nothing was written.`;
+}
+
+export async function archiveRows(client, archive, log = () => {}) {
+  const out = { archived: [], failed: [] };
+  for (const { path, id } of archive) {
+    const r = await client.request('DELETE', `/memories/${id}`);
+    if (r.status === 200 || r.status === 404) { out.archived.push(path); log(`  - archived ${path}${r.status === 404 ? ' (already gone)' : ''}`); continue; }
+    const detail = r.json?.message ?? r.json?.error ?? JSON.stringify(r.json).slice(0, 200);
+    out.failed.push({ path, action: 'archive', status: r.status, detail });
+    log(`  × archive ${path} → ${r.status} ${detail}`);
+  }
+  return out;
+}
+
+/**
+ * Importer-made link rows (`linkType: wikilink`, memory→memory between vault rows)
+ * that the notes no longer contain. `pathToId` = the live vault rows to read links
+ * from; `vaultIds` = every vault row id known (live + being archived), so a link a
+ * person made by hand to a non-vault memory is never touched.
+ */
+export async function staleWikilinks(client, { pathToId, vaultIds, desired, pathOf = null, readGapMs = Math.ceil(60_000 / PRUNE_READS_PER_MIN) }) {
+  const want = new Set(desired.map(l => `${l.memoryId}|${l.entityId}`));
+  const idToPath = pathOf ?? new Map([...pathToId].map(([p, id]) => [id, p]));
+  const stale = []; const failed = [];
+  let first = true;
+  for (const [path, id] of pathToId) {
+    if (!first && readGapMs > 0) await sleep(readGapMs);
+    first = false;
+    const r = await client.request('GET', `/memories/${id}/links`);
+    if (r.status !== 200 || !Array.isArray(r.json)) { failed.push({ path, action: 'read-links', status: r.status, detail: JSON.stringify(r.json).slice(0, 200) }); continue; }
+    for (const l of r.json) {
+      if (l.linkType !== 'wikilink' || String(l.entityType).toLowerCase() !== 'memory' || !vaultIds.has(l.entityId)) continue;
+      if (want.has(`${id}|${l.entityId}`)) continue;
+      stale.push({ linkId: l.id, memoryId: id, entityId: l.entityId, from: path, to: idToPath.get(l.entityId) ?? `(archived) ${l.entityId}` });
+    }
+  }
+  return { stale, failed };
+}
+
+export async function deleteLinks(client, stale, log = () => {}) {
+  const out = { unlinked: 0, failed: [] };
+  for (const l of stale) {
+    const r = await client.request('DELETE', `/memories/${l.memoryId}/links/${l.linkId}`);
+    if (r.status === 200 || r.status === 204 || r.status === 404) { out.unlinked++; log(`  - unlinked ${l.from} → ${l.to}`); continue; }
+    const detail = r.json?.message ?? r.json?.error ?? JSON.stringify(r.json).slice(0, 200);
+    out.failed.push({ path: l.from, action: 'unlink', to: l.to, status: r.status, detail });
+    log(`  × unlink ${l.from} → ${l.to} → ${r.status} ${detail}`);
+  }
+  return out;
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 function usage() {
   return `usage: node scripts/vault-import.mjs --vault <dir> [--dry-run] [--plan-only]
                  [--api <url>] [--user-id <id> | --user-email <email>] [--tenant <id>]
                  [--rate <writes/min>] [--report <file.json>] [--no-links]
+                 [--prune [--allow-mass-prune]]
   --plan-only  read the vault and print the plan; no network at all
   --dry-run    also reads OmniMind (existing rows, budgets) but writes nothing
   --no-links   skip turning [[wikilinks]] into memory→memory links
+  --prune      also archive rows whose note is gone and remove wikilink rows the
+               notes no longer contain (with --dry-run: list them, write nothing)
+  --allow-mass-prune  let --prune archive more than half of the vault rows
 env: OMNIMIND_API_URL, OMNIMIND_API_KEY, OMNIMIND_USER_ID | VAULT_IMPORT_USER_EMAIL, OMNIMIND_AGENT_KEY (optional)`;
 }
 
 function parseArgs(argv) {
   const a = { vault: null, dryRun: false, planOnly: false, api: process.env.OMNIMIND_API_URL ?? null, userId: process.env.OMNIMIND_USER_ID ?? null,
-    userEmail: process.env.VAULT_IMPORT_USER_EMAIL ?? null, tenant: 'josh-business', rate: 18, report: null, links: true };
+    userEmail: process.env.VAULT_IMPORT_USER_EMAIL ?? null, tenant: 'josh-business', rate: 18, report: null, links: true,
+    prune: false, allowMassPrune: false };
   const args = argv[0] === '--' ? argv.slice(1) : argv;
   for (let i = 0; i < args.length; i++) {
     const k = args[i];
@@ -385,10 +466,13 @@ function parseArgs(argv) {
     else if (k === '--rate') a.rate = Number(v());
     else if (k === '--report') a.report = v();
     else if (k === '--no-links') a.links = false;
+    else if (k === '--prune') a.prune = true;
+    else if (k === '--allow-mass-prune') a.allowMassPrune = true;
     else if (k === '-h' || k === '--help') { console.log(usage()); process.exit(0); }
     else throw new Error(`unknown argument ${k}`);
   }
   if (!a.vault) throw new Error('--vault <dir> is required');
+  if (a.allowMassPrune && !a.prune) throw new Error('--allow-mass-prune only makes sense with --prune');
   if (!(a.rate > 0 && a.rate <= 60)) throw new Error('--rate must be between 1 and 60 writes per minute');
   return a;
 }
@@ -421,40 +505,84 @@ async function main() {
   const client = makeClient({ apiUrl: args.api, apiKey, userId, tenant: args.tenant, agentKey: process.env.OMNIMIND_AGENT_KEY,
     minWriteGapMs: Math.ceil(60_000 / args.rate), log });
 
+  const out = await syncVault({ plan, client, tenant: args.tenant, dryRun: args.dryRun, links: args.links, prune: args.prune,
+    allowMassPrune: args.allowMassPrune, rate: args.rate, log, logError: s => console.error(s) });
+  if (args.report && out.code !== 2) {
+    writeFileSync(args.report, JSON.stringify({ ...report, userId, dryRun: args.dryRun, result: out.result, links: out.links, prune: out.prune }, null, 2));
+  }
+  return out.code;
+}
+
+/**
+ * One sync against OmniMind: preflight (budgets, mass-prune guard) → notes →
+ * [prune: archive gone notes] → links → [prune: unlink removed wikilinks].
+ * Returns { code, result, links, prune }; code 2 = preflight refused, nothing written.
+ */
+export async function syncVault({ plan, client, tenant = 'josh-business', dryRun = false, links: withLinks = true, prune = false,
+  allowMassPrune = false, rate = 18, readGapMs, log = () => {}, logError = log }) {
   let existing;
-  try { existing = await existingVaultRows(client); } catch (e) { console.error(`vault-import: ${e.message}`); return 2; }
+  try { existing = await existingVaultRows(client); } catch (e) { logError(`vault-import: ${e.message}`); return { code: 2 }; }
   const newPerDomain = {};
   for (const m of plan.memories) if (!existing.has(m.path)) newPerDomain[m.body.domain] = (newPerDomain[m.body.domain] ?? 0) + 1;
   const counts = await domainCounts(client, Object.keys(newPerDomain));
   const over = Object.entries(newPerDomain).filter(([d, n]) => counts[d] !== null && counts[d] + n > (DOMAIN_BUDGETS[d] ?? 250));
-  console.log(`tenant ${args.tenant}: ${existing.size} vault rows already present; new per domain ${JSON.stringify(newPerDomain)}; current per domain ${JSON.stringify(counts)}`);
+  log(`tenant ${tenant}: ${existing.size} vault rows already present; new per domain ${JSON.stringify(newPerDomain)}; current per domain ${JSON.stringify(counts)}`);
   if (over.length > 0) {
-    console.error(`vault-import: domain budget would be exceeded — ${over.map(([d, n]) => `${d}: ${counts[d]} + ${n} > ${DOMAIN_BUDGETS[d] ?? 250}`).join('; ')}. Archive memories in that domain first; nothing was written.`);
-    return 2;
+    logError(`vault-import: domain budget would be exceeded — ${over.map(([d, n]) => `${d}: ${counts[d]} + ${n} > ${DOMAIN_BUDGETS[d] ?? 250}`).join('; ')}. Archive memories in that domain first; nothing was written.`);
+    return { code: 2 };
   }
+  const archive = prune ? rowsToArchive(plan, existing) : [];
+  const refusal = prune ? massPruneRefusal(archive, existing, allowMassPrune) : null;
+  if (refusal) { logError(`vault-import: ${refusal}`); return { code: 2 }; }
   const writes = plan.memories.filter(m => !existing.has(m.path) || existing.get(m.path).sha256 !== m.sha256).length;
-  console.log(`${args.dryRun ? 'dry run — would write' : 'writing'} ${writes} (≈ ${Math.ceil(writes / args.rate)} min at ${args.rate}/min)`);
+  log(`${dryRun ? 'dry run — would write' : 'writing'} ${writes} (≈ ${Math.ceil(writes / rate)} min at ${rate}/min)${prune ? `; prune: ${dryRun ? 'would archive' : 'archiving'} ${archive.length}` : ''}`);
 
-  const result = await runImport({ plan, client, existing, dryRun: args.dryRun, log });
-  console.log(`${args.dryRun ? 'would create' : 'created'} ${result.created.length}, ${args.dryRun ? 'would update' : 'updated'} ${result.updated.length}, unchanged ${result.unchanged.length}, failed ${result.failed.length}`);
+  const result = await runImport({ plan, client, existing, dryRun, log });
+  log(`${dryRun ? 'would create' : 'created'} ${result.created.length}, ${dryRun ? 'would update' : 'updated'} ${result.updated.length}, unchanged ${result.unchanged.length}, failed ${result.failed.length}`);
+
+  // Prune, part 1: archive rows whose note is gone — before links, so the link
+  // phase only sees live rows and never touches an archived row's links.
+  let pruned = null;
+  if (prune) {
+    pruned = { archive: archive.map(a => a.path), archived: [], unlink: [], unlinked: 0, failed: [] };
+    if (dryRun) archive.forEach(a => log(`  - would archive ${a.path}`));
+    else { const a = await archiveRows(client, archive, log); pruned.archived = a.archived; pruned.failed.push(...a.failed); }
+  }
 
   // Links run after every note exists (a link needs both ids). Additive and
-  // idempotent: a re-run reports them as existing; removed wikilinks are not unlinked.
+  // idempotent: a re-run reports them as existing. Removed wikilinks are only
+  // unlinked with --prune (part 2 below).
   let links = null;
-  if (args.links) {
-    const ids = args.dryRun ? existing : await existingVaultRows(client);
-    const pathToId = new Map([...ids].map(([path, row]) => [path, row.id]));
+  if (withLinks) {
+    const rows = dryRun ? existing : await existingVaultRows(client);
+    const inPlan = new Set(plan.memories.map(m => m.path));
+    const pathToId = new Map([...rows].filter(([path]) => inPlan.has(path)).map(([path, row]) => [path, row.id]));
     const resolved = resolveWikilinks(plan.memories, pathToId);
-    if (args.dryRun) {
+    if (dryRun) {
       links = { resolvable: resolved.links.length, unresolved: resolved.unresolved, note: 'counted against notes already in OmniMind' };
-      console.log(`links: ${resolved.links.length} resolvable now (${resolved.unresolved} unresolved targets)`);
+      log(`links: ${resolved.links.length} resolvable now (${resolved.unresolved} unresolved targets)`);
     } else {
       links = { ...(await writeLinks(client, resolved.links, log)), unresolved: resolved.unresolved };
-      console.log(`links: created ${links.created}, existing ${links.existing}, rejected ${links.rejected}, unresolved targets ${links.unresolved}${links.failedBatches ? `, failed batches ${links.failedBatches}` : ''}`);
+      log(`links: created ${links.created}, existing ${links.existing}, rejected ${links.rejected}, unresolved targets ${links.unresolved}${links.failedBatches ? `, failed batches ${links.failedBatches}` : ''}`);
     }
+    // Prune, part 2: importer-made wikilink rows the notes no longer contain.
+    if (prune) {
+      const pathOf = new Map([...[...rows].map(([path, row]) => [row.id, path]), ...archive.map(a => [a.id, a.path])]);
+      const vaultIds = new Set(pathOf.keys());
+      const s = await staleWikilinks(client, { pathToId, vaultIds, desired: resolved.links, pathOf, ...(readGapMs === undefined ? {} : { readGapMs }) });
+      pruned.unlink = s.stale.map(l => ({ from: l.from, to: l.to }));
+      pruned.failed.push(...s.failed);
+      if (dryRun) s.stale.forEach(l => log(`  - would unlink ${l.from} → ${l.to}`));
+      else { const d = await deleteLinks(client, s.stale, log); pruned.unlinked = d.unlinked; pruned.failed.push(...d.failed); }
+    }
+  } else if (prune) log('prune: wikilink rows left as they are (--no-links)');
+  if (prune) {
+    log(dryRun
+      ? `prune (dry run): would archive ${pruned.archive.length}, would unlink ${pruned.unlink.length}`
+      : `prune: archived ${pruned.archived.length}, unlinked ${pruned.unlinked}${pruned.failed.length ? `, failed ${pruned.failed.length}` : ''}`);
   }
-  if (args.report) writeFileSync(args.report, JSON.stringify({ ...report, userId, dryRun: args.dryRun, result, links }, null, 2));
-  return result.failed.length > 0 || (links?.failedBatches ?? 0) > 0 ? 1 : 0;
+  const failed = result.failed.length > 0 || (links?.failedBatches ?? 0) > 0 || (pruned?.failed.length ?? 0) > 0;
+  return { code: failed ? 1 : 0, result, links, prune: pruned };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

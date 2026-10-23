@@ -853,11 +853,13 @@ Response 201: MemoryEntityLink · 422 unknown `entityType` · 404 memory or enti
 
 ### GET /memories/:id/links
 List links for a memory.
-Response 200: MemoryEntityLink[]
+Response 200: MemoryEntityLink[] · 404 memory not found
+Scoping (2026-10-23, RD-5): the memory must be the caller's (`x-user-id`) and, when agent headers are present, in the agent's tenant — the same rule as `POST /memories/links/batch`. Without agent headers (BoardRoom) it is user-scoped only, as before.
 
 ### DELETE /memories/:id/links/:linkId
-Remove a link.
-Response 200: { status: "deleted" }
+Remove a link. Used by `scripts/vault-import.mjs --prune` to remove `wikilink` rows a note no longer contains.
+Response 200: { status: "deleted" } · 404 memory not found (not the caller's, soft-deleted, or — with agent headers — in another tenant) or link not on that memory
+Scoping (2026-10-23, RD-5): identical to `GET /memories/:id/links` above.
 
 ---
 
