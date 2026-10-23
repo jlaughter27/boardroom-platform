@@ -56,6 +56,19 @@ export function CopyField({
   const [revealed, setRevealed] = useState(!secret);
   const inputRef = useRef<HTMLInputElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+
+  // Size-driven, not scroll-driven: re-measure when the block or its text changes width.
+  useEffect(() => {
+    const pre = preRef.current;
+    if (!multiline || !pre) return;
+    const measure = () => setOverflowing(pre.scrollWidth > pre.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(pre);
+    return () => ro.disconnect();
+  }, [multiline, value, revealed]);
 
   useEffect(() => {
     if (state === 'idle') return;
@@ -95,14 +108,30 @@ export function CopyField({
       {label && <span className="text-xs font-medium text-muted-foreground">{label}</span>}
       <div className={cn('flex gap-2', multiline ? 'items-start' : 'items-center')}>
         {multiline ? (
-          <pre
-            ref={preRef}
-            className="flex-1 min-w-0 overflow-x-auto rounded-xl border border-border bg-muted px-3 py-2 text-xs font-mono text-foreground whitespace-pre"
-            tabIndex={0}
-            aria-label={label ? `${label} value` : 'Value'}
-          >
-            {shown}
-          </pre>
+          // A long line (an MCP URL, a bearer header) scrolls inside the block —
+          // never the page. While it overflows, a fade on the trailing edge says
+          // "there is more"; the extra end padding lets the last character clear
+          // the fade once scrolled to the end (M1-D3).
+          <div className="relative flex-1 min-w-0" data-overflowing={overflowing || undefined}>
+            <pre
+              ref={preRef}
+              className={cn(
+                'w-full overflow-x-auto rounded-xl border border-border bg-muted py-2 pl-3 text-xs font-mono text-foreground whitespace-pre',
+                overflowing ? 'pr-8' : 'pr-3'
+              )}
+              tabIndex={0}
+              aria-label={label ? `${label} value` : 'Value'}
+            >
+              {shown}
+            </pre>
+            {overflowing && (
+              <span
+                aria-hidden="true"
+                data-testid={testId ? `${testId}-fade` : undefined}
+                className="pointer-events-none absolute inset-y-px right-px w-8 rounded-r-xl bg-gradient-to-l from-muted to-transparent"
+              />
+            )}
+          </div>
         ) : (
           <input
             ref={inputRef}

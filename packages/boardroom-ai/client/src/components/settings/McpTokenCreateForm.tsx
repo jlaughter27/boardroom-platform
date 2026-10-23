@@ -166,26 +166,32 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
       token: created.token,
       oauthEnabled: connectInfo?.oauthEnabled,
     });
+    // The reveal holds the longest unbreakable strings on the page (the token, the
+    // MCP URL, a bearer header). Every level is `min-w-0` so they scroll inside
+    // their own block (CopyField: overflow-x-auto <pre> with a fade edge) and
+    // never push the page sideways; prose identifiers wrap (`break-all`). M1-D3.
     return (
-      <div className="space-y-5" data-testid="mcp-token-created">
-        <div className="rounded-xl border border-warning/40 bg-warning-muted p-4 space-y-3">
+      <div className="min-w-0 space-y-5" data-testid="mcp-token-created">
+        <div className="min-w-0 rounded-xl border border-warning/40 bg-warning-muted p-4 space-y-3">
           <p className="text-sm font-medium text-foreground">
             Copy your token now. For security it is shown once and cannot be retrieved again.
           </p>
           <CopyField label="Token" value={created.token} secret data-testid="mcp-raw-token" />
           <p className="text-xs text-muted-foreground">
-            Named <span className="font-medium text-foreground">{created.record.name}</span>, agent{' '}
-            <code className="font-mono">{created.record.agentName}</code>. If you lose it, revoke it and create a new one.
+            Named <span className="font-medium text-foreground break-words">{created.record.name}</span>, agent{' '}
+            <code className="font-mono break-all">{created.record.agentName}</code>. If you lose it, revoke it and create a new one.
           </p>
         </div>
         {urlMissing && (
           <p className="text-xs text-warning" role="note" data-testid="mcp-url-warning">
             {connectInfoError
               ? <>The server URL could not be loaded ({connectInfoError}). The blocks below show a placeholder and cannot be copied; reload this page to try again, or ask your operator for the MCP URL.</>
-              : <>The server URL below is a placeholder: the operator has not set <code className="font-mono">OMNIMIND_MCP_PUBLIC_URL</code> on BoardRoom. Blocks that contain it cannot be copied until it is configured.</>}
+              : <>The server URL below is a placeholder: the operator has not set <code className="font-mono break-all">OMNIMIND_MCP_PUBLIC_URL</code> on BoardRoom. Blocks that contain it cannot be copied until it is configured.</>}
           </p>
         )}
-        <McpSnippetView snippet={snippet} placeholderUrl={urlMissing} />
+        <div className="min-w-0">
+          <McpSnippetView snippet={snippet} placeholderUrl={urlMissing} />
+        </div>
         <div className="flex justify-end">
           <Button type="button" variant="primary" onClick={onDone}>Done</Button>
         </div>

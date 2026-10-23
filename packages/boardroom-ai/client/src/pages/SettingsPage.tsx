@@ -163,7 +163,8 @@ export default function SettingsPage() {
         </nav>
 
         {/* Content */}
-        <div className="flex-1 space-y-6">
+        {/* min-w-0: a flex item defaults to min-width:auto, so one long unbreakable line (an MCP URL in the token snippet) would widen the column past the viewport (M1-D3). */}
+        <div className="flex-1 min-w-0 space-y-6">
           <PageHeader className="mb-0" title="Settings" subtitle="Profile, preferences, integrations and billing." />
 
           {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}

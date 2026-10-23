@@ -16,6 +16,7 @@
 // where `actions` is a list of steps run before the screenshot:
 //   { wait: selector } · { waitGone: selector } · { click: selector } · { type: { selector, text } }
 //   { press: key } · { sleep: ms } · { settle: true } (force layout at rest) · { evaluate: 'js source' }
+//   { noOverflowX: true | [selector, …] } (no sideways page scroll — document + listed scroll containers)
 //
 // Chromium + Playwright are expected to be preinstalled (PLAYWRIGHT_BROWSERS_PATH);
 // the script never installs browsers.
@@ -162,6 +163,24 @@ async function runAction(page, step, log) {
       if (await page.$(step.hoverCanvas.until)) return undefined;
     }
     log(`  (no ${step.hoverCanvas.until} after ${points.length} hover points)`);
+    return undefined;
+  }
+  // { noOverflowX: true | [selector, …] } — fail the shot when the page scrolls sideways:
+  // `document.scrollingElement.scrollWidth > clientWidth`, or the same for any listed
+  // scroll container (the app shell scrolls `#main-content`, whose overflow the
+  // document would never see). M1-D3.
+  if (step.noOverflowX) {
+    const over = await page.evaluate((selectors) => {
+      const out = [];
+      const se = document.scrollingElement;
+      if (se.scrollWidth > se.clientWidth) out.push(`document.scrollingElement ${se.scrollWidth} > ${se.clientWidth}`);
+      for (const s of selectors) {
+        const el = document.querySelector(s);
+        if (el && el.scrollWidth > el.clientWidth) out.push(`${s} ${el.scrollWidth} > ${el.clientWidth}`);
+      }
+      return out;
+    }, Array.isArray(step.noOverflowX) ? step.noOverflowX : []);
+    if (over.length) throw new Error(`assert failed: horizontal overflow at ${page.viewportSize()?.width} px — ${over.join('; ')}`);
     return undefined;
   }
   // { assert: 'js expression', message } — fail the shot when the expression is falsy (the DOM / CSS wiring checks).
