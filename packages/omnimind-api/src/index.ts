@@ -15,7 +15,7 @@ import { rateLimiter, stopRateLimiterCleanup } from './middleware/rate-limiter';
 import { agentRateLimiter, stopAgentRateLimiterCleanup } from './middleware/agent-rate-limiter';
 import { requireAdminKey } from './middleware/admin-auth';
 import { errorHandler } from './middleware/error-handler';
-import { healthRouter } from './routes/health.routes';
+import { healthRouter, readyRouter } from './routes/health.routes';
 import { memoriesRouter } from './routes/memories.routes';
 import { peopleRouter } from './routes/people.routes';
 import { goalsRouter } from './routes/goals.routes';
@@ -63,6 +63,10 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+// M0-A2: readiness probe (503 when the DB check fails) is public like /health,
+// so it is mounted ahead of the auth / agent / rate-limit middlewares instead of
+// adding a second path to each of their `/health` exemptions.
+app.use('/ready', readyRouter);
 app.use(apiKeyAuth);
 // agent-context MUST follow apiKeyAuth: it resolves x-agent-key against the
 // agents table and attaches req.agentContext (M-103).

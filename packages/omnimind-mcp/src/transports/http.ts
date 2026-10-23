@@ -1,7 +1,7 @@
 /**
  * Streamable HTTP transport — stateful sessions (M-101), fail-closed auth
  * (F-203), body cap / crash isolation / DNS-rebinding protection (M-105),
- * and a real GET /health (runbook).
+ * and a real GET /health (runbook) plus GET /ready (M0-A2).
  *
  * One `StreamableHTTPServerTransport` + `McpServer` + `OmniMindClient` triple
  * per MCP session, keyed by the `mcp-session-id` header the SDK issues on
@@ -17,7 +17,7 @@
  *
  * No redirects, ever: `POST /mcp`, `POST /mcp/` and `POST /` (and GET / DELETE
  * on them) all reach the MCP handler directly — the path is not inspected
- * beyond `/health` and the PRM documents. Claude drops `Authorization` on a
+ * beyond `/health`, `/ready` and the PRM documents. Claude drops `Authorization` on a
  * cross-host redirect and ChatGPT reports "Session terminated" on a
  * `/mcp` → `/mcp/` 307, so a 3xx from this server is a bug (covered by tests).
  *
@@ -182,6 +182,45 @@ export interface HttpTransportOptions {
   drainTimeoutMs?: number;
   /** Positive credential-cache TTL (default env `OMNIMIND_MCP_PRINCIPAL_CACHE_MS` → 30 s, clamped to 5 s..300 s). */
   principalCacheMs?: number;
+  /** M0-A2 — OmniMind base URL probed by `GET /ready` (default env `OMNIMIND_API_URL`). */
+  readyUpstreamUrl?: string;
+  /** M0-A2 — fetch used by `GET /ready` (tests). Defaults to the global fetch. */
+  readyFetch?: typeof fetch;
+  /** M0-A2 — upstream probe timeout for `GET /ready` (default READY_UPSTREAM_TIMEOUT_MS). */
+  readyTimeoutMs?: number;
+}
+
+/** M0-A2 — how long `GET /ready` waits for OmniMind's `/health`. */
+export const READY_UPSTREAM_TIMEOUT_MS = 3000;
+
+/** M0-A2 — the deployed git commit (Railway injects RAILWAY_GIT_COMMIT_SHA); 'dev' locally. */
+export function serviceVersion(env: NodeJS.ProcessEnv = process.env): string {
+  return env.RAILWAY_GIT_COMMIT_SHA?.trim() || 'dev';
+}
+
+export type UpstreamReadiness = 'ok' | 'degraded' | 'unreachable' | 'unconfigured';
+
+/**
+ * M0-A2 — readiness of the one dependency every tool call needs: OmniMind's
+ * public `GET /health` over `OMNIMIND_API_URL`. A network error, timeout or
+ * non-2xx is `unreachable`; a 200 whose body is not `status: "ok"` (OmniMind up,
+ * its database down) is `degraded`. Never throws.
+ */
+export async function checkUpstreamReadiness(
+  baseUrl: string | undefined,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs: number = READY_UPSTREAM_TIMEOUT_MS,
+): Promise<UpstreamReadiness> {
+  const base = baseUrl?.trim();
+  if (!base) return 'unconfigured';
+  try {
+    const res = await fetchFn(`${base.replace(/\/+$/, '')}/health`, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return 'unreachable';
+    const body = await res.json().catch(() => undefined) as { status?: unknown } | undefined;
+    return body?.status === 'ok' ? 'ok' : 'degraded';
+  } catch {
+    return 'unreachable';
+  }
 }
 
 export interface HttpConfig {
@@ -496,10 +535,31 @@ export function createHttpApp(opts: HttpTransportOptions): HttpApp {
     if (url.pathname === '/health' && method === 'GET') {
       // R-M-05 — unauthenticated, so it says nothing about who this server is
       // (agent name / tenant id used to be here).
+      // M0-A2 — liveness: always 200 (railway.toml healthcheckPath="/health");
+      // `version` is the deployed commit, which identifies a deploy, not a user.
       sendJson(res, 200, {
         status: 'ok',
+        version: serviceVersion(),
         uptime: Math.round((Date.now() - startedAt) / 1000),
         sessions: sessions.size,
+      });
+      return;
+    }
+
+    if (url.pathname === '/ready' && method === 'GET') {
+      // M0-A2 — readiness: 503 unless OmniMind's /health answers ok. Public and
+      // answered before the auth and allowed-hosts handling, like /health; the
+      // body names no upstream URL and no identity.
+      const omnimind = await checkUpstreamReadiness(
+        opts.readyUpstreamUrl ?? process.env.OMNIMIND_API_URL,
+        opts.readyFetch ?? fetch,
+        opts.readyTimeoutMs ?? READY_UPSTREAM_TIMEOUT_MS,
+      );
+      const ok = omnimind === 'ok';
+      sendJson(res, ok ? 200 : 503, {
+        status: ok ? 'ready' : 'not_ready',
+        version: serviceVersion(),
+        checks: { omnimind },
       });
       return;
     }
@@ -743,7 +803,7 @@ export async function startHttpServer(
   app.setPort(boundPort);
 
   const log = opts?.log ?? ((line: string) => console.log(line));
-  log(`[omnimind-mcp] HTTP transport started on port ${boundPort} (stateful Streamable HTTP, health: GET /health)`);
+  log(`[omnimind-mcp] HTTP transport started on port ${boundPort} (stateful Streamable HTTP, health: GET /health, readiness: GET /ready)`);
   log(`[omnimind-mcp] inbound auth: ${describeAuthModes(config.auth).join('; ')}`);
   // M-5 — which x-agent-key each kind of session sends (sources only, never the keys).
   if (config.auth.staticApiKey) {

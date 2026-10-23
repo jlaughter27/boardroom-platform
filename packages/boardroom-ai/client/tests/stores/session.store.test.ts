@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from '@testing-library/react';
 import { useSessionStore, applyRebuttalEvent } from '../../src/stores/session.store';
 import * as api from '../../src/lib/api';
@@ -194,5 +194,78 @@ describe('useSessionStore debate + commit', () => {
     expect(s.rebuttals).toEqual({});
     expect(s.rebuttingPersonas.size).toBe(0);
     expect(s.committedDecision).toBeNull();
+  });
+});
+
+describe('useSessionStore — token deltas reach the store once per frame (M1-C1)', () => {
+  let frames: Array<() => void> = [];
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({ currentSession: { id: 's1', question: 'Should we hire?', mode: 'decide' } });
+    vi.clearAllMocks();
+    frames = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.push(() => cb(0)); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', (h: number) => { frames[h - 1] = () => {}; });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const runFrames = () => { const due = frames; frames = []; for (const f of due) f(); };
+
+  it('200 deltas in one frame produce at most 2 personaStreaming updates, with every character kept', async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((r) => { release = r; });
+    const chunks = Array.from({ length: 200 }, (_, i) => `t${i} `);
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: 'persona_start', personaId: 'optimist', model: 'haiku' } as StreamEvent;
+      for (const text of chunks) yield { type: 'delta', personaId: 'optimist', text } as StreamEvent;
+      await hold;
+      yield { type: 'dispatch_complete', personaCount: 0, durationMs: 1 } as StreamEvent;
+    }
+    vi.mocked(api.streamSSE).mockReturnValue(stream());
+
+    let updates = 0;
+    const unsubscribe = useSessionStore.subscribe((next, prev) => {
+      if (next.personaStreaming.optimist !== prev.personaStreaming.optimist) updates += 1;
+    });
+
+    const run = useSessionStore.getState().dispatch();
+    // Let the generator drain all 201 events (microtasks only: no frame has run).
+    for (let i = 0; i < 1000; i++) await Promise.resolve();
+    expect(useSessionStore.getState().personaStreaming.optimist).toBe('');
+    updates = 0; // persona_start's reset to '' is not a delta update
+
+    runFrames();
+    expect(updates).toBeLessThanOrEqual(2);
+    expect(useSessionStore.getState().personaStreaming.optimist).toBe(chunks.join(''));
+
+    release();
+    await act(async () => { await run; });
+    unsubscribe();
+  });
+
+  it('flushes buffered deltas when the persona completes or the stream closes, and reset discards them', async () => {
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: 'persona_start', personaId: 'critic', model: 'haiku' } as StreamEvent;
+      yield { type: 'delta', personaId: 'critic', text: '{"personaId":"critic",' } as StreamEvent;
+      yield { type: 'persona_complete', personaId: 'critic', response: critic } as StreamEvent;
+      yield { type: 'persona_start', personaId: 'doer', model: 'haiku' } as StreamEvent;
+      yield { type: 'delta', personaId: 'doer', text: 'late' } as StreamEvent;
+    }
+    vi.mocked(api.streamSSE).mockReturnValue(stream());
+    await act(async () => { await useSessionStore.getState().dispatch(); });
+    expect(useSessionStore.getState().personaStreaming.critic).toBe('{"personaId":"critic",');
+    expect(useSessionStore.getState().personaStreaming.doer).toBe('late');
+
+    async function* stale(): AsyncGenerator<StreamEvent> {
+      yield { type: 'persona_start', personaId: 'doer', model: 'haiku' } as StreamEvent;
+      yield { type: 'delta', personaId: 'doer', text: 'stale' } as StreamEvent;
+      await new Promise(() => {});
+    }
+    vi.mocked(api.streamSSE).mockReturnValue(stale());
+    void useSessionStore.getState().dispatch();
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+    useSessionStore.getState().reset();
+    runFrames();
+    expect(useSessionStore.getState().personaStreaming).toEqual({});
   });
 });

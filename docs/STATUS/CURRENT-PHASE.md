@@ -1,9 +1,22 @@
 # Current Phase
 
 **Phase in flight:** 🧭 **Phase 8 — Dev roadmap** (`docs/roadmap/PHASE-8-ROADMAP.md`): M0 Contain and stay green (W1) → M1 Verified production, MCP live, tenant-safe one memory (W1–W3) → M2 One memory everywhere + Apple-quality floor + dogfood day 1 on 2026-11-12 (W3–W4) → M3 Ops floor and daily loop (W4–W6) → M4 Verdict and pre-signup gate (W7–W8). Per-item status: `PHASE-PROGRESS-TRACKER.md` § Phase 8.
-**Active items:** M0 agent lanes (A: stay green + identifiable deploys; D: status truth). **Founder, urgent:** M0-F2 rotate the R-103 secrets (the repo is public and an early commit holds deploy env values), M0-F1 prod `pg_dump` first, M0-F4 hand-verify the live deploy.
-**Last update:** 2026-10-22 (PR #22 merged as `cdef1ef`, PR #23 SDK security bump as `fc19563`, main CI green; Railway deploy unverified from the sandbox)
-**Updated by:** Claude (multi-agent roadmap: 3 auditors → 2 competing planners → cross-examination → synthesis → 2 validators → revision)
+**Where main is:** PR #22 merged as cdef1ef, PR #23 as fc19563, PR #24 (roadmap) as c2c6fca; main CI green; deploy unverified. (CI run 39868876211 on `c2c6fca` and run 39864122262 on `fc19563`: all five jobs `success`; run 39860431324 on `cdef1ef` failed at the dependency audit. Nothing about any Railway deploy has been observed from the sandbox — see `BLOCKERS.md` BLK-101.)
+**Last update:** 2026-10-22 (wave 1 integrated: Lanes A–D on `claude/amazing-mccarthy-grvem2`, wave-1 PR)
+**Updated by:** Claude (integration)
+
+**Wave 1 — in review** (11 items on the wave-1 PR; per-item state lives in `PHASE-PROGRESS-TRACKER.md` § Phase 8):
+
+| Lane | Items in review | What it changes |
+|---|---|---|
+| A — Release, ops & metrics | M0-A1, M0-A2, M0-A3, M1-A2 | Audit overrides + weekly audit; `/health` version + `/ready` on all three services; migration drift guard; go-live script refuses to run without green main CI and backup evidence (workflow passes `backup_ok` / `backup_check_url`) |
+| B — Memory & MCP | M1-B2 (M1-B0 = ADR-017 Proposed) | Sync `memory_write` stores the row and defers extraction instead of refusing |
+| C — Decision & dashboard trust | M1-C3, M1-C1, M1-C2 | Reloaded session shows its question; personas stream prose, not JSON (CLS 0.0092); a failed persona gets an error card + retry, CEO says "Synthesize without …" |
+| D — Docs | M0-D1, M0-D2 | Status truth pass, ADR-016/017 (Proposed), phase 10–19 triage |
+
+**Wave 2 — next:** M1-A1 (post-deploy verify), M1-A3 (CI e2e job; replaces Lane C's minimal `checks/` autoloader), M1-D1–D4 (gold AA, reduced motion, onboarding gate, keyboard cards), then M1-B4 / M1-C4 once the founder picks the ADR-017 default tenant (M1-F7) and M0-F1 is done. Watch: `prisma migrate dev --create-only` will generate DROPs for the baselined drift in `prisma/known-drift.sql` — delete them from the generated SQL.
+
+**Founder, urgent (W1):** M0-F1 production `pg_dump` + restore drill first → M0-F2 rotate the five R-103 secrets (the repo is public and early history holds deploy env values) → M0-F4 hand-verify the live deploy. Open blockers: `BLOCKERS.md`.
 
 **Next phase (scheduled inside Phase 8, M2 day 1 = 2026-11-12):** 30-day dogfooding window across clients. **Do not start until the "MCP live checklist" in `docs/03-operations/DEPLOYMENT-RUNBOOK.md` (mirrored in `docs/runbooks/omnimind-mcp.md` §0–§7) is done in order** — token minting needs tenant owners, which need the admin key; the MCP service refuses to start without the gateway key. **One command does the checklist** (2026-10-20): `pnpm go-live:mcp -- --project <id> --owner-email <e-mail> --yes` from a laptop, or GitHub → Actions → *MCP go-live* from a phone (runbook "One-command path").
 
@@ -11,7 +24,9 @@
 
 ## 🎨 Phase 7.5 — Visualization upgrade + Apple-grade UI foundation (2026-10-20)
 
-**Done (PR open):** communities knowledge graph (Louvain + hulls + anchored labels + cluster force, minimap, legend-as-filter, focus glow, hover card, deduped spotlight hits, eased timeline), dashboard chart system (`components/viz/`, 11 SVG primitives, validated palettes, partial-week handling), cockpit row + memory pulse + what's moving + commitment horizon, calibration reliability diagram, diff-style change timeline, screenshot harness (`tools/visual-preview/`). Client tests 245 → 378. Details: `CHANGELOG.md` 2026-10-20.
+**Merged 2026-10-22 as `cdef1ef` (PR #22, squash; the `d3d48f2` and `8af3c5c` SHAs below are commits on the PR branch `claude/amazing-mccarthy-grvem2`, not on `main`).** CI on that commit failed at the dependency audit (two MCP SDK advisories published after the PR's run); PR #23 (`fc19563`) fixed it.
+
+**Done:** communities knowledge graph (Louvain + hulls + anchored labels + cluster force, minimap, legend-as-filter, focus glow, hover card, deduped spotlight hits, eased timeline), dashboard chart system (`components/viz/`, 11 SVG primitives, validated palettes, partial-week handling), cockpit row + memory pulse + what's moving + commitment horizon, calibration reliability diagram, diff-style change timeline, screenshot harness (`tools/visual-preview/`). Client tests 245 → 378. Details: `CHANGELOG.md` 2026-10-20.
 
 **Done (merged into PR #22, `d3d48f2`):** UI foundation per `docs/research/APPLE-GRADE-UI-2026-10-20.md` — Phase A tokens (self-hosted Inter variable with optical sizing + tabular figures, ease-out motion tokens + Apple-parameter springs, layered hue-matched shadows + inset highlight + hairline, concentric radius helper, `.material` with reduced-transparency fallback, dark elevation ladder), Phase B primitives on Base UI (`@base-ui/react`: Dialog, Tooltip, Select, Tabs, Popover, Menu; Button press feedback + glass/capsule; Card elevation; Toast swipe; command palette material; Lucide icons), Phase D guardrails (`ui-standards` test, `UI-FOUNDATION.md`, ADR-015).
 
@@ -19,7 +34,7 @@
 
 **E2E (2026-10-20, live local stack — Postgres+pgvector, OmniMind, BoardRoom prod build, MCP gateway):** `pnpm test:e2e` 55/55, new `pnpm e2e:live` journey 22/22 (UI register → graph → token mint → MCP write/search → cross-client visibility → revoke). Found and fixed on the branch: partial agent identity fell through unscoped (now `400 partial_agent_identity`), per-user read budget too low for the UI (`USER_READ_RATE_LIMIT_PER_MINUTE`, default 120), production CSP blocked the inline theme script (now `/theme-init.js`), two `<h1>` per page. Details: `CHANGELOG.md` 2026-10-20 e2e entry.
 
-**Next:** merge PR #22 (Josh's call), Railway go-live for the MCP service (operator checklist), then the forms pass for the four remaining native selects (MCP token form, entity form, admin, decision-lab filter).
+**Next (superseded 2026-10-22):** PR #22 is merged. The MCP go-live is Phase 8 item M1-F1 and the forms pass is M4-D1 (the nine allow-listed native selects); see `docs/roadmap/PHASE-8-ROADMAP.md`.
 
 **Decisions taken (user approved the research 2026-10-20, recommendations adopted):** Base UI as the headless layer; React 19.3 bump for view transitions; Lucide as the single icon set; no Tailwind v4 migration; no displacement "liquid" lensing on content.
 

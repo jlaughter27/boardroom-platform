@@ -60,6 +60,19 @@ interface SynthesisPanelProps {
   isStreaming: boolean;
   /** When given, the card header offers "Open as sheet" (see `SynthesisSheet`). */
   onExpand?: () => void;
+  /** M1-C2: advisors (short names) that had no answer when the synthesis started. */
+  without?: string[];
+}
+
+/** The honest CEO step: a synthesis made without some advisors says so up front. */
+function WithoutNote({ names }: { names?: string[] }) {
+  if (!names || names.length === 0) return null;
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return (
+    <p className="mb-4 rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-sm text-foreground" data-testid="synthesis-without">
+      Synthesized without {list}: {names.length === 1 ? 'that advisor' : 'those advisors'} did not answer, so {names.length === 1 ? 'its' : 'their'} perspective is missing here.
+    </p>
+  );
 }
 
 /** Card / sheet title row: the CEO mark, the model badge and optional controls. */
@@ -113,11 +126,12 @@ function CollapsibleSection({
   );
 }
 
-export function SynthesisPanel({ report, streamingText, isStreaming, onExpand }: SynthesisPanelProps) {
+export function SynthesisPanel({ report, streamingText, isStreaming, onExpand, without }: SynthesisPanelProps) {
   if (isStreaming && !report) {
     return (
       <Card className="border-t-2 border-primary border-x-hairline border-b-hairline p-6" data-testid="synthesis-panel">
         <SynthesisTitle />
+        <WithoutNote names={without} />
         <div className="text-sm text-muted-foreground whitespace-pre-wrap">
           {streamingText}
           <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
@@ -138,6 +152,7 @@ export function SynthesisPanel({ report, streamingText, isStreaming, onExpand }:
           </Button>
         )}
       </SynthesisTitle>
+      <WithoutNote names={without} />
       <SynthesisReportBody report={report} />
     </Card>
   );

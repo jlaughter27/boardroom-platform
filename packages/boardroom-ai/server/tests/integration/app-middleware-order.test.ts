@@ -101,6 +101,32 @@ describe('production middleware order', () => {
     expect(await res.json()).toMatchObject({ service: 'boardroom-ai' });
   });
 
+  // ---- M0-A2 ---------------------------------------------------------------
+  // /ready is public and registered above the SPA fallback. OMNIMIND_API_URL
+  // points at a closed port here, so readiness is 503 — but it must be the JSON
+  // readiness payload, never index.html and never the auth wall's 401.
+  it('GET /api/ready in production mode is the JSON readiness payload (503 here), not index.html', async () => {
+    const res = await fetch(`${base}/api/ready`, { headers: { Accept: 'application/json' } });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('content-type')).toMatch(/application\/json/);
+    const body = await res.json();
+    expect(body).toMatchObject({ status: 'not_ready', service: 'boardroom-ai', checks: { omnimind: 'unreachable' } });
+    expect(body).toHaveProperty('version');
+  });
+
+  it('GET /ready with a browser Accept header is JSON, not the SPA', async () => {
+    const res = await fetch(`${base}/ready`, { headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' } });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('content-type')).toMatch(/application\/json/);
+    expect(await res.text()).not.toContain('SPA');
+  });
+
+  it('GET /api/health carries version and stays 200 while OmniMind is unreachable', async () => {
+    const res = await fetch(`${base}/api/health`, { headers: { Accept: 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ service: 'boardroom-ai', omnimindConnected: false, version: expect.any(String) });
+  });
+
   it('POST (non-GET) to an unknown path is never served index.html', async () => {
     const res = await fetch(`${base}/no-such-route`, { method: 'POST', headers: { Accept: 'text/html' } });
     expect(res.headers.get('content-type')).not.toMatch(/text\/html/);

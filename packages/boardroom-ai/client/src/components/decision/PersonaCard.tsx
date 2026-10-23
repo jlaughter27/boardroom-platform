@@ -1,9 +1,24 @@
-import { useState, memo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
 import type { PersonaId, PersonaResponse } from '@boardroom/shared';
 import type { Rebuttal } from '../../types/debate';
-import { Card, Badge, Progress } from '../ui';
+import { RotateCcw, TriangleAlert } from 'lucide-react';
+import { Card, Badge, Button, Progress, Skeleton } from '../ui';
+import { readStreamingProse } from '../../lib/partial-json';
+import { cn } from '../../lib/cn';
+
+/**
+ * Every state of the card occupies the same box (M1-C1): the streaming card is
+ * exactly this tall (its prose scrolls inside it); waiting, failed and finished
+ * cards are at least this tall and stretch to their grid row, with long
+ * sections clamped behind "Show full analysis". Swapping one state for the
+ * next therefore never pushes the grid around.
+ */
+export const PERSONA_CARD_HEIGHT = 'h-[32rem]';
+export const PERSONA_CARD_MIN_HEIGHT = 'min-h-[32rem]';
+/** Above this many characters the clamped analysis offers "Show full analysis". */
+const LONG_TEXT = 200;
 
 const PERSONA_COLORS: Record<string, string> = {
   optimist: 'border-t-persona-optimist',
@@ -24,6 +39,12 @@ interface PersonaCardProps {
   isRebutting?: boolean;
   /** Debate round 2: completed rebuttal (`rebuttal_complete`). */
   rebuttal?: Rebuttal;
+  /** M1-C2: why this advisor has no answer (`persona_error`, or no answer when the dispatch ended). */
+  error?: string;
+  /** M1-C2: re-run only this advisor. */
+  onRetry?: () => void;
+  /** Retry waits while another dispatch is still streaming. */
+  retryDisabled?: boolean;
 }
 
 /** Inline debate outcome: Defended / Conceded badge, reason, and old → new recommendation. */
@@ -80,7 +101,8 @@ function CollapsibleSection({
         <span className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}
       </button>
-      <AnimatePresence>
+      {/* initial={false}: a section that starts open is simply there — growing it from 0 on mount shifted the card. */}
+      <AnimatePresence initial={false}>
         {open && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
@@ -97,54 +119,146 @@ function CollapsibleSection({
   );
 }
 
-export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming, isRebutting, rebuttal }: PersonaCardProps) {
-  const config = PERSONA_CONFIGS[personaId];
-  const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
+/** Streaming preview: prose only, read out of the partial JSON — never braces or keys. */
+function StreamingBody({ text }: { text: string }) {
+  const { situationReading, analysis } = useMemo(() => readStreamingProse(text), [text]);
+  // The newest words stay in view by scrolling the clipped box, not by moving the
+  // text: a scroll is not a layout shift, a paragraph sliding up inside its box is.
+  const analysisBox = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = analysisBox.current;
+    if (!box) return;
+    box.scrollTop = box.scrollHeight;
+    box.dataset.clipped = String(box.scrollHeight > box.clientHeight);
+  }, [analysis]);
+  const caret = <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" aria-hidden />;
 
-  // Waiting state
+  if (!situationReading && !analysis) {
+    return (
+      <div className="space-y-2.5 pt-1" data-testid="persona-skeleton">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-11/12" />
+        <Skeleton className="h-3.5 w-4/5" />
+        <Skeleton className="mt-4 h-3 w-16" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-10/12" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 text-sm text-muted-foreground">
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Situation Reading</div>
+        <p className="line-clamp-5 leading-relaxed">
+          {situationReading}
+          {!analysis && caret}
+        </p>
+      </div>
+      {analysis && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Analysis</div>
+          {/* Clipped at its own height; once it has scrolled, the top edge fades out. */}
+          <div
+            ref={analysisBox}
+            className="relative min-h-0 flex-1 overflow-hidden data-[clipped=true]:[mask-image:linear-gradient(to_bottom,transparent,#000_1.5rem)]"
+          >
+            <p className="whitespace-pre-wrap leading-relaxed">
+              {analysis}
+              {caret}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const PersonaCard = memo(function PersonaCard({ personaId, response, streamingText, isStreaming, isRebutting, rebuttal, error, onRetry, retryDisabled }: PersonaCardProps) {
+  const config = PERSONA_CONFIGS[personaId];
+  const name = config?.name ?? personaId;
+  const colorClass = PERSONA_COLORS[personaId] ?? 'border-t-line';
+  const [expanded, setExpanded] = useState(false);
+  // `w-full`: the grid cell is a flex row, so a finished card stretches to its row (fixed-height states keep their box).
+  const frame = `w-full border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`;
+
+  // Failed state (M1-C2): say so, show why, offer Retry — never "Thinking..." forever.
+  if (!response && !isStreaming && error) {
+    return (
+      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="error">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="font-medium text-foreground text-sm">{name}</span>
+          <Badge variant="warning">No answer</Badge>
+        </div>
+        <div className="rounded-md border border-warning/30 bg-warning-muted p-3 text-sm" role="group" aria-label={`${name} failed`}>
+          <div className="flex items-start gap-2">
+            <TriangleAlert size={16} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">{name} couldn&rsquo;t finish this analysis.</p>
+              <p className="mt-1 line-clamp-3 break-words text-muted-foreground" data-testid="persona-error-detail">{error}</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {onRetry && (
+            <Button variant="secondary" size="sm" onClick={onRetry} disabled={retryDisabled}>
+              <RotateCcw size={16} strokeWidth={1.75} aria-hidden="true" />
+              Retry
+            </Button>
+          )}
+          {retryDisabled && <span className="text-xs text-muted-foreground">Available when the other advisors finish.</span>}
+        </div>
+        <p className="mt-auto text-xs text-muted-foreground">
+          The CEO can still synthesize without this advisor; the synthesis will say so.
+        </p>
+      </Card>
+    );
+  }
+
+  // Waiting state: queued, not started yet. A static skeleton in the reserved box (no endless loop).
   if (!response && !isStreaming) {
     return (
-      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`}>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
-              <motion.div
-                key={i}
-                className="w-1.5 h-1.5 rounded-full bg-text-tertiary"
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-              />
-            ))}
-          </div>
-          <span className="text-muted-foreground text-sm">Thinking...</span>
-          <span className="text-muted-foreground text-xs ml-auto">{config?.name ?? personaId}</span>
+      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="waiting">
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-medium text-foreground text-sm">{name}</span>
+          <span className="text-xs text-muted-foreground">Waiting to start</span>
+        </div>
+        <div className="space-y-2.5 pt-1" aria-hidden="true">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-11/12" />
+          <Skeleton className="h-3.5 w-4/5" />
         </div>
       </Card>
     );
   }
 
-  // Streaming state
+  // Streaming state — fixed height; prose grows inside it.
   if (isStreaming && !response) {
     return (
-      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass} shadow-md`}>
+      <Card
+        className={cn(frame, PERSONA_CARD_HEIGHT, 'flex flex-col shadow-md')}
+        data-testid="persona-card"
+        data-state="streaming"
+        aria-busy="true"
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
             <Badge variant="default">{config?.model ?? 'haiku'}</Badge>
           </div>
         </div>
-        <div className="text-sm text-muted-foreground whitespace-pre-wrap">
-          {streamingText}
-          <span className="inline-block w-0.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
-        </div>
+        <StreamingBody text={streamingText ?? ''} />
       </Card>
     );
   }
 
-  // Complete state
+  // Complete state — the Zod-validated `persona_complete` payload.
   if (response) {
+    const long = response.analysis.length > LONG_TEXT || response.situationReading.length > LONG_TEXT;
     return (
-      <Card className={`border-t-[3px] border-x-hairline border-b-hairline ${colorClass}`}>
+      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT)} data-testid="persona-card" data-state="complete">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground text-sm">{config?.name ?? personaId}</span>
@@ -165,7 +279,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
         </div>
 
         <CollapsibleSection title="Situation Reading" defaultOpen>
-          <p>{response.situationReading}</p>
+          <p className={cn(!expanded && 'line-clamp-4')}>{response.situationReading}</p>
         </CollapsibleSection>
 
         {response.keyAssumptions.length > 0 && (
@@ -180,7 +294,17 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
 
         <div className="mt-3">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Analysis</div>
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{response.analysis}</p>
+          <p className={cn('text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed', !expanded && 'line-clamp-5')}>{response.analysis}</p>
+          {long && (
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              aria-expanded={expanded}
+              className="mt-1 text-xs font-medium text-primary hover:underline"
+            >
+              {expanded ? 'Show less' : 'Show full analysis'}
+            </button>
+          )}
         </div>
 
         <div className="mt-3 p-3 bg-primary/10 rounded-md">

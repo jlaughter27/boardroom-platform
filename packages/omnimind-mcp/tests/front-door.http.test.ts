@@ -269,7 +269,7 @@ describe('RFC 9728 protected resource metadata', () => {
     expect((await raw(staticOnly.port, { method: 'GET', path: PRM_PATH })).status).toBe(404);
     for (const s of [mcp, staticOnly]) {
       const health = JSON.parse((await raw(s.port, { method: 'GET', path: '/health' })).body);
-      expect(Object.keys(health).sort()).toEqual(['sessions', 'status', 'uptime']);
+      expect(Object.keys(health).sort()).toEqual(['sessions', 'status', 'uptime', 'version']);
     }
   });
 });

@@ -1,30 +1,17 @@
 # Blockers
 
-**Last updated:** 2026-04-18
+**Last updated:** 2026-10-22 (Phase 8, M0-D1 status truth pass)
+
+Open blockers only. When one clears, delete its row in the same change that records the evidence in `CHANGELOG.md` (or `docs/03-operations/BACKUP-DRILLS.md` for backups). A failed founder check in M0-F4 becomes a new row here before M1-F1 runs.
+
+Earlier entries (dated 2026-04-18) were retired in this rewrite: they described the pre-Phase-5 plan and are recoverable from this file's git history.
 
 ---
 
-## Decisions awaiting user input
-
-| ID | Question | Default proposed | Blocks |
-|---|---|---|---|
-| BLK-001 | Drop `searchVector` column or convert to `GENERATED ALWAYS AS STORED`? | Drop (it's dead code) | Phase 0 task #4 |
-| BLK-002 | `memoryType` enum (`SEMANTIC`/`EPISODIC`/`PROCEDURAL`) on `MemoryEntry` — accept the schema change with heuristic backfill? | Accept | Phase 1 |
-| BLK-003 | LLM cost caps for Phase 5a — $2/user/month + $50/day global, OK? | Accept | Phase 5a |
-| BLK-004 | Build a baseline Prisma migration NOW (before any schema work)? | Strongly recommended; user must confirm timing | Phase 1 (and the entire mem0 schema work) |
-| BLK-005 | Memory MCP server — build as part of make-it-10 (Phase 10), or earlier? | Phase 10 (after core mem0 work) | Phase 10 timing |
-
-## Production gaps that block specific phases
-
-| Gap | Blocks |
-|---|---|
-| No log drain wired | Phase 5a (need observability before LLM calls in batch) |
-| No retrieval eval harness | Phase 3, 6, 7a — every phase that claims a quality lift |
-| No `MemoryWriteEvent` durability layer | Phase 2 (would silently lose entity-extraction work on Railway restart) |
-| No baseline Prisma migration | Phase 1 (any schema change risks `--accept-data-loss`) |
-| Railway plan at 1GB RAM | Phase 8 (reranker needs ≥4GB) |
-| `Decision.outcome` populated on <200 decisions | Phase 7b (no signal to feed back) |
-
-## External dependencies
-
-None at present.
+| ID | Blocker | Owner | Since | Clears when | Target | Blocks |
+|---|---|---|---|---|---|---|
+| BLK-101 | **Production deploy is unverified.** The sandbox has no Railway credential and cannot reach `*.up.railway.app`, so nothing about the deploys of `cdef1ef` (PR #22), `fc19563` (PR #23) or `c2c6fca` (PR #24) has been observed. Per the roadmap status, Railway deployed `cdef1ef` even though its CI run (39860431324) failed at the dependency audit. | Founder (M0-F4 hand-verify); Lane A automates it with M1-A1 | 2026-10-22 | CHANGELOG has the M0-F4 evidence (migrate-deploy lines for `20261018000000_mcp_tokens` and `20261018000001_mcp_identity_hardening`, `/health` on both services, the three PR #22 probes); from M1, a green `post-deploy-verify` run on the main SHA | W1 (by 2026-10-28) | M1-F1 go-live, every production acceptance item |
+| BLK-102 | **R-103: deploy secrets recoverable from public git history.** Five secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `JWT_SECRET`, `OMNIMIND_API_KEY`, `ENCRYPTION_KEY`) were committed early in this **public** repo's history. Nothing records a rotation. The founder holds the commit reference; it is deliberately not written here. | Founder (M0-F2, after M0-F1) | 2026-10-02 (audit finding R-103, `docs/audits/AUDIT-2026-10-02.md`) | CHANGELOG entry names the five rotated secrets (names only) and the time; the pre-rotation `OMNIMIND_API_KEY` gets 401 on `GET /memories`; a post-rotation memory has `has_embedding=true` within 30 s; the repo-visibility decision is recorded | W1 (by 2026-10-28) | M1-F1 go-live (any new exposure is unsafe until this clears) |
+| BLK-103 | **No OAuth issuer.** `omnimind-mcp` is an OAuth resource server only and validates JWTs from one configured issuer; none is chosen or configured. Without it ChatGPT cannot connect at all and most claude.ai organizations cannot (Known Limitation 14). ADR-016 is **Proposed**. | Founder (M1-F6 pick, M2-F1 configure) | 2026-10-19 (Phase 7 shipped resource-server mode; OAuth not yet tried against a real provider) | ADR-016 Accepted with the result per criterion; `scripts/verify-oauth.sh` (to be added by M2-A2) passes against prod; ChatGPT and claude.ai each complete one `search` | W2–W3 pick, W4 live | ChatGPT and claude.ai as dogfood clients (not a day-1 gate: their active days are pro-rated from the OAuth date) |
+| BLK-104 | **No backups since the 2026-05-09 drill.** The last row in `docs/03-operations/BACKUP-DRILLS.md` is the manual drill of 2026-05-09. `services/backup` exists in the repo but is not deployed. Migrations run at boot, so the next deploy with a migration (M1-B4, M1-C4) runs against an unbacked database. | Founder (M0-F1 manual `pg_dump` + restore drill; M1-F3 deploy `services/backup`) | 2026-05-09 (last drill row) | BACKUP-DRILLS.md has a W1 row (size, sha256, restore row counts for MemoryEntry, Decision, User, restore-drill exit 0); later, the backup dead-man has pinged within 26 h and a restore row is dated W2–W3 | W1 (`pg_dump`), W2–W3 (service) | M0-F2 rotation, M1-B4 and M1-C4 migrations, M1-F1 go-live |
+| BLK-105 | **`main` has no branch protection.** CI (`.github/workflows/ci.yml`) has gated PRs since 2026-10-02, but nothing stops a red merge, and Railway deploys every push to `main` regardless of CI (Known Limitation 1). Cannot be checked from the sandbox (the GitHub protection API returns 403 here). | Founder (M0-F3, after M0-A1) | 2026-10-02 (CI gate added without protection) | Founder-run `gh api repos/jlaughter27/boardroom-platform/branches/main/protection` lists verify, docker ×3 and retrieval-eval; Railway wait-for-CI setting recorded in CHANGELOG | W1 (after M0-A1 merges) | Trust in "main is green = prod is green" |

@@ -66,6 +66,16 @@ does not re-run or checksum-verify applied migrations.
 - `pgvector` must be available (`CREATE EXTENSION vector`). Locally without
   pgvector you can test the chain by stripping the vector bits (see
   `docs/audits` notes); production (Railway) has it.
+- CI's **migration drift guard** (M0-A3, `retrieval-eval` job) replays these
+  migrations into a separate `omnimind_shadow` database and diffs the result
+  against `schema.prisma`. The only drift it accepts is listed in
+  `../known-drift.sql`: two trigram indexes, the IVFFlat embedding index and
+  the `agent_id DEFAULT 'legacy'`, all created in raw SQL on purpose. A
+  migration generated with `prisma migrate dev --create-only` will try to
+  drop those four objects; delete those statements from the generated SQL.
+  Reproduce locally against a throwaway shadow database, never your dev DB
+  (Prisma resets the shadow):
+  `pnpm exec prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <shadow-url> --script --exit-code`.
 
 ## Migration log
 

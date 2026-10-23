@@ -6,6 +6,19 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-22 — Phase 8 — Wave 1: four agent lanes, 11 roadmap items to review
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, wave-1 PR | **Tests:** shared 151 → 155; omnimind-api 1,175 → 1,209; omnimind-mcp 255 → 272; server 284 → 302; client 436 → 477; `pnpm test:e2e` 55/55; `pnpm e2e:live` 23/23 (Lane C, private stack); audit: 0 high (2 low, 1 moderate)
+
+Four lanes ran in parallel git worktrees off `c2c6fca`, each with its own gates; they were merged here and the full gate set re-run on the combined branch.
+
+- **Lane A — release & ops (M0-A1, M0-A2, M0-A3, M1-A2):** `qs` / `ip-address` overrides; CI cancels superseded runs except on `main`; weekly `scheduled-audit` job. `/health` reports `version` (`RAILWAY_GIT_COMMIT_SHA`) and stays 200; `/ready` answers 503 until dependencies are up, on all three services. Migration drift guard diffs `migrate deploy` on a separate `omnimind_shadow` DB against `prisma/known-drift.sql` (trigram + IVFFlat indexes, `agent_id` default — `main` already drifted). `scripts/mcp-go-live.sh`: resolves omnimind-api's `PORT`, sets `OMNIMIND_MCP_WRITE_EXTRACT=async`, fails verification unless a bogus `omt_` gets 401, and aborts before any write unless the latest `ci.yml` run on `main` is green **and** backup evidence is given (`--backup-ok` or a healthchecks.io dead-man < 26 h). The *MCP go-live* workflow passes both (`backup_ok`, `backup_check_url`, `actions: read`, `GH_TOKEN`).
+- **Lane B — memory (M1-B2):** sync-mode `memory_write` no longer refuses when the extractor is unavailable: it stores the raw row once, answers `ok: true, extraction: "deferred"`, and retries extraction in the background at 5 s / 30 s / 120 s (result kept in the replay cache).
+- **Lane C — decision session trust (M1-C3, M1-C1, M1-C2):** a reloaded or undispatched `/decisions/:id` shows its question (H1 + tab title) with Analyze/Edit; Analyze on `/decisions/new` moves to the session URL so reload works. Personas stream `situationReading` / `analysis` prose through a partial-JSON parser with rAF batching — no raw JSON ever renders; CLS during dispatch 0.0092 (budget 0.05, `tests/e2e/live/checks/cls.mjs`). A failed persona shows an error card with Retry (`POST /sessions/:id/dispatch {personaIds}` re-runs only those advisors, no debate round; unknown id → 400 `unknown_persona`); the CEO button reads "Synthesize without Critic" and the synthesis names missing advisors. Fixed on the way: a context-fetch throw left the card waiting forever.
+- **Lane D — docs (M0-D1, M0-D2, M1-B0 record):** status truth pass (43 models, BLK-101…105), ADR-016 MCP OAuth issuer and ADR-017 entity tenancy (both Proposed), DEC-004 phase 10–19 keep/park/kill.
+- **Integration:** header breadcrumb is desktop-only and truncates — at 390 px the question crumb wrapped word by word over the page (pre-existing on `main`).
+- **Founder items unchanged and blocking M1:** M0-F1 pg_dump + restore drill, M0-F2 rotate five secrets, M0-F4 hand-verify deploy, M1-F1 go-live, M1-F6 OAuth issuer, M1-F7 default tenant.
+
 ## 2026-10-22 — Phase 8 — Dev roadmap built by a multi-agent debate; main back to green
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR opened | **Tests:** docs only

@@ -57,6 +57,22 @@ const openConfigurator = [{ click: 'button:has-text("Customize")' }, { wait: '[r
 const RECORD_VT = `(() => { const orig = document.startViewTransition; if (typeof orig !== 'function') return; window.__vt = []; document.startViewTransition = function (opts) { const t = opts && opts.types ? Array.from(opts.types) : []; window.__vt.push(t); return orig.call(document, opts); }; })()`;
 const SLOW_VT = '::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 6s !important; }';
 const HAS_VT = 'typeof document.startViewTransition === "function"';
+// Streaming decision session (fixtures/session-stream.mjs): the stored question → Analyze → mid-stream.
+// The cards must show prose only — the assert fails the shot if a brace or a JSON key leaks.
+const NO_JSON_IN_CARDS = '[...document.querySelectorAll("[data-testid=persona-card]")].every((c) => !/[{}]|"?(situationReading|personaId|keyAssumptions)"?\\s*:/.test(c.textContent))';
+const streamMid = [
+  { wait: '[data-testid="session-review"]' }, { click: '[data-testid="session-review"] button:has-text("Analyze")' },
+  { wait: '[data-testid="persona-card"][data-state="streaming"]' }, { wait: '[data-testid="persona-card"][data-state="complete"]' },
+  { sleep: 1100 }, { assert: NO_JSON_IN_CARDS, message: 'a streaming card rendered JSON' },
+];
+// After an error (M1-C2): the Critic failed, the rest finished — error card with Retry, honest CEO step.
+const NO_THINKING = '!document.body.innerText.includes("Thinking")';
+const afterError = [
+  { wait: '[data-testid="session-review"]' }, { click: '[data-testid="session-review"] button:has-text("Analyze")' },
+  { wait: '[data-testid="persona-card"][data-state="error"]' }, { wait: '[data-testid="session-footer"] button:has-text("Synthesize without Critic")', timeout: 20000 },
+  { sleep: 400 }, { assert: NO_THINKING, message: '"Thinking..." is on the page after an error' },
+  { assert: '!!document.querySelector("[data-testid=persona-card][data-state=error] button")', message: 'the error card has no Retry button' },
+];
 
 // ── Page sets ─────────────────────────────────────────────────────────────────
 export function pageSets({ legacy = false } = {}) {
@@ -90,6 +106,10 @@ export function pageSets({ legacy = false } = {}) {
         : [{ wait: '[data-testid="synthesis-panel"]' }, { sleep: 400 }, { click: '[aria-label="Open synthesis as a sheet"]' }, { wait: '[data-testid="synthesis-sheet-body"]' }, { sleep: 500 }],
       contrast: legacy ? [] : [SHEET_TITLE],
     },
+    ...(legacy ? [] : [
+      { name: 'decision-session-streaming', path: '/decisions/s-stream', actions: streamMid },
+      { name: 'decision-session-error', path: '/decisions/s-stream-error', actions: afterError },
+    ]),
     { ...graph('graph-global'), measure: false, actions: [...graph('graph-global').actions, { hoverCanvas: { selector: '[data-testid="knowledge-graph-view"] canvas', until: '[data-testid="graph-tooltip"]' } }, { sleep: 350 }], contrast: [LEGEND_LABEL, LEGEND_COUNT, LEGEND_OFF, HOVER_TITLE, HOVER_META] },
     { ...graph('graph-local'), contrast: [LEGEND_LABEL, LEGEND_COUNT] },
     { ...graph('graph-spotlight'), contrast: [LEGEND_LABEL] },
@@ -124,6 +144,11 @@ export function pageSets({ legacy = false } = {}) {
 
   const mobile = [
     { name: 'dashboard-mobile', path: '/', actions: [...dash, ...settle] },
+    ...(legacy ? [] : [
+      { name: 'decision-session-streaming-mobile', path: '/decisions/s-stream', actions: streamMid },
+      // Mobile stacks the cards: scroll the failed one into view before the shot.
+      { name: 'decision-session-error-mobile', path: '/decisions/s-stream-error', actions: [...afterError, { evaluate: 'document.querySelector("[data-testid=persona-card][data-state=error]").scrollIntoView({ block: "center" })' }, { sleep: 300 }] },
+    ]),
     {
       name: 'decision-session-sheet-mobile', path: '/decisions/s-visual',
       actions: legacy

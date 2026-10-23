@@ -102,18 +102,21 @@ export function AppHeader({ onMenuToggle, scrolled = false }: AppHeaderProps) {
         >
           <Logo variant="icon" size={24} />
         </Link>
-        <p className="truncate text-lg font-semibold leading-9 tracking-title text-foreground" data-testid="app-header-title">{title}</p>
+        <p className="min-w-0 truncate text-lg md:shrink-0 font-semibold leading-9 tracking-title text-foreground" data-testid="app-header-title">{title}</p>
+        {/* Breadcrumbs are a desktop affordance: below md the row has room for
+            the title only, and a wrapped crumb trail overlapped the page. Each
+            crumb stays on one line and the trail truncates instead of wrapping. */}
         {breadcrumbs.length > 0 && (
-          <div className="flex items-center gap-1.5 text-sm leading-9">
+          <div className="hidden min-w-0 items-center gap-1.5 whitespace-nowrap text-sm leading-9 md:flex" data-testid="app-header-breadcrumbs">
             {breadcrumbs.map((crumb, i) => (
-              <span key={i} className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">{'›'}</span>
+              <span key={i} className="flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-muted-foreground">{'›'}</span>
                 {crumb.path ? (
-                  <Link to={crumb.path} className="text-muted-foreground transition-colors duration-fast ease-out hover:text-primary">
+                  <Link to={crumb.path} className="shrink-0 text-muted-foreground transition-colors duration-fast ease-out hover:text-primary">
                     {crumb.label}
                   </Link>
                 ) : (
-                  <span className="text-foreground">{crumb.label}</span>
+                  <span className="truncate text-foreground">{crumb.label}</span>
                 )}
               </span>
             ))}

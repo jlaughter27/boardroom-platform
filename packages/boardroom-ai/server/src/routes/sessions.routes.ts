@@ -8,8 +8,8 @@ import { omnimindClient } from '../services/omnimind-client';
 import { proposeExtractions, confirmExtractions } from '../services/extraction.service';
 import { exportSession } from '../services/export.service';
 import { getPersonasForMode, shouldIncludeCEO } from '../personas/mode-router';
-import type { PersonaId, UserMode, MemoryProposal } from '@boardroom/shared';
-import { CreateSessionBodySchema, MemoryProposalSchema } from '@boardroom/shared';
+import type { PersonaId, UserMode, MemoryProposal, CustomPersona, DispatchSessionRequest } from '@boardroom/shared';
+import { CreateSessionBodySchema, MemoryProposalSchema, DispatchSessionBodySchema, MODE_CONFIGS } from '@boardroom/shared';
 import { DecideBodySchema, commitDecision, type DecideBody } from '../services/decision-commit.service';
 import { validateBody } from '../middleware/validate';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
@@ -182,16 +182,48 @@ router.get('/', (req: AuthRequest, res) => {
   res.json({ items: userSessions, total: userSessions.length, offset: 0, limit: 20 });
 });
 
-// POST /sessions/:id/dispatch -- fire personas (SSE)
-router.post('/:id/dispatch', llmRateLimiter, async (req: AuthRequest, res, next) => {
+/**
+ * M1-C2 — ids in a retry body that are not advisors of this session: not in the
+ * mode's roster and not one of the user's active custom personas.
+ */
+async function unknownAdvisors(session: StoredSession, personaIds: string[]): Promise<string[]> {
+  const roster = new Set<string>(MODE_CONFIGS[session.mode]?.personas ?? []);
+  let unknown = personaIds.filter((id) => !roster.has(id));
+  if (unknown.length > 0) {
+    try {
+      const custom = await omnimindClient.getCustomPersonas(session.userId) as CustomPersona[];
+      const active = new Set(custom.filter((p) => p.isActive).map((p) => p.personaId));
+      unknown = unknown.filter((id) => !active.has(id));
+    } catch { /* custom personas unavailable: only the mode roster counts */ }
+  }
+  return unknown;
+}
+
+// POST /sessions/:id/dispatch -- fire personas (SSE).
+// Body (optional): `{ personaIds }` re-runs only those advisors (Retry on a failed
+// card) and never re-runs the debate round. Bad shape → 422 (validateBody); an id
+// that is not an advisor of this session → 400 `unknown_persona`.
+router.post('/:id/dispatch', validateBody(DispatchSessionBodySchema), llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
     const session = sessions.get(String(req.params.id));
     if (!session || session.userId !== req.auth!.userId) {
       res.status(404).json({ error: 'not_found', message: 'Session not found' });
       return;
     }
+    const { personaIds } = (req.body ?? {}) as DispatchSessionRequest;
+    if (personaIds) {
+      const unknown = await unknownAdvisors(session, personaIds);
+      if (unknown.length > 0) {
+        res.status(400).json({
+          error: 'unknown_persona',
+          message: `Not an advisor of this session: ${unknown.join(', ')}`,
+          details: unknown.map((id) => ({ field: 'personaIds', message: `unknown persona '${id}'` })),
+        });
+        return;
+      }
+    }
     const orchestrator = getOrchestrator();
-    await orchestrator.dispatch(session, res, abortOnClose(res));
+    await orchestrator.dispatch(session, res, abortOnClose(res), personaIds ? { personaIds } : {});
   } catch (err) { next(err); }
 });
 

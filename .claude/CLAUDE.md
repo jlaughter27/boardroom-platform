@@ -10,7 +10,7 @@ Executive decision intelligence suite for solo founders, indie hackers, and cons
 
 7-persona system (Optimist, Critic, Alternate, Technician, Questionnaire, Doer, CEO) with persistent cognitive memory, hybrid retrieval (vector + FTS + trigram), and a custom ~200-line agent runtime (no LangChain/CrewAI/LangGraph).
 
-**Current state:** Phase 1 complete. Both services live on Railway. Phase 2 spec'd but not coded.
+**Current state (2026-10-22):** delivery phases through 7.5 are merged (`main` = `c2c6fca`, CI green) and **Phase 8 — Dev roadmap** is active (`docs/roadmap/PHASE-8-ROADMAP.md`; active items in `docs/STATUS/CURRENT-PHASE.md`). BoardRoom AI and OmniMind API auto-deploy to Railway, but no deploy since PR #22 (`cdef1ef`) has been verified; the third service, `omnimind-mcp`, has never been launched. Open blockers: `docs/STATUS/BLOCKERS.md`.
 
 ---
 
@@ -97,7 +97,7 @@ The DeepSeek v3.2 split is RETIRED (ADR-007). Existing type files in shared/ wer
 1. **Check `docs/STATUS/CURRENT-PHASE.md` FIRST** — it tells you the active phase + active task. The roadmap is the source of truth for ongoing work.
 2. Follow the load-order in `docs/_meta/CONTEXT-LOAD-ORDER.md` for your task type (only ~2-3 files needed per task).
 3. Read this file completely if it's your first session in this repo.
-4. Check `docs/02-reference/DECISIONS.md` for the 14 architectural decisions — don't re-litigate settled decisions.
+4. Check `docs/02-reference/DECISIONS.md` for the architectural decisions (ADR-001 … ADR-017) — don't re-litigate settled decisions.
 5. Check `docs/contracts/` for API contracts between services.
 6. Read `docs/02-reference/FRAGILE-ZONES.md` if touching Docker, middleware ordering, Prisma, or env vars.
 7. The older `docs/tasks/_TASK-INDEX.md` is HISTORICAL; the live task index is `docs/STATUS/PHASE-PROGRESS-TRACKER.md`.
@@ -128,7 +128,7 @@ boardroom-platform/
 │   │   └── index.ts                # Barrel export
 │   │
 │   ├── omnimind-api/
-│   │   ├── prisma/schema.prisma    # 26 models, source of truth
+│   │   ├── prisma/schema.prisma    # 43 models, source of truth
 │   │   ├── src/
 │   │   │   ├── routes/             # 17 route files
 │   │   │   ├── services/           # 13 service files
@@ -201,21 +201,23 @@ boardroom-platform/
 
 ## Database (Prisma)
 
-**32 models** in `packages/omnimind-api/prisma/schema.prisma`. Key model groups:
+**43 models** in `packages/omnimind-api/prisma/schema.prisma` (`grep -c '^model ' packages/omnimind-api/prisma/schema.prisma`). Model groups:
 
 | Group | Models |
 |-------|--------|
 | Auth/Team | User, Team, TeamMember |
 | Sessions | Room, Participant, Session, TranscriptEntry, AdvisorMessage, MeetingOutput |
 | Memory | MemoryEntry (with vector(1536) embedding) |
-| Decisions | Decision, DecisionAssumption |
+| Decisions | Decision, DecisionAssumption, DecisionSession |
 | Commitments | Commitment |
 | Entities | Person, Goal, Project, Task |
-| Links | MemoryEntityLink, GoalProjectLink, ProjectPersonLink, ProjectTaskLink, DecisionProjectLink, TaskDependency |
+| Links | MemoryEntityLink, GoalProjectLink, ProjectPersonLink, ProjectTaskLink, DecisionProjectLink, TaskDependency, CommitmentLink |
 | Profile | UserProfile, ContextCapsule |
-| Cortex | ThinkingPattern, ContradictionAlert, WeeklyMemo, OutcomeReviewNudge |
+| Cortex | ThinkingPattern, ContradictionAlert, WeeklyMemo, OutcomeReviewNudge, WeeklyDigest |
 | Personas | CustomPersona |
 | Billing | Subscription, OAuthToken |
+| MCP / agents | Tenant, Agent, McpAuditLog, McpToken, McpOauthIdentity |
+| Ops | EmbeddingOutbox, LlmUsage, IdempotencyKey |
 
 **Important patterns:**
 - Multiple models use `deletedAt DateTime?` for soft deletes — all queries must filter `WHERE deletedAt IS NULL`
@@ -415,7 +417,7 @@ Post-implementation review:
 
 ## Architectural Decisions (Summary)
 
-14 ADRs in `docs/02-reference/DECISIONS.md` (ADR-001 … ADR-014). The critical ones:
+17 ADRs in `docs/02-reference/DECISIONS.md` (ADR-001 … ADR-017; ADR-016 MCP OAuth issuer and ADR-017 entity tenancy are Proposed). The critical ones:
 
 | ADR | Decision | Don't Revisit Unless |
 |-----|----------|---------------------|
@@ -433,13 +435,15 @@ Post-implementation review:
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| 0 — Foundation | ✅ Complete | Prisma schema (34 models), CRUD, validation, retrieval, Docker, agent runtime |
+| 0 — Foundation | ✅ Complete | Prisma schema (43 models as of 2026-10-22), CRUD, validation, retrieval, Docker, agent runtime |
 | 1 — Multi-Persona | ✅ Complete | 7 personas, dispatch, streaming, synthesis, extraction, eval |
 | 2 — Cortex Intelligence | ✅ Complete | Pattern detection (cron Mon 03:00), weekly memos (cron Sun 18:00), contradiction alerts (cron Mon 04:00), simulation — schedules are `CORTEX_CONFIG` in `shared/constants/cortex-config.ts`, server local time. Routes + services + prompts + UI all wired. |
 | 3 — Integrations | ✅ Partial | Google Calendar, Gmail, Stripe billing, custom personas — routes + services exist and are mounted |
 | 4+ — Collaboration | 📋 Future | Multi-user rooms (stub: `// app.use('/rooms', roomsRouter)` in index.ts), scaling |
+| 5.5 – 7.5 — Hardening, research backlog, MCP front door, UI foundation | ✅ Merged | 5.5 closeout `0475664` (PR #16); 5.7 audit remediation + Phase 6 in PR #20 `89fad1d`; Phase 7 PR #21 `77607bf`; Phase 7.5 PR #22 `cdef1ef`. Mapping to the memory-system roadmap phases 0–19: `docs/STATUS/PHASE-PROGRESS-TRACKER.md` → "Shipped phases → roadmap phases". |
+| 8 — Dev roadmap | 🧭 Active (from 2026-10-22) | M0 contain → M1 verified production + tenant-safe one memory → M2 dogfood day 1 (2026-11-12) → M3 ops floor → M4 verdict. Plan: `docs/roadmap/PHASE-8-ROADMAP.md`. |
 
-Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-INDEX.md` for the master index.
+Task specs live in `docs/tasks/phase-{n}/TASK-*.md` (historical; `docs/tasks/_TASK-INDEX.md` is the old index). Live per-item status: `docs/STATUS/PHASE-PROGRESS-TRACKER.md`.
 
 ---
 
@@ -467,7 +471,7 @@ Task specs live in `docs/tasks/phase-{n}/TASK-*.md`. Check `docs/tasks/_TASK-IND
 11. The retrieval-eval CI job's first real run (PR #20, 2026-10-03, mock embeddings) passed with a thin margin on the gated leg: for-persona recall@10 0.520 vs gate 0.5, MRR 0.440 vs 0.35; `/memories/search` recall@10 0.535, MRR 0.549; the `update` slice is the weakest (recall@10 0.27). The run is deterministic (hash-seeded vectors), so the margin is stable, not flaky. Thresholds ratchet upward only after three green runs on `main` per `docs/runbooks/retrieval-eval.md`.
 12. Reflection and commitment-nudge jobs, OTel export, private networking and the backup service all need Railway env/config (see the runbook checklist).
 13. **No push-based freshness for MCP clients.** MCP's `notifications/resources/updated` / `list_changed` exist but no shipping chat client (Claude.ai, ChatGPT, Cursor, …) turns them into an assistant turn or auto-reads resources, so "all platforms stay up to date" means **turn-time reads**: the server's `instructions` and the `session_start` prompt tell hosts to call `status_get` / `memory_search` at the start of relevant turns, and a write from any client is visible to every other client on its next turn, not before. Phase 12 (outbox/webhooks) pushes to agents and UIs we control, not to third-party chat clients. See `docs/runbooks/omnimind-mcp.md` §8.
-14. **OAuth is resource-server only — and it is the only way in for ChatGPT and most Claude.ai organizations.** ChatGPT's connector dialog offers OAuth or "No authentication" and has no header / API-key field, so per-user `omt_` tokens can never be used from ChatGPT; claude.ai's *Request headers* section (`authorization` = `Bearer omt_…`, sent verbatim) is a beta for a limited set of organizations, and Claude Desktop can otherwise only reach the hosted URL through the `claude_desktop_config.json` `mcp-remote` bridge. The MCP service validates JWTs from the single configured issuer (`OMNIMIND_MCP_OAUTH_ISSUER` / `_JWKS_URL` / `_AUDIENCE`, RFC 9728 PRM at `/.well-known/oauth-protected-resource`, RFC 8707 audience binding), reads `email` / `email_verified` from the token or — when the token lacks them — from the issuer's `userinfo_endpoint` (`OMNIMIND_MCP_OAUTH_USERINFO=false` disables), auto-links the user read-only to their oldest owned tenant by verified e-mail, and otherwise returns `401 unlinked` until an admin links the subject with `POST /mcp/identities {issuer, subject, userId, tenantId, scopes?}` (widen later with `PATCH /mcp/identities/:id`). There is **no built-in authorization server** and no consent-time scope picker; client registration (CIMD, which Claude and ChatGPT prefer; DCR, deprecated in MCP spec 2026-07-28 but still used by ChatGPT/Cursor/Gemini CLI/Copilot Studio; static clients) is the issuer's job — recipe in `docs/runbooks/omnimind-mcp.md` §9 (ADR-014 spike).
+14. **OAuth is resource-server only — and it is the only way in for ChatGPT and most Claude.ai organizations.** ChatGPT's connector dialog offers OAuth or "No authentication" and has no header / API-key field, so per-user `omt_` tokens can never be used from ChatGPT; claude.ai's *Request headers* section (`authorization` = `Bearer omt_…`, sent verbatim) is a beta for a limited set of organizations, and Claude Desktop can otherwise only reach the hosted URL through the `claude_desktop_config.json` `mcp-remote` bridge. The MCP service validates JWTs from the single configured issuer (`OMNIMIND_MCP_OAUTH_ISSUER` / `_JWKS_URL` / `_AUDIENCE`, RFC 9728 PRM at `/.well-known/oauth-protected-resource`, RFC 8707 audience binding), reads `email` / `email_verified` from the token or — when the token lacks them — from the issuer's `userinfo_endpoint` (`OMNIMIND_MCP_OAUTH_USERINFO=false` disables), auto-links the user read-only to their oldest owned tenant by verified e-mail, and otherwise returns `401 unlinked` until an admin links the subject with `POST /mcp/identities {issuer, subject, userId, tenantId, scopes?}` (widen later with `PATCH /mcp/identities/:id`). There is **no built-in authorization server** and no consent-time scope picker; client registration (CIMD, which Claude and ChatGPT prefer; DCR, deprecated in MCP spec 2026-07-28 but still used by ChatGPT/Cursor/Gemini CLI/Copilot Studio; static clients) is the issuer's job — recipe in `docs/runbooks/omnimind-mcp.md` §9 (ADR-016, Proposed).
 
 ## Resilience layer (omnimind-client.ts)
 
