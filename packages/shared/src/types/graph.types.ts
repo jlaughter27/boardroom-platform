@@ -82,3 +82,24 @@ export interface KnowledgeGraphQuery {
   /** Include ARCHIVED memories (default false) */
   includeArchived?: boolean;
 }
+
+/**
+ * One memory that links TO a given memory (`GET /memories/:id/backlinks`).
+ * Companion schema: `MemoryBacklinkSchema`.
+ */
+export interface MemoryBacklink {
+  /** The linking (source) memory. */
+  memoryId: string;
+  title: string;
+  domain: string | null;
+  status: string;
+  /** Every link type from that memory to this one (e.g. `['wikilink']`). */
+  linkTypes: string[];
+}
+
+/** `GET /memories/:id/backlinks` response. Companion schema: `MemoryBacklinksResponseSchema`. */
+export interface MemoryBacklinksResponse {
+  items: MemoryBacklink[];
+  /** True when the 500-row read cap was hit (some backlinks are not listed). */
+  truncated: boolean;
+}
