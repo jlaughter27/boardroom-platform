@@ -45,6 +45,8 @@ Exit codes: `0` done (or dry run), `1` at least one write failed (listed with st
 - Any MCP client on a `josh-business` token: `memory_search "<a phrase from a note>"`.
 - `GET /memories?tags=vault&limit=1` with the agent headers → `total` equals the number of imported notes.
 
+**Regression guard (RD-7).** CI's `e2e` job imports the synthetic vault in `tests/fixtures/vault/` (invented notes; answer key `expected.json`) into a throwaway OmniMind + BoardRoom and asserts: every importable note lands once in `josh-business`, ministry and plumbing stay out, the wikilinks reach `GET /graph` as memory→memory edges, a keyword and a natural-language question each find their note in the top 3, and a re-run writes nothing. Locally: `node tests/e2e/live/checks/vault-import.mjs --standalone` (needs `BOARDROOM_URL`, `OMNIMIND_URL`, `OMNIMIND_API_KEY`), or as one step of `pnpm e2e:live`. Never point it at the real vault; the fixture is the contract.
+
 ## Ministry notes
 
 When the ministry embedding path is live (local embeddings, `MINISTRY_DEFERRED` lifted), extend the importer to write the held-back list to `tgfc-ministry` with `domain: ministry`. Until then they stay in the vault only.

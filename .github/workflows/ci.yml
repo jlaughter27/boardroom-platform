@@ -125,7 +125,7 @@ jobs:
     name: E2E (tenant isolation + scope gate, pgvector)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -172,6 +172,67 @@ jobs:
 
       - name: E2E suite
         run: pnpm test:e2e
+
+      # RD-7 — vault flow regression guard: import → links → graph → search →
+      # idempotent re-run, on the synthetic vault in tests/fixtures/vault. It is
+      # the journey check tests/e2e/live/checks/vault-import.mjs run with
+      # --standalone: the flow is all HTTP, so CI needs OmniMind + BoardRoom (run
+      # from source with tsx, nothing to build), not Chromium or the MCP gateway.
+      # Own database in the same pgvector service; migrate deploy like production
+      # (it also seeds the three tenants). The service key is a throwaway CI value,
+      # not a secret; nothing leaves the runner. ~2 min: the 28 creates are paced
+      # under OmniMind's 20/min per-user write limit.
+      - name: "Vault flow: database (vault_e2e, migrate deploy)"
+        working-directory: packages/omnimind-api
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5433/vault_e2e
+        run: |
+          PGPASSWORD=test_password psql -h localhost -p 5433 -U test_user -d boardroom_test -c 'CREATE DATABASE vault_e2e'
+          PGPASSWORD=test_password psql -h localhost -p 5433 -U test_user -d vault_e2e \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm' \
+            -c 'CREATE EXTENSION IF NOT EXISTS btree_gin'
+          pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: "Vault flow: start OmniMind (:3333) + BoardRoom (:3001)"
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5433/vault_e2e
+          OMNIMIND_API_KEY: ci-vault-service-key
+        run: |
+          cd packages/omnimind-api
+          PORT=3333 nohup ../../node_modules/.bin/tsx ../../tests/e2e/harness/api-entrypoint.ts > "$RUNNER_TEMP/vault-omnimind.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/vault-omnimind.pid"
+          cd ../boardroom-ai
+          NODE_ENV=development PORT=3001 JWT_SECRET=ci-vault-jwt OMNIMIND_API_URL=http://127.0.0.1:3333 ANTHROPIC_API_KEY=ci-dummy \
+            nohup ../../node_modules/.bin/tsx server/src/index.ts > "$RUNNER_TEMP/vault-boardroom.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/vault-boardroom.pid"
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3333/health > /dev/null 2>&1 && curl -fsS http://127.0.0.1:3001/health > /dev/null 2>&1; then
+              echo "both healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "the vault-flow stack did not become healthy"
+          tail -n 50 "$RUNNER_TEMP/vault-omnimind.log" "$RUNNER_TEMP/vault-boardroom.log"
+          exit 1
+
+      - name: "Vault flow: import → links → graph → search → re-run (RD-7)"
+        env:
+          BOARDROOM_URL: http://127.0.0.1:3001
+          OMNIMIND_URL: http://127.0.0.1:3333
+          OMNIMIND_API_KEY: ci-vault-service-key
+        run: node tests/e2e/live/checks/vault-import.mjs --standalone
+
+      - name: "Vault flow: server logs (on failure)"
+        if: failure()
+        run: tail -n 150 "$RUNNER_TEMP/vault-omnimind.log" "$RUNNER_TEMP/vault-boardroom.log" || true
+
+      - name: "Vault flow: stop servers"
+        if: always()
+        run: |
+          for f in vault-omnimind vault-boardroom; do
+            if [ -f "$RUNNER_TEMP/$f.pid" ]; then kill "$(cat "$RUNNER_TEMP/$f.pid")" 2>/dev/null || true; fi
+          done
 
   retrieval-eval:
     name: Retrieval IR eval (pgvector, mock embeddings)

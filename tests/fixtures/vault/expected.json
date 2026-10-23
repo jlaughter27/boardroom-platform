@@ -1,0 +1,66 @@
+{
+  "$comment": "Hand-written answer key for the synthetic vault (RD-7). Not derived from scripts/vault-import.mjs: if the importer and this file disagree, one of them has a bug.",
+  "tenant": "josh-business",
+  "imported": [
+    ".raw/articles/Benchmark Report 2026.md",
+    ".raw/identity/fixture-owner.md",
+    ".raw/transcripts/Customer Call - Lattice Foods.md",
+    "wiki/concepts/Churn Early Warning.md",
+    "wiki/concepts/Onboarding Under Four Minutes.md",
+    "wiki/concepts/Pricing Ladder.md",
+    "wiki/concepts/Prompt Caching Budget.md",
+    "wiki/concepts/Retrieval Before Generation.md",
+    "wiki/concepts/Support Inbox Zero.md",
+    "wiki/concepts/Weekly Operating Review.md",
+    "wiki/decisions/Hire a Second Engineer.md",
+    "wiki/decisions/Move to Annual Billing.md",
+    "wiki/decisions/Sunset the Free Tier.md",
+    "wiki/domains/personal/Morning Routine.md",
+    "wiki/domains/ventures/Course - Pricing Masterclass/Module 1 - Value Metrics.md",
+    "wiki/domains/ventures/Glossary - Net Revenue Retention.md",
+    "wiki/domains/ventures/Harbor Expansion Plan.md",
+    "wiki/entities/Devin Achterberg.md",
+    "wiki/entities/Fernway CRM.md",
+    "wiki/entities/Harbor Analytics.md",
+    "wiki/entities/Lattice Foods.md",
+    "wiki/entities/Marisol Okafor.md",
+    "wiki/entities/Quill Payments.md",
+    "wiki/meta/Fixture Owner.md",
+    "wiki/projects/Data Export API.md",
+    "wiki/projects/Partner Referral Program.md",
+    "wiki/sources/Founder Interview Notes.md",
+    "wiki/sources/Pricing Survey Q3.md"
+  ],
+  "byDomain": { "business": 22, "personal": 2, "ai-systems": 2, "learning": 2 },
+  "ministry": ["wiki/concepts/Volunteer Rota.md"],
+  "ministryTitle": "Volunteer Rota",
+  "plumbing": [
+    "wiki/concepts/Old Pricing Name.md",
+    "wiki/domains/ventures/_index.md",
+    "wiki/hot.md",
+    "wiki/log.md",
+    "wiki/meta/stale-pages.base.md"
+  ],
+  "nulNote": "wiki/sources/Founder Interview Notes.md",
+  "links": {
+    "count": 47,
+    "unresolved": 1,
+    "mustInclude": [
+      { "from": "wiki/concepts/Weekly Operating Review.md", "to": "wiki/entities/Harbor Analytics.md", "why": "alias-only [[Harbor]]" },
+      { "from": "wiki/concepts/Weekly Operating Review.md", "to": "wiki/entities/Fernway CRM.md", "why": "alias-only [[Fernway]] (block-list aliases)" },
+      { "from": "wiki/concepts/Pricing Ladder.md", "to": "wiki/decisions/Move to Annual Billing.md", "why": "[[Target|label]]" },
+      { "from": "wiki/domains/ventures/Harbor Expansion Plan.md", "to": "wiki/entities/Harbor Analytics.md", "why": "[[folder/Target]]" },
+      { "from": "wiki/domains/ventures/Harbor Expansion Plan.md", "to": "wiki/projects/Data Export API.md", "why": "[[Target#Heading|label]]" },
+      { "from": "wiki/sources/Pricing Survey Q3.md", "to": "wiki/concepts/Pricing Ladder.md", "why": "alias [[Price Ladder]]" }
+    ],
+    "orphans": [
+      ".raw/identity/fixture-owner.md",
+      "wiki/domains/personal/Morning Routine.md",
+      "wiki/domains/ventures/Glossary - Net Revenue Retention.md"
+    ]
+  },
+  "search": [
+    { "kind": "keyword", "query": "chargeback", "expect": "wiki/entities/Quill Payments.md" },
+    { "kind": "question", "query": "How do we spot customers who are about to cancel?", "expect": "wiki/concepts/Churn Early Warning.md" }
+  ]
+}

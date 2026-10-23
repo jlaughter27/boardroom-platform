@@ -2,9 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parseNote, wikilinks, skipReason, isMinistry, classifyDomain, toMemory, planVault,
   makeClient, existingVaultRows, runImport, resolveUserId, domainCounts,
@@ -100,6 +101,30 @@ test('planVault reads only wiki/ and .raw/, holds ministry back, skips plumbing'
     assert.deepEqual(plan.ministry, ['wiki/concepts/Church Goal.md']);
     assert.deepEqual(plan.skipped.map(s => s.path).sort(), ['wiki/domains/ventures/_index.md', 'wiki/log.md']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the RD-7 fixture vault (tests/fixtures/vault) plans exactly as its hand-written answer key says', () => {
+  const root = fileURLToPath(new URL('../../tests/fixtures/vault/', import.meta.url));
+  const expected = JSON.parse(readFileSync(join(root, 'expected.json'), 'utf8'));
+  const plan = planVault(root);
+  assert.deepEqual(plan.memories.map(m => m.path).sort(), [...expected.imported].sort());
+  assert.deepEqual(plan.ministry, expected.ministry);
+  assert.deepEqual(plan.skipped.map(s => s.path).sort(), [...expected.plumbing].sort());
+  const byDomain = {};
+  for (const m of plan.memories) byDomain[m.body.domain] = (byDomain[m.body.domain] ?? 0) + 1;
+  assert.deepEqual(byDomain, expected.byDomain);
+  assert.ok(readFileSync(join(root, expected.nulNote), 'utf8').includes('\u0000'), 'the fixture really carries a NUL byte');
+  const nul = plan.memories.find(m => m.path === expected.nulNote);
+  assert.ok(!nul.body.content.includes('\u0000') && !nul.body.title.includes('\u0000'));
+
+  const ids = new Map(plan.memories.map(m => [m.path, `id:${m.path}`]));
+  const { links, unresolved } = resolveWikilinks(plan.memories, ids);
+  assert.equal(links.length, expected.links.count);
+  assert.equal(unresolved, expected.links.unresolved);
+  const pairs = new Set(links.map(l => `${l.memoryId.slice(3)} → ${l.entityId.slice(3)}`));
+  for (const l of expected.links.mustInclude) assert.ok(pairs.has(`${l.from} → ${l.to}`), `${l.why}: ${l.from} → ${l.to}`);
+  const linked = new Set([...pairs].flatMap(p => p.split(' → ')));
+  assert.deepEqual(expected.imported.filter(p => !linked.has(p)).sort(), [...expected.links.orphans].sort());
 });
 
 // ── Mock OmniMind ────────────────────────────────────────────────────────────
