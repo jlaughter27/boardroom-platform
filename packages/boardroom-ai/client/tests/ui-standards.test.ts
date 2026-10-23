@@ -379,3 +379,50 @@ describe('brand gold and token contrast (Lane D · M1-D1)', () => {
     expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RD-1 — memory content is markdown (docs/roadmap/PHASE-8-REAL-DATA-ROADMAP.md).
+//
+// One sanitizing renderer: react-markdown + remark-gfm in
+// components/memory/MemoryMarkdown.tsx, never raw HTML. Memory content is not
+// dumped as plain text in the memory components (the detail renders markdown,
+// the cards strip it), and wide markdown tables scroll inside their own region.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MARKDOWN_RENDERER = 'components/memory/MemoryMarkdown.tsx';
+
+describe('memory markdown (RD-1)', () => {
+  it('no `dangerouslySetInnerHTML`, `rehype-raw` or `allowDangerousHtml` anywhere in the client', () => {
+    const hits = scan((line) => /dangerouslySetInnerHTML|rehype-raw|allowDangerousHtml/.test(line));
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+  });
+
+  it('react-markdown is imported only by the one sanitizing renderer', () => {
+    const hits = scan((line, rel) => /from ['"]react-markdown['"]/.test(line) && rel !== MARKDOWN_RENDERER);
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+    const src = readFileSync(join(SRC, MARKDOWN_RENDERER), 'utf8');
+    expect(src).toMatch(/from ['"]react-markdown['"]/);
+    expect(src).toMatch(/from ['"]remark-gfm['"]/);
+  });
+
+  it('memory components never render `memory.content` as raw JSX text', () => {
+    const hits = scan((line, rel) => rel.startsWith('components/memory/') && /\{\s*(memory|m|rm|selectedMemory)\.content\s*\}/.test(line));
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+  });
+
+  it('memory cards build their preview with markdownToPlainText', () => {
+    const src = readFileSync(join(SRC, 'components/memory/MemoryCard.tsx'), 'utf8');
+    expect(src).toMatch(/markdownToPlainText\(/);
+    expect(src).not.toMatch(/\{\s*memory\.content\s*\}/);
+  });
+
+  it('markdown tables sit in a focusable overflow-x-auto region (they scroll inside the panel, never the page)', () => {
+    const src = readFileSync(join(SRC, MARKDOWN_RENDERER), 'utf8');
+    const start = src.indexOf('table: (');
+    const table = src.slice(start, src.indexOf('thead:', start));
+    expect(start).toBeGreaterThan(-1);
+    expect(table).toMatch(/overflow-x-auto/);
+    expect(table).toMatch(/tabIndex=\{0\}/);
+    expect(table).toMatch(/role="region"/);
+  });
+});
