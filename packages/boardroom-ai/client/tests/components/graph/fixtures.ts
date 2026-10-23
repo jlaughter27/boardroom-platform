@@ -26,7 +26,7 @@ export function edge(source: string, target: string, type: KnowledgeGraphEdgeTyp
 export function graphOf(nodes: KnowledgeGraphNode[], edges: KnowledgeGraphEdge[]): KnowledgeGraph {
   const nodeCounts: Record<KnowledgeGraphNodeType, number> = { goal: 0, project: 0, task: 0, person: 0, decision: 0, commitment: 0, memory: 0 };
   for (const n of nodes) nodeCounts[n.type] += 1;
-  return { nodes, edges, stats: { nodeCounts, edgeCount: edges.length, isolatedNodes: 0, memoryLimitHit: false }, generatedAt: '2026-10-18T00:00:00.000Z' };
+  return { nodes, edges, stats: { nodeCounts, edgeCount: edges.length, isolatedNodes: 0, memoryLimitHit: false, memoryTotal: nodeCounts.memory }, generatedAt: '2026-10-18T00:00:00.000Z' };
 }
 
 /**

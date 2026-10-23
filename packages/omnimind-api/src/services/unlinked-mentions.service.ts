@@ -248,3 +248,67 @@ export async function linkMention(
   });
   return { ok: true, created: true, link };
 }
+
+export interface BatchLinkInput { memoryId: string; entityType: string; entityId: string; linkType?: string }
+export interface BatchLinkResult {
+  created: number;
+  existing: number;
+  rejected: { index: number; reason: 'unknown_entity_type' | 'memory_not_found' | 'entity_not_found' | 'self_link' }[];
+}
+
+/**
+ * Creates many MemoryEntityLinks at once (POST /memories/links/batch). Same rules
+ * as the single-link route, checked in bulk: every source memory must be the
+ * user's (and in the agent's tenant when present); every target must be the
+ * user's and live — memory targets also in that tenant, so a link can never
+ * point across tenants. Idempotent on the link's unique tuple.
+ */
+export async function linkMemoriesBatch(
+  userId: string,
+  links: BatchLinkInput[],
+  opts: { tenantId?: string },
+  prisma: PrismaClient,
+): Promise<BatchLinkResult> {
+  const rejected: BatchLinkResult['rejected'] = [];
+  const typed = links.map((l, index) => ({ ...l, index, type: normalizeLinkEntityType(l.entityType) }));
+  const tenant = opts.tenantId ? { tenantId: opts.tenantId } : {};
+
+  const sourceIds = [...new Set(typed.map(l => l.memoryId))];
+  const sources = new Set((await prisma.memoryEntry.findMany({
+    where: { id: { in: sourceIds }, userId, deletedAt: null, ...tenant }, select: { id: true },
+  })).map(m => m.id));
+
+  const idsOf = (t: LegacyLinkEntityType) => [...new Set(typed.filter(l => l.type === t).map(l => l.entityId))];
+  const where = (ids: string[]) => ({ id: { in: ids }, userId, deletedAt: null });
+  const select = { id: true } as const;
+  const found = new Map<LegacyLinkEntityType, Set<string>>();
+  const load = async (t: LegacyLinkEntityType, q: (ids: string[]) => Promise<{ id: string }[]>) => {
+    const ids = idsOf(t);
+    found.set(t, new Set(ids.length ? (await q(ids)).map(r => r.id) : []));
+  };
+  await Promise.all([
+    load('memory', ids => prisma.memoryEntry.findMany({ where: { ...where(ids), ...tenant }, select })),
+    load('person', ids => prisma.person.findMany({ where: where(ids), select })),
+    load('project', ids => prisma.project.findMany({ where: where(ids), select })),
+    load('goal', ids => prisma.goal.findMany({ where: where(ids), select })),
+    load('task', ids => prisma.task.findMany({ where: where(ids), select })),
+    load('decision', ids => prisma.decision.findMany({ where: where(ids), select })),
+    load('commitment', ids => prisma.commitment.findMany({ where: where(ids), select })),
+  ]);
+
+  const data: { memoryId: string; entityType: string; entityId: string; linkType: string }[] = [];
+  const seen = new Set<string>();
+  for (const l of typed) {
+    if (!l.type) { rejected.push({ index: l.index, reason: 'unknown_entity_type' }); continue; }
+    if (l.type === 'memory' && l.entityId === l.memoryId) { rejected.push({ index: l.index, reason: 'self_link' }); continue; }
+    if (!sources.has(l.memoryId)) { rejected.push({ index: l.index, reason: 'memory_not_found' }); continue; }
+    if (!found.get(l.type)?.has(l.entityId)) { rejected.push({ index: l.index, reason: 'entity_not_found' }); continue; }
+    const row = { memoryId: l.memoryId, entityType: l.type, entityId: l.entityId, linkType: l.linkType ?? 'relates_to' };
+    const key = `${row.memoryId}|${row.entityType}|${row.entityId}|${row.linkType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    data.push(row);
+  }
+  const { count } = data.length ? await prisma.memoryEntityLink.createMany({ data, skipDuplicates: true }) : { count: 0 };
+  return { created: count, existing: data.length - count, rejected };
+}

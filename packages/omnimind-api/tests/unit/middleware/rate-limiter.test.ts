@@ -107,6 +107,31 @@ describe('rateLimiter middleware', () => {
     expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ message: `Rate limit exceeded. Max ${USER_READ_RATE_LIMIT_PER_MINUTE} requests per minute.` }));
   });
 
+  it('POST reads (/memories/search, /context/for-persona, …) use the read budget and never drain the write budget (2026-10-23 real-data e2e)', () => {
+    mockReq.method = 'POST';
+    for (const path of ['/memories/search', '/context/for-persona', '/memories/search-similar', '/memories/validate']) {
+      mockReq.path = path;
+      for (let i = 0; i < RATE_LIMITS.MAX_QUERIES_PER_MINUTE; i++) rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    }
+    expect(mockRes.status).not.toHaveBeenCalled();
+    // The write budget is untouched: a full minute of writes still goes through.
+    mockReq.path = '/memories';
+    for (let i = 0; i < RATE_LIMITS.MAX_QUERIES_PER_MINUTE; i++) rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.status).not.toHaveBeenCalled();
+    rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.status).toHaveBeenCalledWith(429);
+  });
+
+  it('POST reads share one read bucket with GET', () => {
+    mockReq.method = 'GET';
+    for (let i = 0; i < USER_READ_RATE_LIMIT_PER_MINUTE - 1; i++) rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    mockReq.method = 'POST'; mockReq.path = '/memories/search';
+    rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.status).not.toHaveBeenCalled();
+    rateLimiter(mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.status).toHaveBeenCalledWith(429);
+  });
+
   it('the read budget never drops below the shared write budget', () => {
     expect(USER_READ_RATE_LIMIT_PER_MINUTE).toBeGreaterThanOrEqual(RATE_LIMITS.MAX_QUERIES_PER_MINUTE);
   });

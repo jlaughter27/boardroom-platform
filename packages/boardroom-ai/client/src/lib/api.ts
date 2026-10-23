@@ -2,6 +2,7 @@
 // All calls go through Vite proxy: /api → localhost:3001
 
 import type {
+  MemoryBudgetReport,
   Goal,
   Project,
   Task,
@@ -26,6 +27,7 @@ import type {
   McpTokenCreateResponse,
   McpTokenListResponse,
   McpTokenOptions,
+  MemoryBacklinksResponse,
 } from '@boardroom/shared';
 import type { ClientUserMode } from '../types/debate';
 
@@ -212,6 +214,8 @@ interface SessionDetail {
   sufficiencyScore: unknown | null;
   /** Phase 6 — set once `POST /sessions/:id/decide` has created a Decision. */
   decisionId?: string | null;
+  /** Phase 6 debate round 2, keyed by personaId (validated on hydrate — RD-9a). */
+  rebuttals?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -487,7 +491,7 @@ export function getRelationshipGraph() {
   );
 }
 
-/** Knowledge graph for the /graph page. Server caps memories (default 150, max 500). */
+/** Knowledge graph for the /graph page. Server caps memories by importance (default 200, max 1000 — RD-6). */
 export function getKnowledgeGraph(query: KnowledgeGraphQuery = {}) {
   const qs = new URLSearchParams();
   if (query.types?.length) qs.set('types', query.types.join(','));
@@ -519,6 +523,11 @@ export function createMemoryLink(memoryId: string, data: { entityType: string; e
 
 export function getMemoryLinks(memoryId: string) {
   return request<MemoryEntityLink[]>(`/memories/${memoryId}/links`);
+}
+
+/** RD-1 — `GET /memories/:id/backlinks`: memories that link TO this one ("Linked from"). */
+export function getMemoryBacklinks(memoryId: string) {
+  return request<MemoryBacklinksResponse>(`/memories/${encodeURIComponent(memoryId)}/backlinks`);
 }
 
 export function deleteMemoryLink(memoryId: string, linkId: string) {
@@ -624,6 +633,14 @@ export function updateContradiction(id: string, status: string, resolution?: str
     method: 'PATCH',
     body: JSON.stringify({ status, resolution }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Memory budget (RD-4) — soft per-domain limits, read-only
+// ---------------------------------------------------------------------------
+
+export function getMemoryBudget() {
+  return request<MemoryBudgetReport>('/memories/budget');
 }
 
 // ---------------------------------------------------------------------------

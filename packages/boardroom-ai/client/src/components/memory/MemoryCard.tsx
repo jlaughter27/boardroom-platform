@@ -1,7 +1,8 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type { Memory } from '@boardroom/shared';
 import { MemoryStatus } from '@boardroom/shared';
 import { cn } from '../../lib/cn';
+import { markdownToPlainText, stripLeadingTitleHeading } from '../../lib/markdown';
 
 interface MemoryCardProps {
   memory: Memory;
@@ -59,10 +60,12 @@ export const MemoryCard = memo(function MemoryCard({ memory, isSelected, onClick
   const classColor = classColors[memory.memoryClass] ?? 'bg-muted text-muted-foreground border-border';
   const confColor = confidenceColors[memory.confidence] ?? 'text-muted-foreground';
 
-  const preview =
-    memory.content.length > 100
-      ? memory.content.slice(0, 100) + '...'
-      : memory.content;
+  // RD-1: markdown syntax stripped for the 2-line preview (wikilink labels kept;
+  // a leading `# <title>` that repeats the card title is dropped).
+  const preview = useMemo(
+    () => markdownToPlainText(stripLeadingTitleHeading(memory.content ?? '', memory.title), 200),
+    [memory.content, memory.title],
+  );
 
   const displayTags = memory.tags.slice(0, 3);
 

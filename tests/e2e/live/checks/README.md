@@ -68,3 +68,8 @@ sandbox ships. `PLAYWRIGHT_MODULE_PATH` overrides where it is resolved from.
 |---|---|---|
 | `smoke.mjs` | Lane A (M1-A3) | The sample check: BoardRoom `/health` and `/ready`, the signed-in page renders, MCP `ping` works. |
 | `cls.mjs` | Lane C (M1-C1) | CLS ≤ 0.05 during a persona dispatch. |
+| `vault-import.mjs` | Tooling lane (RD-7) | The vault flow on the synthetic vault in `tests/fixtures/vault/` (answer key `expected.json`): the importer CLI puts every importable note in `josh-business` exactly once (ministry + plumbing absent), writes the wikilinks, `GET /graph` draws them as memory→memory edges with only the unlinked notes orphaned, a keyword and a natural-language question each find their note in the top 3 (and MCP `memory_search` in the journey), a second run writes nothing, and (RD-5) after a note and a wikilink are removed from its copy, `--prune --dry-run` lists exactly those and `--prune` archives the note and removes the stale links. Needs `OMNIMIND_API_KEY` (the importer's service key). CI runs it with `--standalone` in the `e2e` job (OmniMind + BoardRoom only, ~3 min). |
+
+`vault-import.mjs --standalone` registers its own user through BoardRoom and needs only
+OmniMind and BoardRoom (`BOARDROOM_URL`, `OMNIMIND_URL`, `OMNIMIND_API_KEY`); see the
+"Vault flow" steps of the `e2e` job in `.github/workflows/ci.yml` for the exact bring-up.

@@ -1,7 +1,7 @@
 // API request/response types — TASK-004 (DeepSeek)
 // Implement from: docs/contracts/omnimind-api.contract.md
 
-import type { Confidence, MemoryClass, SourceType } from './memory.types';
+import type { Confidence, MemoryBudgetStatus, MemoryClass, SourceType } from './memory.types';
 import type { PersonaId } from './persona.types';
 
 // --- Memory endpoints ---
@@ -24,11 +24,17 @@ export interface CreateMemoryRequest {
 
 export interface CreateMemoryResponse {
   id: string;
-  status: 'created';
+  /** 'updated' = an agent write merged into a near-duplicate (see the contract). */
+  status: 'created' | 'updated';
   validation: {
     syncPassed: boolean;
     errors: string[];
   };
+  /**
+   * RD-4: present only when the domain is over its soft budget after this
+   * write (`over: true`). The write itself succeeded.
+   */
+  budget?: MemoryBudgetStatus;
 }
 
 // --- Context endpoints ---
@@ -97,6 +103,28 @@ export interface SessionSummary {
  */
 export interface DispatchSessionRequest {
   personaIds?: PersonaId[];
+}
+
+/** One link in `POST /memories/links/batch`. Companion schema: `BatchMemoryLinkItemSchema`. */
+export interface BatchMemoryLinkItem {
+  memoryId: string;
+  entityType: string;
+  entityId: string;
+  linkType?: string;
+}
+
+/** `POST /memories/links/batch` body (≤ 500 links). Companion schema: `BatchMemoryLinksBodySchema`. */
+export interface BatchMemoryLinksRequest {
+  links: BatchMemoryLinkItem[];
+}
+
+export interface BatchMemoryLinksResponse {
+  /** Links newly written. */
+  created: number;
+  /** Valid links that already existed (idempotent re-run). */
+  existing: number;
+  /** Links refused, by index in the request. */
+  rejected: { index: number; reason: 'unknown_entity_type' | 'memory_not_found' | 'entity_not_found' | 'self_link' }[];
 }
 
 // --- Common ---

@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import type { Memory } from '@boardroom/shared';
 import { MemoryClass, MemoryStatus, Confidence } from '@boardroom/shared';
 import { useMemoryStore } from '../../stores/memory.store';
 import * as api from '../../lib/api';
 import type { MemoryEntityLink } from '../../lib/api';
 import { EntityLinker } from './EntityLinker';
+import { LazyMemoryMarkdown } from './memory-markdown-loader';
+import { MemoryBacklinks } from './MemoryBacklinks';
+import { useMemoryWikilinks } from './use-memory-wikilinks';
+import { stripLeadingTitleHeading } from '../../lib/markdown';
 
 interface MemoryDetailProps {
   memory: Memory;
@@ -43,6 +47,17 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
   goal: 'bg-success-muted text-success border-success/30',
   project: 'bg-primary/10 text-primary-text border-primary/30',
 };
+
+/** Placeholder while the markdown renderer chunk loads (first open only). */
+function MarkdownSkeleton() {
+  return (
+    <div className="mt-2 space-y-2 animate-pulse" aria-hidden="true" data-testid="memory-markdown-loading">
+      <div className="h-3 w-5/6 rounded bg-muted" />
+      <div className="h-3 w-full rounded bg-muted" />
+      <div className="h-3 w-2/3 rounded bg-muted" />
+    </div>
+  );
+}
 
 export function MemoryDetail({ memory }: MemoryDetailProps) {
   const { updateMemory, archiveMemory } = useMemoryStore();
@@ -91,6 +106,9 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
       setLoadingLinks(false);
     }).catch(() => setLoadingLinks(false));
   }, [memory.id]);
+
+  // RD-1: [[wikilinks]] resolve through the outgoing link rows, then by title.
+  const { resolve: resolveWikilink, open: openMemory, byId: linkedById } = useMemoryWikilinks(memory, entityLinks);
 
   function refreshLinks() {
     api.getMemoryLinks(memory.id).then(links => {
@@ -153,7 +171,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
   const valueClass = 'text-sm text-muted-foreground';
 
   return (
-    <div className="space-y-4 overflow-y-auto">
+    <div className="min-w-0 space-y-4 overflow-y-auto" data-testid="memory-detail">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         {editing ? (
@@ -163,7 +181,13 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             className="flex-1 bg-card border border-border rounded px-3 py-1.5 text-lg font-bold text-foreground focus:outline-none focus:border-primary/40"
           />
         ) : (
-          <h2 className="text-lg font-bold text-foreground flex-1">{memory.title}</h2>
+          <h2
+            data-memory-title
+            tabIndex={-1}
+            className="min-w-0 flex-1 break-words text-lg font-bold text-foreground focus:outline-none"
+          >
+            {memory.title}
+          </h2>
         )}
 
         <div className="flex gap-1.5 shrink-0">
@@ -230,9 +254,14 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             className="w-full mt-1 bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40 resize-y"
           />
         ) : (
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">
-            {memory.content}
-          </p>
+          <Suspense fallback={<MarkdownSkeleton />}>
+            <LazyMemoryMarkdown
+              className="mt-1"
+              content={stripLeadingTitleHeading(memory.content ?? '', memory.title)}
+              resolve={resolveWikilink}
+              onOpen={openMemory}
+            />
+          </Suspense>
         )}
       </div>
 
@@ -422,11 +451,16 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             {entityLinks.map(link => (
               <span
                 key={link.id}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${
+                className={`inline-flex max-w-full items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${
                   ENTITY_TYPE_COLORS[link.entityType] ?? 'bg-card text-muted-foreground border-border'
                 }`}
               >
-                {link.entityType}: {link.entityId.slice(0, 8)}...
+                <span className="max-w-[16rem] truncate">
+                  {link.entityType}:{' '}
+                  {link.entityType.toLowerCase() === 'memory' && linkedById.get(link.entityId)
+                    ? linkedById.get(link.entityId)!.title
+                    : `${link.entityId.slice(0, 8)}...`}
+                </span>
                 <button
                   onClick={() => handleDeleteLink(link.id)}
                   className="ml-0.5 hover:opacity-70"
@@ -452,6 +486,9 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
           </div>
         )}
       </div>
+
+      {/* Linked from (backlinks) — RD-1 */}
+      <MemoryBacklinks memoryId={memory.id} onOpen={openMemory} labelClass={labelClass} />
 
       {/* Related Memories */}
       <div className="border-t border-border pt-3">

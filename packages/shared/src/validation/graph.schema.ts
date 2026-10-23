@@ -5,7 +5,10 @@ import type {
   KnowledgeGraphNode,
   KnowledgeGraphNodeType,
   KnowledgeGraphQuery,
+  MemoryBacklink,
+  MemoryBacklinksResponse,
 } from '../types/graph.types';
+import { KNOWLEDGE_GRAPH_MEMORY_LIMIT } from '../constants/graph-config';
 
 export const KnowledgeGraphNodeTypeSchema = z.enum([
   'goal',
@@ -68,6 +71,7 @@ export const KnowledgeGraphSchema = z.object({
     edgeCount: z.number().int().nonnegative(),
     isolatedNodes: z.number().int().nonnegative(),
     memoryLimitHit: z.boolean(),
+    memoryTotal: z.number().int().nonnegative(),
   }),
   generatedAt: z.string(),
 }) satisfies z.ZodType<KnowledgeGraph>;
@@ -88,10 +92,28 @@ export const KnowledgeGraphQuerySchema = z
       })
       .pipe(z.array(KnowledgeGraphNodeTypeSchema).min(1).optional()),
     domain: z.string().trim().min(1).max(50).optional(),
-    memoryLimit: z.coerce.number().int().min(0).max(500).optional(),
+    memoryLimit: z.coerce.number().int().min(0).max(KNOWLEDGE_GRAPH_MEMORY_LIMIT.MAX).optional(),
     includeArchived: z
       .union([z.boolean(), z.string()])
       .optional()
       .transform((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v)),
   })
   .strict() satisfies z.ZodType<KnowledgeGraphQuery, z.ZodTypeDef, unknown>;
+
+/** Incoming link rows `GET /memories/:id/backlinks` reads at most. */
+export const MEMORY_BACKLINKS_MAX_ROWS = 500;
+
+/** `GET /memories/:id/backlinks` item. Companion interface: `MemoryBacklink`. */
+export const MemoryBacklinkSchema = z.object({
+  memoryId: z.string().min(1),
+  title: z.string(),
+  domain: z.string().nullable(),
+  status: z.string(),
+  linkTypes: z.array(z.string().min(1)).min(1),
+}) satisfies z.ZodType<MemoryBacklink>;
+
+/** `GET /memories/:id/backlinks` response. Companion interface: `MemoryBacklinksResponse`. */
+export const MemoryBacklinksResponseSchema = z.object({
+  items: z.array(MemoryBacklinkSchema),
+  truncated: z.boolean(),
+}) satisfies z.ZodType<MemoryBacklinksResponse>;

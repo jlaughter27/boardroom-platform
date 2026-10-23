@@ -70,3 +70,19 @@ export const ContextForPersonaBodySchema = z.object({
   /** Phase 6 — Critic focuses on DECISION-class memories. */
   memoryClass: z.string().max(40).optional(),
 });
+
+/**
+ * POST /memories/links/batch — up to 500 MemoryEntityLinks in one request, so a
+ * bulk import (the vault importer's wikilinks) is not paced one link per write
+ * under the 20/min limit. Companion interface: `BatchMemoryLinksRequest`.
+ */
+export const MEMORY_LINKS_BATCH_MAX = 500;
+export const BatchMemoryLinkItemSchema = z.object({
+  memoryId: z.string().min(1),
+  entityType: z.string().min(1),
+  entityId: z.string().min(1),
+  linkType: z.string().min(1).max(64).optional(),
+});
+export const BatchMemoryLinksBodySchema = z.object({
+  links: z.array(BatchMemoryLinkItemSchema).min(1).max(MEMORY_LINKS_BATCH_MAX),
+});

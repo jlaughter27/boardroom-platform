@@ -6,6 +6,49 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Phase 8 real-data — Agent wave 3 (RD-1, RD-2, RD-4, RD-5, RD-6, RD-7, RD-9)
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (rides PR #28) | **Status:** Pushed | **Tests:** shared 163, mcp 272, api 1,305, server 309, client 582; e2e 58/58; importer 19/19
+
+Four parallel worktree lanes, integrated on the PR #28 branch:
+- **RD-1** Memory Detail renders markdown (sanitizing react-markdown + remark-gfm, no raw HTML); `[[wikilinks]]` resolve via the importer's link rows, then by title, else "Not imported"; "Linked from" via new `GET /memories/:id/backlinks`; card previews are plain text.
+- **RD-2** Root cause of reordering: a non-transitive ±0.05 tie rule in `rankAndDeduplicate`, no id tie-breaks in the lexical layers, and a recency boost fed by `/context/for-persona` writes. Fixed with title-weighted FTS (A/D), a total order + id tie-breaks, and no recency boost on `/memories/search`. Synthetic vault-shaped eval corpus + keyword / natural-language slices. `thresholds.json` unchanged.
+- **RD-4** Domain budgets are soft: over-budget writes succeed with a `budget` warning; `GET /memories/budget`; Settings panel.
+- **RD-5** Importer `--prune` (archive deleted notes, remove dropped wikilinks; mass-prune guard); GET/DELETE `/memories/:id/links` now tenant-scoped for agents; automatic-sync workflow recipe for the private vault repo.
+- **RD-6** Graph `memoryLimit` up to 1000 + `stats.memoryTotal`; "Show 200 more"; 500 memories settle in 4.29 s.
+- **RD-7** Synthetic vault fixture + `tests/e2e/live/checks/vault-import.mjs`, gated in the CI `E2E` job.
+- **RD-9** Rebuttals restored on reload; 20rem waiting/error cards on phones; snippet stacks under Copy at < 640 px; retry banner in the layout; decorative gold on tokens; WebKit cookie fix documented (not reproduced — no WebKit here).
+
+**CI retrieval eval (built server, mock embeddings, run 39985964562):** 159 queries (114 original + 45 vault). Overall for-persona recall@10 0.917 / MRR 0.742; `/memories/search` 0.872 / 0.782. Keyword slice 1.000 / 1.000 on both endpoints; natural-language slice recall 1.000, MRR 0.938 / 0.969. On the original three archetypes (mean of archetype rows, comparable to the previous run): for-persona 0.718 → 0.885 recall@10, 0.532 → 0.649 MRR; `/memories/search` 0.826 → 0.822 recall@10 (flat), 0.688 → 0.701 MRR. Weakest: `business` archetype on `/memories/search` (recall@10 0.557).
+
+**Open:** RD-8 (ratchet after three green main runs — the new slices restart the count), IVFFlat index built on an empty table (eval noise), persona context empty when a single top note exceeds the token budget (pairs with RD-3), MCP `memory_write` does not surface the budget warning.
+
+---
+
+## 2026-10-23 — Real-data roadmap
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** docs only
+
+- `docs/roadmap/PHASE-8-REAL-DATA-ROADMAP.md`: the 12 findings of the real-data run (4 fixed in PR #28, 8 open), sequenced into Stage 0 founder unblock → Stage 1 production go-live with the real vault → Stage 2 agent wave 3 (RD-1…RD-9, no founder dependency) → Stage 3 M1 remainder, long-note embeddings, ministry path → Stage 4 Phase 8 M2. Decisions the founder owns and blind spots listed.
+- Tracker: "Phase 8 — real-data follow-ups" (RD-0…RD-10). CURRENT-PHASE points at the roadmap.
+
+---
+
+## 2026-10-23 — Real-data end-to-end: 5 production issues found with a real vault and fixed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR | **Tests:** omnimind-api +7 (limiter 2, FTS 2, batch links 3), server +3 (provider errors), shared schema + interface for batch links, vault importer 12 → 14
+
+Full local stack (BoardRoom production build, OmniMind, MCP gateway) loaded with the founder's real Obsidian vault through `pnpm import:vault`, then driven through the UI and MCP: sign-in, dashboard, Memory Explorer, knowledge graph, retrieval on ~20 real questions, a decision session, token minting, MCP search/fetch/status/graph, an MCP write read back in BoardRoom, tenant isolation, ministry exclusion. No LLM or embedding keys in the sandbox: semantic search and persona answers were not exercised (stated, not mocked). Production is still unreachable from the sandbox. Final run: 16/16 steps, zero console errors. Vault content stays out of this repo.
+
+- **Fixed — POST reads drained the write budget.** The per-user limiter keyed buckets by HTTP method, so `POST /memories/search`, `/context/for-persona`, `/memories/search-similar` and `/memories/validate` counted against the 20/min write budget: one decision dispatch (one `/context/for-persona` per persona) or an MCP client searching hard locked the user out of every POST, writes included. They now share the read budget (`READ_ONLY_POST_PATHS`). The CI retrieval eval was hitting the same 429s.
+- **Fixed — full-text search was all-words-or-nothing.** Natural-language questions rarely contain every word of one memory, so the FTS layer returned nothing and recall leaned entirely on embeddings. A ranked any-word pass now fills slots below the strict hits. Labeled IR eval in CI (PR run vs the last `main` run): for-persona recall@10 0.520 → 0.718 (MRR 0.440 → 0.532); `/memories/search` recall@10 0.535 → 0.826 (MRR 0.549 → 0.688); stale-hit rate 0; the eval job no longer sleeps on 429s (7 → 3 min). A local run through the test-harness entrypoint scored higher (0.939 / 0.952) — CI's built-server run is the number of record.
+- **Fixed — an imported vault showed an empty knowledge graph.** Wikilinks were not links, every note was an orphan, and orphans are hidden by default. New `POST /memories/links/batch` (≤ 500 links, same ownership/tenant rules, idempotent) and an importer link phase that resolves `[[wikilinks]]` by name/title/alias to memory→memory links. The real vault now renders as a connected graph with labelled communities.
+- **Fixed — raw provider JSON on persona cards.** A failed persona showed `401 {"type":"error",…}`; Anthropic API and connection errors now read as one sentence (`personaErrorMessage`) on persona, rebuttal and synthesis failures, with the raw error logged.
+- **Harness/expectation notes, not bugs:** session create returns `sessionId`; UI-minted tokens default to read-only (least privilege) — pick *Read & write* to let a client write.
+- **Follow-ups (not fixed here):** (1) Memory detail renders raw markdown (headings, bold, tables as pipes, `[[wikilinks]]`) — needs a markdown renderer and clickable wikilinks; (2) single-keyword hybrid scores are nearly flat (≈0.415–0.424 across the top 10) and one run pushed an exact title match out of the top 20 — results varied between identical runs, likely access-recency feedback; the ranker needs a look; (3) a hybrid search's text relevance is weak without embeddings — production has them, but an OpenAI outage degrades search to FTS/trigram.
+
+---
+
 ## 2026-10-23 — Vault import: Obsidian vault → OmniMind, synced by path
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR | **Tests:** omnimind-api +1 (dedup opt-out), shared +1 (NUL guard + dedup flag), new `scripts/tests/vault-import.test.mjs` 12/12 (CI step)

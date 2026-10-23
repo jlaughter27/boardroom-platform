@@ -61,8 +61,16 @@ export interface KnowledgeGraphStats {
   nodeCounts: Record<KnowledgeGraphNodeType, number>;
   edgeCount: number;
   isolatedNodes: number;
-  /** True when the memory layer was truncated to `memoryLimit` */
+  /** True when the memory layer was truncated to `memoryLimit` (memoryTotal > memories returned) */
   memoryLimitHit: boolean;
+  /**
+   * Memories that matched the tenant / archive filters BEFORE the importance
+   * cap (the `domain` filter runs after the cap and is not reflected here).
+   * `memoryTotal - nodeCounts.memory` is what the UI reports as hidden. 0 when
+   * the memory layer was not requested (`types` without `memory`, or
+   * `memoryLimit=0`).
+   */
+  memoryTotal: number;
 }
 
 export interface KnowledgeGraph {
@@ -77,8 +85,29 @@ export interface KnowledgeGraphQuery {
   types?: KnowledgeGraphNodeType[];
   /** Keep only nodes in this domain plus their domain-less neighbours */
   domain?: string;
-  /** Max memories included, ordered by importance desc (default 150, max 500) */
+  /** Max memories included, ordered by importance desc (default 200, max 1000 — KNOWLEDGE_GRAPH_MEMORY_LIMIT) */
   memoryLimit?: number;
   /** Include ARCHIVED memories (default false) */
   includeArchived?: boolean;
+}
+
+/**
+ * One memory that links TO a given memory (`GET /memories/:id/backlinks`).
+ * Companion schema: `MemoryBacklinkSchema`.
+ */
+export interface MemoryBacklink {
+  /** The linking (source) memory. */
+  memoryId: string;
+  title: string;
+  domain: string | null;
+  status: string;
+  /** Every link type from that memory to this one (e.g. `['wikilink']`). */
+  linkTypes: string[];
+}
+
+/** `GET /memories/:id/backlinks` response. Companion schema: `MemoryBacklinksResponseSchema`. */
+export interface MemoryBacklinksResponse {
+  items: MemoryBacklink[];
+  /** True when the 500-row read cap was hit (some backlinks are not listed). */
+  truncated: boolean;
 }

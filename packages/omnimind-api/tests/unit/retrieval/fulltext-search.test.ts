@@ -40,6 +40,32 @@ describe('fulltextSearch', () => {
     vi.clearAllMocks();
   });
 
+  const row = (id: string, rank = 0.5) => ({ id, title: id, content: id, tags: [], importance: 0.5, last_accessed_at: null, source_weight: 1, rank, domain: 'business', encrypted_content: null });
+
+  it('strict AND pass first; an OR pass fills the remaining slots below it (natural-language questions, 2026-10-23 e2e)', async () => {
+    mockPrisma.$queryRaw
+      .mockResolvedValueOnce([row('strict-1', 0.9)])
+      .mockResolvedValueOnce([row('strict-1', 0.9), row('partial-1', 0.8), row('partial-2', 0.4)]);
+    const result = await fulltextSearch('user-1', 'cold email warmup rotation', { ...baseOpts, limit: 3 }, mockPrisma);
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.$queryRaw.mock.calls[0]).toContain('cold & email & warmup & rotation');
+    expect(mockPrisma.$queryRaw.mock.calls[1]).toContain('cold | email | warmup | rotation');
+    expect(result.map(r => r.id)).toEqual(['strict-1', 'partial-1', 'partial-2']);
+    expect(result[0].relevanceScore).toBeGreaterThan(result[1].relevanceScore);
+    expect(result[1].relevanceScore).toBeCloseTo(0.4);
+    expect(result[1].whyIncluded).toMatch(/^Partial/);
+  });
+
+  it('no OR pass when the strict pass fills the limit or the query is one word', async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([row('a'), row('b')]);
+    await fulltextSearch('user-1', 'two words', { ...baseOpts, limit: 2 }, mockPrisma);
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+    mockPrisma.$queryRaw.mockClear();
+    mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+    await fulltextSearch('user-1', 'single', { ...baseOpts, limit: 5 }, mockPrisma);
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
   it('should return empty array for empty query', async () => {
     const result = await fulltextSearch('user-1', '', baseOpts, mockPrisma);
     expect(result).toEqual([]);
@@ -168,5 +194,49 @@ describe('fulltextSearch', () => {
     const result = await fulltextSearch('user-1', 'test', baseOpts, mockPrisma);
 
     expect(result).toEqual([]);
+  });
+
+  // RD-2 (2026-10-23 real-data run): flat scores for a single keyword; the
+  // note titled with the keyword ranked #2 in one run and outside the top 20
+  // in another.
+  describe('RD-2 title weighting + stable order', () => {
+    it('ranks with the title weighted A and the body D, exact titles first, id as the last ORDER BY key', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+      await fulltextSearch('user-1', 'pricing', baseOpts, mockPrisma);
+      const sql = joinedSql(mockPrisma.$queryRaw.mock.calls[0]);
+      expect(sql).toContain("setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', content), 'D')");
+      expect(sql).toContain('ARRAY[0.1, 0.2, 0.4, 1.0]::float4[]');
+      expect(sql).toMatch(/strip\(to_tsvector\('english', title\)\) = strip\(to_tsvector\('english', \?\)\) as title_exact/);
+      expect(sql).toContain('ORDER BY title_exact DESC, rank DESC, id ASC');
+      // the match predicate (and so the matching row set) is unchanged
+      expect(sql).toContain("to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ?)");
+      // the raw query text is a bound parameter, never spliced into the SQL
+      expect(mockPrisma.$queryRaw.mock.calls[0]).toContain('pricing');
+      expect(sql).not.toContain('pricing');
+    });
+
+    it('an exact title match scores 1.0 and says so; other hits keep their rank', async () => {
+      mockPrisma.$queryRaw.mockResolvedValueOnce([
+        { ...row('pricing-note', 0.61), title_exact: true },
+        { ...row('daily-note', 0.09), title_exact: false },
+      ]);
+      const result = await fulltextSearch('user-1', 'Pricing', baseOpts, mockPrisma);
+      expect(result.map(r => r.id)).toEqual(['pricing-note', 'daily-note']);
+      expect(result[0].relevanceScore).toBe(1.0);
+      expect(result[0].whyIncluded).toMatch(/^Exact title match/);
+      expect(result[1].relevanceScore).toBeCloseTo(0.09);
+    });
+
+    it('every tenant/archive branch carries the same ordering', async () => {
+      for (const opts of [
+        { tenantId: 't1', includeArchived: true }, { tenantId: 't1', includeArchived: false },
+        { includeAllTenants: true, includeArchived: true }, { includeAllTenants: true, includeArchived: false },
+      ]) {
+        mockPrisma.$queryRaw.mockClear();
+        mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+        await fulltextSearch('user-1', 'churn', opts, mockPrisma);
+        expect(joinedSql(mockPrisma.$queryRaw.mock.calls[0])).toContain('ORDER BY title_exact DESC, rank DESC, id ASC');
+      }
+    });
   });
 });

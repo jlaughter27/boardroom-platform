@@ -4,6 +4,7 @@ import type {
   McpTokenCreateResponse,
   McpTokenListResponse,
   McpTokenOptions,
+  MemoryBacklinksResponse,
 } from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
@@ -508,6 +509,11 @@ export class OmniMindClient {
     return this.request('GET', `/memories${qs}`, userId);
   }
 
+  /** RD-4 — per-domain { count, limit, over } against the soft domain budgets (user-wide). */
+  async getMemoryBudget(userId: string) {
+    return this.request('GET', '/memories/budget', userId);
+  }
+
   async getMemoryById(userId: string, id: string) {
     return this.request('GET', `/memories/${id}`, userId);
   }
@@ -646,6 +652,11 @@ export class OmniMindClient {
 
   async getMemoryLinks(userId: string, memoryId: string) {
     return this.request('GET', `/memories/${memoryId}/links`, userId);
+  }
+
+  /** RD-1 — memories that link TO this one ("Linked from"). */
+  async getMemoryBacklinks(userId: string, memoryId: string) {
+    return this.request<MemoryBacklinksResponse>('GET', `/memories/${encodeURIComponent(memoryId)}/backlinks`, userId);
   }
 
   async deleteMemoryLink(userId: string, memoryId: string, linkId: string) {

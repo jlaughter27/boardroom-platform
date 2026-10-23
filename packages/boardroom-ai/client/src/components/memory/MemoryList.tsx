@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { useMemoryStore } from '../../stores/memory.store';
 import { MemoryCard } from './MemoryCard';
+import { preloadMemoryMarkdown } from './memory-markdown-loader';
 
 function SkeletonCard() {
   return (
@@ -19,6 +21,9 @@ function SkeletonCard() {
 export function MemoryList() {
   const { memories, selectedMemory, isLoading, total, offset, select, loadMore, hybridActive, nextCursor, scores, layers } =
     useMemoryStore();
+
+  // RD-1: warm the markdown renderer chunk once the list is up, before a memory is opened.
+  useEffect(() => { preloadMemoryMarkdown(); }, []);
 
   // Hybrid results are cursor-paged (no total); list results are offset-paged.
   const hasMore = hybridActive ? !!nextCursor : offset < total;

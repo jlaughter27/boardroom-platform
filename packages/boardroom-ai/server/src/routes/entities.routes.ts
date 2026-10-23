@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { z } from 'zod';
-import { KnowledgeGraphQuerySchema } from '@boardroom/shared';
+import { KnowledgeGraphQuerySchema, MemoryBacklinksResponseSchema, MemoryBudgetReportSchema } from '@boardroom/shared';
 import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
@@ -419,6 +419,14 @@ router.post('/memories/search', validateBody(MemorySearchBodySchema), async (req
   } catch (err) { next(err); }
 });
 
+// RD-4 — per-domain memory budget (soft limits), read-only. Before /memories/:id.
+router.get('/memories/budget', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getMemoryBudget(req.auth!.userId);
+    res.json(MemoryBudgetReportSchema.parse(data));
+  } catch (err) { next(err); }
+});
+
 router.get('/memories/:id', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.getMemoryById(req.auth!.userId, req.params.id);
@@ -554,6 +562,20 @@ router.get('/memories/:id/links', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.getMemoryLinks(req.auth!.userId, req.params.id);
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+// RD-1 — "Linked from": memories that link TO this one. Validated at the seam
+// so a drifted OmniMind shape never reaches the client.
+router.get('/memories/:id/backlinks', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getMemoryBacklinks(req.auth!.userId, req.params.id);
+    const parsed = MemoryBacklinksResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      res.status(502).json({ error: 'bad_upstream_response', message: 'OmniMind returned an unexpected backlinks shape' });
+      return;
+    }
+    res.json(parsed.data);
   } catch (err) { next(err); }
 });
 

@@ -1,6 +1,7 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { runValidationPipeline } from '../memory/validation/pipeline';
-import { SOURCE_WEIGHTS, SourceType } from '@boardroom/shared';
+import { budgetStatus } from '../memory/validation/budget-enforcer';
+import { SOURCE_WEIGHTS, SourceType, DOMAIN_MEMORY_BUDGETS, type MemoryBudgetReport } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
 import { decryptMemory, encryptMemoryContent, normalizeDomain } from '../lib/memory-crypto';
@@ -169,6 +170,14 @@ export async function createMemory(
   if (!validation.valid) {
     return { success: false as const, errors: validation.errors };
   }
+  // RD-4: budgets are soft. The write proceeds; when the domain ends up past
+  // its limit the response carries `budget: { domain, count, limit, over: true }`.
+  const countBefore = validation.budget?.count;
+  const budgetWarning = (created: boolean) => {
+    if (countBefore === undefined) return {};
+    const status = budgetStatus(input.domain, countBefore + (created ? 1 : 0));
+    return status.over ? { budget: status } : {};
+  };
 
   // Cosine dedup: if a near-identical memory exists (>0.92 similarity) IN THE
   // CALLER'S TENANT, update it instead of creating.
@@ -199,7 +208,7 @@ export async function createMemory(
         if (updated) {
           return {
             success: true as const,
-            data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] } },
+            data: { id: dupe.id, status: 'updated' as const, validation: { syncPassed: true, errors: [] }, ...budgetWarning(false) },
           };
         }
 
@@ -276,6 +285,7 @@ export async function createMemory(
       id: memory.id,
       status: 'created' as const,
       validation: { syncPassed: true, errors: [] },
+      ...budgetWarning(true),
     },
   };
 }
@@ -704,6 +714,40 @@ export async function validateMemoryInput(
 }
 
 // ---------------------------------------------------------------------------
+// RD-4 — `GET /memories/budget`: per-domain { count, limit, over } (read-only).
+// The budget enforcer counts live rows per user + domain across tenants, so
+// `scope: 'user'` is the number the soft limit is measured against. A tenant
+// scope (agent callers; BoardRoom `?tenantId=`) counts that tenant only.
+// Lists every configured domain (count 0 included) plus any other domain the
+// user has rows in; configured domains first, in config order.
+// ---------------------------------------------------------------------------
+
+export async function getMemoryBudget(
+  userId: string,
+  tenantId: string | null,
+  prisma: PrismaClient,
+): Promise<MemoryBudgetReport> {
+  const groups = await prisma.memoryEntry.groupBy({
+    by: ['domain'],
+    where: {
+      userId,
+      deletedAt: null,
+      status: { not: 'ARCHIVED' },
+      ...(tenantId ? { tenantId } : {}),
+    },
+    _count: { _all: true },
+  });
+  const counts = new Map<string, number>(groups.map(g => [g.domain, g._count._all]));
+  const configured = Object.keys(DOMAIN_MEMORY_BUDGETS).filter(d => d !== 'default');
+  const others = [...counts.keys()].filter(d => !configured.includes(d)).sort();
+  return {
+    scope: tenantId ? 'tenant' : 'user',
+    tenantId,
+    domains: [...configured, ...others].map(d => budgetStatus(d, counts.get(d) ?? 0)),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Phase 6 (A2) — hybrid search for MCP / BoardRoom (`POST /memories/search`).
 //
 // Same stack as `assembleContextForPersona`: structured + FTS + trigram +
@@ -711,6 +755,12 @@ export async function validateMemoryInput(
 // decrypt. Differences from the persona path: no persona tag boosts / token
 // budget, no recall reinforcement (an agent paging through results is not a
 // persona recall), and the ranked pool is paginated with an opaque cursor.
+//
+// RD-2 — deterministic: the same query on the same rows returns the same
+// order. The search writes nothing, every lexical layer orders ties by id
+// (the semantic layer keeps its index-backed ORDER BY distance), the ranker
+// uses a total order that ignores layer timing, and the recall-driven recency
+// boost (whose input other reads mutate) is off for this endpoint.
 // ---------------------------------------------------------------------------
 
 export const HYBRID_SEARCH_MAX_LIMIT = 50;
@@ -795,7 +845,11 @@ export async function hybridSearchMemories(
       { layer: 'trigram', results: trigram },
       { layer: 'semantic', results: semantic },
     ],
-    HYBRID_POOL_MAX
+    HYBRID_POOL_MAX,
+    // RD-2: no recency boost — it reads last_accessed_at, which persona reads
+    // (recall reinforcement) write, so the same search reordered after any
+    // decision session. Search order = f(query, rows), nothing else.
+    { recencyBoost: false },
   ).filter(r => r.type === 'memory');
   if (ranked.length === 0) return { items: [], nextCursor: null };
 

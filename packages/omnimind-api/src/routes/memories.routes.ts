@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
 import { z } from 'zod';
-import { CreateMemoryRequestSchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
+import { BatchMemoryLinksBodySchema, CreateMemoryRequestSchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
 import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
 import { isAdminRequest } from '../middleware/admin-auth';
 import { idempotent } from '../middleware/idempotency';
-import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES } from '../services/unlinked-mentions.service';
+import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES, linkMemoriesBatch } from '../services/unlinked-mentions.service';
+import { getMemoryBacklinks } from '../services/memory-backlinks.service';
 
 // Phase 6 (A2) — PATCH /memories/:id gains `supersedes: <oldMemoryId>`
 // (old row → invalidAt=now, supersededBy=:id; :id.consolidatedFrom += old).
@@ -203,6 +204,28 @@ router.post('/validate', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /memories/budget — RD-4: per-domain { domain, count, limit, over } for
+// the soft DOMAIN_MEMORY_BUDGETS (read-only; must be before /:id).
+// Tenant handling mirrors GET /memories: an agent sees its own tenant only
+// (a different ?tenantId → 403 tenant_mismatch); BoardRoom (no agent context)
+// gets the user-wide count — what the budget is measured against — or one
+// tenant with ?tenantId=.
+router.get('/budget', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const tenantParam = typeof req.query.tenantId === 'string' && req.query.tenantId.length > 0 ? req.query.tenantId : undefined;
+    const ctxTenant = req.agentContext?.tenantId;
+    if (ctxTenant && tenantParam && tenantParam !== ctxTenant) {
+      res.status(403).json({ error: 'tenant_mismatch', message: `tenantId '${tenantParam}' does not match the caller's tenant` });
+      return;
+    }
+    const report = await memoryService.getMemoryBudget(userId, ctxTenant ?? tenantParam ?? null, prisma);
+    res.json(report);
+  } catch (err) { next(err); }
+});
+
 // GET /memories — search/filter
 router.get('/', async (req, res, next) => {
   try {
@@ -306,6 +329,23 @@ router.delete('/:id', async (req, res, next) => {
 // Memory Entity Links
 // ---------------------------------------------------------------------------
 
+// POST /memories/links/batch — up to 500 MemoryEntityLinks in one request
+// (bulk imports: the vault importer turns wikilinks into memory→memory links).
+// Same ownership / tenant / existence rules as the single-link route.
+router.post('/links/batch', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+    const parsed = BatchMemoryLinksBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(422).json({ error: 'validation_failed', details: parsed.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })) });
+      return;
+    }
+    const result = await linkMemoriesBatch(userId, parsed.data.links, { tenantId: req.agentContext?.tenantId }, prisma);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
 // POST /memories/:id/links — create a MemoryEntityLink
 // R-O-13: entityType is lower-cased + enum-validated and the target entity
 // must exist for this user (same lookup as POST /graph/unlinked-mentions/link).
@@ -354,13 +394,16 @@ router.post('/:id/links', async (req, res, next) => {
 });
 
 // GET /memories/:id/links — list links for a memory
+// RD-5: same scoping as POST /memories/links/batch — the memory must be the
+// caller's, and in the agent's tenant when agent headers are present.
 router.get('/:id/links', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    // Verify memory belongs to user
-    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    const memory = await prisma.memoryEntry.findFirst({
+      where: { id: req.params.id, userId, deletedAt: null, ...(req.agentContext?.tenantId ? { tenantId: req.agentContext.tenantId } : {}) },
+    });
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     const links = await prisma.memoryEntityLink.findMany({
@@ -371,14 +414,40 @@ router.get('/:id/links', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// DELETE /memories/:id/links/:linkId — remove a link
+// GET /memories/:id/backlinks — memories that link TO this one (RD-1, "Linked from").
+// Same user/tenant scoping as the link routes; sources in another tenant are never listed.
+router.get('/:id/backlinks', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const result = await getMemoryBacklinks(
+      userId,
+      req.params.id,
+      {
+        tenantId: req.agentContext?.tenantId,
+        includeArchived: typeof req.query.includeArchived === 'string' && req.query.includeArchived.toLowerCase() === 'true',
+      },
+      prisma,
+    );
+    if (!result) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
+
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// DELETE /memories/:id/links/:linkId — remove a link (the vault importer's
+// --prune uses it for wikilinks a note no longer contains). Scoped like
+// POST /memories/links/batch: the caller's memory, in the agent's tenant when
+// agent headers are present.
 router.delete('/:id/links/:linkId', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    // Verify memory belongs to user
-    const memory = await prisma.memoryEntry.findFirst({ where: { id: req.params.id, userId, deletedAt: null } });
+    const memory = await prisma.memoryEntry.findFirst({
+      where: { id: req.params.id, userId, deletedAt: null, ...(req.agentContext?.tenantId ? { tenantId: req.agentContext.tenantId } : {}) },
+    });
     if (!memory) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
 
     const link = await prisma.memoryEntityLink.findFirst({ where: { id: req.params.linkId, memoryId: req.params.id } });

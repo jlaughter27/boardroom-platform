@@ -50,11 +50,11 @@ describe('PersonaCard — streaming shows prose, never JSON (M1-C1)', () => {
     expect(screen.getByText(/^Seat pricing/)).toBeInTheDocument();
   });
 
-  it('reserves 32rem: exactly for streaming, at least for waiting and finished cards', () => {
+  it('reserves 32rem: exactly for streaming, at least for finished cards; waiting cards 20rem on phones (RD-9b)', () => {
     const { rerender } = render(<PersonaCard personaId="critic" isStreaming={false} />);
     const waiting = screen.getByTestId('persona-card');
     expect(waiting.dataset.state).toBe('waiting');
-    expect(waiting.className).toContain('min-h-[32rem]');
+    expect(waiting.className.split(' ')).toEqual(expect.arrayContaining(['min-h-[20rem]', 'sm:min-h-[32rem]']));
 
     rerender(<PersonaCard personaId="critic" isStreaming streamingText={raw.slice(0, 80)} />);
     const streaming = screen.getByTestId('persona-card');
@@ -65,7 +65,7 @@ describe('PersonaCard — streaming shows prose, never JSON (M1-C1)', () => {
     rerender(<PersonaCard personaId="critic" isStreaming={false} response={response} streamingText={raw} />);
     const done = screen.getByTestId('persona-card');
     expect(done.dataset.state).toBe('complete');
-    expect(done.className).toContain('min-h-[32rem]');
+    expect(done.className.split(' ')).toContain('min-h-[32rem]');
   });
 
   it('the finished card renders the validated payload and clamps long analysis behind a toggle', () => {

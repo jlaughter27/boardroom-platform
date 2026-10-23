@@ -128,3 +128,27 @@ export interface MemoryProposal {
   relatedEntityIds?: string[];
   metadata?: Record<string, unknown>;
 }
+
+/**
+ * RD-4 — one domain's standing against `DOMAIN_MEMORY_BUDGETS`. Budgets are
+ * SOFT: a write past the limit succeeds and carries this object (with
+ * `over: true`) as a warning instead of failing with 422.
+ * `count` = live memories (not deleted, not ARCHIVED) in the domain.
+ */
+export interface MemoryBudgetStatus {
+  domain: string;
+  count: number;
+  limit: number;
+  over: boolean;
+}
+
+/**
+ * RD-4 — `GET /memories/budget`. `scope: 'user'` counts every tenant of the
+ * user (what the budget enforces; BoardRoom); `scope: 'tenant'` counts one
+ * tenant only (an agent caller, or BoardRoom with `?tenantId=`).
+ */
+export interface MemoryBudgetReport {
+  scope: 'user' | 'tenant';
+  tenantId: string | null;
+  domains: MemoryBudgetStatus[];
+}

@@ -14,6 +14,7 @@ import {
   mentionPattern,
   UNLINKED_MENTIONS_MAX_LIMIT,
   UNLINKED_MENTIONS_MEMORY_WINDOW,
+  linkMemoriesBatch,
 } from '../../../src/services/unlinked-mentions.service';
 
 vi.mock('../../../src/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -193,5 +194,61 @@ describe('legacy link helpers (R-O-13)', () => {
     expect(await entityExists(prisma, 'user-1', 'goal', 'g1')).toBe(false);
     expect(await entityExists(prisma, 'user-1', 'memory', 'm1')).toBe(true);
     expect((prisma as any).memoryEntry.findFirst).toHaveBeenCalledWith({ where: { id: 'm1', userId: 'user-1', deletedAt: null }, select: { id: true } });
+  });
+});
+
+describe('linkMemoriesBatch (POST /memories/links/batch)', () => {
+  const ids = (xs: string[]) => xs.map(id => ({ id }));
+  const prismaWith = (rows: { memories: string[]; people?: string[] }, created = 99) => {
+    const findMemories = vi.fn(async ({ where }: any) => ids(rows.memories.filter(id => where.id.in.includes(id))));
+    const empty = { findMany: vi.fn(async () => []) };
+    return {
+      memoryEntry: { findMany: findMemories },
+      person: { findMany: vi.fn(async ({ where }: any) => ids((rows.people ?? []).filter(id => where.id.in.includes(id)))) },
+      project: empty, goal: empty, task: empty, decision: empty, commitment: empty,
+      memoryEntityLink: { createMany: vi.fn(async ({ data }: any) => ({ count: Math.min(created, data.length) })) },
+    } as unknown as PrismaClient & { memoryEntityLink: { createMany: ReturnType<typeof vi.fn> }; memoryEntry: { findMany: ReturnType<typeof vi.fn> } };
+  };
+
+  it('writes valid memory→memory and memory→person links in one createMany, skipping duplicates', async () => {
+    const p = prismaWith({ memories: ['m1', 'm2'], people: ['p1'] });
+    const r = await linkMemoriesBatch('u1', [
+      { memoryId: 'm1', entityType: 'memory', entityId: 'm2', linkType: 'wikilink' },
+      { memoryId: 'm1', entityType: 'Person', entityId: 'p1' },
+      { memoryId: 'm1', entityType: 'memory', entityId: 'm2', linkType: 'wikilink' },
+    ], { tenantId: 'josh-business' }, p);
+    expect(r).toEqual({ created: 2, existing: 0, rejected: [] });
+    const call = p.memoryEntityLink.createMany.mock.calls[0][0];
+    expect(call.skipDuplicates).toBe(true);
+    expect(call.data).toEqual([
+      { memoryId: 'm1', entityType: 'memory', entityId: 'm2', linkType: 'wikilink' },
+      { memoryId: 'm1', entityType: 'person', entityId: 'p1', linkType: 'relates_to' },
+    ]);
+  });
+
+  it('rejects unknown types, self-links, foreign sources and missing targets — by index', async () => {
+    const p = prismaWith({ memories: ['m1', 'm2'] });
+    const r = await linkMemoriesBatch('u1', [
+      { memoryId: 'm1', entityType: 'spaceship', entityId: 'x' },
+      { memoryId: 'm1', entityType: 'memory', entityId: 'm1' },
+      { memoryId: 'other-users', entityType: 'memory', entityId: 'm2' },
+      { memoryId: 'm1', entityType: 'memory', entityId: 'gone' },
+    ], {}, p);
+    expect(r.rejected).toEqual([
+      { index: 0, reason: 'unknown_entity_type' },
+      { index: 1, reason: 'self_link' },
+      { index: 2, reason: 'memory_not_found' },
+      { index: 3, reason: 'entity_not_found' },
+    ]);
+    expect(p.memoryEntityLink.createMany).not.toHaveBeenCalled();
+  });
+
+  it('scopes source AND memory-target lookups to the agent tenant (no cross-tenant links); re-runs count as existing', async () => {
+    const p = prismaWith({ memories: ['m1', 'm2'] }, 0);
+    const r = await linkMemoriesBatch('u1', [{ memoryId: 'm1', entityType: 'memory', entityId: 'm2' }], { tenantId: 'josh-business' }, p);
+    expect(r).toEqual({ created: 0, existing: 1, rejected: [] });
+    for (const [arg] of p.memoryEntry.findMany.mock.calls) {
+      expect(arg.where).toEqual(expect.objectContaining({ userId: 'u1', deletedAt: null, tenantId: 'josh-business' }));
+    }
   });
 });

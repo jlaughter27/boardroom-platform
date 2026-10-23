@@ -15,6 +15,7 @@ describe('scope table mirrors CLAUDE.md', () => {
     ['PATCH', '/memories/abc', 'memory:write'],
     ['DELETE', '/memories/abc', 'memory:write'],
     ['POST', '/memories/abc/links', 'memory:write'],
+    ['GET', '/memories/abc/backlinks', 'memory:read'], // RD-1
     ['POST', '/context/for-persona', 'memory:read'],
     ['GET', '/context/core', 'memory:read'],
     ['GET', '/context/capsules', 'memory:read'],

@@ -39,4 +39,21 @@ describe('<CopyField multiline />', () => {
     expect(screen.queryByTestId('block-fade')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Terminal value')).toHaveClass('pr-3');
   });
+
+  it('stacks the snippet over its Copy button on phones and puts them side by side from sm up (RD-9c)', () => {
+    stubWidths(300, 320);
+    render(<CopyField label="Terminal" value="claude mcp add omnimind https://example.test/mcp" multiline data-testid="block" />);
+    const row = screen.getByLabelText('Terminal value').closest('[data-copy-row]')!;
+    expect(row).toHaveClass('flex-col', 'sm:flex-row', 'sm:items-start');
+    expect(row.lastElementChild).toContainElement(screen.getByRole('button', { name: 'Copy Terminal' }));
+    expect(row.lastElementChild).toHaveClass('self-end', 'sm:self-auto');
+  });
+
+  it('a single-line field keeps its button beside the input', () => {
+    render(<CopyField label="Token" value="omt_abc" data-testid="token" />);
+    const row = screen.getByLabelText('Token value').parentElement!;
+    expect(row).not.toHaveAttribute('data-copy-row');
+    expect(row).toHaveClass('items-center');
+    expect(row).not.toHaveClass('flex-col');
+  });
 });

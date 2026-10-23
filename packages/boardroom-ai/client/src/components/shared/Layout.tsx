@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, ViewTransition } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { useEffect, useRef, useState, ViewTransition, type ReactNode } from 'react';
+import { Outlet, useLocation, useOutletContext } from 'react-router-dom';
 import { Sidebar, MobileDrawer } from './Sidebar';
 import { AppHeader } from './AppHeader';
 import { TrialBanner } from './TrialBanner';
@@ -13,6 +13,16 @@ import { useEntitiesStore } from '../../stores/entities.store';
 /** `view-transition-name` of the routed page root (see `::view-transition-*(page)` in index.css). */
 export const PAGE_TRANSITION_NAME = 'page';
 
+/** What the route above the shell (OnboardingGate) hands it through `<Outlet context>`. */
+export interface ShellOutletContext {
+  /**
+   * A notice for the main pane (the profile-unavailable retry banner, RD-9d):
+   * rendered in flow under the scrolling pane and centred on it, so it never
+   * covers the pane's bottom row and never centres over the sidebar.
+   */
+  paneNotice?: ReactNode;
+}
+
 export function Layout() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -22,6 +32,7 @@ export function Layout() {
   useNotificationAggregator();
   useRouteTransitionTypes();
   const shortcuts = useKeyboardShortcuts();
+  const paneNotice = useOutletContext<ShellOutletContext | undefined>()?.paneNotice ?? null;
 
   // Decisions + commitments feed the dashboard nudges, cognitive-load warnings,
   // proactive questions and the command palette, but nothing fetched them (C-108).
@@ -64,6 +75,11 @@ export function Layout() {
             </div>
           </ViewTransition>
         </main>
+        {paneNotice && (
+          <div className="flex shrink-0 justify-center border-t border-border/60 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3" data-testid="pane-notice">
+            {paneNotice}
+          </div>
+        )}
       </div>
       <ShortcutsModal shortcuts={shortcuts} />
     </div>

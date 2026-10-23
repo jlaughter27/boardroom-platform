@@ -8,7 +8,9 @@ change make hybrid retrieval worse on queries we know the answer to?*
 | Piece | Path |
 |---|---|
 | Seed corpus (136 synthetic memories, 3 archetypes) | `eval/retrieval/seed-memories.json` |
-| Gold queries (38 per archetype; slices temporal/update/abstention/entity/general) | `eval/retrieval/gold/{business,personal,ministry-shaped}.json` |
+| Vault-shaped corpus (RD-2: 74 long markdown notes — concepts, entities, sources, meetings, dailies, weekly reviews, 2 MOC hubs; headings, tables, `[[wikilinks]]`) — generated deterministically, merged into the seed by `loadSeedFile()` as archetype `vault` | `eval/retrieval/vault-corpus.ts` |
+| Gold queries (38 per legacy archetype; slices temporal/update/abstention/entity/general) | `eval/retrieval/gold/{business,personal,ministry-shaped}.json` |
+| Gold queries for the vault (45; slices keyword/natural-language/abstention) | `eval/retrieval/gold/vault.json` |
 | Gates | `eval/retrieval/thresholds.json` |
 | Seeder (idempotent, HTTP only) | `eval/retrieval/seed.ts` |
 | Runner | `eval/runners/eval-retrieval-ir.ts` |
@@ -62,7 +64,8 @@ Useful switches:
 | `pnpm eval:retrieval:seed` | seed only |
 
 Runtime is dominated by OmniMind's limiter (20 requests/min per user per HTTP
-method). The client sleeps on 429 and the three archetypes run concurrently
+method). Seeding the 74-note vault archetype alone takes ~4 minutes at the
+write limit (it runs concurrently with the others). The client sleeps on 429 and the archetypes run concurrently
 under different users, so a full run is ~6–8 minutes; `EVAL_IR_SKIP_SEED=1
 EVAL_IR_SKIP_MEMORY_SEARCH=1` brings re-runs to ~2 minutes.
 
@@ -76,6 +79,15 @@ not run it against production — it writes 136 tagged memories per user
 Per gold query, two legs:
 - `forPersona`: `POST /context/for-persona { query, persona }` → memory items in rank order (≤ 10 for personas, ≤ 15 for CEO) with `relevanceScore`.
 - `memorySearch`: `POST /memories/search { query, limit: 10 }` (Phase 6 hybrid search; skipped when the route is 404).
+
+Slices: legacy archetypes use `temporal`, `update`, `abstention`, `entity`,
+`general`. The vault archetype (RD-2) uses **`keyword`** — a 1–2 word query
+whose single gold answer is the note with that title, while the same word
+appears in many other notes' bodies and as `[[wikilinks]]` (the 2026-10-23
+real-data failure: flat scores, the title note at #2 or outside the top 20) —
+**`natural-language`** — a founder's question answered by one or two notes —
+and `abstention`. `REQUIRED_SLICES` in `gold-schema.ts` holds the per-kind
+rule that `gold.test.ts` enforces.
 
 Metrics (binary relevance): **recall@5, recall@10, MRR, nDCG@10**, overall,
 per slice and per archetype. Extras:
@@ -117,6 +129,15 @@ because CI's semantic layer is deterministic noise. Rules:
 | date | run | for-persona recall@10 | MRR | nDCG@10 | abstention | /memories/search recall@10 | MRR | note |
 |---|---|---:|---:|---:|---:|---:|---:|---|
 | 2026-10-03 | PR #20, first real run | 0.520 | 0.440 | 0.419 | 0.80 | 0.535 | 0.549 | gates 0.5 / 0.35 pass; `update` slice weakest (0.27 / 0.20); `business` archetype lowest (0.42); 114/114 scored, 0 HTTP errors, 10/10 supersede links confirmed |
+| 2026-10-23 | local, CI procedure (built server, `NODE_ENV=ci`, mock embeddings), RD-2 **before**, 159 queries incl. vault | 0.950 | 0.825 | 0.833 | 0.95 | 0.965 | 0.889 | keyword slice MRR 0.742 / 0.790; legacy 114 only: 0.939 / 0.825 and 0.952 / 0.899. A second run of the same code on the same corpus ranked 81/114 legacy queries differently (legacy `/memories/search` MRR 0.920 vs 0.899) — the RD-2 non-determinism |
+| 2026-10-23 | local, same procedure, RD-2 **after** | 0.956 | 0.898 | 0.888 | 0.95 | 0.965 | 0.934 | keyword slice 1.000 / 1.000 on both legs (exact title #1 for all 24); natural-language 1.000 / 0.969; legacy 114 only: 0.939 / 0.862 and 0.952 / 0.913 |
+
+The local rows are **not** comparable with the CI rows: on the same branch
+the local built-server run scores ~0.94 legacy recall@10 where CI recorded
+0.718 (PR #28). The cause was not found (the CI artifact and log hosts are not
+reachable from the sandbox); compare before/after within one environment, and
+treat CI's run as the number of record. The vault archetype changes the
+corpus, so the three-run ratchet counter restarts.
 
 - Lowering a gate requires a note here with the reason (e.g. a deliberate
   ranker change that trades recall for precision) and a link to the PR.

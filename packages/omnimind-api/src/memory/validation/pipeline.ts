@@ -32,11 +32,15 @@ export async function runValidationPipeline(
     return { valid: false, errors: temporalResult.errors, durationMs: performance.now() - start };
   }
 
-  // Step 3: Budget enforcement (async, needs DB)
+  // Step 3: Budget (async, needs DB). RD-4: soft — reports the domain's
+  // standing before this write, never fails the write.
   const budgetResult = await enforceBudget(userId, domain, prisma);
-  if (!budgetResult.valid) {
-    return { valid: false, errors: budgetResult.errors, durationMs: performance.now() - start };
-  }
+  const budget = {
+    domain,
+    count: budgetResult.currentCount,
+    limit: budgetResult.limit,
+    over: budgetResult.currentCount > budgetResult.limit,
+  };
 
-  return { valid: true, errors: [], durationMs: performance.now() - start };
+  return { valid: true, errors: [], durationMs: performance.now() - start, budget };
 }

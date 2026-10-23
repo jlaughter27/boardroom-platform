@@ -6,13 +6,15 @@
  *   R-O-13  POST /memories/:id/links lower-cases + validates entityType and 404s
  *           on a missing entity
  *   R-O-15  GET /usage/llm/summary?all=1 is admin-gated (x-admin-key)
+ *   RD-5    GET / DELETE /memories/:id/links scope the memory like
+ *           POST /memories/links/batch (user, + tenant with agent headers)
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 
 const mockPrisma = vi.hoisted(() => ({
   memoryEntry: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), findFirst: vi.fn(), update: vi.fn() },
-  memoryEntityLink: { create: vi.fn() },
+  memoryEntityLink: { create: vi.fn(), findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn(), delete: vi.fn() },
   project: { findFirst: vi.fn() },
   goal: { findFirst: vi.fn() },
   llmUsage: { findMany: vi.fn().mockResolvedValue([]) },
@@ -110,6 +112,44 @@ describe('R-O-13 — legacy POST /memories/:id/links', () => {
     expect(res.status).toBe(404);
     expect(res.body.message).toContain('goal');
     expect(mockPrisma.memoryEntityLink.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('RD-5 — GET / DELETE /memories/:id/links scoping (vault importer --prune)', () => {
+  it('without agent headers the memory lookup is user-scoped only (BoardRoom, unchanged)', async () => {
+    mockPrisma.memoryEntry.findFirst.mockResolvedValue({ id: 'm1', userId: USER });
+    mockPrisma.memoryEntityLink.findMany.mockResolvedValue([{ id: 'l1', memoryId: 'm1', entityType: 'memory', entityId: 'm2', linkType: 'wikilink' }]);
+    const res = await request(app).get('/memories/m1/links').set(H);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(mockPrisma.memoryEntry.findFirst.mock.calls[0][0].where).toEqual({ id: 'm1', userId: USER, deletedAt: null });
+  });
+
+  it('with agent headers GET and DELETE also require the agent\'s tenant', async () => {
+    mockPrisma.memoryEntry.findFirst.mockResolvedValue({ id: 'm1', userId: USER, tenantId: 'josh-business' });
+    mockPrisma.memoryEntityLink.findFirst.mockResolvedValue({ id: 'l1', memoryId: 'm1' });
+    mockPrisma.memoryEntityLink.delete.mockResolvedValue({ id: 'l1' });
+    const g = await request(app).get('/memories/m1/links').set(H).set(legacyAgent);
+    expect(g.status).toBe(200);
+    expect(mockPrisma.memoryEntry.findFirst.mock.calls[0][0].where).toEqual({ id: 'm1', userId: USER, deletedAt: null, tenantId: 'josh-business' });
+    const d = await request(app).delete('/memories/m1/links/l1').set(H).set(legacyAgent);
+    expect(d.status).toBe(200);
+    expect(d.body).toEqual({ status: 'deleted' });
+    expect(mockPrisma.memoryEntry.findFirst.mock.calls[1][0].where).toEqual({ id: 'm1', userId: USER, deletedAt: null, tenantId: 'josh-business' });
+    expect(mockPrisma.memoryEntityLink.findFirst).toHaveBeenCalledWith({ where: { id: 'l1', memoryId: 'm1' } });
+    expect(mockPrisma.memoryEntityLink.delete).toHaveBeenCalledWith({ where: { id: 'l1' } });
+  });
+
+  it('DELETE 404s (no delete) when the memory is outside the agent\'s tenant or the link is not on it', async () => {
+    mockPrisma.memoryEntry.findFirst.mockResolvedValue(null);
+    const r1 = await request(app).delete('/memories/m-other-tenant/links/l1').set(H).set(legacyAgent);
+    expect(r1.status).toBe(404);
+    mockPrisma.memoryEntry.findFirst.mockResolvedValue({ id: 'm1', userId: USER });
+    mockPrisma.memoryEntityLink.findFirst.mockResolvedValue(null);
+    const r2 = await request(app).delete('/memories/m1/links/l-foreign').set(H).set(legacyAgent);
+    expect(r2.status).toBe(404);
+    expect(r2.body.message).toBe('Link not found');
+    expect(mockPrisma.memoryEntityLink.delete).not.toHaveBeenCalled();
   });
 });
 

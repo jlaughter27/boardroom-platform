@@ -379,3 +379,108 @@ describe('brand gold and token contrast (Lane D · M1-D1)', () => {
     expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RD-1 — memory content is markdown (docs/roadmap/PHASE-8-REAL-DATA-ROADMAP.md).
+//
+// One sanitizing renderer: react-markdown + remark-gfm in
+// components/memory/MemoryMarkdown.tsx, never raw HTML. Memory content is not
+// dumped as plain text in the memory components (the detail renders markdown,
+// the cards strip it), and wide markdown tables scroll inside their own region.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MARKDOWN_RENDERER = 'components/memory/MemoryMarkdown.tsx';
+
+describe('memory markdown (RD-1)', () => {
+  it('no `dangerouslySetInnerHTML`, `rehype-raw` or `allowDangerousHtml` anywhere in the client', () => {
+    const hits = scan((line) => /dangerouslySetInnerHTML|rehype-raw|allowDangerousHtml/.test(line));
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+  });
+
+  it('react-markdown is imported only by the one sanitizing renderer', () => {
+    const hits = scan((line, rel) => /from ['"]react-markdown['"]/.test(line) && rel !== MARKDOWN_RENDERER);
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+    const src = readFileSync(join(SRC, MARKDOWN_RENDERER), 'utf8');
+    expect(src).toMatch(/from ['"]react-markdown['"]/);
+    expect(src).toMatch(/from ['"]remark-gfm['"]/);
+  });
+
+  it('memory components never render `memory.content` as raw JSX text', () => {
+    const hits = scan((line, rel) => rel.startsWith('components/memory/') && /\{\s*(memory|m|rm|selectedMemory)\.content\s*\}/.test(line));
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+  });
+
+  it('memory cards build their preview with markdownToPlainText', () => {
+    const src = readFileSync(join(SRC, 'components/memory/MemoryCard.tsx'), 'utf8');
+    expect(src).toMatch(/markdownToPlainText\(/);
+    expect(src).not.toMatch(/\{\s*memory\.content\s*\}/);
+  });
+
+  it('markdown tables sit in a focusable overflow-x-auto region (they scroll inside the panel, never the page)', () => {
+    const src = readFileSync(join(SRC, MARKDOWN_RENDERER), 'utf8');
+    const start = src.indexOf('table: (');
+    const table = src.slice(start, src.indexOf('thead:', start));
+    expect(start).toBeGreaterThan(-1);
+    expect(table).toMatch(/overflow-x-auto/);
+    expect(table).toMatch(/tabIndex=\{0\}/);
+    expect(table).toMatch(/role="region"/);
+  });
+});
+
+// ── Real-data lane (Phase 8 RD-9e) ──────────────────────────────────────────
+/**
+ * Decorative gold — the focus ring, the graph focus glow, the logo halo and the
+ * goal hue — is the CURRENT gold fill (per theme and gold variant), never the
+ * pre-M1-D1 #b5890a in the default light theme, and never a hard-coded rgba in
+ * a component.
+ */
+const OLD_GOLD = /#b5890a|rgba\(\s*181\s*,\s*137\s*,\s*10\b|rgba\(\s*212\s*,\s*163\s*,\s*26\b/i;
+/** Files that may still spell a gold literal, and why. */
+const OLD_GOLD_ALLOW: { file: string; reason: string }[] = [
+  { file: 'components/graph/graph-theme.ts', reason: 'FALLBACK palette = the dark token values, used only before tokens.css is readable' },
+  { file: 'components/viz/theme.ts', reason: 'dataviz palette (light series/accent still #b5890a) — owned by the viz lane; follow-up to move it to the token' },
+];
+
+describe('decorative gold tokens follow the current gold (RD-9e)', () => {
+  const css = readFileSync(TOKENS_CSS, 'utf8');
+  const rgb = (vars: Map<string, string>, token: string) => tokenColor(vars, token).slice(0, 3).join(',');
+
+  for (const state of GOLD_STATES) {
+    it(`${stateName(state)}: ring, graph glow and logo glow are the gold fill at low alpha`, () => {
+      const vars = resolveTokens(css, state);
+      const fill = rgb(vars, '--color-primary');
+      for (const token of ['--color-ring', '--graph-glow', '--color-primary-glow']) {
+        expect(rgb(vars, token), `${token} vs --color-primary`).toBe(fill);
+        const alpha = tokenColor(vars, token)[3];
+        expect(alpha, `${token} alpha`).toBeGreaterThan(0);
+        expect(alpha, `${token} alpha`).toBeLessThan(0.5);
+      }
+    });
+  }
+
+  it('goals are drawn in the gold fill in light mode (both variants); dark keeps its stepped goal hue', () => {
+    for (const state of GOLD_STATES.filter((s) => !s.dark)) {
+      const vars = resolveTokens(css, state);
+      expect(rgb(vars, '--color-entity-goal'), stateName(state)).toBe(rgb(vars, '--color-primary'));
+    }
+    expect(rgb(resolveTokens(css, { dark: true, gold: 'default' }), '--color-entity-goal')).toBe('201,133,0');
+  });
+
+  it('the default light theme no longer carries the pre-M1-D1 gold anywhere in tokens.css', () => {
+    const vars = resolveTokens(css, { dark: false, gold: 'default' });
+    const old = [...vars].filter(([, v]) => /#b5890a|181\s*,\s*137\s*,\s*10\b/i.test(v)).map(([k]) => k);
+    expect(old).toEqual([]);
+  });
+
+  it('components never hard-code a gold rgba / hex (use the tokens — e.g. drop-shadow-[0_0_16px_var(--color-primary-glow)])', () => {
+    const hits = scan((line, rel) => OLD_GOLD.test(line) && !OLD_GOLD_ALLOW.some((a) => a.file === rel));
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+  });
+
+  it('the logo halos use the glow token', () => {
+    for (const rel of ['pages/LoginPage.tsx', 'pages/OnboardingPage.tsx']) {
+      const src = readFileSync(join(SRC, rel), 'utf8');
+      expect(src, rel).toMatch(/<Logo variant="icon"[^>]*drop-shadow-\[0_0_\d+px_var\(--color-primary-glow\)\]/);
+    }
+  });
+});

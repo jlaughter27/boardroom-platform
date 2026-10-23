@@ -17,6 +17,14 @@ import { cn } from '../../lib/cn';
  */
 export const PERSONA_CARD_HEIGHT = 'h-[32rem]';
 export const PERSONA_CARD_MIN_HEIGHT = 'min-h-[32rem]';
+/**
+ * Waiting and failed cards (RD-9b): the same 32rem from `sm` up, 20rem on
+ * phones. On a 390 px screen a waiting / failed card used to be two thirds
+ * empty. Waiting → streaming grows the box, but that happens right after the
+ * Analyze tap (inside the input window CLS ignores); streaming and finished
+ * cards keep 32rem everywhere so the stream itself never moves the column.
+ */
+export const PERSONA_CARD_IDLE_MIN_HEIGHT = 'min-h-[20rem] sm:min-h-[32rem]';
 /** Above this many characters the clamped analysis offers "Show full analysis". */
 const LONG_TEXT = 200;
 
@@ -186,7 +194,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
   // Failed state (M1-C2): say so, show why, offer Retry — never "Thinking..." forever.
   if (!response && !isStreaming && error) {
     return (
-      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="error">
+      <Card className={cn(frame, PERSONA_CARD_IDLE_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="error">
         <div className="flex items-center gap-2 mb-4">
           <span className="font-medium text-foreground text-sm">{name}</span>
           <Badge variant="warning">No answer</Badge>
@@ -219,7 +227,7 @@ export const PersonaCard = memo(function PersonaCard({ personaId, response, stre
   // Waiting state: queued, not started yet. A static skeleton in the reserved box (no endless loop).
   if (!response && !isStreaming) {
     return (
-      <Card className={cn(frame, PERSONA_CARD_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="waiting">
+      <Card className={cn(frame, PERSONA_CARD_IDLE_MIN_HEIGHT, 'flex flex-col')} data-testid="persona-card" data-state="waiting">
         <div className="flex items-center justify-between mb-3">
           <span className="font-medium text-foreground text-sm">{name}</span>
           <span className="text-xs text-muted-foreground">Waiting to start</span>
