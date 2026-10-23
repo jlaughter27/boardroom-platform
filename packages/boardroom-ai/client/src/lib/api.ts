@@ -214,6 +214,8 @@ interface SessionDetail {
   sufficiencyScore: unknown | null;
   /** Phase 6 — set once `POST /sessions/:id/decide` has created a Decision. */
   decisionId?: string | null;
+  /** Phase 6 debate round 2, keyed by personaId (validated on hydrate — RD-9a). */
+  rebuttals?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -489,7 +491,7 @@ export function getRelationshipGraph() {
   );
 }
 
-/** Knowledge graph for the /graph page. Server caps memories (default 150, max 500). */
+/** Knowledge graph for the /graph page. Server caps memories by importance (default 200, max 1000 — RD-6). */
 export function getKnowledgeGraph(query: KnowledgeGraphQuery = {}) {
   const qs = new URLSearchParams();
   if (query.types?.length) qs.set('types', query.types.join(','));

@@ -5,11 +5,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useOutletContext } from 'react-router-dom';
 import * as api from '../src/lib/api';
 import { ApiError } from '../src/lib/api';
 import type { UserProfile } from '@boardroom/shared';
 import { OnboardingGate, describeProfileFailure } from '../src/App';
+import type { ShellOutletContext } from '../src/components/shared/Layout';
 
 vi.mock('../src/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/api')>();
@@ -18,12 +19,18 @@ vi.mock('../src/lib/api', async (importOriginal) => {
 
 const profile = (onboardingComplete: boolean) => ({ id: 'up-1', userId: 'u-1', onboardingComplete }) as unknown as UserProfile;
 
+/** Stands in for Layout: renders the pane notice the gate hands down (RD-9d). */
+function Shell() {
+  const ctx = useOutletContext<ShellOutletContext | undefined>();
+  return <><p>dashboard shell</p>{ctx?.paneNotice}</>;
+}
+
 function renderGate() {
   return render(
     <MemoryRouter initialEntries={['/']}>
       <Routes>
         <Route element={<OnboardingGate />}>
-          <Route path="/" element={<p>dashboard shell</p>} />
+          <Route path="/" element={<Shell />} />
         </Route>
         <Route path="/onboarding" element={<p>onboarding page</p>} />
       </Routes>

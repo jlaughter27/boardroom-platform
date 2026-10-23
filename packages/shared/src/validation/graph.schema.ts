@@ -8,6 +8,7 @@ import type {
   MemoryBacklink,
   MemoryBacklinksResponse,
 } from '../types/graph.types';
+import { KNOWLEDGE_GRAPH_MEMORY_LIMIT } from '../constants/graph-config';
 
 export const KnowledgeGraphNodeTypeSchema = z.enum([
   'goal',
@@ -70,6 +71,7 @@ export const KnowledgeGraphSchema = z.object({
     edgeCount: z.number().int().nonnegative(),
     isolatedNodes: z.number().int().nonnegative(),
     memoryLimitHit: z.boolean(),
+    memoryTotal: z.number().int().nonnegative(),
   }),
   generatedAt: z.string(),
 }) satisfies z.ZodType<KnowledgeGraph>;
@@ -90,7 +92,7 @@ export const KnowledgeGraphQuerySchema = z
       })
       .pipe(z.array(KnowledgeGraphNodeTypeSchema).min(1).optional()),
     domain: z.string().trim().min(1).max(50).optional(),
-    memoryLimit: z.coerce.number().int().min(0).max(500).optional(),
+    memoryLimit: z.coerce.number().int().min(0).max(KNOWLEDGE_GRAPH_MEMORY_LIMIT.MAX).optional(),
     includeArchived: z
       .union([z.boolean(), z.string()])
       .optional()

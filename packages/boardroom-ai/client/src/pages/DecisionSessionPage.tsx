@@ -3,7 +3,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { BILLING_SETTINGS_PATH } from '../components/shared/TrialBanner';
 import { motion, AnimatePresence } from 'motion/react';
-import { useSessionStore } from '../stores/session.store';
+import { hydrateRebuttals, useSessionStore } from '../stores/session.store';
 import { ModeSelector } from '../components/decision/ModeSelector';
 import { PersonaCard } from '../components/decision/PersonaCard';
 import { SynthesisPanel, SynthesisSheet } from '../components/decision/SynthesisPanel';
@@ -81,6 +81,8 @@ export default function DecisionSessionPage() {
           personaResponses,
           synthesis: session.ceoSynthesis as ExtendedSynthesisReport | null,
           sufficiency: session.sufficiencyScore as SufficiencyScore | null,
+          // RD-9a: a reload keeps the debate's round 2 (badges + rebuttal blocks).
+          rebuttals: hydrateRebuttals(session.rebuttals),
         });
         // Analyze created this session and navigated here: run it now, once.
         // The state is consumed first so a reload shows the question instead of re-running it.

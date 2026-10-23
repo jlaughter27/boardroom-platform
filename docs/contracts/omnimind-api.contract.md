@@ -815,7 +815,9 @@ Response 200: { status: "deleted" }
 
 Bulk, read-only projection of the entity graph for the Obsidian-style graph view. One request returns every Goal, Project, Task, Person, Decision and Commitment the user owns (not soft-deleted), the top-N memories by importance, and every link between them. Node ids are namespaced `<type>:<refId>`; edges whose endpoints were filtered out are dropped server-side. No memory `content` is returned, only titles.
 
-**Query params:** `types` (comma-separated subset of `goal,project,task,person,decision,commitment,memory`; default all) · `domain` (keeps nodes in that domain plus their domain-less neighbours) · `memoryLimit` (0–500, default 150) · `includeArchived` (`true` to include ARCHIVED memories)
+**Query params:** `types` (comma-separated subset of `goal,project,task,person,decision,commitment,memory`; default all) · `domain` (keeps nodes in that domain plus their domain-less neighbours) · `memoryLimit` (integer 0–1000, default 200 — `KNOWLEDGE_GRAPH_MEMORY_LIMIT` in shared; anything else → `422 validation_failed`; RD-6, was 0–500 / 150) · `includeArchived` (`true` to include ARCHIVED memories)
+
+**Memory cap (RD-6):** memories are ordered `importance desc, createdAt desc` and cut at `memoryLimit`. `stats.memoryTotal` is the number of memories that matched the tenant / archive filters before the cut (the `domain` filter runs after it), so the UI can say "Showing 200 of 640 memories" and ask for more in steps of 200 (`KNOWLEDGE_GRAPH_MEMORY_LIMIT.STEP`) up to the max. `stats.memoryLimitHit` is `memoryTotal > memories returned`. Both are `0` / `false` when the memory layer is not requested (`types` without `memory`, or `memoryLimit=0`).
 
 **Tenant scoping:** when an agent context is present, memories are limited to that tenant; entities are user-scoped.
 
@@ -825,7 +827,7 @@ Bulk, read-only projection of the entity graph for the Obsidian-style graph view
 {
   "nodes": [{ "id": "goal:ckx…", "type": "goal", "refId": "ckx…", "label": "Launch v1", "domain": "business", "status": "active", "importance": null, "createdAt": "2026-…", "meta": { "level": 1, "parentGoalId": null } }],
   "edges": [{ "id": "goal_project:goal:ckx…->project:cky…", "source": "goal:ckx…", "target": "project:cky…", "type": "goal_project", "label": null }],
-  "stats": { "nodeCounts": { "goal": 4, "project": 9, "task": 31, "person": 12, "decision": 6, "commitment": 3, "memory": 150 }, "edgeCount": 212, "isolatedNodes": 17, "memoryLimitHit": true },
+  "stats": { "nodeCounts": { "goal": 4, "project": 9, "task": 31, "person": 12, "decision": 6, "commitment": 3, "memory": 200 }, "edgeCount": 212, "isolatedNodes": 17, "memoryLimitHit": true, "memoryTotal": 640 },
   "generatedAt": "2026-10-02T12:00:00.000Z"
 }
 ```

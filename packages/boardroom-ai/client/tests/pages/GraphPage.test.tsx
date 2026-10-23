@@ -280,3 +280,63 @@ describe('loadFilters', () => {
     expect(loadFilters().types.size).toBeGreaterThan(1); // nothing valid → all types
   });
 });
+
+// ── RD-6: "Showing 200 of N memories — Show more" ─────────────────────────────
+describe('GraphPage memory cap (RD-6)', () => {
+  const memories = (n: number, from = 0) => Array.from({ length: n }, (_, i) => node(`memory:m${from + i}`));
+  const capped = (shown: number, total: number) => {
+    const mems = memories(shown);
+    const g = graphOf([node('project:p'), ...mems], mems.map((m) => edge(m.id, 'project:p')));
+    return { ...g, stats: { ...g.stats, memoryLimitHit: total > shown, memoryTotal: total } };
+  };
+
+  beforeAll(() => {
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
+    window.cancelAnimationFrame = (id: number) => clearTimeout(id);
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ depth: 0 })); // global view: every loaded memory is on the canvas
+    registry.props = null;
+    useGraphStore.getState().clearSpotlight();
+    vi.mocked(api.getGraphNeighbourhoods).mockResolvedValue([]);
+  });
+
+  it('asks for 200 memories first, says how many are hidden, and "Show 200 more" requests the next step without a skeleton', async () => {
+    vi.mocked(api.getKnowledgeGraph).mockResolvedValueOnce(capped(200, 640)).mockResolvedValueOnce(capped(400, 640));
+    renderPage();
+    await screen.findByTestId('fg');
+    expect(api.getKnowledgeGraph).toHaveBeenLastCalledWith({ memoryLimit: 200 });
+    expect(screen.getByTestId('graph-memory-cap')).toHaveTextContent('Showing 200 of 640 memories');
+
+    fireEvent.click(screen.getByTestId('graph-show-more'));
+    expect(screen.getByTestId('graph-show-more')).toHaveTextContent('Loading…');
+    expect(screen.getByTestId('fg')).toBeInTheDocument(); // the canvas stays while the next slice loads
+    await waitFor(() => expect(screen.getByTestId('graph-memory-cap')).toHaveTextContent('Showing 400 of 640 memories'));
+    expect(api.getKnowledgeGraph).toHaveBeenLastCalledWith({ memoryLimit: 400 });
+    expect(Number(fg().getAttribute('data-nodes'))).toBe(401);
+    expect(screen.getByTestId('graph-show-more')).toHaveTextContent('Show 200 more');
+  });
+
+  it('the last step asks only for what is left; nothing hidden → no control', async () => {
+    vi.mocked(api.getKnowledgeGraph).mockResolvedValueOnce(capped(200, 260)).mockResolvedValueOnce(capped(260, 260));
+    renderPage();
+    await screen.findByTestId('fg');
+    expect(screen.getByTestId('graph-show-more')).toHaveTextContent('Show 60 more');
+    fireEvent.click(screen.getByTestId('graph-show-more'));
+    await waitFor(() => expect(screen.queryByTestId('graph-memory-cap')).not.toBeInTheDocument());
+    expect(screen.getByTestId('graph-summary')).not.toHaveTextContent('memories');
+  });
+
+  it('a failed "Show more" keeps the current graph and says so', async () => {
+    vi.mocked(api.getKnowledgeGraph).mockResolvedValueOnce(capped(200, 640)).mockRejectedValueOnce(new Error('boom'));
+    renderPage();
+    await screen.findByTestId('fg');
+    fireEvent.click(screen.getByTestId('graph-show-more'));
+    expect(await screen.findByText(/Could not load more memories/)).toBeInTheDocument();
+    expect(screen.getByTestId('graph-memory-cap')).toHaveTextContent('Showing 200 of 640 memories');
+    expect(Number(fg().getAttribute('data-nodes'))).toBe(201);
+  });
+});

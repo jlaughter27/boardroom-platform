@@ -30,7 +30,16 @@
   --color-accent: #f3f2ed;
   --color-accent-foreground: #6b6960;
   --color-border: #e6e4db;
-  --color-ring: rgba(181, 137, 10, 0.3);
+  /*
+   * Decorative gold (RD-9e): the focus ring, the graph focus glow and the
+   * logo halo are the CURRENT gold fill at low alpha — #8f6d07 = 143,109,7
+   * here, #b5890a in the dark-label variant, #d4a31a in dark — never the
+   * pre-M1-D1 #b5890a in the default light theme. They are literal rgba (the
+   * graph canvas reads --graph-glow as a canvas colour). Enforced by
+   * ui-standards.test.ts ("decorative gold tokens follow the current gold").
+   */
+  --color-ring: rgba(143, 109, 7, 0.3);
+  --color-primary-glow: rgba(143, 109, 7, 0.4);
   --color-destructive: #b91c1c;
   --color-destructive-foreground: #ffffff;
   /*
@@ -88,7 +97,8 @@
    * memories are the neutral base layer. Each type also carries a distinct
    * shape in the graph, so identity is never color-alone.
    */
-  --color-entity-goal: #b5890a;
+  /* Goals are drawn in the brand gold fill itself (RD-9e) — follows both gold variants. */
+  --color-entity-goal: var(--color-primary);
   --color-entity-project: #2a78d6;
   --color-entity-task: #1baf7a;
   --color-entity-person: #c9407a;
@@ -109,7 +119,7 @@
    */
   --graph-grid: rgba(26, 26, 22, 0.05);
   --graph-vignette: rgba(26, 26, 22, 0.07);
-  --graph-glow: rgba(181, 137, 10, 0.35);
+  --graph-glow: rgba(143, 109, 7, 0.35);
   --graph-community-1: #eb6834;
   --graph-community-2: #2a78d6;
   --graph-community-3: #eda100;
@@ -266,6 +276,7 @@
   --color-accent-foreground: #9a9890;
   --color-border: #2e2e2a;
   --color-ring: rgba(212, 163, 26, 0.3);
+  --color-primary-glow: rgba(212, 163, 26, 0.4);
   --color-destructive: #ef4444;
   --color-destructive-foreground: #111110;
   --color-muted-foreground-on-glass: #aaa89f;
@@ -366,6 +377,10 @@
   --color-primary: #b5890a;
   --color-primary-foreground: #1a1a16;
   --color-primary-hover: #c4970f;
+  /* Decorative gold follows this fill (RD-9e); --color-entity-goal does via var(). */
+  --color-ring: rgba(181, 137, 10, 0.3);
+  --color-primary-glow: rgba(181, 137, 10, 0.4);
+  --graph-glow: rgba(181, 137, 10, 0.35);
 }
 
 /* === KEYFRAMES === */

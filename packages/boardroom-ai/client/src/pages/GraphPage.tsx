@@ -23,6 +23,8 @@ import { maxScore, mergeBacklinks, missingHitIds, scoreMap } from '../components
 import { detectCommunities } from '../components/graph/graph-communities';
 import { useGraphStore } from '../stores/graph.store';
 import { useCommandPaletteStore } from '../stores/commandPalette.store';
+import { GraphMemoryCap, memoryCapState } from '../components/graph/GraphMemoryCap';
+import { KNOWLEDGE_GRAPH_MEMORY_LIMIT } from '@boardroom/shared';
 import { cn } from '../lib/cn';
 
 /**
@@ -113,6 +115,11 @@ export default function GraphPage() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  /** RD-6 — memories requested from the server (top-N by importance); "Show more" raises it in steps. */
+  const [memoryLimit, setMemoryLimit] = useState<number>(KNOWLEDGE_GRAPH_MEMORY_LIMIT.DEFAULT);
+  const memoryLimitRef = useRef(memoryLimit);
+  memoryLimitRef.current = memoryLimit;
+  const [loadingMore, setLoadingMore] = useState(false);
   const [filters, setFiltersState] = useState<GraphFilters>(loadFilters);
   const [focusId, setFocusId] = useState<string | null>(initialFocus);
   const [selectedId, setSelectedId] = useState<string | null>(initialFocus);
@@ -145,17 +152,17 @@ export default function GraphPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setGraph(await api.getKnowledgeGraph({ memoryLimit: 200 }));
+      setGraph(await api.getKnowledgeGraph({ memoryLimit: memoryLimitRef.current }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load the graph');
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  /** Silent refetch after a link is created (keeps the current render while loading). */
-  const refetch = useCallback(async () => {
+  /** Silent refetch after a link is created / more memories are asked for (keeps the current render while loading). */
+  const refetch = useCallback(async (limit: number = memoryLimitRef.current) => {
     try {
-      const fresh = await api.getKnowledgeGraph({ memoryLimit: 200 });
+      const fresh = await api.getKnowledgeGraph({ memoryLimit: limit });
       attemptedFetch.current.clear();
       setUnavailable(new Set());
       setGraph(fresh);
@@ -165,8 +172,18 @@ export default function GraphPage() {
       const hits = new Set(useGraphStore.getState().spotlight.hits.map((h) => h.nodeId));
       const keepId = focusIdRef.current;
       setHistory((h) => pruneHistory(h, (id) => ids.has(id) || id === keepId || hits.has(id)));
-    } catch { /* keep the old graph */ }
+      return true;
+    } catch { return false; /* keep the old graph */ }
   }, []);
+
+  /** RD-6 — "Show 200 more": the next importance slice, merged into the live layout (survivors keep their positions). */
+  const showMoreMemories = useCallback(async (nextLimit: number) => {
+    setLoadingMore(true);
+    try {
+      if (await refetch(nextLimit)) setMemoryLimit(nextLimit);
+      else setError('Could not load more memories. Try again in a moment.');
+    } finally { setLoadingMore(false); }
+  }, [refetch]);
 
   // ── Tell the palette we are here (it focuses in place instead of navigating) ─
   useEffect(() => {
@@ -391,7 +408,7 @@ export default function GraphPage() {
   }, [historyBack, historyForward]);
 
   // ── Lazily fetch what the loaded graph lacks (1-hop via backlinks): spotlight
-  //    hits, and a ?focus= / palette target beyond the 200-memory cap.
+  //    hits, and a ?focus= / palette target beyond the memory cap (RD-6).
   //
   //    Never cancelled on a dependency change: the merge is idempotent (it
   //    dedupes by node / edge id), while dropping a response would strand the
@@ -446,7 +463,7 @@ export default function GraphPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   const total = graph?.nodes.length ?? 0;
-  const truncated = graph?.stats.memoryLimitHit ?? false;
+  const capState = useMemo(() => memoryCapState(graph, memoryLimit), [graph, memoryLimit]);
   const sidePanelClass = cn(
     'w-full max-w-[340px] shrink-0 border-l border-border',
     'max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[55%] max-md:max-w-none max-md:border-l-0 max-md:border-t',
@@ -465,7 +482,9 @@ export default function GraphPage() {
                 <span className="tnum">{edges.length}</span> links
                 {communityResult && communityResult.communities.length > 1 && <> · <span className="tnum">{communityResult.communities.length}</span> communities</>}
                 {focused && filters.depth > 0 && <> · local {filters.depth}° around <span className="text-foreground">{focused.label}</span></>}
-                {truncated && ' · memories capped at 200 by importance'}
+                {capState && capState.hidden > 0 && (
+                  <> · <GraphMemoryCap state={capState} loading={loadingMore} onShowMore={(n) => void showMoreMemories(n)} /></>
+                )}
               </>
             )}
           </span>
@@ -532,7 +551,8 @@ export default function GraphPage() {
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border shadow-sm">
+      {/* On a phone the controls above take most of the 520 px page; the canvas keeps a usable height and the page scrolls instead (RD-6). */}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border shadow-sm max-md:h-[420px] max-md:flex-none">
         {loading && !graph ? (
           <div className="flex h-full flex-col gap-3 p-6">
             <Skeleton className="h-6 w-48" />
@@ -585,12 +605,12 @@ export default function GraphPage() {
                   if (filters.depth === 0) setFilters({ ...filters, depth: DEFAULT_DEPTH });
                 }}
                 onClose={() => setSelectedId(null)}
-                onLinked={refetch}
+                onLinked={() => void refetch()}
                 className={sidePanelClass}
               />
             ) : showMentions ? (
               <UnlinkedMentionsPanel
-                onLinked={refetch}
+                onLinked={() => void refetch()}
                 onCount={setMentionCount}
                 onSelectNode={pick}
                 onClose={() => setShowMentions(false)}

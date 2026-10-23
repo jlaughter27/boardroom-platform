@@ -7,7 +7,7 @@ import type {
   KnowledgeGraphNodeType,
   KnowledgeGraphQuery,
 } from '@boardroom/shared';
-import { normalizeDomain } from '@boardroom/shared';
+import { KNOWLEDGE_GRAPH_MEMORY_LIMIT, normalizeDomain } from '@boardroom/shared';
 
 /**
  * Knowledge graph projection — one bulk read over the entity tables and the
@@ -18,6 +18,7 @@ import { normalizeDomain } from '@boardroom/shared';
  *  - every node and both ends of every edge belong to `userId` and are not
  *    soft-deleted; edges whose endpoints were filtered out are dropped
  *  - memories are capped (importance desc) so the graph stays renderable;
+ *    stats.memoryTotal counts what matched before the cap (RD-6) and
  *    stats.memoryLimitHit tells the UI the layer was truncated
  *  - tenant scoping applies to memories when an agent context is present
  *    (entities are user-scoped only, matching the rest of the API)
@@ -25,8 +26,8 @@ import { normalizeDomain } from '@boardroom/shared';
  *    never surface ciphertext or plaintext content through this endpoint
  */
 
-const DEFAULT_MEMORY_LIMIT = 150;
-const MAX_MEMORY_LIMIT = 500;
+const DEFAULT_MEMORY_LIMIT = KNOWLEDGE_GRAPH_MEMORY_LIMIT.DEFAULT;
+const MAX_MEMORY_LIMIT = KNOWLEDGE_GRAPH_MEMORY_LIMIT.MAX;
 
 const ALL_TYPES: KnowledgeGraphNodeType[] = [
   'goal', 'project', 'task', 'person', 'decision', 'commitment', 'memory',
@@ -70,8 +71,13 @@ export async function getKnowledgeGraph(
   const includeMemories = wanted.has('memory') && memoryLimit > 0;
 
   const alive = { userId, deletedAt: null } as const;
+  const memoryWhere = {
+    ...alive,
+    ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
+    ...(opts.includeArchived ? {} : { status: { not: 'ARCHIVED' as const } }),
+  };
 
-  const [goals, projects, tasks, people, decisions, commitments, memories] = await Promise.all([
+  const [goals, projects, tasks, people, decisions, commitments, memories, memoryTotal] = await Promise.all([
     wanted.has('goal')
       ? prisma.goal.findMany({
           where: alive,
@@ -110,16 +116,14 @@ export async function getKnowledgeGraph(
       : [],
     includeMemories
       ? prisma.memoryEntry.findMany({
-          where: {
-            ...alive,
-            ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
-            ...(opts.includeArchived ? {} : { status: { not: 'ARCHIVED' } }),
-          },
+          where: memoryWhere,
           select: { id: true, title: true, domain: true, importance: true, status: true, memoryClass: true, createdAt: true },
           orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }],
           take: memoryLimit,
         })
       : [],
+    // Same filter, no cap: lets the UI say "Showing 200 of N memories" (RD-6).
+    includeMemories ? prisma.memoryEntry.count({ where: memoryWhere }) : 0,
   ]);
 
   // ── Nodes ─────────────────────────────────────────────────────────────────
@@ -278,7 +282,9 @@ export async function getKnowledgeGraph(
       nodeCounts,
       edgeCount: edges.size,
       isolatedNodes: isolated,
-      memoryLimitHit: includeMemories && memories.length >= memoryLimit,
+      // `>=` on the page alone could not tell "exactly N" from "more than N"; the count can.
+      memoryLimitHit: includeMemories && memoryTotal > memories.length,
+      memoryTotal: includeMemories ? Math.max(memoryTotal, memories.length) : 0,
     },
     generatedAt: new Date().toISOString(),
   };

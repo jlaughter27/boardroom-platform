@@ -1,11 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import { KNOWLEDGE_GRAPH_MEMORY_LIMIT } from '@boardroom/shared';
 import { getKnowledgeGraph } from '../../../src/services/knowledge-graph.service';
 
 const d = new Date('2026-10-01T00:00:00Z');
 
-function fakePrisma(over: Partial<Record<string, unknown[]>> = {}) {
-  const table = (rows: unknown[] = []) => ({ findMany: vi.fn(async () => rows) });
+function fakePrisma(over: Partial<Record<string, unknown[]>> = {}, memoryCount?: number) {
+  const table = (rows: unknown[] = [], count?: number) => ({ findMany: vi.fn(async () => rows), count: vi.fn(async () => count ?? rows.length) });
   return {
     goal: table(over.goal ?? [
       { id: 'g1', title: 'Launch v1', domain: 'Business', status: 'active', level: 1, parentGoalId: null, createdAt: d },
@@ -30,7 +31,7 @@ function fakePrisma(over: Partial<Record<string, unknown[]>> = {}) {
     memoryEntry: table(over.memoryEntry ?? [
       { id: 'm1', title: 'Pricing call notes', domain: 'business', importance: 0.7, status: 'CONFIRMED', memoryClass: 'EPISODIC', createdAt: d },
       { id: 'm2', title: 'Sermon prep', domain: 'ministry', importance: 0.9, status: 'CONFIRMED', memoryClass: 'SEMANTIC', createdAt: d },
-    ]),
+    ], memoryCount),
     goalProjectLink: table(over.goalProjectLink ?? [{ goalId: 'g2', projectId: 'p1' }]),
     projectTaskLink: table(over.projectTaskLink ?? [{ projectId: 'p1', taskId: 't1' }, { projectId: 'p1', taskId: 't2' }]),
     projectPersonLink: table(over.projectPersonLink ?? [{ projectId: 'p1', personId: 'u1', role: 'advisor' }]),
@@ -93,9 +94,10 @@ describe('getKnowledgeGraph', () => {
   });
 
   it('caps memories and reports memoryLimitHit; passes tenant + archive filters to Prisma', async () => {
-    const prisma = fakePrisma();
+    const prisma = fakePrisma({}, 7); // 7 match, 2 come back
     const g = await getKnowledgeGraph('user-1', { memoryLimit: 2, tenantId: 'josh-business' }, prisma);
     expect(g.stats.memoryLimitHit).toBe(true);
+    expect(g.stats.memoryTotal).toBe(7);
     const call = (prisma as unknown as { memoryEntry: { findMany: ReturnType<typeof vi.fn> } }).memoryEntry.findMany.mock.calls[0][0];
     expect(call.take).toBe(2);
     expect(call.where.tenantId).toBe('josh-business');
@@ -108,6 +110,62 @@ describe('getKnowledgeGraph', () => {
     const g = await getKnowledgeGraph('user-1', { memoryLimit: 0 }, prisma);
     expect(g.stats.nodeCounts.memory).toBe(0);
     expect(g.stats.memoryLimitHit).toBe(false);
+    expect(g.stats.memoryTotal).toBe(0);
     expect((prisma as unknown as { memoryEntry: { findMany: ReturnType<typeof vi.fn> } }).memoryEntry.findMany).not.toHaveBeenCalled();
+    expect((prisma as unknown as { memoryEntry: { count: ReturnType<typeof vi.fn> } }).memoryEntry.count).not.toHaveBeenCalled();
+  });
+});
+
+// RD-6 — the cap is a request parameter with a safe maximum, and the total tells the UI what is hidden.
+describe('getKnowledgeGraph — memory cap + total (RD-6)', () => {
+  type MemoryMock = { memoryEntry: { findMany: ReturnType<typeof vi.fn>; count: ReturnType<typeof vi.fn> } };
+  const mem = (p: PrismaClient) => (p as unknown as MemoryMock).memoryEntry;
+
+  it('defaults to KNOWLEDGE_GRAPH_MEMORY_LIMIT.DEFAULT (200) memories when no limit is asked for', async () => {
+    const prisma = fakePrisma();
+    await getKnowledgeGraph('user-1', {}, prisma);
+    expect(mem(prisma).findMany.mock.calls[0][0].take).toBe(KNOWLEDGE_GRAPH_MEMORY_LIMIT.DEFAULT);
+    expect(KNOWLEDGE_GRAPH_MEMORY_LIMIT.DEFAULT).toBe(200);
+  });
+
+  it('honours a raised limit and clamps anything above the max (defence in depth behind the route 422)', async () => {
+    const prisma = fakePrisma();
+    await getKnowledgeGraph('user-1', { memoryLimit: 600 }, prisma);
+    expect(mem(prisma).findMany.mock.calls[0][0].take).toBe(600);
+    const p2 = fakePrisma();
+    await getKnowledgeGraph('user-1', { memoryLimit: 5000 }, p2);
+    expect(mem(p2).findMany.mock.calls[0][0].take).toBe(KNOWLEDGE_GRAPH_MEMORY_LIMIT.MAX);
+    expect(KNOWLEDGE_GRAPH_MEMORY_LIMIT.MAX).toBe(1000);
+  });
+
+  it('counts with exactly the same filter as the capped read (tenant + archive), never a cap', async () => {
+    const prisma = fakePrisma({}, 640);
+    await getKnowledgeGraph('user-1', { memoryLimit: 200, tenantId: 'josh-business', includeArchived: true }, prisma);
+    const read = mem(prisma).findMany.mock.calls[0][0];
+    const count = mem(prisma).count.mock.calls[0][0];
+    expect(count.where).toEqual(read.where);
+    expect(count.where).toMatchObject({ userId: 'user-1', deletedAt: null, tenantId: 'josh-business' });
+    expect(count.where.status).toBeUndefined(); // includeArchived
+    expect(count.take).toBeUndefined();
+  });
+
+  it('reports memoryTotal and the hidden remainder; exactly-at-the-limit is not "truncated"', async () => {
+    const hidden = await getKnowledgeGraph('user-1', { memoryLimit: 2 }, fakePrisma({}, 640));
+    expect(hidden.stats.nodeCounts.memory).toBe(2);
+    expect(hidden.stats.memoryTotal).toBe(640);
+    expect(hidden.stats.memoryLimitHit).toBe(true);
+
+    // 2 rows, limit 2, 2 in the table: the old `length >= limit` check said "capped" here.
+    const exact = await getKnowledgeGraph('user-1', { memoryLimit: 2 }, fakePrisma({}, 2));
+    expect(exact.stats.memoryTotal).toBe(2);
+    expect(exact.stats.memoryLimitHit).toBe(false);
+  });
+
+  it('a types filter without memory skips the count and reports 0', async () => {
+    const prisma = fakePrisma({}, 99);
+    const g = await getKnowledgeGraph('user-1', { types: ['goal'] }, prisma);
+    expect(g.stats.memoryTotal).toBe(0);
+    expect(g.stats.memoryLimitHit).toBe(false);
+    expect(mem(prisma).count).not.toHaveBeenCalled();
   });
 });
