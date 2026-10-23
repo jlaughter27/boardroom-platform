@@ -108,7 +108,7 @@ export default function LoginPage() {
             transition={{ delay: 0.15, duration: 0.5 }}
           >
             <div className="flex items-center gap-3 mb-2">
-              <Logo variant="icon" size={40} className="text-primary drop-shadow-[0_0_16px_rgba(212,163,26,0.4)]" />
+              <Logo variant="icon" size={40} className="text-primary drop-shadow-[0_0_16px_var(--color-primary-glow)]" />
               <h1 className="font-display text-2xl font-bold tracking-tight">
                 <span className="text-primary-text">Board</span><span className="text-foreground">Room AI</span>
               </h1>
