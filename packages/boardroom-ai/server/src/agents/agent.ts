@@ -6,6 +6,7 @@ import { MODEL_IDS } from '@boardroom/shared';
 import type { Response } from 'express';
 import type { AnthropicToolDef } from '../tools/tool-registry';
 import { sendSSE } from './streaming';
+import { personaErrorMessage } from './provider-errors';
 import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT, type Effort } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 
@@ -159,8 +160,7 @@ export class Agent {
       sendSSE(res, { type: 'persona_complete', personaId, response: validated });
       return validated;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      sendSSE(res, { type: 'persona_error', personaId, error: message });
+      sendSSE(res, { type: 'persona_error', personaId, error: personaErrorMessage(error, personaId) });
       return null;
     }
   }

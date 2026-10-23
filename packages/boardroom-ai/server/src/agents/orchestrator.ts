@@ -15,6 +15,7 @@ import type { OmniMindClient } from '../services/omnimind-client';
 import { toolRegistry } from '../tools';
 import { getContextRequest } from '../personas/context-strategy';
 import { logger } from '../lib/logger';
+import { personaErrorMessage } from './provider-errors';
 import { buildSystemBlocks, stripJsonFences, firstText, assertNotTruncated, EFFORT } from '../lib/llm-request';
 import { recordUsage } from '../lib/llm-usage';
 import {
@@ -243,8 +244,7 @@ export class CEOOrchestrator {
           sendSSE(res, { type: 'persona_complete', personaId, response, toolInvocations });
           return response;
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          sendSSE(res, { type: 'persona_error', personaId, error: message });
+          sendSSE(res, { type: 'persona_error', personaId, error: personaErrorMessage(error, personaId) });
           return null;
         }
       }
@@ -289,8 +289,7 @@ export class CEOOrchestrator {
           sendSSE(res, { type: 'persona_complete', personaId: cp.personaId, response, toolInvocations, isCustom: true });
           return response;
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          sendSSE(res, { type: 'persona_error', personaId: cp.personaId, error: message, isCustom: true });
+          sendSSE(res, { type: 'persona_error', personaId: cp.personaId, error: personaErrorMessage(error, cp.personaId), isCustom: true });
           return null;
         }
       }
@@ -394,7 +393,7 @@ export class CEOOrchestrator {
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Rebuttal failed';
             logger.warn('[Debate] rebuttal failed', { sessionId: session.id, personaId, message });
-            sendSSE(res, { type: 'rebuttal_error', personaId, error: message });
+            sendSSE(res, { type: 'rebuttal_error', personaId, error: personaErrorMessage(error, personaId) });
             throw error;
           }
         }));
@@ -520,8 +519,7 @@ export class CEOOrchestrator {
 
       sendSSE(res, { type: 'synthesis_complete', report, qualityScore, ledger: session.ledger ?? [] });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Synthesis failed';
-      sendSSE(res, { type: 'error', error: message });
+      sendSSE(res, { type: 'error', error: error instanceof Error ? personaErrorMessage(error, 'ceo') : 'Synthesis failed' });
     }
   }
 

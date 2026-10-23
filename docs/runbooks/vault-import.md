@@ -19,6 +19,8 @@ Writes go through `POST /memories` (validation pipeline) as agent `vault-import`
 
 Semantic search embeds the first ~8,000 characters of a note; full-text and trigram search cover the whole note.
 
+**Links.** After every note exists, the importer turns `[[wikilinks]]` into memory→memory links (`linkType: wikilink`) with `POST /memories/links/batch` (500 per request), so the knowledge graph shows the vault's structure instead of 200 orphans. A target resolves by file name, title or alias (case-insensitive; `[[folder/Note]]` uses its last segment). Targets that were skipped, held back (ministry) or don't exist stay unresolved and are counted in the summary — no link crosses the ministry boundary or a tenant. Additive and idempotent: a re-run reports existing links; a wikilink removed from a note is not unlinked. `--no-links` skips the phase.
+
 ## Run it
 
 ```bash

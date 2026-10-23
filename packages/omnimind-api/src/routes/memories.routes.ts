@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
 import { z } from 'zod';
-import { CreateMemoryRequestSchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
+import { BatchMemoryLinksBodySchema, CreateMemoryRequestSchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
 import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
 import { isAdminRequest } from '../middleware/admin-auth';
 import { idempotent } from '../middleware/idempotency';
-import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES } from '../services/unlinked-mentions.service';
+import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES, linkMemoriesBatch } from '../services/unlinked-mentions.service';
 
 // Phase 6 (A2) — PATCH /memories/:id gains `supersedes: <oldMemoryId>`
 // (old row → invalidAt=now, supersededBy=:id; :id.consolidatedFrom += old).
@@ -305,6 +305,23 @@ router.delete('/:id', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // Memory Entity Links
 // ---------------------------------------------------------------------------
+
+// POST /memories/links/batch — up to 500 MemoryEntityLinks in one request
+// (bulk imports: the vault importer turns wikilinks into memory→memory links).
+// Same ownership / tenant / existence rules as the single-link route.
+router.post('/links/batch', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+    const parsed = BatchMemoryLinksBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(422).json({ error: 'validation_failed', details: parsed.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })) });
+      return;
+    }
+    const result = await linkMemoriesBatch(userId, parsed.data.links, { tenantId: req.agentContext?.tenantId }, prisma);
+    res.json(result);
+  } catch (err) { next(err); }
+});
 
 // POST /memories/:id/links — create a MemoryEntityLink
 // R-O-13: entityType is lower-cased + enum-validated and the target entity

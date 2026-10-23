@@ -310,20 +310,67 @@ export async function runImport({ plan, client, existing, dryRun, log = () => {}
   return result;
 }
 
+// ── Links ────────────────────────────────────────────────────────────────────
+
+export const LINK_BATCH = 500;
+const linkKey = target => lower(String(target).split('/').pop().replace(/\.md$/i, '').trim());
+
+/**
+ * Wikilinks → memory→memory links. A target resolves by file name, title or
+ * alias (case-insensitive; a path-style [[folder/Note]] uses its last
+ * segment). Targets that were skipped, held back (ministry) or don't exist stay
+ * unresolved — nothing points across the ministry boundary.
+ */
+export function resolveWikilinks(memories, pathToId) {
+  const index = new Map();
+  for (const m of memories) {
+    const keys = [basename(m.path, '.md'), m.body.title, ...(m.body.metadata.vault.aliases ?? [])].map(linkKey);
+    for (const k of keys) if (k && !index.has(k)) index.set(k, m.path);
+  }
+  const links = []; const seen = new Set(); let unresolved = 0;
+  for (const m of memories) {
+    const from = pathToId.get(m.path);
+    if (!from) continue;
+    for (const t of m.body.metadata.vault.links ?? []) {
+      const toPath = index.get(linkKey(t));
+      const to = toPath ? pathToId.get(toPath) : undefined;
+      if (!to) { unresolved++; continue; }
+      if (to === from) continue;
+      const k = `${from}|${to}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      links.push({ memoryId: from, entityType: 'memory', entityId: to, linkType: 'wikilink' });
+    }
+  }
+  return { links, unresolved };
+}
+
+export async function writeLinks(client, links, log = () => {}) {
+  const out = { created: 0, existing: 0, rejected: 0, failedBatches: 0 };
+  for (let i = 0; i < links.length; i += LINK_BATCH) {
+    const batch = links.slice(i, i + LINK_BATCH);
+    const r = await client.request('POST', '/memories/links/batch', { body: { links: batch } });
+    if (r.status !== 200) { out.failedBatches++; log(`  × links batch ${i / LINK_BATCH + 1} → ${r.status} ${JSON.stringify(r.json).slice(0, 200)}`); continue; }
+    out.created += r.json.created ?? 0; out.existing += r.json.existing ?? 0; out.rejected += r.json.rejected?.length ?? 0;
+  }
+  return out;
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 function usage() {
   return `usage: node scripts/vault-import.mjs --vault <dir> [--dry-run] [--plan-only]
                  [--api <url>] [--user-id <id> | --user-email <email>] [--tenant <id>]
-                 [--rate <writes/min>] [--report <file.json>]
+                 [--rate <writes/min>] [--report <file.json>] [--no-links]
   --plan-only  read the vault and print the plan; no network at all
   --dry-run    also reads OmniMind (existing rows, budgets) but writes nothing
+  --no-links   skip turning [[wikilinks]] into memory→memory links
 env: OMNIMIND_API_URL, OMNIMIND_API_KEY, OMNIMIND_USER_ID | VAULT_IMPORT_USER_EMAIL, OMNIMIND_AGENT_KEY (optional)`;
 }
 
 function parseArgs(argv) {
   const a = { vault: null, dryRun: false, planOnly: false, api: process.env.OMNIMIND_API_URL ?? null, userId: process.env.OMNIMIND_USER_ID ?? null,
-    userEmail: process.env.VAULT_IMPORT_USER_EMAIL ?? null, tenant: 'josh-business', rate: 18, report: null };
+    userEmail: process.env.VAULT_IMPORT_USER_EMAIL ?? null, tenant: 'josh-business', rate: 18, report: null, links: true };
   const args = argv[0] === '--' ? argv.slice(1) : argv;
   for (let i = 0; i < args.length; i++) {
     const k = args[i];
@@ -337,6 +384,7 @@ function parseArgs(argv) {
     else if (k === '--tenant') a.tenant = v();
     else if (k === '--rate') a.rate = Number(v());
     else if (k === '--report') a.report = v();
+    else if (k === '--no-links') a.links = false;
     else if (k === '-h' || k === '--help') { console.log(usage()); process.exit(0); }
     else throw new Error(`unknown argument ${k}`);
   }
@@ -389,8 +437,24 @@ async function main() {
 
   const result = await runImport({ plan, client, existing, dryRun: args.dryRun, log });
   console.log(`${args.dryRun ? 'would create' : 'created'} ${result.created.length}, ${args.dryRun ? 'would update' : 'updated'} ${result.updated.length}, unchanged ${result.unchanged.length}, failed ${result.failed.length}`);
-  if (args.report) writeFileSync(args.report, JSON.stringify({ ...report, userId, dryRun: args.dryRun, result }, null, 2));
-  return result.failed.length > 0 ? 1 : 0;
+
+  // Links run after every note exists (a link needs both ids). Additive and
+  // idempotent: a re-run reports them as existing; removed wikilinks are not unlinked.
+  let links = null;
+  if (args.links) {
+    const ids = args.dryRun ? existing : await existingVaultRows(client);
+    const pathToId = new Map([...ids].map(([path, row]) => [path, row.id]));
+    const resolved = resolveWikilinks(plan.memories, pathToId);
+    if (args.dryRun) {
+      links = { resolvable: resolved.links.length, unresolved: resolved.unresolved, note: 'counted against notes already in OmniMind' };
+      console.log(`links: ${resolved.links.length} resolvable now (${resolved.unresolved} unresolved targets)`);
+    } else {
+      links = { ...(await writeLinks(client, resolved.links, log)), unresolved: resolved.unresolved };
+      console.log(`links: created ${links.created}, existing ${links.existing}, rejected ${links.rejected}, unresolved targets ${links.unresolved}${links.failedBatches ? `, failed batches ${links.failedBatches}` : ''}`);
+    }
+  }
+  if (args.report) writeFileSync(args.report, JSON.stringify({ ...report, userId, dryRun: args.dryRun, result, links }, null, 2));
+  return result.failed.length > 0 || (links?.failedBatches ?? 0) > 0 ? 1 : 0;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

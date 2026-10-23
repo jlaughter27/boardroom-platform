@@ -8,6 +8,7 @@ import { join, dirname } from 'node:path';
 import {
   parseNote, wikilinks, skipReason, isMinistry, classifyDomain, toMemory, planVault,
   makeClient, existingVaultRows, runImport, resolveUserId, domainCounts,
+  resolveWikilinks, writeLinks, LINK_BATCH,
 } from '../vault-import.mjs';
 
 function fixtureVault(files) {
@@ -235,4 +236,39 @@ test('writes are paced at the configured gap; domainCounts reads user-wide total
     const get = api.calls.find(c => c.method === 'GET' && c.url.startsWith('/memories?domain='));
     assert.equal(get.headers['x-agent-id'], undefined);
   } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('resolveWikilinks: by file name, title, alias and path-style links; skips self, unresolved and held-back targets', () => {
+  const mk = (path, fm, body) => toMemory(path, note(fm, body));
+  const a = mk('wiki/entities/Acme Widgets.md', 'type: entity\naliases: [Acme]', 'See [[CRM Vendor]], [[entities/Payments]], [[Acme]] and [[Church Goal]] and [[Nowhere]].');
+  const b = mk('wiki/entities/CRM.md', 'type: entity\ntitle: CRM Vendor', 'Back to [[Acme Widgets]] twice [[acme widgets]].');
+  const c = mk('wiki/entities/Payments.md', 'type: entity', 'No links.');
+  const ids = new Map([[a.path, 'id-a'], [b.path, 'id-b'], [c.path, 'id-c']]);
+  const { links, unresolved } = resolveWikilinks([a, b, c], ids);
+  assert.deepEqual(links, [
+    { memoryId: 'id-a', entityType: 'memory', entityId: 'id-b', linkType: 'wikilink' },
+    { memoryId: 'id-a', entityType: 'memory', entityId: 'id-c', linkType: 'wikilink' },
+    { memoryId: 'id-b', entityType: 'memory', entityId: 'id-a', linkType: 'wikilink' },
+  ]);
+  assert.equal(unresolved, 2, '[[Church Goal]] (held back) and [[Nowhere]] stay unresolved; [[Acme]] is a self-link');
+});
+
+test('writeLinks sends batches of LINK_BATCH to POST /memories/links/batch and sums the results', async () => {
+  const bodies = [];
+  const server = createServer((req, res) => {
+    let raw = ''; req.on('data', c => { raw += c; });
+    req.on('end', () => {
+      const body = JSON.parse(raw); bodies.push({ url: req.url, n: body.links.length });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ created: body.links.length - 1, existing: 1, rejected: [] }));
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const client = makeClient({ apiUrl: `http://127.0.0.1:${server.address().port}`, apiKey: 'svc', userId: 'u', tenant: 'josh-business', minWriteGapMs: 0 });
+    const links = Array.from({ length: LINK_BATCH + 7 }, (_, i) => ({ memoryId: `m${i}`, entityType: 'memory', entityId: `n${i}`, linkType: 'wikilink' }));
+    const out = await writeLinks(client, links);
+    assert.deepEqual(bodies, [{ url: '/memories/links/batch', n: LINK_BATCH }, { url: '/memories/links/batch', n: 7 }]);
+    assert.deepEqual(out, { created: LINK_BATCH + 5, existing: 2, rejected: 0, failedBatches: 0 });
+  } finally { server.close(); }
 });

@@ -99,6 +99,28 @@ export interface DispatchSessionRequest {
   personaIds?: PersonaId[];
 }
 
+/** One link in `POST /memories/links/batch`. Companion schema: `BatchMemoryLinkItemSchema`. */
+export interface BatchMemoryLinkItem {
+  memoryId: string;
+  entityType: string;
+  entityId: string;
+  linkType?: string;
+}
+
+/** `POST /memories/links/batch` body (≤ 500 links). Companion schema: `BatchMemoryLinksBodySchema`. */
+export interface BatchMemoryLinksRequest {
+  links: BatchMemoryLinkItem[];
+}
+
+export interface BatchMemoryLinksResponse {
+  /** Links newly written. */
+  created: number;
+  /** Valid links that already existed (idempotent re-run). */
+  existing: number;
+  /** Links refused, by index in the request. */
+  rejected: { index: number; reason: 'unknown_entity_type' | 'memory_not_found' | 'entity_not_found' | 'self_link' }[];
+}
+
 // --- Common ---
 
 export interface ValidationError {

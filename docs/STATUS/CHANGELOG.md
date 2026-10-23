@@ -6,6 +6,21 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Real-data end-to-end: 5 production issues found with a real vault and fixed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR | **Tests:** omnimind-api +7 (limiter 2, FTS 2, batch links 3), server +3 (provider errors), shared schema + interface for batch links, vault importer 12 → 14
+
+Full local stack (BoardRoom production build, OmniMind, MCP gateway) loaded with the founder's real Obsidian vault through `pnpm import:vault`, then driven through the UI and MCP: sign-in, dashboard, Memory Explorer, knowledge graph, retrieval on ~20 real questions, a decision session, token minting, MCP search/fetch/status/graph, an MCP write read back in BoardRoom, tenant isolation, ministry exclusion. No LLM or embedding keys in the sandbox: semantic search and persona answers were not exercised (stated, not mocked). Production is still unreachable from the sandbox. Final run: 16/16 steps, zero console errors. Vault content stays out of this repo.
+
+- **Fixed — POST reads drained the write budget.** The per-user limiter keyed buckets by HTTP method, so `POST /memories/search`, `/context/for-persona`, `/memories/search-similar` and `/memories/validate` counted against the 20/min write budget: one decision dispatch (one `/context/for-persona` per persona) or an MCP client searching hard locked the user out of every POST, writes included. They now share the read budget (`READ_ONLY_POST_PATHS`). The CI retrieval eval was hitting the same 429s.
+- **Fixed — full-text search was all-words-or-nothing.** Natural-language questions rarely contain every word of one memory, so the FTS layer returned nothing and recall leaned entirely on embeddings. A ranked any-word pass now fills slots below the strict hits. Labeled IR eval: for-persona recall@10 0.520 → 0.939 (MRR 0.440 → 0.806); `/memories/search` recall@10 0.535 → 0.952 (MRR 0.549 → 0.910); stale-hit rate 0.
+- **Fixed — an imported vault showed an empty knowledge graph.** Wikilinks were not links, every note was an orphan, and orphans are hidden by default. New `POST /memories/links/batch` (≤ 500 links, same ownership/tenant rules, idempotent) and an importer link phase that resolves `[[wikilinks]]` by name/title/alias to memory→memory links. The real vault now renders as a connected graph with labelled communities.
+- **Fixed — raw provider JSON on persona cards.** A failed persona showed `401 {"type":"error",…}`; Anthropic API and connection errors now read as one sentence (`personaErrorMessage`) on persona, rebuttal and synthesis failures, with the raw error logged.
+- **Harness/expectation notes, not bugs:** session create returns `sessionId`; UI-minted tokens default to read-only (least privilege) — pick *Read & write* to let a client write.
+- **Follow-ups (not fixed here):** (1) Memory detail renders raw markdown (headings, bold, tables as pipes, `[[wikilinks]]`) — needs a markdown renderer and clickable wikilinks; (2) single-keyword hybrid scores are nearly flat (≈0.415–0.424 across the top 10) and one run pushed an exact title match out of the top 20 — results varied between identical runs, likely access-recency feedback; the ranker needs a look; (3) a hybrid search's text relevance is weak without embeddings — production has them, but an OpenAI outage degrades search to FTS/trigram.
+
+---
+
 ## 2026-10-23 — Vault import: Obsidian vault → OmniMind, synced by path
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR | **Tests:** omnimind-api +1 (dedup opt-out), shared +1 (NUL guard + dedup flag), new `scripts/tests/vault-import.test.mjs` 12/12 (CI step)

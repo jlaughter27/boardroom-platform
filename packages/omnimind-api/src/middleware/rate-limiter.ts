@@ -59,6 +59,21 @@ export const USER_READ_RATE_LIMIT_PER_MINUTE = Math.max(
   parseInt(process.env.USER_READ_RATE_LIMIT_PER_MINUTE ?? '120', 10) || 120
 );
 
+/**
+ * POST endpoints that only read (the contract's "POST reads": search bodies are
+ * too rich for a query string). They share the read budget with GET/HEAD.
+ * Counting them as writes let one decision dispatch (one /context/for-persona
+ * per persona) or an MCP client searching hard (memory_search → POST
+ * /memories/search) exhaust the 20/min write budget and lock the user out of
+ * every POST, writes included — found by the 2026-10-23 real-data e2e.
+ */
+export const READ_ONLY_POST_PATHS: ReadonlySet<string> = new Set([
+  '/memories/search',
+  '/memories/search-similar',
+  '/memories/validate',
+  '/context/for-persona',
+]);
+
 export const rateLimiter = (req: Request, res: Response, next: NextFunction): void => {
   if (req.path === '/health') {
     next();
@@ -73,10 +88,10 @@ export const rateLimiter = (req: Request, res: Response, next: NextFunction): vo
   }
 
   const { key: subject, byIp } = rateLimitKeyFor(req);
-  const key = `${subject}:${req.method}`;
+  const isRead = req.method === 'GET' || req.method === 'HEAD' || (req.method === 'POST' && READ_ONLY_POST_PATHS.has(req.path));
+  const key = `${subject}:${isRead ? 'READ' : req.method}`;
   const now = Date.now();
   const windowMs = 60 * 1000; // 1-minute window
-  const isRead = req.method === 'GET' || req.method === 'HEAD';
   const baseBudget = isRead ? USER_READ_RATE_LIMIT_PER_MINUTE : RATE_LIMITS.MAX_QUERIES_PER_MINUTE;
   const maxRequests = baseBudget * (byIp ? IP_BUCKET_MULTIPLIER : 1);
 

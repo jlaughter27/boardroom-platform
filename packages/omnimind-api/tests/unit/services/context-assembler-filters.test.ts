@@ -41,16 +41,18 @@ describe('assembleContextForPersona — includeArchived + memoryClass (Phase 6, 
     const hasCurve = (where.AND ?? []).some((c: any) => Array.isArray(c.OR) && c.OR.some((x: any) => 'importance' in x));
     expect(hasCurve).toBe(false);
 
-    // fts / trigram / semantic: a `memory_class::text = ?` fragment bound to DECISION
-    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(3);
+    // fts (strict pass + the any-word fill-in pass, since the mock returns no rows)
+    // / trigram / semantic: every query carries a `memory_class::text = ?` fragment bound to DECISION
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(4);
     for (const call of mockPrisma.$queryRaw.mock.calls) {
       const frag = call.slice(1).filter(isSqlFragment).find((f: any) => f.sql.includes('memory_class::text = ?'));
       expect(frag?.values).toEqual(['DECISION']);
     }
     // fts: includeArchived branch has no cutoff Date bound (trigram/semantic bind the boolean)
-    const ftsCall = mockPrisma.$queryRaw.mock.calls.find((c: any[]) => c.slice(1).includes('hiring & risk'))!;
-    expect(ftsCall.slice(1).some((v: unknown) => v instanceof Date)).toBe(false);
-    const others = mockPrisma.$queryRaw.mock.calls.filter((c: any[]) => c !== ftsCall);
+    const ftsCalls = mockPrisma.$queryRaw.mock.calls.filter((c: any[]) => c.slice(1).includes('hiring & risk') || c.slice(1).includes('hiring | risk'));
+    expect(ftsCalls).toHaveLength(2);
+    for (const c of ftsCalls) expect(c.slice(1).some((v: unknown) => v instanceof Date)).toBe(false);
+    const others = mockPrisma.$queryRaw.mock.calls.filter((c: any[]) => !ftsCalls.includes(c));
     for (const c of others) expect(c.slice(1)).toContain(true);
   });
 

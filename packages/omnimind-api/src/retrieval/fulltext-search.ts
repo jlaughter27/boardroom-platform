@@ -51,7 +51,7 @@ export async function fulltextSearch(
   if (!options.tenantId && !options.includeAllTenants) return [];
   const tenantId = options.tenantId ?? null;
 
-  // Convert query to tsquery format (AND all words).
+  // Convert query to tsquery format (AND all words; an OR pass fills in below).
   // - hyphens are removed (join words)
   // - other punctuation splits tokens (e.g., with.special@chars -> with, special, chars)
   // - we restrict to [a-zA-Z0-9] so the resulting tsquery has no operator-relevant chars
@@ -68,28 +68,30 @@ export async function fulltextSearch(
   const validity = temporalValiditySql(options.asOf);
   const classFilter = memoryClassSql(options.memoryClass);
 
-  try {
+  type FtsRow = {
+    id: string;
+    title: string;
+    content: string;
+    tags: string[];
+    importance: number;
+    last_accessed_at: Date | null;
+    source_weight: number;
+    rank: number;
+    domain: string | null;
+    encrypted_content: Uint8Array | null;
+  };
+
+  const runQuery = async (tsq: string, max: number): Promise<FtsRow[]> => {
     // Four-way branch on (tenant, includeArchived). Each branch is a real
     // tagged-template `$queryRaw` call → every interpolation is parameterized.
-    let results: Array<{
-      id: string;
-      title: string;
-      content: string;
-      tags: string[];
-      importance: number;
-      last_accessed_at: Date | null;
-      source_weight: number;
-      rank: number;
-      domain: string | null;
-      encrypted_content: Uint8Array | null;
-    }>;
+    let results: FtsRow[];
 
     // O-103: the forgetting curve falls back to created_at when the memory
     // has never been recalled (last_accessed_at IS NULL).
     if (tenantId && includeArchived) {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
+               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND tenant_id = ${tenantId}
@@ -97,14 +99,14 @@ export async function fulltextSearch(
           AND status != 'ARCHIVED'
           AND ${validity}
           AND ${classFilter}
-          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
+          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
         ORDER BY rank DESC
-        LIMIT ${limit}
+        LIMIT ${max}
       `;
     } else if (tenantId && !includeArchived) {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
+               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND tenant_id = ${tenantId}
@@ -113,28 +115,28 @@ export async function fulltextSearch(
           AND ${validity}
           AND ${classFilter}
           AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
-          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
+          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
         ORDER BY rank DESC
-        LIMIT ${limit}
+        LIMIT ${max}
       `;
     } else if (!tenantId && includeArchived) {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
+               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
           AND status != 'ARCHIVED'
           AND ${validity}
           AND ${classFilter}
-          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
+          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
         ORDER BY rank DESC
-        LIMIT ${limit}
+        LIMIT ${max}
       `;
     } else {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsQuery})) as rank
+               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
         FROM memory_entries
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
@@ -142,26 +144,50 @@ export async function fulltextSearch(
           AND ${validity}
           AND ${classFilter}
           AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
-          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsQuery})
+          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
         ORDER BY rank DESC
-        LIMIT ${limit}
+        LIMIT ${max}
       `;
     }
 
-    return decryptRows(results).map(r => ({
+    return results;
+  };
 
+  try {
+    // Strict pass first: every word must appear (the precise hits). A natural-
+    // language question ("which cold email tool handles warmup and domain
+    // rotation") rarely has every word in one memory, so the strict pass alone
+    // returned nothing and recall depended entirely on embeddings being
+    // available. When it returns fewer than `limit`, a ranked any-word pass
+    // fills the remaining slots below the strict hits — the strict results are
+    // never displaced (2026-10-23 real-data e2e).
+    const strict = await runQuery(tsQuery, limit);
+    let partial: FtsRow[] = [];
+    if (strict.length < limit && tokens.length > 1) {
+      const seen = new Set(strict.map(r => r.id));
+      partial = (await runQuery(tokens.join(' | '), limit))
+        .filter(r => !seen.has(r.id))
+        .slice(0, limit - strict.length);
+    }
+
+    const toScored = (r: FtsRow, partialMatch: boolean): ScoredResult => ({
       id: r.id,
       type: 'memory' as const,
       content: r.content,
       title: r.title,
-      relevanceScore: Math.min(Number(r.rank), 1.0),
+      // Partial matches always score below strict ones.
+      relevanceScore: partialMatch ? Math.min(Number(r.rank), 1.0) * 0.5 : Math.min(Number(r.rank), 1.0),
       source: 'fts' as const,
-      whyIncluded: `Full-text match for "${query}"`,
+      whyIncluded: partialMatch ? `Partial full-text match for "${query}"` : `Full-text match for "${query}"`,
       tags: r.tags,
       importance: r.importance,
       lastAccessedAt: r.last_accessed_at,
       sourceWeight: r.source_weight,
-    }));
+    });
+    return [
+      ...decryptRows(strict).map(r => toScored(r, false)),
+      ...decryptRows(partial).map(r => toScored(r, true)),
+    ];
   } catch (err) {
     // F-204: FTS may fail if extensions aren't enabled yet — degrade, but
     // log it and report it so the context package is marked degraded.

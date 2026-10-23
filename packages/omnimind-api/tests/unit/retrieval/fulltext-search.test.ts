@@ -40,6 +40,32 @@ describe('fulltextSearch', () => {
     vi.clearAllMocks();
   });
 
+  const row = (id: string, rank = 0.5) => ({ id, title: id, content: id, tags: [], importance: 0.5, last_accessed_at: null, source_weight: 1, rank, domain: 'business', encrypted_content: null });
+
+  it('strict AND pass first; an OR pass fills the remaining slots below it (natural-language questions, 2026-10-23 e2e)', async () => {
+    mockPrisma.$queryRaw
+      .mockResolvedValueOnce([row('strict-1', 0.9)])
+      .mockResolvedValueOnce([row('strict-1', 0.9), row('partial-1', 0.8), row('partial-2', 0.4)]);
+    const result = await fulltextSearch('user-1', 'cold email warmup rotation', { ...baseOpts, limit: 3 }, mockPrisma);
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.$queryRaw.mock.calls[0]).toContain('cold & email & warmup & rotation');
+    expect(mockPrisma.$queryRaw.mock.calls[1]).toContain('cold | email | warmup | rotation');
+    expect(result.map(r => r.id)).toEqual(['strict-1', 'partial-1', 'partial-2']);
+    expect(result[0].relevanceScore).toBeGreaterThan(result[1].relevanceScore);
+    expect(result[1].relevanceScore).toBeCloseTo(0.4);
+    expect(result[1].whyIncluded).toMatch(/^Partial/);
+  });
+
+  it('no OR pass when the strict pass fills the limit or the query is one word', async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([row('a'), row('b')]);
+    await fulltextSearch('user-1', 'two words', { ...baseOpts, limit: 2 }, mockPrisma);
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+    mockPrisma.$queryRaw.mockClear();
+    mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+    await fulltextSearch('user-1', 'single', { ...baseOpts, limit: 5 }, mockPrisma);
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
   it('should return empty array for empty query', async () => {
     const result = await fulltextSearch('user-1', '', baseOpts, mockPrisma);
     expect(result).toEqual([]);
