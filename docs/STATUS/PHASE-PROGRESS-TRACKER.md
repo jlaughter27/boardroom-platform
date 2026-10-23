@@ -262,9 +262,9 @@ States: `todo` → `in-progress` → `in-review` → `merged` → `done` (see th
 | M0-F2 | Rotate the five R-103 secrets and record it | M0 | founder | M0-F1 | todo | — | — |
 | M0-F3 | Branch protection on main + Railway wait-for-CI | M0 | founder | M0-A1 | todo | — | — |
 | M0-F4 | Hand-verify the live deploy (migrations, /health, three PR #22 probes) | M0 | founder | — | todo | — | — |
-| M1-A1 | Automatic post-deploy-verify workflow + scripts/verify-prod.sh with mock-server tests | M1 | A | M0-A2 | todo | — | — |
+| M1-A1 | Automatic post-deploy-verify workflow + scripts/verify-prod.sh with mock-server tests | M1 | A | M0-A2 | in-review | 2026-10-23 | Lane A `c39eb8c`: post-deploy-verify workflow + `scripts/verify-prod.sh` (78-assertion mock test); automatic runs wait for the three host variables (`316bc52`); first real run is founder evidence; wave-2 PR |
 | M1-A2 | Harden mcp-go-live.sh: PORT resolution, async extract, bogus-token upstream probe, CI-green and backup preconditions | M1 | A | — | merged | 2026-10-23 | Lane B `008d549`; workflow inputs/permissions `5566f49`; PR #25 `d9a5bf3` |
-| M1-A3 | CI e2e job, playwright devDependency, journey --browser flag and checks/ autoloader | M1 | A | M0-A1 | todo | — | — |
+| M1-A3 | CI e2e job, playwright devDependency, journey --browser flag and checks/ autoloader | M1 | A | M0-A1 | in-review | 2026-10-23 | Lane A `90c0b9a`: CI `e2e` job (pgvector), playwright 1.56.1, journey `--browser`/`--dry-run`, formal checks/ autoloader; `cls.mjs` marked chromium-only; wave-2 PR |
 | M1-B0 | ADR-017 entity tenancy decision (tenantId on entity models, agent-scoped filtering) | M1 | B | — | in-review | 2026-10-22 | ADR-017 recorded as Proposed (Lane D); acceptance waits on founder M1-F7 |
 | M1-B4 | Migration adding tenantId to decisions/commitments/tasks/people/projects/goals + tenant-scoped entity routes | M1 | B | M1-B0, M1-F7, M0-F1, M0-A3 | todo | — | — |
 | M1-B1 | Re-point MCP entity tools at tenant-scoped first-class routes + E2E-9 same-user two-tenant roundtrip | M1 | B | M1-B4 | todo | — | — |
@@ -274,9 +274,9 @@ States: `todo` → `in-progress` → `in-review` → `merged` → `done` (see th
 | M1-C2 | Failed persona error card + personaIds retry without re-running debate round | M1 | C | M1-C1 | merged | 2026-10-23 | Lane C `96ca814`; unknown persona → 400 `unknown_persona` from the route (validateBody stays 422); PR #25 `d9a5bf3` |
 | M1-C3 | Hydrate reloaded/undispatched decision session question | M1 | C | — | merged | 2026-10-23 | Lane C `cf2d57a`; PR #25 `d9a5bf3` |
 | M1-C4 | Real dashboard actions, dismissedSuggestions persisted in OmniMind, first-run nudge, single load warning | M1 | C | M0-F1, M0-A3, M1-B4 | todo | — | — |
-| M1-D1 | Brand gold passes AA (two variants) + token-pair contrast test | M1 | D | — | todo | — | — |
+| M1-D1 | Brand gold passes AA (two variants) + token-pair contrast test | M1 | D | — | in-review | 2026-10-23 | Lane D `4e9781f`: AA gold in both themes, variant (b) behind `data-gold="dark-label"`, token-pair test, contrast sweep 636 pairs / 0 failing; founder picks the variant (M1-F5); wave-2 PR |
 | M1-D2 | MotionConfig reducedMotion, smooth-scroll helper, motion guard rules | M1 | D | M1-C2, M1-C4 | todo | — | — |
-| M1-D3 | OnboardingGate redirects only on 404; token reveal no overflow | M1 | D | — | todo | — | — |
+| M1-D3 | OnboardingGate redirects only on 404; token reveal no overflow | M1 | D | — | in-review | 2026-10-23 | Lane D `61afa76`: OnboardingGate redirects only on 404 (5xx → retry banner); snippet `<pre>` scrolls inside itself; no horizontal overflow at 1280/390; wave-2 PR |
 | M1-D4 | Keyboard-reachable Card (as button/Link) + guard rule | M1 | D | M1-C4 | todo | — | — |
 | M1-F7 | Approve ADR-017 and pick BoardRoom's default entity tenant | M1 | founder | M1-B0 | todo | — | — |
 | M1-F1 | Run MCP go-live; connect Claude Code and Cursor; verify and revoke | M1 | founder | M0-A1, M0-F1, M0-F2, M1-A2 | todo | — | — |
