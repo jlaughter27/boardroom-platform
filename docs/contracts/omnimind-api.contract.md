@@ -147,7 +147,7 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
 }
 ```
 
-**Response 422:** Validation failure (schema, temporal, or budget)
+**Response 422:** Validation failure (schema, temporal, or budget). `title` / `content` containing NUL (U+0000) → 422 `must not contain NUL (U+0000) characters` (2026-10-23; it used to reach Postgres and answer 500). Same rule on `PATCH /memories/:id`.
 
 ### POST /memories/search (Phase 6)
 

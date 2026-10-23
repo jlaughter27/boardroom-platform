@@ -90,6 +90,13 @@ export const MemoryApiRecordSchema = z.object({
 
 export type MemoryApiRecordInput = z.infer<typeof MemoryApiRecordSchema>;
 
+/**
+ * Postgres text columns cannot store U+0000; without this guard a NUL in a
+ * title or content reached the INSERT and surfaced as a 500 instead of a 422.
+ */
+const NO_NUL = { message: 'must not contain NUL (U+0000) characters' };
+const noNul = (s: string) => !s.includes('\u0000');
+
 // ── Create Memory Request Schema ──
 
 /**
@@ -107,8 +114,8 @@ const DomainSchema = z
   .refine(s => s.length > 0, { message: 'domain cannot be empty after trim' });
 
 export const CreateMemoryRequestSchema = z.object({
-  title: z.string().min(1).describe('Short title summarizing the memory'),
-  content: z.string().min(1).describe('Full text content of the memory'),
+  title: z.string().min(1).refine(noNul, NO_NUL).describe('Short title summarizing the memory'),
+  content: z.string().min(1).refine(noNul, NO_NUL).describe('Full text content of the memory'),
   domain: DomainSchema.describe('Knowledge domain this memory belongs to'),
   sourceType: SourceTypeSchema.describe('How this memory was created'),
   sector: z.string().optional().describe('Sector within the domain'),
@@ -126,8 +133,8 @@ export type CreateMemoryRequestInput = z.infer<typeof CreateMemoryRequestSchema>
 // ── Update Memory Request Schema ──
 
 export const UpdateMemoryRequestSchema = z.object({
-  title: z.string().min(1).optional().describe('Short title summarizing the memory'),
-  content: z.string().min(1).optional().describe('Full text content of the memory'),
+  title: z.string().min(1).refine(noNul, NO_NUL).optional().describe('Short title summarizing the memory'),
+  content: z.string().min(1).refine(noNul, NO_NUL).optional().describe('Full text content of the memory'),
   domain: DomainSchema.optional().describe('Knowledge domain this memory belongs to'),
   sourceType: SourceTypeSchema.optional().describe('How this memory was created'),
   sector: z.string().optional().describe('Sector within the domain'),

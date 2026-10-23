@@ -173,6 +173,33 @@ test('sync: first run creates with dedup:false + agent triple + idempotency key;
   } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('NUL characters are stripped before writing (Postgres text cannot store U+0000)', () => {
+  const m = toMemory('wiki/a/n.md', note('type: concept\ntitle: Bad\u0000Title', 'x\u0000y'));
+  assert.equal(m.body.title, 'BadTitle');
+  assert.equal(m.body.content, 'xy');
+});
+
+test('the per-agent hourly 429 (retryAfter in the JSON body, no header) is waited out, not given up on', async () => {
+  let hits = 0;
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      hits++;
+      if (hits === 1) { res.writeHead(429, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'agent_rate_limited', message: 'agent:vault-import exceeded 200 write operations per hour.', retryAfter: 1 })); return; }
+      res.writeHead(201, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'mem-1', status: 'created' }));
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const client = makeClient({ apiUrl: `http://127.0.0.1:${server.address().port}`, apiKey: 'svc', userId: 'user-1', tenant: 'josh-business', minWriteGapMs: 0 });
+    const t0 = Date.now();
+    const r = await client.request('POST', '/memories', { body: {} });
+    assert.equal(r.status, 201);
+    assert.equal(hits, 2);
+    assert.ok(Date.now() - t0 >= 1900, 'waited retryAfter (1 s) + 1 s margin');
+  } finally { server.close(); }
+});
+
 test('dry run writes nothing; a 429 is retried after Retry-After; a budget 422 is reported, not fatal', async () => {
   const dir = fixtureVault({
     'wiki/entities/A.md': note('type: entity', 'a'),

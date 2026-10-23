@@ -111,6 +111,16 @@ describe('Memory Schemas', () => {
     expect(CreateMemoryRequestSchema.parse(request)).toEqual(request);
   });
 
+  it('CreateMemoryRequest accepts dedup: false and rejects NUL characters (Postgres text cannot store U+0000)', () => {
+    const base = { title: 'T', content: 'C', domain: 'business', sourceType: 'API_IMPORT' as const };
+    expect(CreateMemoryRequestSchema.parse({ ...base, dedup: false }).dedup).toBe(false);
+    const bad = CreateMemoryRequestSchema.safeParse({ ...base, content: 'a\u0000b' });
+    expect(bad.success).toBe(false);
+    expect(bad.success ? '' : bad.error.issues[0].message).toMatch(/NUL/);
+    expect(CreateMemoryRequestSchema.safeParse({ ...base, title: 'x\u0000' }).success).toBe(false);
+    expect(UpdateMemoryRequestSchema.safeParse({ content: '\u0000' }).success).toBe(false);
+  });
+
   it('validates UpdateMemoryRequest with partial fields', () => {
     const update = {
       title: 'Updated Title',

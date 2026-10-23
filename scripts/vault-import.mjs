@@ -130,7 +130,9 @@ function sanitizeTag(t) {
 }
 
 /** The POST /memories body for one note (minus dedup), plus its sync key. */
-export function toMemory(path, text) {
+export function toMemory(path, raw) {
+  // Postgres text cannot store U+0000 (OmniMind answers 422); some exported notes carry stray NULs.
+  const text = raw.replace(/\u0000/g, '');
   const { frontmatter: fm, body } = parseNote(text);
   const relPath = path.split(sep).join('/');
   const sha256 = createHash('sha256').update(text).digest('hex');
@@ -227,10 +229,14 @@ export function makeClient({ apiUrl, apiKey, userId, tenant, agentKey, fetchImpl
       const text = await res.text();
       let json = null;
       try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text.slice(0, 300) }; }
-      if (res.status === 429 && attempt < 6) {
-        const ra = Number(res.headers.get('retry-after'));
-        const waitMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 : 60_000;
-        log(`  rate limited on ${method} ${path} — waiting ${Math.round(waitMs / 1000)} s`);
+      // Per-user limit: Retry-After header (1-min window). Per-agent limit: 200
+      // writes/hour, retryAfter (seconds) in the JSON body — wait the window out.
+      if (res.status === 429 && attempt < 8) {
+        const header = Number(res.headers.get('retry-after'));
+        const bodyRa = Number(json?.retryAfter);
+        const sec = Number.isFinite(header) && header > 0 ? header : Number.isFinite(bodyRa) && bodyRa > 0 ? bodyRa : 60;
+        const waitMs = Math.min(sec, 3700) * 1000 + 1000;
+        log(`  rate limited on ${method} ${path} (${json?.message ?? json?.error ?? '429'}) — waiting ${Math.round(waitMs / 1000)} s`);
         await sleep(waitMs);
         continue;
       }
