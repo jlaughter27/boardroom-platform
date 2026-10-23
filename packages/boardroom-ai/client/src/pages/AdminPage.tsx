@@ -436,7 +436,7 @@ function DuplicatesTab() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs font-mono text-primary">{(p.cosine * 100).toFixed(1)}%</span>
+                  <span className="text-xs font-mono text-primary-text">{(p.cosine * 100).toFixed(1)}%</span>
                   <Button
                     size="sm"
                     variant="secondary"

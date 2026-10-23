@@ -86,7 +86,7 @@ export const DEFAULT_PAGES = [
 ];
 
 // ── Playwright resolution (repo first, then the preinstalled global copy) ────
-function loadPlaywright() {
+export function loadPlaywright() {
   const require = createRequire(import.meta.url);
   const candidates = ['playwright', 'playwright-core'];
   const paths = [REPO_ROOT, '/opt/node-tools/node_modules', ...(process.env.PLAYWRIGHT_MODULE_PATH ? [process.env.PLAYWRIGHT_MODULE_PATH] : [])];
@@ -96,7 +96,7 @@ function loadPlaywright() {
   throw new Error('Playwright not found. Set PLAYWRIGHT_MODULE_PATH to a directory containing node_modules/playwright(-core).');
 }
 
-async function launchChromium(pw) {
+export async function launchChromium(pw) {
   try { return await pw.chromium.launch({ headless: true }); }
   catch (e) {
     const fallback = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';

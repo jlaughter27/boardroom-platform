@@ -15,7 +15,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={cycleTheme}
-      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors text-xs"
+      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground-muted hover:text-white/80 hover:bg-white/10 transition-colors text-xs"
       aria-label={`Theme: ${label}. Click to change.`}
     >
       <span className="text-sm">{icon}</span>

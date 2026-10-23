@@ -33,6 +33,8 @@ export default {
           DEFAULT: 'var(--color-primary)',
           foreground: 'var(--color-primary-foreground)',
           text: 'var(--color-primary-text)',
+          // Hover step for solid gold fills (darker in light mode, lighter in dark) — M1-D1.
+          hover: 'var(--color-primary-hover)',
           warm: 'var(--color-primary-warm)',
         },
         accent: {
@@ -65,6 +67,8 @@ export default {
           hairline: 'var(--sidebar-hairline)',
           foreground: 'var(--color-sidebar-foreground)',
           'foreground-muted': 'var(--color-sidebar-foreground-muted)',
+          // Fixed gold for the always-dark sidebar (logo, wordmark, active bar) — M1-D1.
+          primary: 'var(--color-sidebar-primary)',
         },
 
         // ── Semantic colors ──

@@ -101,7 +101,7 @@ export function Select({
                   className={cn(
                     'flex cursor-default select-none items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground outline-none',
                     size === 'sm' && 'py-1 text-xs',
-                    'data-[highlighted]:bg-muted data-[selected]:text-primary data-[disabled]:opacity-50'
+                    'data-[highlighted]:bg-muted data-[selected]:text-primary-text data-[disabled]:opacity-50'
                   )}
                 >
                   {option.icon}

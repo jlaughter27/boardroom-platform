@@ -151,7 +151,7 @@ export default function SettingsPage() {
                   onClick={() => scrollToSection(s.id)}
                   className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
                     activeSection === s.id
-                      ? 'text-primary font-medium border-l-2 border-primary bg-primary/10'
+                      ? 'text-primary-text font-medium border-l-2 border-primary bg-primary/10'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                 >

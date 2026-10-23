@@ -8,6 +8,7 @@
 //   node tools/visual-preview/shoot-pages.mjs --only dashboard-scrolled,graph-global --theme dark
 //   node tools/visual-preview/shoot-pages.mjs --skip-variants      # desktop + mobile only
 //   node tools/visual-preview/shoot-pages.mjs --no-gate            # report contrast, never fail on it
+//   node tools/visual-preview/shoot-pages.mjs --gold dark-label    # brand-gold variant (data-gold on <html>), shots suffixed --gold-dark-label
 //
 // Reuses shoot.mjs (`shootPages`, `startServer`, `DEFAULT_PAGES`) and
 // mock-api.mjs. Fixture order: pages.mjs (profile + decision session) →
@@ -212,21 +213,26 @@ const MOBILE = { width: 390, height: 844 };
 // Init scripts run before <html> exists; apply the class as soon as it does.
 const REDUCE_TRANSPARENCY = '(() => { const apply = () => { if (document.documentElement) document.documentElement.classList.add("reduce-transparency"); }; apply(); document.addEventListener("readystatechange", apply); document.addEventListener("DOMContentLoaded", apply); })()';
 
-export async function shootAllPages({ round = 'phase-c-round-1', outRoot = PAGES_OUT, dist = CLIENT_DIST, only, themes, legacy = false, skipVariants = false, log = console.log } = {}) {
+export async function shootAllPages({ round = 'phase-c-round-1', outRoot = PAGES_OUT, dist = CLIENT_DIST, only, themes, legacy = false, skipVariants = false, gold = 'default', log = console.log } = {}) {
   const outDir = join(outRoot, round);
   mkdirSync(outDir, { recursive: true });
   const mock = await pagesMock();
   const { server, baseUrl } = await startServer({ dist, mock });
   const sets = pageSets({ legacy });
-  const base = { baseUrl, themes, onlyNames: only, log, initScript: RECORD_VT };
+  // Brand-gold variant (M1-D1): `data-gold="<variant>"` on <html> before the app paints; shots get a `--gold-<variant>` suffix.
+  const goldScript = gold && gold !== 'default'
+    ? `; (() => { const apply = () => { if (document.documentElement) document.documentElement.dataset.gold = ${JSON.stringify(gold)}; }; apply(); document.addEventListener("readystatechange", apply); })()`
+    : '';
+  const g = goldScript ? `--gold-${gold}` : '';
+  const base = { baseUrl, themes, onlyNames: only, log, initScript: `${RECORD_VT}${goldScript}`, suffix: g || undefined };
   const results = [];
   try {
     results.push(...await shootPages(sets.desktop, outDir, { ...base, viewport: DESKTOP }));
     results.push(...await shootPages(sets.mobile, outDir, { ...base, viewport: MOBILE }));
     if (!skipVariants) {
-      results.push(...await shootPages(sets.reducedMotion, outDir, { ...base, viewport: DESKTOP, reducedMotion: 'reduce', suffix: '--reduced-motion' }));
-      results.push(...await shootPages(sets.reducedMotionMobile, outDir, { ...base, viewport: MOBILE, reducedMotion: 'reduce', suffix: '--reduced-motion' }));
-      results.push(...await shootPages(sets.reducedTransparency, outDir, { ...base, viewport: DESKTOP, suffix: '--reduced-transparency', initScript: `${RECORD_VT}; ${REDUCE_TRANSPARENCY}` }));
+      results.push(...await shootPages(sets.reducedMotion, outDir, { ...base, viewport: DESKTOP, reducedMotion: 'reduce', suffix: `--reduced-motion${g}` }));
+      results.push(...await shootPages(sets.reducedMotionMobile, outDir, { ...base, viewport: MOBILE, reducedMotion: 'reduce', suffix: `--reduced-motion${g}` }));
+      results.push(...await shootPages(sets.reducedTransparency, outDir, { ...base, viewport: DESKTOP, suffix: `--reduced-transparency${g}`, initScript: `${RECORD_VT}; ${REDUCE_TRANSPARENCY}${goldScript}` }));
     }
   } finally {
     server.close();
@@ -248,8 +254,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const theme = arg('--theme', null);
   const legacy = process.argv.includes('--legacy');
   const skipVariants = process.argv.includes('--skip-variants');
+  const gold = arg('--gold', 'default');
   const gate = !process.argv.includes('--no-gate');
-  const { outDir, results, contrast, contrastFailures } = await shootAllPages({ round, outRoot: arg('--out', PAGES_OUT), dist, only, themes: theme ? [theme] : undefined, legacy, skipVariants });
+  const { outDir, results, contrast, contrastFailures } = await shootAllPages({ round, outRoot: arg('--out', PAGES_OUT), dist, only, themes: theme ? [theme] : undefined, legacy, skipVariants, gold });
   const failed = results.filter((r) => r.error);
   console.log(`\n${results.length - failed.length}/${results.length} shots saved under ${outDir}`);
   for (const r of results) if (r.errors?.length) console.log(`  ${r.name} [${r.theme}] console errors: ${r.errors.join(' | ').slice(0, 300)}`);

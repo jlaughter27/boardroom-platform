@@ -126,7 +126,7 @@ export function NotificationCenter() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-xs text-primary transition-colors duration-fast ease-out hover:text-primary/80"
+                  className="text-xs text-primary-text transition-colors duration-fast ease-out hover:text-foreground"
                 >
                   Mark all read
                 </button>

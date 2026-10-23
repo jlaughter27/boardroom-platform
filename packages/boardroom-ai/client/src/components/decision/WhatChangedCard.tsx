@@ -217,7 +217,7 @@ function ChangeTimeline({ events }: { events: ChangeEvent[] }) {
           </span>
           <span className={`w-3 shrink-0 text-center font-mono text-xs font-semibold ${e.sign === '+' ? 'text-success' : 'text-danger'}`} aria-label={e.sign === '+' ? 'added' : 'removed'}>{e.sign}</span>
           <span className="min-w-0 flex-1 truncate">
-            {e.href ? <Link to={e.href} className={`text-foreground hover:text-primary ${e.sign === '−' ? 'line-through decoration-muted-foreground/60' : ''}`}>{e.title}</Link> : <span className="text-foreground">{e.title}</span>}
+            {e.href ? <Link to={e.href} className={`text-foreground hover:text-primary-text ${e.sign === '−' ? 'line-through decoration-muted-foreground/60' : ''}`}>{e.title}</Link> : <span className="text-foreground">{e.title}</span>}
             {e.meta && <span className="ml-1.5 text-[11px] text-muted-foreground">{e.meta}</span>}
           </span>
           {e.at && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{timeAgo(e.at)}</span>}
@@ -305,7 +305,7 @@ export function WhatChangedCard({ question, currentSessionId }: WhatChangedCardP
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <span className={`inline-block w-2 h-2 rounded-full ${ENTITY_BADGE[match.type]}`} aria-hidden />
         <h3 className="text-sm font-semibold text-foreground">
-          What changed around <span className="text-primary">{match.title}</span>
+          What changed around <span className="text-primary-text">{match.title}</span>
         </h3>
         <span className="text-xs text-muted-foreground">since {timeAgo(data.since)}</span>
       </div>

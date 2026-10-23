@@ -12,6 +12,9 @@
 // (8-bit RGB / RGBA, non-interlaced).
 
 import { inflateSync } from 'node:zlib';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export const WCAG_AA = 4.5;
 
@@ -159,7 +162,7 @@ export async function measureTextContrast(page, selector, label = selector, opti
   return {
     label, selector, text: info.text, color: info.color,
     ...measured,
-    pass: measured.ratio >= WCAG_AA,
+    pass: measured.ratio >= (options.min ?? WCAG_AA),
   };
 }
 
@@ -171,4 +174,206 @@ export function formatContrastTable(rows) {
     lines.push(`${r.shot} | ${r.label} | "${r.text}" | ${r.ratio.toFixed(2)}:1 | ${r.ratioMedian.toFixed(2)}:1 | ${r.pass ? 'pass' : 'FAIL'}`);
   }
   return lines.join('\n');
+}
+
+// ── Page sweep (M1-D1) ───────────────────────────────────────────────────────
+//
+//   node tools/visual-preview/contrast.mjs                       # login + settings, light + dark, desktop + 390 px, both gold variants
+//   node tools/visual-preview/contrast.mjs --only settings --gold dark-label --theme dark
+//   node tools/visual-preview/contrast.mjs --json /tmp/contrast.json --verbose
+//   node tools/visual-preview/contrast.mjs --dist /path/to/older/client/dist     # a "before" run
+//   node tools/visual-preview/contrast.mjs --shots <dir>                         # also save one PNG per view
+//
+// Serves the built client (packages/boardroom-ai/client/dist) against the mock
+// API, and on each page measures EVERY visible text element that owns a text
+// node (scrolling the main pane on Settings). Method, per viewport position:
+// read every target's computed text colour and glyph boxes, then hide ALL text
+// (`color: transparent`) and take one screenshot — what is left inside each
+// glyph box is exactly the backdrop behind the letters (gradients, glows,
+// tints, glass), with no anti-aliased ink from the text itself or a neighbour.
+// The worst 5 % of per-pixel ratios decides the pair (alpha text colours are
+// composited per pixel). Thresholds follow WCAG: 4.5:1 for text, 3:1 for large
+// text (≥ 24 px, or ≥ 18.66 px bold) and for single glyphs (icons drawn as
+// characters). Disabled controls, `aria-hidden` and `sr-only` content are
+// skipped (WCAG exempts inactive components and decoration). Any failing pair
+// exits 1. The `dark-label` variant sets `data-gold="dark-label"` on <html>
+// before the app paints — the same switch a founder flips in client/index.html.
+
+const HIDE_TEXT_CSS = 'html.contrast-sweep-hide-text *, html.contrast-sweep-hide-text *::placeholder { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; caret-color: transparent !important; }';
+
+/** Tag (data-contrast-id) every visible, fully on-screen text-owning element not yet tagged; return colour + glyph boxes. */
+async function collectTextTargets(page, start) {
+  return page.evaluate((first) => {
+    const out = [];
+    let id = first;
+    const seen = new Set();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (!node.textContent || !node.textContent.trim()) continue;
+      const el = node.parentElement;
+      if (!el || seen.has(el) || el.dataset.contrastId) continue;
+      seen.add(el);
+      if (el.closest('[disabled], [aria-disabled="true"], [aria-hidden="true"], .sr-only, script, style, noscript, option, select, textarea, [data-contrast-skip]')) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility !== 'visible' || cs.display === 'none') continue;
+      let opacity = 1;
+      for (let n = el; n; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
+      if (opacity < 0.99) continue; // mid-animation or deliberately dimmed (disabled look)
+      // Glyph boxes of this element's own text nodes (not its children's).
+      const rects = [];
+      for (const child of el.childNodes) {
+        if (child.nodeType !== 3 || !child.textContent.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(child);
+        for (const r of range.getClientRects()) if (r.width >= 1 && r.height >= 1) rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+      }
+      if (!rects.length) continue;
+      if (rects.some((r) => r.y < 0 || r.x < 0 || r.y + r.h > innerHeight || r.x + r.w > innerWidth)) continue;
+      const text = el.textContent.trim();
+      const size = parseFloat(cs.fontSize);
+      const weight = parseInt(cs.fontWeight, 10) || 400;
+      const glyph = !/[\p{L}\p{N}]/u.test(text);
+      const large = size >= 24 || (size >= 18.66 && weight >= 700);
+      el.dataset.contrastId = String(id++);
+      out.push({
+        selector: `[data-contrast-id="${el.dataset.contrastId}"]`,
+        label: `${el.tagName.toLowerCase()}${glyph ? ' (glyph)' : large ? ' (large)' : ''}`,
+        text: text.slice(0, 48), color: cs.color, rects, min: glyph || large ? 3 : 4.5,
+      });
+    }
+    return out;
+  }, start);
+}
+
+/** Worst-5 % contrast of `textRgba` over the backdrop pixels inside `rects` of a full-viewport `png`. */
+export function contrastOverBackdrop(png, rects, textRgba) {
+  const [tr, tg, tb, ta = 1] = textRgba;
+  const ratios = [];
+  for (const r of rects) {
+    const x0 = Math.max(0, Math.floor(r.x)); const y0 = Math.max(0, Math.floor(r.y));
+    const x1 = Math.min(png.width, Math.ceil(r.x + r.w)); const y1 = Math.min(png.height, Math.ceil(r.y + r.h));
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const i = (y * png.width + x) * 4;
+        const bg = [png.data[i], png.data[i + 1], png.data[i + 2]];
+        const fg = [tr * ta + bg[0] * (1 - ta), tg * ta + bg[1] * (1 - ta), tb * ta + bg[2] * (1 - ta)];
+        ratios.push(contrastRatio(luminance(fg), luminance(bg)));
+      }
+    }
+  }
+  if (!ratios.length) return { ratio: 1, ratioMedian: 1, bgPixels: 0 };
+  ratios.sort((a, b) => a - b);
+  return { ratio: +percentile(ratios, 0.05).toFixed(2), ratioMedian: +percentile(ratios, 0.5).toFixed(2), bgPixels: ratios.length };
+}
+
+async function sweepPage(page, { scrollSelector } = {}) {
+  await page.addStyleTag({ content: HIDE_TEXT_CSS });
+  const rows = [];
+  let next = 0;
+  const positions = [0];
+  if (scrollSelector) {
+    const { h, ch } = await page.$eval(scrollSelector, (el) => ({ h: el.scrollHeight, ch: el.clientHeight })).catch(() => ({ h: 0, ch: 0 }));
+    for (let top = ch - 120; ch > 0 && top < h; top += ch - 120) positions.push(top);
+  }
+  for (const top of positions) {
+    if (scrollSelector) { await page.$eval(scrollSelector, (el, t) => el.scrollTo({ top: t, behavior: 'instant' }), top).catch(() => {}); await page.waitForTimeout(300); }
+    const targets = await collectTextTargets(page, next);
+    next += targets.length;
+    if (!targets.length) continue;
+    await page.evaluate(() => document.documentElement.classList.add('contrast-sweep-hide-text'));
+    await page.waitForTimeout(60);
+    const png = decodePng(await page.screenshot({ animations: 'disabled' }));
+    await page.evaluate(() => document.documentElement.classList.remove('contrast-sweep-hide-text'));
+    for (const t of targets) {
+      const measured = contrastOverBackdrop(png, t.rects, parseCssColor(t.color));
+      rows.push({ label: t.label, selector: t.selector, text: t.text, color: t.color, min: t.min, ...measured, pass: measured.ratio >= t.min });
+    }
+  }
+  return rows;
+}
+
+
+export async function contrastSweep({ only, themes = ['light', 'dark'], golds = ['default', 'dark-label'], viewports, dist, shotsDir, log = console.log } = {}) {
+  const { startServer, loadPlaywright, launchChromium } = await import('./shoot.mjs');
+  const { createMockApi, loadRoutes } = await import('./mock-api.mjs');
+  const pagesFixture = (await import('./fixtures/pages.mjs')).default;
+  const routes = await loadRoutes();
+  const anon = { on: false };
+  const meRoute = routes.find((r) => r.method === 'GET' && r.path === '/auth/me');
+  const override = { method: 'GET', path: '/auth/me', file: 'contrast.mjs', handler: (req, url, m) => (anon.on ? { status: 401, body: { message: 'Not signed in' } } : meRoute.handler(req, url, m)) };
+  const mock = await createMockApi({ routes: [override, ...pagesFixture.routes.map((r) => ({ ...r, file: 'pages.mjs' })), ...routes] });
+  const { server, baseUrl } = await startServer({ mock, ...(dist ? { dist } : {}) });
+  const pages = [
+    { name: 'login', path: '/login', anon: true, ready: 'form' },
+    { name: 'settings', path: '/settings', ready: '#decision-frequency', scrollSelector: '#main-content' },
+  ].filter((p) => !only || only.includes(p.name));
+  const vps = viewports ?? [{ name: 'desktop', width: 1440, height: 900 }, { name: 'mobile', width: 390, height: 844 }];
+  const pw = loadPlaywright();
+  const browser = await launchChromium(pw);
+  const rows = [];
+  try {
+    for (const spec of pages) for (const gold of golds) for (const theme of themes) for (const vp of vps) {
+      anon.on = !!spec.anon;
+      const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, colorScheme: theme, reducedMotion: 'reduce', deviceScaleFactor: 1 });
+      await context.addInitScript(({ t, g }) => {
+        localStorage.setItem('theme', t);
+        if (g === 'default') return;
+        const apply = () => { if (document.documentElement) document.documentElement.dataset.gold = g; };
+        apply(); document.addEventListener('readystatechange', apply);
+      }, { t: theme, g: gold });
+      const page = await context.newPage();
+      const shot = `${spec.name} [${theme} · ${gold} · ${vp.name}]`;
+      try {
+        await page.goto(baseUrl + spec.path, { waitUntil: 'networkidle', timeout: 30000 });
+        await page.waitForSelector(spec.ready, { timeout: 15000 });
+        await page.waitForTimeout(900);
+        if (shotsDir) { mkdirSync(shotsDir, { recursive: true }); await page.screenshot({ path: join(shotsDir, `contrast-${spec.name}-${theme}-${gold}-${vp.name}.png`) }); }
+        const measured = await sweepPage(page, spec);
+        const ok = measured.filter((r) => !r.error);
+        const failed = ok.filter((r) => !r.pass);
+        log(`▸ ${shot}: ${ok.length} text elements, ${failed.length} below threshold`);
+        rows.push(...measured.map((r) => ({ shot, ...r })));
+      } catch (e) {
+        log(`✗ ${shot}: ${String(e.message || e).split('\n')[0]}`);
+        rows.push({ shot, label: 'page', selector: spec.path, error: `page failed: ${String(e.message || e).split('\n')[0]}`, fatal: true });
+      } finally {
+        await context.close();
+      }
+    }
+  } finally {
+    await browser.close();
+    server.close();
+  }
+  return rows;
+}
+
+function cliArg(name, fallback) { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : fallback; }
+
+// Not a top-level await: shoot.mjs imports this module, so the sweep may only
+// load it once this module has finished evaluating.
+async function main() {
+  const only = cliArg('--only', null)?.split(',');
+  const theme = cliArg('--theme', null);
+  const gold = cliArg('--gold', 'both');
+  const rows = await contrastSweep({
+    only: only ?? undefined,
+    themes: theme ? [theme] : undefined,
+    golds: gold === 'both' ? undefined : [gold],
+    dist: cliArg('--dist', null) ?? undefined,
+    shotsDir: cliArg('--shots', null) ?? undefined,
+  });
+  const measured = rows.filter((r) => !r.error);
+  const failing = measured.filter((r) => !r.pass);
+  const fatal = rows.filter((r) => r.fatal);
+  if (process.argv.includes('--verbose')) console.log(`\n${formatContrastTable(rows)}`);
+  const json = cliArg('--json', null);
+  if (json) writeFileSync(json, JSON.stringify({ at: new Date().toISOString(), rows }, null, 2));
+  if (failing.length) console.log(`\nFailing pairs\n${formatContrastTable(failing)}`);
+  console.log(`\n${measured.length} text pairs measured across ${new Set(rows.map((r) => r.shot)).size} views — ${failing.length} failing, ${fatal.length} page errors.`);
+  if (failing.length || fatal.length) process.exitCode = 1;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exitCode = 1; });
 }

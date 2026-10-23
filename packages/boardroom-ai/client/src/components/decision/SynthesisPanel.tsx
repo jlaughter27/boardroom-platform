@@ -43,7 +43,7 @@ function DroppedConsiderations({ ids }: { ids: string[] }) {
         const title = titles[id];
         return (
           <li key={id}>
-            <Link to={`/memory?id=${encodeURIComponent(id)}`} className="text-foreground hover:text-primary underline-offset-2 hover:underline">
+            <Link to={`/memory?id=${encodeURIComponent(id)}`} className="text-foreground hover:text-primary-text underline-offset-2 hover:underline">
               {title ?? shortMemoryId(id)}
             </Link>
             {!title && <span className="ml-1 text-[11px] text-muted-foreground">memory</span>}
@@ -104,7 +104,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/90 transition-colors"
+        className="flex items-center gap-1.5 text-sm font-medium text-primary-text hover:text-foreground transition-colors"
       >
         <span className={`transition-transform text-xs ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}

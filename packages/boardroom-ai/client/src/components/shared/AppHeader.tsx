@@ -112,7 +112,7 @@ export function AppHeader({ onMenuToggle, scrolled = false }: AppHeaderProps) {
               <span key={i} className="flex min-w-0 items-center gap-1.5">
                 <span className="shrink-0 text-muted-foreground">{'›'}</span>
                 {crumb.path ? (
-                  <Link to={crumb.path} className="shrink-0 text-muted-foreground transition-colors duration-fast ease-out hover:text-primary">
+                  <Link to={crumb.path} className="shrink-0 text-muted-foreground transition-colors duration-fast ease-out hover:text-primary-text">
                     {crumb.label}
                   </Link>
                 ) : (

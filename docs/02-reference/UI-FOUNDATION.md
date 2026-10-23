@@ -111,3 +111,32 @@ node tools/visual-preview/shoot-pages.mjs --round r --skip-variants --no-gate   
 Shots land under `<scratchpad>/visual/<round>/` (never in git) with a `manifest.json`. Every page may list `contrast` targets; after the shot, `tools/visual-preview/contrast.mjs` reads the target's computed text colour, screenshots a 3 px frame around its glyph box and compares the colour against the **worst 5 %** of those composited background pixels (what the blur, saturation and tint actually produced). Targets today: the header title, search label and ⌘K hint over scrolled content; the graph legend label / count and the hover card title / meta over the canvas; sheet titles; the segmented control's active and idle labels. Any ratio under 4.5:1 fails the shoot. Variants: `--reduced-motion` (Playwright `reducedMotion: 'reduce'`; asserts the dialog transition collapsed and the bottom sheet has no grabber) and `--reduced-transparency` (the `.reduce-transparency` class, since Playwright cannot emulate the media query; asserts the header and legend have `backdrop-filter: none`). `route-transition` / `route-transition-back` slow the View Transition to 6 s and capture a frame mid-flight, and assert that forward and back were tagged `nav-forward` / `nav-back`.
 
 `shoot.mjs` steps available to any page spec: `wait`, `waitGone`, `click` (`optional: true` for controls an older build lacks), `type`, `press`, `sleep`, `settle`, `evaluate`, `scroll: { selector, top }`, `style: 'css'`, `assert: 'js'`, `hoverCanvas: { selector, until }`.
+
+## 9. Brand gold and token contrast (M1-D1)
+
+The old light-mode gold (`#b5890a`) carried white labels at 3.21:1. Gold now has separate tokens per job, and the founder picks one of two variants (M1-F5):
+
+| Token | Job | Light (default) | Light (`dark-label`) | Dark |
+|---|---|---|---|---|
+| `--color-primary` (`bg-primary`, `border-primary`) | solid fill: buttons, chips, switches, progress, logo, icons | `#8f6d07` | `#b5890a` | `#d4a31a` |
+| `--color-primary-foreground` (`text-primary-foreground`) | the label on a solid fill | `#ffffff` (4.82:1) | `#1a1a16` (5.44:1) | `#111110` (8.15:1) |
+| `--color-primary-hover` (`hover:bg-primary-hover`) | hover step for a solid fill | `#7d5f06`, darker | `#c4970f`, lighter | `#ddb033`, lighter |
+| `--color-primary-text` (`text-primary-text`) | gold **text**, including on `bg-primary/10–15` tints | `#7d5f10` | `#7d5f10` | `#d4a31a` |
+| `--color-sidebar-primary` (`text-/bg-sidebar-primary`) | gold on the always-dark sidebar | `#d4a31a` | `#d4a31a` | `#d4a31a` |
+
+**How to flip the variant:** the default variant is (a), a darker fill with white labels. To switch to (b), the original gold with dark labels, add one attribute to `<html>` in `packages/boardroom-ai/client/index.html`:
+
+```html
+<html lang="en" data-gold="dark-label">
+```
+
+The block `:root[data-gold="dark-label"]:not(.dark)` in `tokens.css` then overrides the three fill tokens in light mode only. Dark mode already uses dark labels. To make (b) permanent instead, copy that block's three values into `:root` and delete the block. The token test covers both states either way. To preview without editing: `node tools/visual-preview/shoot-pages.mjs --gold dark-label` (shots are suffixed `--gold-dark-label`) and `node tools/visual-preview/contrast.mjs --gold dark-label`.
+
+**Rules** (enforced by the `brand gold and token contrast (Lane D · M1-D1)` block in `client/tests/ui-standards.test.ts`):
+
+1. **Token pairs.** The test parses `tokens.css` and resolves light/dark × default/`dark-label`. Text pairs must be ≥ 4.5:1: labels on fill and on hover, gold text on page/card/muted/popover/tints, body and muted text, semantic text, destructive and success labels, and sidebar text. Non-text pairs must be ≥ 3:1: the fill on page/card, and the sidebar gold. It fails on the pre-M1-D1 tokens (white on `#b5890a` = 3.21:1).
+2. **`text-primary` is a fill colour, not a text colour.** Use `text-primary-text` for gold text. The test holds an explicit allow-list for non-text uses (logo marks, icons, decorative glyphs). Each entry names its file and a line fragment, and stale entries fail.
+3. **A solid `bg-primary` carries `text-primary-foreground`.** Never `text-foreground`, `text-white` or `text-muted-foreground` on the fill (white on dark-mode gold is 1.89:1).
+4. **Hover on a solid fill uses `hover:bg-primary-hover`.** A `/80` or `/90` tint lightens the light-mode fill under its white label below AA.
+
+**Page sweep.** `node tools/visual-preview/contrast.mjs` (after `pnpm --filter @boardroom/boardroom-ai build`) serves the build against the mock API and measures **every** visible text element on Login and Settings. It covers light/dark × both variants × 1440 px and 390 px. For each viewport position it reads the colours, hides all text, takes one screenshot and compares each colour with the backdrop pixels inside its own glyph boxes (worst 5 %). Text needs 4.5:1, large text and single glyphs need 3:1, and disabled or `aria-hidden` content is skipped. Any failing pair exits 1. Flags: `--only login|settings`, `--theme`, `--gold default|dark-label|both`, `--dist <older build>`, `--shots <dir>`, `--json <file>`, `--verbose`.

@@ -104,7 +104,7 @@ export function DecisionCommitCard({
           </dd>
         </dl>
         <div className="mt-4 flex items-center gap-3">
-          <Link to="/decisions" className="text-sm font-medium text-primary underline-offset-2 hover:underline">
+          <Link to="/decisions" className="text-sm font-medium text-primary-text underline-offset-2 hover:underline">
             Open Decisions
           </Link>
           <span className="text-xs text-muted-foreground">You will be nudged to review it and score the forecast.</span>

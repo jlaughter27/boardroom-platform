@@ -72,7 +72,7 @@ export function EmailScanner() {
 
   const DOMAIN_COLORS: Record<string, string> = {
     business: 'text-info',
-    personal: 'text-primary',
+    personal: 'text-primary-text',
     ministry: 'text-amber-400',
     'ai-systems': 'text-success',
   };
@@ -85,7 +85,7 @@ export function EmailScanner() {
         <button
           onClick={scanEmails}
           disabled={loading}
-          className="px-3 py-1.5 text-xs bg-primary hover:bg-primary/90 text-foreground rounded-lg transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 text-xs bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg transition-colors disabled:opacity-50"
         >
           {loading ? 'Scanning...' : 'Scan Recent Emails'}
         </button>
@@ -187,7 +187,7 @@ export function EmailScanner() {
                 <button
                   onClick={confirmSelected}
                   disabled={confirming || selectedProposals.size === 0}
-                  className="px-4 py-2 text-sm bg-primary hover:bg-primary/90 text-foreground rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-sm bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg transition-colors disabled:opacity-50"
                 >
                   {confirming
                     ? 'Saving...'

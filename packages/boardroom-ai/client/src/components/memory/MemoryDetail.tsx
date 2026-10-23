@@ -41,7 +41,7 @@ function formatDate(date: Date | string | null): string {
 const ENTITY_TYPE_COLORS: Record<string, string> = {
   person: 'bg-info-muted text-info border-info/30',
   goal: 'bg-success-muted text-success border-success/30',
-  project: 'bg-primary/10 text-primary border-primary/30',
+  project: 'bg-primary/10 text-primary-text border-primary/30',
 };
 
 export function MemoryDetail({ memory }: MemoryDetailProps) {
@@ -172,13 +172,13 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-3 py-1 bg-primary hover:bg-primary/90 disabled:opacity-50 text-foreground text-xs rounded transition-colors"
+                className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-xs rounded transition-colors"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={handleCancelEdit}
-                className="px-3 py-1 bg-muted hover:bg-primary text-muted-foreground text-xs rounded transition-colors"
+                className="px-3 py-1 bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs rounded transition-colors"
               >
                 Cancel
               </button>
@@ -187,7 +187,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             <>
               <button
                 onClick={() => setEditing(true)}
-                className="px-3 py-1 bg-muted hover:bg-primary text-muted-foreground text-xs rounded transition-colors"
+                className="px-3 py-1 bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs rounded transition-colors"
               >
                 Edit
               </button>
@@ -208,7 +208,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
                   </button>
                   <button
                     onClick={() => setConfirmArchive(false)}
-                    className="px-3 py-1 bg-muted hover:bg-primary text-muted-foreground text-xs rounded transition-colors"
+                    className="px-3 py-1 bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground text-xs rounded transition-colors"
                   >
                     No
                   </button>
@@ -252,7 +252,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
               {
                 [MemoryClass.WORKING]:
-                  'bg-primary/10 text-primary border-primary/30',
+                  'bg-primary/10 text-primary-text border-primary/30',
                 [MemoryClass.EPISODIC]:
                   'bg-info-muted text-info border-info/30',
                 [MemoryClass.SEMANTIC]:

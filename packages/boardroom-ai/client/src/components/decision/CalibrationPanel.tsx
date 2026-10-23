@@ -223,7 +223,7 @@ export function CalibrationPanel() {
               role="tab"
               aria-selected={view === v}
               onClick={() => setView(v)}
-              className={cn('h-7 rounded px-2.5 text-xs transition-colors', view === v ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground')}
+              className={cn('h-7 rounded px-2.5 text-xs transition-colors', view === v ? 'bg-primary/10 text-primary-text font-medium' : 'text-muted-foreground hover:text-foreground')}
             >
               {v === 'chart' ? 'Chart' : 'Table view'}
             </button>
