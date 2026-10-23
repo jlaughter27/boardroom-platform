@@ -6,6 +6,18 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Vault import: Obsidian vault → OmniMind, synced by path
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR | **Tests:** omnimind-api +1 (dedup opt-out), shared +1 (NUL guard + dedup flag), new `scripts/tests/vault-import.test.mjs` 12/12 (CI step)
+
+- **`scripts/vault-import.mjs` (`pnpm import:vault`, runbook `docs/runbooks/vault-import.md`):** one memory per note under `wiki/` and `.raw/`, written through `POST /memories` (validation pipeline) as agent `vault-import` in one tenant (default `josh-business`, where MCP clients read). Re-running syncs by vault path: new → create, edited → PATCH, unchanged → skip; never deletes. Vault plumbing (log, hot cache, Bases, generated catalogs, lint/tiling reports, alias stubs) is skipped; ministry notes are listed and held back (`MINISTRY_DEFERRED`; never relabelled). Domain-budget preflight (nothing written if a domain would overflow), writes paced under the 20/min user limit, waits out the 200/hour agent limit.
+- **`POST /memories` `dedup: false`:** the near-duplicate auto-supersede on agent writes replaces an existing memory's title and content at > 0.92 similarity; in a bulk import that lets one note overwrite another (or an unrelated memory). Opt-out for importers that key their own rows; default unchanged.
+- **NUL characters → 422:** a title/content with U+0000 reached the INSERT and Postgres refused it, so OmniMind answered 500 (any client, incl. MCP `memory_write`). Create/update schemas now reject it with a 422.
+- **Verified on a local stack with the founder's real vault (private; no vault content in this repo):** every note landed once in `josh-business` (`agent_id = vault-import`, `API_IMPORT`), a second run synced the remainder, a third wrote nothing; tenant-scoped search returned the expected notes; the `josh-personal` tenant saw none. The two bugs above were found by this run.
+- **Production run:** after this PR deploys (the server must accept `dedup: false` first), one command from a machine that can reach the API — `docs/runbooks/vault-import.md` "Run it". Rotate the leaked service key (M0-F2) before using it.
+
+---
+
 ## 2026-10-23 — Phase 8 — Wave 2: e2e gate in CI, automatic post-deploy verify, AA brand gold, safe onboarding gate
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Merged as PR #26 (`38289fb`), main CI green | **Tests:** client 477 → 502 (+14 M1-D1, +11 M1-D3); shared 155, mcp 272, api 1,209, server 302 unchanged; `pnpm test:e2e` 55/55; `pnpm test:go-live` 181 + 78; `pnpm e2e:live` 24/24 (Lane A, private stack); CLS 0.0092 / 0.0018; audit 0 high
