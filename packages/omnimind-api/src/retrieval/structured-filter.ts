@@ -83,7 +83,8 @@ export async function structuredFilter(
   const results = await prisma.memoryEntry.findMany({
     where: where as any,
     take: options.limit ?? 20,
-    orderBy: { importance: 'desc' },
+    // RD-2: id breaks importance ties so the LIMIT cut is the same on every call.
+    orderBy: [{ importance: 'desc' }, { id: 'asc' }],
     select: {
       id: true, content: true, title: true, tags: true,
       importance: true, lastAccessedAt: true, sourceWeight: true,

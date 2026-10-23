@@ -155,6 +155,13 @@ Hybrid search for MCP and BoardRoom — the **same retrieval stack as `POST /con
 
 **Full-text layer (2026-10-23):** a strict pass first (every query word must match); when it returns fewer than the layer limit, a ranked any-word pass fills the remaining slots below the strict hits, scored at half weight (`whyIncluded: "Partial full-text match …"`). Before this, natural-language questions rarely matched every word, so the full-text layer returned nothing and recall depended on embeddings being available. Labeled IR eval in CI (mock embeddings): `/context/for-persona` recall@10 0.520 → 0.718, MRR 0.440 → 0.532; `/memories/search` recall@10 0.535 → 0.826, MRR 0.549 → 0.688.
 
+**Ranking and determinism (RD-2, 2026-10-23):** the same query on the same rows returns the same order.
+- Full-text rank weights the **title 'A' and the body 'D'** (`ts_rank` weights `{0.1, 0.2, 0.4, 1.0}`), and a memory whose title lexemes equal the query's (`strip(to_tsvector(title)) = strip(to_tsvector(query))`, so case, stop words and stemming are ignored) scores 1.0 in the full-text layer and is never cut by its LIMIT (`whyIncluded: "Exact title match …"`). The match predicate is unchanged.
+- Every lexical layer orders ties by `id`; the ranker uses a deterministic total order (score bands of 0.05; inside a band: `sourceWeight`, then the earliest layer that found the item — structured, fts, trigram, semantic — then score, then id), so the result never depends on which layer answered first or on the heap order of tied rows.
+- **No recency boost on this endpoint.** `last_accessed_at` is written by `/context/for-persona` recall reinforcement; boosting on it made a search reorder after any persona call. (`/context/for-persona` keeps the boost.)
+- The search writes nothing (no recall reinforcement, no `last_accessed_at`).
+Before this, a single-keyword query scored ~0.42 flat across the top 10 and the note titled with the keyword could rank #2 or outside the top 20 on identical calls.
+
 **Request:**
 ```typescript
 {

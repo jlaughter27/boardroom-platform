@@ -711,6 +711,12 @@ export async function validateMemoryInput(
 // decrypt. Differences from the persona path: no persona tag boosts / token
 // budget, no recall reinforcement (an agent paging through results is not a
 // persona recall), and the ranked pool is paginated with an opaque cursor.
+//
+// RD-2 — deterministic: the same query on the same rows returns the same
+// order. The search writes nothing, every lexical layer orders ties by id
+// (the semantic layer keeps its index-backed ORDER BY distance), the ranker
+// uses a total order that ignores layer timing, and the recall-driven recency
+// boost (whose input other reads mutate) is off for this endpoint.
 // ---------------------------------------------------------------------------
 
 export const HYBRID_SEARCH_MAX_LIMIT = 50;
@@ -795,7 +801,11 @@ export async function hybridSearchMemories(
       { layer: 'trigram', results: trigram },
       { layer: 'semantic', results: semantic },
     ],
-    HYBRID_POOL_MAX
+    HYBRID_POOL_MAX,
+    // RD-2: no recency boost — it reads last_accessed_at, which persona reads
+    // (recall reinforcement) write, so the same search reordered after any
+    // decision session. Search order = f(query, rows), nothing else.
+    { recencyBoost: false },
   ).filter(r => r.type === 'memory');
   if (ranked.length === 0) return { items: [], nextCursor: null };
 

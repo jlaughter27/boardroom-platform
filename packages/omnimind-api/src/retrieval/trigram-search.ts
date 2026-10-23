@@ -68,7 +68,7 @@ export async function trigramSearch(
             AND ${classFilter}
             AND (${includeArchived} OR importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
             AND similarity(content, ${query}) > ${threshold}
-          ORDER BY sim DESC
+          ORDER BY sim DESC, id ASC
           LIMIT ${options.limit ?? 20}
         `
       : await prisma.$queryRaw<TrigramRow[]>`
@@ -83,7 +83,7 @@ export async function trigramSearch(
             AND ${classFilter}
             AND (${includeArchived} OR importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
             AND similarity(content, ${query}) > ${threshold}
-          ORDER BY sim DESC
+          ORDER BY sim DESC, id ASC
           LIMIT ${options.limit ?? 20}
         `;
 
