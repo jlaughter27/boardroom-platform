@@ -323,6 +323,24 @@ States: `todo` → `in-progress` → `in-review` → `merged` → `done` (see th
 | M4-F1 | Write the dogfood verdict | M4 | founder | M3-F3 | todo | — | — |
 | M4-F2 | Remove omnimind-api public domain after verdict; verify and re-run reports via BoardRoom | M4 | founder | M4-F1, M3-F2, M3-A3 | todo | — | — |
 
+### Phase 8 — real-data follow-ups (docs/roadmap/PHASE-8-REAL-DATA-ROADMAP.md, from 2026-10-23)
+
+| ID | Task | Milestone | Lane | Depends on | Status | Date | Notes |
+|---|---|---|---|---|---|---|---|
+| RD-0 | Real-data e2e fixes: POST reads on the read budget, FTS any-word fill, batch memory links + importer link phase, plain-language provider errors | M1 | A/B/C | — | in-review | 2026-10-23 | PR #28, CI green; waits on founder "merge" |
+| RD-F1 | Production vault import (dry-run, then real, links included) | M1 | founder | RD-0, M0-F2, M0-F1 | todo | — | — |
+| RD-F2 | First real decision session + first real MCP search on production data | M1 | founder | RD-F1, M1-F1 | todo | — | — |
+| RD-1 | Memory detail renders markdown; clickable wikilinks; backlinks panel | M2 | D | — | todo | — | — |
+| RD-2 | Ranking stability: title-weighted FTS, deterministic search, keyword + natural-language eval slices on a synthetic vault corpus | M2 | B | RD-0 | todo | — | — |
+| RD-3 | Long-note embeddings: section chunks, best-chunk scoring, backfill | M3 | B | M0-F1, production embeddings | todo | — | — |
+| RD-4 | Budgets soft as documented (curator proposal + warning) and visible per domain | M2 | B | — | todo | — | — |
+| RD-5 | Vault sync: importer --prune (deleted notes, removed wikilinks) + Action in the private vault repo | M2 | A | RD-F1 | todo | — | — |
+| RD-6 | Graph scale: explicit 200-memory cap with show-more, responsive at ~500 nodes | M2 | C | — | todo | — | — |
+| RD-7 | CI guard: synthetic vault fixture + e2e:live vault-import check (import → links → graph → search → idempotent re-run) | M2 | A | RD-0 | todo | — | — |
+| RD-8 | Ratchet retrieval-eval thresholds after three green main runs | M2 | A | RD-0 | todo | — | — |
+| RD-9 | Lane follow-up backlog (rebuttals on reload, mobile card height, snippet stacking, banner position, old-gold tokens, WebKit cookie) | M2 | C/D | — | todo | — | — |
+| RD-10 | Ministry path: local-embedding hosting, lift MINISTRY_DEFERRED, import held-back ministry notes to tgfc-ministry | M3 | founder + B | founder hosting decision | todo | — | — |
+
 ---
 
 **Reminder:** A row marked `done` should also have a corresponding entry in `CHANGELOG.md` for the phase as a whole, not for each task.

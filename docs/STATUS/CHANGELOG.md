@@ -6,6 +6,15 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Real-data roadmap
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed | **Tests:** docs only
+
+- `docs/roadmap/PHASE-8-REAL-DATA-ROADMAP.md`: the 12 findings of the real-data run (4 fixed in PR #28, 8 open), sequenced into Stage 0 founder unblock → Stage 1 production go-live with the real vault → Stage 2 agent wave 3 (RD-1…RD-9, no founder dependency) → Stage 3 M1 remainder, long-note embeddings, ministry path → Stage 4 Phase 8 M2. Decisions the founder owns and blind spots listed.
+- Tracker: "Phase 8 — real-data follow-ups" (RD-0…RD-10). CURRENT-PHASE points at the roadmap.
+
+---
+
 ## 2026-10-23 — Real-data end-to-end: 5 production issues found with a real vault and fixed
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR | **Tests:** omnimind-api +7 (limiter 2, FTS 2, batch links 3), server +3 (provider errors), shared schema + interface for batch links, vault importer 12 → 14

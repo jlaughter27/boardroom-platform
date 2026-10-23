@@ -16,6 +16,8 @@
 
 **Wave 2 — merged** (PR #26, squash `38289fb`, main CI run 39882689275 green; post-deploy verify run 1 skipped — host variables not set yet): M1-A3 (CI e2e gate, journey `--browser`, checks autoloader), M1-A1 (automatic post-deploy verify; waits for three repo variables), M1-D1 (AA brand gold; variant pick is founder M1-F5), M1-D3 (onboarding gate only on 404; no token-reveal overflow).
 
+**Real-data roadmap (2026-10-23):** [`docs/roadmap/PHASE-8-REAL-DATA-ROADMAP.md`](../roadmap/PHASE-8-REAL-DATA-ROADMAP.md) — Stage 0 founder unblock (merge PR #28, rotate secrets, backup, post-deploy-verify variables, branch protection, tenant, gold) → Stage 1 production go-live with the real vault → Stage 2 agent wave 3 (RD-1 markdown + wikilinks, RD-2 ranking stability, RD-7 CI guard, RD-4 budgets, RD-6 graph scale, RD-5 vault sync) → Stage 3 M1 remainder + long-note embeddings + ministry path.
+
 **Wave 3 — blocked on the founder:** M1-B4 (entity `tenantId` migration) and M1-C4 (real dashboard actions) wait for M1-F7 (ADR-017 default tenant) and M0-F1 (pg_dump + restore drill); M1-D2 and M1-D4 follow M1-C4; M1-B1/B3 follow M1-B4. Watch: `prisma migrate dev --create-only` will generate DROPs for the baselined drift in `prisma/known-drift.sql` — delete them from the generated SQL.
 
 **Founder, urgent (W1):** M0-F1 production `pg_dump` + restore drill first → M0-F2 rotate the five R-103 secrets (the repo is public and early history holds deploy env values) → M0-F4 hand-verify the live deploy. Open blockers: `BLOCKERS.md`.
