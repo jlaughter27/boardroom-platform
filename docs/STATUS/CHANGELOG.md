@@ -19,6 +19,8 @@ Four parallel worktree lanes, integrated on the PR #28 branch:
 - **RD-7** Synthetic vault fixture + `tests/e2e/live/checks/vault-import.mjs`, gated in the CI `E2E` job.
 - **RD-9** Rebuttals restored on reload; 20rem waiting/error cards on phones; snippet stacks under Copy at < 640 px; retry banner in the layout; decorative gold on tokens; WebKit cookie fix documented (not reproduced — no WebKit here).
 
+**CI retrieval eval (built server, mock embeddings, run 39985964562):** 159 queries (114 original + 45 vault). Overall for-persona recall@10 0.917 / MRR 0.742; `/memories/search` 0.872 / 0.782. Keyword slice 1.000 / 1.000 on both endpoints; natural-language slice recall 1.000, MRR 0.938 / 0.969. On the original three archetypes (mean of archetype rows, comparable to the previous run): for-persona 0.718 → 0.885 recall@10, 0.532 → 0.649 MRR; `/memories/search` 0.826 → 0.822 recall@10 (flat), 0.688 → 0.701 MRR. Weakest: `business` archetype on `/memories/search` (recall@10 0.557).
+
 **Open:** RD-8 (ratchet after three green main runs — the new slices restart the count), IVFFlat index built on an empty table (eval noise), persona context empty when a single top note exceeds the token budget (pairs with RD-3), MCP `memory_write` does not surface the budget warning.
 
 ---
