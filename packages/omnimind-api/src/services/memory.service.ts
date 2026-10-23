@@ -130,6 +130,7 @@ export async function createMemory(
     confidence?: string;
     sourceRef?: string | null;
     metadata?: Record<string, unknown>;
+    dedup?: boolean;
   },
   agentContextOrPrisma?: AgentContext | PrismaClient,
   prismaArg?: PrismaClient
@@ -175,7 +176,11 @@ export async function createMemory(
   // O-101 / F-202: only runs when an agent context (and therefore a tenant) is
   // present. BoardRoom AI writes carry no tenant and are single-user, so dedup
   // is skipped rather than searched cross-tenant.
-  if (agentContext) {
+  //
+  // `dedup: false` opts out: a bulk importer that keys its own rows (the vault
+  // importer syncs by vault path) must not have one note silently overwrite
+  // another, or an unrelated existing memory, at > 0.92 similarity.
+  if (agentContext && input.dedup !== false) {
     const embedText = `${input.title} ${input.content}`.slice(0, 8000);
     const dedupeEmbedding = await generateEmbeddingWithRetry(embedText, input.domain).catch(() => null);
     if (dedupeEmbedding) {

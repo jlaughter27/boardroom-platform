@@ -18,6 +18,8 @@ export interface CreateMemoryRequest {
   sourceRef?: string;
   relatedEntityIds?: string[];
   metadata?: Record<string, unknown>;
+  /** false skips the near-duplicate auto-supersede on agent writes (bulk imports that key their own rows). Default true. */
+  dedup?: boolean;
 }
 
 export interface CreateMemoryResponse {
