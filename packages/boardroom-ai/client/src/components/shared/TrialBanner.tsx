@@ -39,7 +39,7 @@ export function TrialBanner() {
           {daysLeft} day{daysLeft !== 1 ? 's' : ''} left in your free trial
         </span>
         {' — '}
-        <Link to={BILLING_SETTINGS_PATH} className="text-primary hover:text-primary/80 underline font-medium">
+        <Link to={BILLING_SETTINGS_PATH} className="text-primary-text hover:text-foreground underline font-medium">
           Upgrade to Pro
         </Link>
       </div>

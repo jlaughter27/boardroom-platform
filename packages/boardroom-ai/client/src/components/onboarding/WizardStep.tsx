@@ -53,7 +53,7 @@ export function WizardStep({
                   isComplete
                     ? 'text-success'
                     : isCurrent
-                      ? 'text-primary'
+                      ? 'text-primary-text'
                       : 'text-muted-foreground'
                 }`}
               >

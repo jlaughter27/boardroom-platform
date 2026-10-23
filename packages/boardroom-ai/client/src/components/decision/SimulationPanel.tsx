@@ -26,7 +26,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/90 transition-colors"
+        className="flex items-center gap-1.5 text-sm font-medium text-primary-text hover:text-foreground transition-colors"
       >
         <span className={`transition-transform text-xs ${open ? 'rotate-90' : ''}`}>{'\u25B6'}</span>
         {title}
@@ -135,7 +135,7 @@ export function SimulationPanel({ result }: SimulationPanelProps) {
                   <Card key={i} className="bg-background p-2.5">
                     <div className="text-sm font-medium text-foreground">{p.name}</div>
                     <div className="text-xs text-muted-foreground mt-1">{p.impact}</div>
-                    <div className="text-xs text-primary mt-1">Action: {p.action}</div>
+                    <div className="text-xs text-primary-text mt-1">Action: {p.action}</div>
                   </Card>
                 ))}
               </div>

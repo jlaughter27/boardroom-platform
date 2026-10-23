@@ -152,7 +152,7 @@ export function PersonCard({ person, onEdit, onDelete }: PersonCardProps) {
               <div className="flex gap-2">
                 <button
                   onClick={handleSave}
-                  className="px-3 py-1 bg-primary hover:bg-primary/90 text-foreground text-xs rounded transition-colors"
+                  className="px-3 py-1 bg-primary hover:bg-primary-hover text-primary-foreground text-xs rounded transition-colors"
                 >
                   Save
                 </button>

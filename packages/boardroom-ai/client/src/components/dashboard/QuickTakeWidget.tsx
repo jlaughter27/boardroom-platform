@@ -117,7 +117,7 @@ export function QuickTakeWidget() {
         <div className="mt-3 rounded-lg border border-danger/30 bg-danger-muted p-3 text-sm">
           <p className="text-foreground">{error.message}</p>
           {error.status === 402 && (
-            <Link to={BILLING_SETTINGS_PATH} className="text-primary underline font-medium">
+            <Link to={BILLING_SETTINGS_PATH} className="text-primary-text underline font-medium">
               Upgrade your plan
             </Link>
           )}

@@ -10,16 +10,17 @@ const sizes = {
 // brand (`bg-primary` slot included) while still giving users visual
 // distinction. Hash maps a name to a stable color so "Sarah" always gets
 // the same shade. Primary sits in position 2 so it shows up frequently
-// enough to feel intentional without dominating.
+// enough to feel intentional without dominating. The 700 steps keep the
+// white initials at AA (5.0–6.3:1; the 600 steps were 3.2–3.9:1) — M1-D1.
 const bgColors = [
-  'bg-primary',      // warm gold — brand reinforcement in avatar context
-  'bg-emerald-600',
-  'bg-amber-600',
-  'bg-cyan-600',
-  'bg-rose-600',
-  'bg-sky-600',
-  'bg-teal-600',
-  'bg-orange-600',
+  'bg-primary text-primary-foreground', // warm gold — brand reinforcement; its paired label (M1-D1)
+  'bg-emerald-700',
+  'bg-amber-700',
+  'bg-cyan-700',
+  'bg-rose-700',
+  'bg-sky-700',
+  'bg-teal-700',
+  'bg-orange-700',
 ];
 
 function hashName(name: string): number {

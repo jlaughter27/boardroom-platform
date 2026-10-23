@@ -132,7 +132,7 @@ export default function DecisionLabPage() {
                   onClick={() => setFilter(tab.value)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     filter === tab.value
-                      ? 'bg-primary/10 text-primary'
+                      ? 'bg-primary/10 text-primary-text'
                       : 'text-muted-foreground hover:text-muted-foreground hover:bg-muted'
                   }`}
                 >

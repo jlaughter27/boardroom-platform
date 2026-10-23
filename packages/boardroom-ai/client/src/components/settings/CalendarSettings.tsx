@@ -110,7 +110,7 @@ export function CalendarSettings() {
       </p>
       <button
         onClick={handleConnect}
-        className="px-4 py-2 bg-primary hover:bg-primary/90 text-foreground text-sm rounded-lg transition-colors"
+        className="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm rounded-lg transition-colors"
       >
         Connect Google Calendar
       </button>

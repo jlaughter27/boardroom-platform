@@ -53,7 +53,7 @@ export function TaskNode({ task }: TaskNodeProps) {
         }`}
       >
         {task.status === 'done' && (
-          <svg className="w-4 h-4 text-foreground" viewBox="0 0 16 16" fill="none">
+          <svg className="w-4 h-4 text-primary-foreground" viewBox="0 0 16 16" fill="none">
             <path
               d="M4 8l3 3 5-5"
               stroke="currentColor"

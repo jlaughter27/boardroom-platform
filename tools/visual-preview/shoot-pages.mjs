@@ -8,6 +8,7 @@
 //   node tools/visual-preview/shoot-pages.mjs --only dashboard-scrolled,graph-global --theme dark
 //   node tools/visual-preview/shoot-pages.mjs --skip-variants      # desktop + mobile only
 //   node tools/visual-preview/shoot-pages.mjs --no-gate            # report contrast, never fail on it
+//   node tools/visual-preview/shoot-pages.mjs --gold dark-label    # brand-gold variant (data-gold on <html>), shots suffixed --gold-dark-label
 //
 // Reuses shoot.mjs (`shootPages`, `startServer`, `DEFAULT_PAGES`) and
 // mock-api.mjs. Fixture order: pages.mjs (profile + decision session) →
@@ -74,6 +75,31 @@ const afterError = [
   { assert: '!!document.querySelector("[data-testid=persona-card][data-state=error] button")', message: 'the error card has no Retry button' },
 ];
 
+// Token reveal with a very long MCP URL (M1-D3, fixtures/pages.mjs): mint a token, then
+// assert nothing scrolls sideways — the document and the app's scroll pane — while the
+// snippet block itself does overflow (so the check is exercising something) and shows its fade.
+const TOKEN_PANEL = '[data-testid="connected-tools-panel"]';
+const tokenCreatedLongUrl = [
+  { wait: `${TOKEN_PANEL} button:has-text("New token"):not([disabled])` },
+  { click: `${TOKEN_PANEL} button:has-text("New token")` },
+  { wait: '[data-testid="mcp-token-form"]' },
+  { click: '[data-testid="mcp-token-form"] button[type="submit"]' },
+  { wait: '[data-testid="mcp-snippet"]' },
+  { assert: '!document.querySelector("[data-testid=mcp-url-warning]")', message: 'the long-URL connect-info did not reach the page (placeholder URL shown)' },
+  { evaluate: 'document.querySelector("[data-testid=mcp-token-created]").scrollIntoView({ block: "start" })' },
+  { sleep: 400 },
+  { noOverflowX: ['#main-content'] },
+  { assert: '[...document.querySelectorAll("[data-testid=mcp-snippet] pre")].some((p) => p.scrollWidth > p.clientWidth)', message: 'no snippet block overflows — the long URL is not exercising the scroll' },
+  { assert: '[...document.querySelectorAll("[data-testid=mcp-snippet] [data-overflowing]")].every((w) => !!w.querySelector("[aria-hidden=true]")) && !!document.querySelector("[data-testid=mcp-snippet] [data-overflowing]")', message: 'an overflowing snippet block has no fade edge' },
+];
+// Profile read fails with 503 (open breaker): the dashboard shell renders with the retry banner — no onboarding redirect (M1-D3).
+const profileUnavailable = [
+  { wait: '[data-testid="profile-unavailable-banner"]' },
+  { wait: '[data-testid="cockpit-row"]' },
+  { sleep: 600 },
+  { assert: 'location.pathname === "/"', message: 'a 503 profile read navigated away from the shell' },
+];
+
 // ── Page sets ─────────────────────────────────────────────────────────────────
 export function pageSets({ legacy = false } = {}) {
   const dash = legacy ? waitLegacyDashboard : waitDashboard;
@@ -81,6 +107,7 @@ export function pageSets({ legacy = false } = {}) {
 
   const desktop = [
     { name: 'dashboard', path: '/', actions: [...dash, ...settle] },
+    ...(legacy ? [] : [{ name: 'profile-unavailable', path: '/?state=profile-unavailable', actions: profileUnavailable }]),
     {
       name: 'dashboard-scrolled', path: '/',
       actions: [...dash, ...scrollUnderHeader, ...(legacy ? [] : [{ assert: '!!document.querySelector("header[data-scrolled]")', message: 'header did not flip data-scrolled after scrolling' }])],
@@ -144,6 +171,7 @@ export function pageSets({ legacy = false } = {}) {
 
   const mobile = [
     { name: 'dashboard-mobile', path: '/', actions: [...dash, ...settle] },
+    ...(legacy ? [] : [{ name: 'profile-unavailable-mobile', path: '/?state=profile-unavailable', actions: profileUnavailable }]),
     ...(legacy ? [] : [
       { name: 'decision-session-streaming-mobile', path: '/decisions/s-stream', actions: streamMid },
       // Mobile stacks the cards: scroll the failed one into view before the shot.
@@ -196,7 +224,10 @@ export function pageSets({ legacy = false } = {}) {
     { name: 'dashboard-configurator', path: '/', actions: [...dash, ...openConfigurator] },
   ];
 
-  return { desktop, mobile, reducedMotion, reducedMotionMobile, reducedTransparency };
+  // No sideways scroll on the one-time token reveal, shot at 1280 px and 390 px (M1-D3).
+  const overflow = [{ name: 'token-created-long-url', path: '/settings?state=token-created-long-url', actions: tokenCreatedLongUrl }];
+
+  return { desktop, mobile, reducedMotion, reducedMotionMobile, reducedTransparency, overflow };
 }
 
 /** pages.mjs first, then the dashboard data, then every other fixture. */
@@ -209,24 +240,32 @@ export async function pagesMock() {
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
+const LAPTOP = { width: 1280, height: 800 };
 // Init scripts run before <html> exists; apply the class as soon as it does.
 const REDUCE_TRANSPARENCY = '(() => { const apply = () => { if (document.documentElement) document.documentElement.classList.add("reduce-transparency"); }; apply(); document.addEventListener("readystatechange", apply); document.addEventListener("DOMContentLoaded", apply); })()';
 
-export async function shootAllPages({ round = 'phase-c-round-1', outRoot = PAGES_OUT, dist = CLIENT_DIST, only, themes, legacy = false, skipVariants = false, log = console.log } = {}) {
+export async function shootAllPages({ round = 'phase-c-round-1', outRoot = PAGES_OUT, dist = CLIENT_DIST, only, themes, legacy = false, skipVariants = false, gold = 'default', log = console.log } = {}) {
   const outDir = join(outRoot, round);
   mkdirSync(outDir, { recursive: true });
   const mock = await pagesMock();
   const { server, baseUrl } = await startServer({ dist, mock });
   const sets = pageSets({ legacy });
-  const base = { baseUrl, themes, onlyNames: only, log, initScript: RECORD_VT };
+  // Brand-gold variant (M1-D1): `data-gold="<variant>"` on <html> before the app paints; shots get a `--gold-<variant>` suffix.
+  const goldScript = gold && gold !== 'default'
+    ? `; (() => { const apply = () => { if (document.documentElement) document.documentElement.dataset.gold = ${JSON.stringify(gold)}; }; apply(); document.addEventListener("readystatechange", apply); })()`
+    : '';
+  const g = goldScript ? `--gold-${gold}` : '';
+  const base = { baseUrl, themes, onlyNames: only, log, initScript: `${RECORD_VT}${goldScript}`, suffix: g || undefined };
   const results = [];
   try {
     results.push(...await shootPages(sets.desktop, outDir, { ...base, viewport: DESKTOP }));
     results.push(...await shootPages(sets.mobile, outDir, { ...base, viewport: MOBILE }));
+    results.push(...await shootPages(sets.overflow, outDir, { ...base, viewport: LAPTOP, suffix: `-1280${g}` }));
+    results.push(...await shootPages(sets.overflow, outDir, { ...base, viewport: MOBILE, suffix: `-390${g}` }));
     if (!skipVariants) {
-      results.push(...await shootPages(sets.reducedMotion, outDir, { ...base, viewport: DESKTOP, reducedMotion: 'reduce', suffix: '--reduced-motion' }));
-      results.push(...await shootPages(sets.reducedMotionMobile, outDir, { ...base, viewport: MOBILE, reducedMotion: 'reduce', suffix: '--reduced-motion' }));
-      results.push(...await shootPages(sets.reducedTransparency, outDir, { ...base, viewport: DESKTOP, suffix: '--reduced-transparency', initScript: `${RECORD_VT}; ${REDUCE_TRANSPARENCY}` }));
+      results.push(...await shootPages(sets.reducedMotion, outDir, { ...base, viewport: DESKTOP, reducedMotion: 'reduce', suffix: `--reduced-motion${g}` }));
+      results.push(...await shootPages(sets.reducedMotionMobile, outDir, { ...base, viewport: MOBILE, reducedMotion: 'reduce', suffix: `--reduced-motion${g}` }));
+      results.push(...await shootPages(sets.reducedTransparency, outDir, { ...base, viewport: DESKTOP, suffix: `--reduced-transparency${g}`, initScript: `${RECORD_VT}; ${REDUCE_TRANSPARENCY}${goldScript}` }));
     }
   } finally {
     server.close();
@@ -248,8 +287,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const theme = arg('--theme', null);
   const legacy = process.argv.includes('--legacy');
   const skipVariants = process.argv.includes('--skip-variants');
+  const gold = arg('--gold', 'default');
   const gate = !process.argv.includes('--no-gate');
-  const { outDir, results, contrast, contrastFailures } = await shootAllPages({ round, outRoot: arg('--out', PAGES_OUT), dist, only, themes: theme ? [theme] : undefined, legacy, skipVariants });
+  const { outDir, results, contrast, contrastFailures } = await shootAllPages({ round, outRoot: arg('--out', PAGES_OUT), dist, only, themes: theme ? [theme] : undefined, legacy, skipVariants, gold });
   const failed = results.filter((r) => r.error);
   console.log(`\n${results.length - failed.length}/${results.length} shots saved under ${outDir}`);
   for (const r of results) if (r.errors?.length) console.log(`  ${r.name} [${r.theme}] console errors: ${r.errors.join(' | ').slice(0, 300)}`);

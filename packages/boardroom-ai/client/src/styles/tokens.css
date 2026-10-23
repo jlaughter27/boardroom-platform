@@ -8,9 +8,24 @@
   --color-card-foreground: #1a1a16;
   --color-muted: #f3f2ed;
   --color-muted-foreground: #6b6960;
-  --color-primary: #b5890a;
+  /*
+   * Brand gold (M1-D1). Two jobs, two tokens:
+   *   --color-primary       the solid fill (buttons, chips, switches, progress,
+   *                         logo, icons). Default variant: deep gold so the white
+   *                         label clears AA — white on #8f6d07 is 4.82:1 (the old
+   *                         #b5890a was 3.21:1). Non-text: 4.60:1 on the page.
+   *   --color-primary-text  gold *text* on light surfaces and on bg-primary/10–15
+   *                         tints (5.71:1 on the page, ≥ 4.7:1 on the tints).
+   * Hover on a solid fill steps darker (--color-primary-hover), never lighter:
+   * a /90 tint over white drops the white label under 4.5:1.
+   * The alternative variant — the original brighter gold with dark labels — is
+   * one attribute away: `<html data-gold="dark-label">` (block below `.dark`).
+   * Every pair is enforced by client/tests/ui-standards.test.ts (Lane D · M1-D1).
+   */
+  --color-primary: #8f6d07;
   --color-primary-foreground: #ffffff;
-  --color-primary-text: #8a6914;
+  --color-primary-hover: #7d5f06;
+  --color-primary-text: #7d5f10;
   --color-primary-warm: #a0522d;
   --color-accent: #f3f2ed;
   --color-accent-foreground: #6b6960;
@@ -47,6 +62,10 @@
   --color-sidebar-border: #2a2a28;
   --color-sidebar-foreground: #f1f1ec;
   --color-sidebar-foreground-muted: rgba(241, 241, 236, 0.55);
+  /* Gold on the always-dark sidebar (logo, wordmark, active-page bar). Fixed like
+   * the rest of the sidebar: the light-mode fill is tuned for white labels and
+   * reads muddy on #1c1b1a (3.57:1); this is 7.41:1 in both themes. */
+  --color-sidebar-primary: #d4a31a;
   /* The sidebar is dark in both themes, so its hairline and top highlight are
    * white-based and fixed — the theme-aware `--hairline` would vanish on it in light mode. */
   --sidebar-hairline: hsl(0 0% 100% / 0.08);
@@ -239,6 +258,8 @@
   --color-muted-foreground: #9a9890;
   --color-primary: #d4a31a;
   --color-primary-foreground: #111110;
+  /* Dark labels on dark-mode gold already (8.15:1); hover steps lighter (9.3:1). */
+  --color-primary-hover: #ddb033;
   --color-primary-text: #d4a31a;
   --color-primary-warm: #c07040;
   --color-accent: #222220;
@@ -328,6 +349,23 @@
     0 6px 12px hsl(var(--shadow-color) / 0.35),
     0 16px 32px hsl(var(--shadow-color) / 0.4),
     0 32px 64px hsl(var(--shadow-color) / 0.45);
+}
+
+/*
+ * === BRAND GOLD — "dark-label" variant (M1-D1, founder pick in M1-F5) ===
+ * Opt in with one attribute on <html> (client/index.html):
+ *   <html lang="en" data-gold="dark-label">
+ * Light mode keeps the original brighter gold fill and puts dark labels on it
+ * (#1a1a16 on #b5890a = 5.44:1; hover steps lighter, 6.47:1). Non-text: the
+ * fill is 3.07:1 on the page, 3.21:1 on a card. Dark mode is unchanged — it
+ * already uses dark labels. Gold *text* keeps --color-primary-text either way.
+ * Placed after `.dark` and more specific than `:root`, so it wins in light mode
+ * only; the token test resolves this block for its `dark-label` states.
+ */
+:root[data-gold="dark-label"]:not(.dark) {
+  --color-primary: #b5890a;
+  --color-primary-foreground: #1a1a16;
+  --color-primary-hover: #c4970f;
 }
 
 /* === KEYFRAMES === */

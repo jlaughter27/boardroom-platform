@@ -108,7 +108,7 @@ export function SubscriptionSettings() {
           </p>
           <button
             onClick={handleUpgrade}
-            className="px-4 py-2 bg-primary hover:bg-primary/90 text-foreground text-sm rounded-lg transition-colors"
+            className="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm rounded-lg transition-colors"
           >
             Upgrade to Pro — $29/month
           </button>
@@ -136,7 +136,7 @@ export function SubscriptionSettings() {
           </p>
           <button
             onClick={handleUpgrade}
-            className="px-4 py-2 bg-primary hover:bg-primary/90 text-foreground text-sm rounded-lg transition-colors"
+            className="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm rounded-lg transition-colors"
           >
             Upgrade to Pro — $29/month
           </button>
@@ -228,7 +228,7 @@ export function SubscriptionSettings() {
         )}
         <button
           onClick={handleUpgrade}
-          className="px-4 py-2 bg-primary hover:bg-primary/90 text-foreground text-sm rounded-lg transition-colors"
+          className="px-4 py-2 bg-primary hover:bg-primary-hover text-primary-foreground text-sm rounded-lg transition-colors"
         >
           Resubscribe — $29/month
         </button>
