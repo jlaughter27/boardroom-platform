@@ -153,7 +153,7 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
 
 Hybrid search for MCP and BoardRoom — the **same retrieval stack as `POST /context/for-persona`** (structured + FTS + trigram + semantic → `rankAndDeduplicate`, forgetting curve inside the layers, decrypt). No persona tag boosts, no token budget, no recall reinforcement.
 
-**Full-text layer (2026-10-23):** a strict pass first (every query word must match); when it returns fewer than the layer limit, a ranked any-word pass fills the remaining slots below the strict hits, scored at half weight (`whyIncluded: "Partial full-text match …"`). Before this, natural-language questions rarely matched every word, so the full-text layer returned nothing and recall depended on embeddings being available. Labeled IR eval (mock embeddings): `/context/for-persona` recall@10 0.520 → 0.939, MRR 0.440 → 0.806; `/memories/search` recall@10 0.535 → 0.952, MRR 0.549 → 0.910.
+**Full-text layer (2026-10-23):** a strict pass first (every query word must match); when it returns fewer than the layer limit, a ranked any-word pass fills the remaining slots below the strict hits, scored at half weight (`whyIncluded: "Partial full-text match …"`). Before this, natural-language questions rarely matched every word, so the full-text layer returned nothing and recall depended on embeddings being available. Labeled IR eval in CI (mock embeddings): `/context/for-persona` recall@10 0.520 → 0.718, MRR 0.440 → 0.532; `/memories/search` recall@10 0.535 → 0.826, MRR 0.549 → 0.688.
 
 **Request:**
 ```typescript
