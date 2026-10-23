@@ -8,7 +8,7 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ## 2026-10-23 — Phase 8 — Wave 2: e2e gate in CI, automatic post-deploy verify, AA brand gold, safe onboarding gate
 
-**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, wave-2 PR | **Tests:** client 477 → 502 (+14 M1-D1, +11 M1-D3); shared 155, mcp 272, api 1,209, server 302 unchanged; `pnpm test:e2e` 55/55; `pnpm test:go-live` 181 + 78; `pnpm e2e:live` 24/24 (Lane A, private stack); CLS 0.0092 / 0.0018; audit 0 high
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Merged as PR #26 (`38289fb`), main CI green | **Tests:** client 477 → 502 (+14 M1-D1, +11 M1-D3); shared 155, mcp 272, api 1,209, server 302 unchanged; `pnpm test:e2e` 55/55; `pnpm test:go-live` 181 + 78; `pnpm e2e:live` 24/24 (Lane A, private stack); CLS 0.0092 / 0.0018; audit 0 high
 
 Wave 1 merged as PR #25 (`d9a5bf3`); main CI run 39876543973 green on that SHA. Two lanes ran in worktrees off the synced branch.
 
