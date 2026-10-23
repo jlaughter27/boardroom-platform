@@ -424,6 +424,8 @@ describe('memory markdown (RD-1)', () => {
     expect(table).toMatch(/overflow-x-auto/);
     expect(table).toMatch(/tabIndex=\{0\}/);
     expect(table).toMatch(/role="region"/);
+  });
+});
 
 // ── Real-data lane (Phase 8 RD-9e) ──────────────────────────────────────────
 /**
