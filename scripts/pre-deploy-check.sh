@@ -111,6 +111,21 @@ if [ -n "$OMNIMIND_MCP_PUBLIC_URL" ]; then
     echo "  ✗ unauthenticated initialize returned $CODE (expected 401)"
     exit 1
   fi
+  # Same contract as scripts/verify-prod.sh (M1-A1): an unknown but well-formed omt_
+  # token is introspected through the gateway key → 401 invalid_token. 503
+  # auth_unavailable means the gateway key or the private OmniMind URL is broken.
+  BOGUS_TOKEN="omt_$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n' | cut -c1-43)"
+  BOGUS_BODY=$(curl -s -w '\n%{http_code}' --max-time 10 -X POST "$OMNIMIND_MCP_PUBLIC_URL" \
+    -H @<(printf 'authorization: Bearer %s\n' "$BOGUS_TOKEN") \
+    -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"pre-deploy","version":"0"}}}')
+  BOGUS_CODE=$(printf '%s' "$BOGUS_BODY" | tail -n 1)
+  if [ "$BOGUS_CODE" = "401" ] && printf '%s' "$BOGUS_BODY" | grep -q '"error":"invalid_token"'; then
+    echo "  ✓ bogus-token initialize → 401 invalid_token"
+  else
+    echo "  ✗ bogus-token initialize returned $BOGUS_CODE (expected 401 invalid_token; 503 auth_unavailable = the gateway key or OMNIMIND_API_URL is broken)"
+    exit 1
+  fi
   if [ -n "$OMNIMIND_MCP_SMOKE_TOKEN" ]; then
     # Authenticated initialize must succeed and hand back a session id.
     SID=$(curl -s -D - -o /dev/null --max-time 15 -X POST "$OMNIMIND_MCP_PUBLIC_URL" \
@@ -135,3 +150,5 @@ fi
 
 echo ""
 echo "=== PRE-DEPLOY CHECK PASSED ==="
+echo "After the push to main: the Post-deploy verify workflow runs scripts/verify-prod.sh"
+echo "(SHA poll + read-only probes on all three services). Locally: pnpm verify:prod -- --dry-run"

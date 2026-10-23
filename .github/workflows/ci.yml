@@ -75,6 +75,14 @@ jobs:
           bash -n scripts/tests/mcp-go-live.test.sh
           bash scripts/tests/mcp-go-live.test.sh
 
+      # scripts/verify-prod.sh is what post-deploy-verify.yml runs (M1-A1); the
+      # test drives it against a local node mock of the three services.
+      - name: Post-deploy verify script (bash -n + mock-server test)
+        run: |
+          bash -n scripts/verify-prod.sh
+          bash -n scripts/tests/verify-prod.test.sh
+          bash scripts/tests/verify-prod.test.sh
+
       - name: Dependency audit (high+ fails)
         run: pnpm audit --prod --audit-level high
 
