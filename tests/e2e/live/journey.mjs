@@ -4,27 +4,129 @@
 // 2. Browser: Settings → Connected AI tools → mint a token (tenant owner set via admin API first).
 // 3. MCP golden path with that token: initialize → tools/list → memory_write → memory_search → status_get.
 // 4. Cross-client visibility: BoardRoom GET /memories (same user, same cookie) sees the MCP-written memory.
-// 5. Revoke the token in BoardRoom → the next MCP call on the open session is refused.
+// 5. Pluggable checks: every tests/e2e/live/checks/*.mjs runs as its own step (checks/README.md).
+// 6. Revoke the token in BoardRoom → the next MCP call on the open session is refused.
+//
+// Usage (M1-A3):
+//   node tests/e2e/live/journey.mjs [--browser chromium|webkit] [--dry-run]
+//   --browser   engine to drive (default chromium, or env E2E_BROWSER). WebKit on Linux is not Safari.
+//   --dry-run   parse the flags, resolve playwright and the browser executable, load and validate every
+//               checks/*.mjs, print the plan, and exit — no browser launch, no network, nothing written.
 import { createRequire } from 'node:module';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
-const require = createRequire(import.meta.url);
-function loadPlaywright() {
-  const here = new URL('../../..', import.meta.url).pathname;
-  for (const p of [here, '/opt/node-tools/node_modules', ...(process.env.PLAYWRIGHT_MODULE_PATH ? [process.env.PLAYWRIGHT_MODULE_PATH] : [])]) {
-    try { return require(require.resolve('playwright', { paths: [p] })); } catch { /* next */ }
+const BROWSERS = ['chromium', 'webkit'];
+const USAGE = 'usage: node tests/e2e/live/journey.mjs [--browser chromium|webkit] [--dry-run]';
+
+function parseArgs(argv) {
+  const opts = { browser: process.env.E2E_BROWSER || 'chromium', dryRun: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--dry-run') opts.dryRun = true;
+    else if (a === '--browser') {
+      if (i + 1 >= argv.length) throw new Error('--browser needs a value (chromium|webkit)');
+      opts.browser = argv[++i];
+    } else if (a.startsWith('--browser=')) opts.browser = a.slice('--browser='.length);
+    else if (a === '--help' || a === '-h') { console.log(USAGE); process.exit(0); }
+    else throw new Error(`unknown argument: ${a}`);
   }
-  throw new Error('playwright not found');
+  if (!BROWSERS.includes(opts.browser)) throw new Error(`--browser must be one of ${BROWSERS.join('|')}, got '${opts.browser}'`);
+  return opts;
 }
-const pw = loadPlaywright();
+
+let opts;
+try {
+  opts = parseArgs(process.argv.slice(2));
+} catch (err) {
+  console.error(`journey: ${err.message}\n${USAGE}`);
+  process.exit(2);
+}
+const browserName = opts.browser;
+
+// playwright is a root devDependency (M1-A3). PLAYWRIGHT_MODULE_PATH overrides the lookup; the
+// /opt/node-tools copy is the sandbox fallback for a checkout without node_modules.
+const require = createRequire(import.meta.url);
+function resolvePlaywright() {
+  const repoRoot = new URL('../../..', import.meta.url).pathname;
+  const candidates = [...(process.env.PLAYWRIGHT_MODULE_PATH ? [process.env.PLAYWRIGHT_MODULE_PATH] : []), repoRoot, '/opt/node-tools/node_modules'];
+  for (const p of candidates) {
+    try {
+      const entry = require.resolve('playwright', { paths: [p] });
+      let version = '?';
+      try { version = JSON.parse(readFileSync(join(dirname(entry), 'package.json'), 'utf8')).version; } catch { /* unknown */ }
+      return { pw: require(entry), entry, version };
+    } catch { /* next */ }
+  }
+  return null;
+}
 
 const APP = process.env.BOARDROOM_URL ?? 'http://127.0.0.1:3001';
 const API = process.env.OMNIMIND_URL ?? 'http://127.0.0.1:3333';
 const MCP = process.env.MCP_URL ?? 'http://127.0.0.1:3334/mcp';
 const ADMIN_KEY = process.env.OMNIMIND_ADMIN_KEY;
-const OUT = process.env.E2E_OUT ?? new URL('./out/', import.meta.url).pathname;
+// Chromium keeps the historical out/ directory; other engines get out/<browser>/ so runs don't overwrite each other.
+const OUT = process.env.E2E_OUT ?? new URL(browserName === 'chromium' ? './out/' : `./out/${browserName}/`, import.meta.url).pathname;
+const CHROMIUM_FALLBACK = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+
+// ── Checks autoloader (M1-A3; contract in checks/README.md) ──────────────────
+// Every tests/e2e/live/checks/*.mjs default-exports `{ name, run(ctx), browsers? }`.
+// Loaded in file-name order; a module that fails to import or has the wrong shape
+// is reported as a FAILED step, never silently dropped.
+const CHECKS_DIR = new URL('./checks/', import.meta.url);
+async function loadChecks() {
+  const files = readdirSync(CHECKS_DIR).filter(f => f.endsWith('.mjs')).sort();
+  const checks = [];
+  for (const file of files) {
+    let def = null;
+    let error = null;
+    try {
+      def = (await import(new URL(file, CHECKS_DIR).href)).default;
+    } catch (err) {
+      error = `import failed: ${err?.message ?? err}`;
+    }
+    if (!error && (!def || typeof def.run !== 'function')) error = 'default export must be { name, run(ctx) }';
+    if (!error && def.browsers !== undefined && (!Array.isArray(def.browsers) || def.browsers.length === 0 || def.browsers.some(b => !BROWSERS.includes(b)))) {
+      error = `browsers must be a non-empty array of ${BROWSERS.join('|')}`;
+    }
+    checks.push({ file, name: (def && def.name) || file, browsers: (def && def.browsers) || BROWSERS, run: def?.run, error });
+  }
+  return checks;
+}
+
+const resolved = resolvePlaywright();
+const checks = await loadChecks();
+
+if (opts.dryRun) {
+  const lines = [`journey dry run — browser: ${browserName}`];
+  let bad = 0;
+  if (resolved) {
+    let exe = '?';
+    try { exe = resolved.pw[browserName].executablePath(); } catch { /* unknown */ }
+    const present = existsSync(exe) || (browserName === 'chromium' && existsSync(CHROMIUM_FALLBACK));
+    lines.push(`  playwright ${resolved.version} (${resolved.entry})`);
+    lines.push(`  ${browserName} executable: ${present ? 'present' : `missing (run: pnpm exec playwright install ${browserName})`} — ${exe}`);
+  } else {
+    bad += 1;
+    lines.push('  playwright: NOT FOUND (pnpm install at the repo root, or set PLAYWRIGHT_MODULE_PATH)');
+  }
+  lines.push(`  app ${APP} · omnimind ${API} · mcp ${MCP}`, `  out ${OUT}`);
+  lines.push(`  checks (${checks.length}) from tests/e2e/live/checks/:`);
+  for (const c of checks) {
+    if (c.error) { bad += 1; lines.push(`    × ${c.file} — ${c.error}`); continue; }
+    const runs = c.browsers.includes(browserName);
+    lines.push(`    ${runs ? '✓' : '-'} ${c.file} — ${c.name} [${c.browsers.join(', ')}]${runs ? '' : ` (skipped on ${browserName})`}`);
+  }
+  lines.push(bad ? `dry run: ${bad} problem(s)` : 'dry run: ok (nothing launched)');
+  console.log(lines.join('\n'));
+  process.exit(bad ? 1 : 0);
+}
+
+if (!resolved) {
+  console.error('journey: playwright not found (pnpm install at the repo root, or set PLAYWRIGHT_MODULE_PATH)');
+  process.exit(1);
+}
+const pw = resolved.pw;
 mkdirSync(OUT, { recursive: true });
 
 const results = [];
@@ -61,7 +163,23 @@ let tokenId = null;
 let userId = null;
 let sessionId = null;
 let writtenMemoryId = null;
+let mcpSession = null;
 const marker = `e2e-mcp-${Date.now()}`;
+
+/** A check outside the browser's `browsers` list is recorded as skipped — never as passed. */
+function skip(name, reason) {
+  step += 1;
+  results.push({ step, name, ok: null, skipped: true, ms: 0, reason });
+  console.log(`- ${step}. ${name} — skipped: ${reason}`);
+}
+
+/** Launch the selected engine. Chromium falls back to the sandbox's pinned build. */
+async function launchBrowser() {
+  if (browserName === 'chromium') {
+    return pw.chromium.launch({ headless: true }).catch(() => pw.chromium.launch({ headless: true, executablePath: CHROMIUM_FALLBACK }));
+  }
+  return pw[browserName].launch({ headless: true });
+}
 
 async function mcpCall(method, params, { session, id, token = rawToken } = {}) {
   const headers = {
@@ -88,19 +206,24 @@ async function mcpCall(method, params, { session, id, token = rawToken } = {}) {
 }
 
 try {
-  browser = await pw.chromium.launch({ headless: true }).catch(() =>
-    pw.chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' }));
+  browser = await launchBrowser();
+  console.log(`journey: ${browserName} ${browser.version()} · playwright ${resolved.version} · ${checks.length} check(s)`);
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
-  const page = await context.newPage();
-  globalThis.__page = page;
   const consoleErrors = [];
   const apiHits = [];
-  page.on('request', r => { const u = new URL(r.url()); if (u.origin === new URL(APP).origin && !/\.(js|css|woff2?|png|svg|ico|webmanifest)$/.test(u.pathname) && u.pathname !== '/' && !u.pathname.startsWith('/assets')) apiHits.push({ t: Date.now(), m: r.method(), p: u.pathname + u.search }); });
-  page.on('response', r => { if (r.status() === 429) apiHits.push({ t: Date.now(), m: 'RESP429', p: new URL(r.url()).pathname }); });
+  // Every page the journey opens (the main page and each check's page) feeds the same
+  // API fan-out / 429 log and the console-error list the final step asserts on.
+  const instrument = (p) => {
+    p.on('request', r => { const u = new URL(r.url()); if (u.origin === new URL(APP).origin && !/\.(js|css|woff2?|png|svg|ico|webmanifest)$/.test(u.pathname) && u.pathname !== '/' && !u.pathname.startsWith('/assets')) apiHits.push({ t: Date.now(), m: r.method(), p: u.pathname + u.search }); });
+    p.on('response', r => { if (r.status() === 429) apiHits.push({ t: Date.now(), m: 'RESP429', p: new URL(r.url()).pathname }); });
+    p.on('pageerror', e => consoleErrors.push(`pageerror: ${e.message}`));
+    p.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+    return p;
+  };
+  const page = instrument(await context.newPage());
+  globalThis.__page = page;
   const fanout = (sinceMs) => apiHits.filter(h => h.t >= sinceMs && h.m !== 'RESP429');
   const refused = (sinceMs) => apiHits.filter(h => h.t >= sinceMs && h.m === 'RESP429').map(h => h.p);
-  page.on('pageerror', e => consoleErrors.push(`pageerror: ${e.message}`));
-  page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
   await check('login page renders from the production build', async () => {
     const res = await page.goto(`${APP}/login`, { waitUntil: 'networkidle' });
@@ -314,6 +437,39 @@ try {
     await shot(page, '11-memory-from-mcp');
   });
 
+  // Checks (M1-A3): each checks/*.mjs runs as its own step on a FRESH page in the same
+  // browser context (same signed-in user), while the MCP token and session are still live.
+  // A failing check is recorded and the remaining checks still run; the journey then
+  // exits non-zero. Contract: tests/e2e/live/checks/README.md.
+  for (const c of checks) {
+    const label = `check ${c.file}: ${c.name}`;
+    if (!c.error && !c.browsers.includes(browserName)) { skip(label, `browsers: ${c.browsers.join(', ')}`); continue; }
+    const checkPage = instrument(await context.newPage());
+    globalThis.__page = checkPage;
+    try {
+      await check(label, () => {
+        if (c.error) throw new Error(c.error);
+        return c.run({
+          page: checkPage,
+          browser: browserName,
+          user: { id: userId, email },
+          api: { app: APP, omnimind: API, request: checkPage.request },
+          mcp: {
+            url: MCP,
+            sessionId: mcpSession,
+            call: (method, params = {}, callOpts = {}) => mcpCall(method, params, { session: mcpSession, ...callOpts }),
+          },
+          metrics: { out: OUT, shot: name => shot(checkPage, name), results, fanout, refused, consoleErrors },
+        });
+      });
+    } catch {
+      // recorded in results; keep going so one broken check doesn't hide the others
+    } finally {
+      globalThis.__page = page;
+      await checkPage.close().catch(() => {});
+    }
+  }
+
   await check('revoke the token in BoardRoom → open MCP session is refused', async () => {
     assert(tokenId, 'no token id');
     const r = await page.request.delete(`${APP}/mcp/tokens/${tokenId}`);
@@ -325,21 +481,6 @@ try {
     return { status: after.status, code: after.body?.error?.message ?? after.body?.error?.code ?? after.body?.result?.content?.[0]?.text?.slice(0, 80) };
   });
 
-  // Minimal checks autoloader (Lane C, M1-C1, for checks/cls.mjs). M1-A3 owns the full
-  // version (README, --browser flag); it can replace this block. Each tests/e2e/live/checks/*.mjs
-  // default-exports `{ name, run({ page, api, mcp, metrics }) }` and runs as one journey step.
-  const checksDir = new URL('./checks/', import.meta.url);
-  for (const file of readdirSync(checksDir).filter(f => f.endsWith('.mjs')).sort()) {
-    const def = (await import(pathToFileURL(join(checksDir.pathname, file)).href)).default;
-    if (!def || typeof def.run !== 'function') continue;
-    await check(`check ${file}: ${def.name ?? file}`, () => def.run({
-      page,
-      api: { app: APP, omnimind: API, request: page.request },
-      mcp: { url: MCP, call: mcpCall },
-      metrics: { out: OUT, shot: name => shot(page, name), results },
-    }));
-  }
-
   await check('no uncaught page errors during the journey', async () => {
     const real = consoleErrors.filter(e => !/favicon|manifest|net::ERR_|404|Failed to load resource/i.test(e));
     assert(real.length === 0, real.slice(0, 5).join(' | '));
@@ -350,8 +491,9 @@ try {
 } finally {
   writeFileSync(join(OUT, 'results.json'), JSON.stringify(results, null, 2));
   await browser?.close();
-  const failed = results.filter(r => !r.ok).length;
-  console.log(`\n${results.length - failed}/${results.length} steps passed → ${OUT}/results.json`);
+  const failed = results.filter(r => r.ok === false).length;
+  const skipped = results.filter(r => r.skipped).length;
+  const passed = results.filter(r => r.ok === true).length;
+  console.log(`\n${passed}/${results.length} steps passed${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''} (${browserName}) → ${join(OUT, 'results.json')}`);
   process.exit(failed ? 1 : 0);
 }
-var mcpSession;

@@ -7,8 +7,11 @@
 3. Settings → Connected AI tools → New token → Create token (reads the one-time `omt_` value from the page).
 4. MCP golden path over Streamable HTTP with that token: `initialize` → `tools/list` (20 tools) → `memory_write` → `memory_search` → `status_get`.
 5. Cross-client visibility: BoardRoom `GET /memories?q=` and the Memory Explorer show the memory the MCP client wrote (`agentId = mcp-token:<slug>`, `sourceType = MCP_AGENT`).
-6. Revoke the token in BoardRoom → the open MCP session is refused (`PRINCIPAL_REVOKED`).
-7. No uncaught page errors or CSP refusals during the whole journey.
+6. Pluggable checks: every `checks/*.mjs` runs as its own step on a fresh signed-in page while the MCP token is still live (contract and owners: [`checks/README.md`](checks/README.md)).
+7. Revoke the token in BoardRoom → the open MCP session is refused (`PRINCIPAL_REVOKED`).
+8. No uncaught page errors or CSP refusals during the whole journey.
+
+Flags: `--browser chromium|webkit` (default `chromium`, or env `E2E_BROWSER`; WebKit screenshots go to `out/webkit/`) and `--dry-run` (resolve playwright and the engine, validate every check, launch nothing). `playwright` is a root devDependency.
 
 Screenshots and `results.json` land in `tests/e2e/live/out/` (git-ignored). Each step prints `✓`/`×` with a one-line detail.
 
