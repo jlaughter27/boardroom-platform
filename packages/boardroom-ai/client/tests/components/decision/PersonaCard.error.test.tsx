@@ -10,7 +10,7 @@ describe('PersonaCard — failed advisor (M1-C2)', () => {
     render(<PersonaCard personaId="critic" isStreaming={false} error="Persona response failed validation" onRetry={onRetry} />);
     const card = screen.getByTestId('persona-card');
     expect(card.dataset.state).toBe('error');
-    expect(card.className).toContain('min-h-[32rem]');
+    expect(card.className.split(' ')).toEqual(expect.arrayContaining(['min-h-[20rem]', 'sm:min-h-[32rem]'])); // the desktop box; smaller on phones (RD-9b)
     expect(screen.getByText(/The Critic couldn.t finish/)).toBeInTheDocument();
     expect(screen.getByTestId('persona-error-detail')).toHaveTextContent('Persona response failed validation');
     expect(screen.queryByText(/Thinking/)).not.toBeInTheDocument();
