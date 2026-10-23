@@ -26,6 +26,7 @@ import type {
   McpTokenCreateResponse,
   McpTokenListResponse,
   McpTokenOptions,
+  MemoryBacklinksResponse,
 } from '@boardroom/shared';
 import type { ClientUserMode } from '../types/debate';
 
@@ -519,6 +520,11 @@ export function createMemoryLink(memoryId: string, data: { entityType: string; e
 
 export function getMemoryLinks(memoryId: string) {
   return request<MemoryEntityLink[]>(`/memories/${memoryId}/links`);
+}
+
+/** RD-1 — `GET /memories/:id/backlinks`: memories that link TO this one ("Linked from"). */
+export function getMemoryBacklinks(memoryId: string) {
+  return request<MemoryBacklinksResponse>(`/memories/${encodeURIComponent(memoryId)}/backlinks`);
 }
 
 export function deleteMemoryLink(memoryId: string, linkId: string) {

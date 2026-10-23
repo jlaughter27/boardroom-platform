@@ -5,6 +5,8 @@
 // shoot-pages.mjs mounts these routes FIRST, ahead of dashboard.mjs and the
 // shell defaults in auth.mjs, so they win where paths overlap (`/profile`).
 
+import graphFixture from './graph.mjs';
+
 const USER_ID = 'u-josh';
 const NOW = Date.now();
 const DAY = 86_400_000;
@@ -119,6 +121,75 @@ const mcpOptions = {
     { id: 'task:write', description: 'Create and update tasks', write: true },
   ],
 };
+// ── Vault-imported memories (RD-1) ───────────────────────────────────────────
+// Synthetic notes shaped like an Obsidian import (markdown body, metadata.vault,
+// wikilink link rows) for the Memory Detail markdown shots. Searching
+// "pricing playbook" in Memory Explorer returns the three listed notes; every
+// other query falls through to the graph fixture's hybrid search.
+//   [[pricing/Annual prepay terms]] → resolves through a `wikilink` link row; the target is NOT in the list (fetched by id)
+//   [[Design partners|our design partners]] → labelled; resolves by title among listed memories
+//   [[Competitor teardown]] → never imported: muted "Not imported"
+//   Q3 pricing retro links to the playbook → the playbook's "Linked from"
+const vaultMemory = (id, title, path, content, extra = {}) => ({
+  id, userId: USER_ID, title, content, domain: 'business', sector: null, memoryClass: 'SEMANTIC', confidence: 'HIGH', status: 'CONFIRMED',
+  importance: 0.7, sourceType: 'API_IMPORT', sourceRef: `vault:${path}`, sourceWeight: 1, version: 1, validAt: iso(NOW - 30 * DAY), invalidAt: null,
+  supersededBy: null, tags: ['vault', 'vault:note', 'pricing'], createdAt: iso(NOW - 30 * DAY), updatedAt: iso(NOW - 2 * DAY), lastAccessedAt: null,
+  metadata: { vault: { path, type: 'note', status: 'active', aliases: [], links: [] } },
+  ...extra,
+});
+const VAULT_PLAYBOOK = vaultMemory('m-vault-playbook', 'Pricing playbook', 'pricing/Pricing playbook.md', [
+  '# Pricing playbook',
+  '',
+  'How we price **BoardRoom** for solo founders. Owner: _Josh_ — reviewed after the Q3 retro.',
+  '',
+  '## Principles',
+  '',
+  '- Lead with **annual prepay**; the terms live in [[pricing/Annual prepay terms]].',
+  '- Pilot every change with [[Design partners|our design partners]] before the public page.',
+  '- Never undercut on price — [[Competitor teardown]] has the numbers.',
+  '',
+  '## Tiers',
+  '',
+  '| Tier | Monthly | Annual (per month) | Seats | Decisions / month | Support | Notes |',
+  '|------|--------:|-------------------:|:-----:|------------------:|---------|-------|',
+  '| Starter | $29 | $24 | 1 | 40 | Email, 2 business days | Default for solo founders |',
+  '| Team | $99 | $82 | 5 | 250 | Email + chat, same day | Where most design partners land |',
+  '| Studio | $249 | $207 | 15 | Unlimited | Named contact | Annual only; invoice billing |',
+  '',
+  '> Keep the price page to three tiers. Every extra tier costs a week of support questions.',
+  '',
+  '### Rollout checklist',
+  '',
+  '1. Update `PRICE_IDS` in the billing config.',
+  '2. Email design partners a week ahead.',
+  '3. Flip the page.',
+  '',
+  '- [x] Draft the announcement',
+  '- [ ] Confirm proration with Stripe',
+].join('\n'), { importance: 0.9 });
+const VAULT_PARTNERS = vaultMemory('m-vault-partners', 'Design partners', 'customers/Design partners.md',
+  'Five accounts on the **Team** tier who see pricing changes first.\n\n- Two agencies\n- Three solo consultants');
+const VAULT_RETRO = vaultMemory('m-vault-retro', 'Q3 pricing retro', 'retros/Q3 pricing retro.md',
+  '## What changed\n\nAnnual prepay converted at **31%**. Folded the lessons into [[Pricing playbook]].');
+const VAULT_PREPAY = vaultMemory('m-vault-prepay', 'Annual prepay terms', 'pricing/Annual prepay terms.md',
+  '# Annual prepay terms\n\nTwo months free on annual plans. Refunds are **pro-rated** in the first 30 days.\n\n| Plan | Discount |\n|---|---:|\n| Team | 17% |\n| Studio | 17% |\n\nBack to [[Pricing playbook]].');
+const VAULT = new Map([VAULT_PLAYBOOK, VAULT_PARTNERS, VAULT_RETRO, VAULT_PREPAY].map((m) => [m.id, m]));
+const VAULT_LINKS = {
+  'm-vault-playbook': [{ id: 'vl-1', memoryId: 'm-vault-playbook', entityType: 'memory', entityId: 'm-vault-prepay', linkType: 'wikilink' }],
+  'm-vault-retro': [{ id: 'vl-2', memoryId: 'm-vault-retro', entityType: 'memory', entityId: 'm-vault-playbook', linkType: 'wikilink' }],
+  'm-vault-prepay': [{ id: 'vl-3', memoryId: 'm-vault-prepay', entityType: 'memory', entityId: 'm-vault-playbook', linkType: 'wikilink' }],
+};
+const backlinksOf = (id) => Object.values(VAULT_LINKS).flat().filter((l) => l.entityId === id).map((l) => {
+  const m = VAULT.get(l.memoryId);
+  return { memoryId: m.id, title: m.title, domain: m.domain, status: m.status, linkTypes: [l.linkType] };
+}).sort((a, b) => a.title.localeCompare(b.title));
+const graphSearch = graphFixture.routes.find((r) => r.method === 'POST' && r.path === '/memories/search').handler;
+const vaultSearch = (req, url, m) => {
+  if (!/pricing playbook/i.test(String(req.json?.query ?? ''))) return graphSearch(req, url, m);
+  const rows = [VAULT_PLAYBOOK, VAULT_PARTNERS, VAULT_RETRO].map((r, i) => ({ ...r, score: [0.94, 0.61, 0.58][i], layers: i === 0 ? ['fulltext', 'trigram'] : ['fulltext'] }));
+  return { body: { items: rows, nextCursor: null } };
+};
+
 const mintedToken = (req) => ({
   token: `omt_${'9f3c2a7be14d58a0c6b2e91f47d3a8c5'.repeat(3)}`,
   record: {
@@ -141,6 +212,11 @@ export default {
     { method: 'GET', path: '/profile', handler: (req) => (String(req.headers?.referer ?? '').includes('profile-unavailable') ? { status: 503, body: { error: 'upstream_unavailable', message: 'OmniMind circuit breaker OPEN' } } : { body: profile }) },
     { method: 'PATCH', path: '/profile', handler: (req) => ({ body: { ...profile, ...(req.json ?? {}) } }) },
     { method: 'GET', path: '/sessions/s-visual', handler: ok(session) },
+    // RD-1 vault notes — ahead of the generic `m-*` stub below.
+    { method: 'POST', path: '/memories/search', handler: vaultSearch },
+    { method: 'GET', path: /^\/memories\/(m-vault-[^/]+)$/, handler: (_req, _url, m) => (VAULT.has(m[1]) ? { body: VAULT.get(m[1]) } : { status: 404, body: { message: 'Memory not found' } }) },
+    { method: 'GET', path: /^\/memories\/(m-vault-[^/]+)\/links$/, handler: (_req, _url, m) => ({ body: VAULT_LINKS[m[1]] ?? [] }) },
+    { method: 'GET', path: /^\/memories\/([^/]+)\/backlinks$/, handler: (_req, _url, m) => ({ body: { items: backlinksOf(m[1]), truncated: false } }) },
     { method: 'GET', path: /^\/memories\/m-[^/]+$/, handler: (req, url, m) => ({ body: { id: m[0].slice('/memories/'.length), title: 'Annual prepay discussion with Priya', content: '', tags: ['pricing'], createdAt: iso(NOW - 20 * DAY) } }) },
   ],
 };

@@ -100,6 +100,57 @@ const profileUnavailable = [
   { assert: 'location.pathname === "/"', message: 'a 503 profile read navigated away from the shell' },
 ];
 
+// Memory Detail renders markdown (RD-1, fixtures/pages.mjs "Vault-imported memories"):
+// search the vault notes, open the playbook, wait for the link-row target to resolve
+// and the backlinks to load. Asserts: no raw markdown, 2 resolved + 1 unresolved
+// wikilink, a backlink, and no sideways page scroll.
+const MD = '[data-testid="memory-markdown"]';
+const openPlaybook = [
+  { wait: '[aria-label="Search memories"]' },
+  { type: { selector: '[aria-label="Search memories"]', text: 'pricing playbook' } },
+  { wait: 'button:has(h3:text-is("Pricing playbook"))' },
+  { click: 'button:has(h3:text-is("Pricing playbook"))' },
+  { wait: `${MD} table` },
+  { wait: `${MD} [data-testid="wikilink"][data-memory-id="m-vault-prepay"]` },
+  { wait: '[data-testid="backlink"]' },
+  { sleep: 400 },
+  { assert: `!/\\*\\*|\\[\\[|^#/m.test(document.querySelector('${MD}').innerText)`, message: 'raw markdown syntax is visible in Memory Detail' },
+  { assert: `document.querySelectorAll('${MD} [data-testid="wikilink"][data-resolved="true"]').length === 2 && document.querySelectorAll('${MD} [data-testid="wikilink"][data-resolved="false"]').length === 1`, message: 'expected 2 resolved + 1 unresolved wikilinks' },
+  { assert: '[...document.querySelectorAll("[data-testid=backlink]")].some((b) => b.textContent.includes("Q3 pricing retro"))', message: 'the backlink is missing from "Linked from"' },
+];
+const MD_CONTRAST = [
+  { selector: `${MD} p`, label: 'markdown body' },
+  { selector: `${MD} [data-testid="wikilink"][data-resolved="true"]`, label: 'wikilink (resolved)' },
+  { selector: `${MD} [data-testid="wikilink"][data-resolved="false"]`, label: 'wikilink (not imported)' },
+  { selector: `${MD} th`, label: 'table header' },
+  { selector: `${MD} td`, label: 'table cell' },
+];
+const LOWER_CONTRAST = [
+  { selector: `${MD} blockquote p`, label: 'block quote' },
+  { selector: `${MD} ol li`, label: 'ordered list item' },
+  { selector: '[data-testid="backlink"] span', label: 'backlink title' },
+];
+const scrollToBacklinks = [
+  { evaluate: 'document.querySelector(\'[data-testid="memory-backlinks"]\').scrollIntoView({ block: "end" })' },
+  { sleep: 300 },
+];
+const TABLE_SCROLLS_IN_PANEL = [
+  { evaluate: `document.querySelector('${MD} [data-testid="markdown-table-scroll"]').scrollIntoView({ block: 'center' })` },
+  { sleep: 300 },
+  { noOverflowX: ['#main-content'] },
+  { assert: `(() => { const r = document.querySelector('${MD} [data-testid="markdown-table-scroll"]'); return r.scrollWidth > r.clientWidth; })()`, message: 'the wide table does not overflow its own scroll region at this width' },
+];
+// Keyboard: focus the resolved wikilink, press Enter → the target opens and its title takes focus.
+const openWikilinkByKeyboard = [
+  ...openPlaybook,
+  { evaluate: `document.querySelector('${MD} [data-testid="wikilink"][data-memory-id="m-vault-prepay"]').focus()` },
+  { press: 'Enter' },
+  { wait: '[data-memory-title]:text-is("Annual prepay terms")' },
+  { wait: '[data-testid="backlink"]' },
+  { sleep: 400 },
+  { assert: 'document.activeElement && document.activeElement.hasAttribute("data-memory-title")', message: 'focus did not move to the opened memory title' },
+];
+
 // ── Page sets ─────────────────────────────────────────────────────────────────
 export function pageSets({ legacy = false } = {}) {
   const dash = legacy ? waitLegacyDashboard : waitDashboard;
@@ -121,6 +172,12 @@ export function pageSets({ legacy = false } = {}) {
         : [{ wait: '#decision-frequency' }, { click: '#decision-frequency' }, { wait: '[role="listbox"]' }, { sleep: 300 }],
     },
     { ...graph('memory-explorer') },
+    ...(legacy ? [] : [
+      { name: 'memory-markdown', path: '/memory', actions: [...openPlaybook, { noOverflowX: ['#main-content'] }], contrast: MD_CONTRAST },
+      { name: 'memory-markdown-table', path: '/memory', actions: [...openPlaybook, ...TABLE_SCROLLS_IN_PANEL.filter((s) => !s.assert)] },
+      { name: 'memory-markdown-backlinks', path: '/memory', actions: [...openPlaybook, ...scrollToBacklinks], contrast: LOWER_CONTRAST },
+      { name: 'memory-wikilink-open', path: '/memory', actions: openWikilinkByKeyboard },
+    ]),
     {
       name: 'decision-new', path: '/decisions/new',
       actions: legacy ? [{ wait: 'textarea' }, { sleep: 400 }] : [{ wait: '[data-testid="mode-selector"]' }, { sleep: 400 }],
@@ -184,6 +241,12 @@ export function pageSets({ legacy = false } = {}) {
         : [{ wait: '[data-testid="synthesis-panel"]' }, { click: '[aria-label="Open synthesis as a sheet"]' }, { wait: '[data-testid="sheet-grabber"]' }, { sleep: 500 }],
       contrast: legacy ? [] : [SHEET_TITLE],
     },
+    ...(legacy ? [] : [
+      // The detail stacks under the list on a phone: bring the note into view; the wide table must scroll inside its region.
+      { name: 'memory-markdown-mobile', path: '/memory', actions: [...openPlaybook, { evaluate: 'document.querySelector(\'[data-testid="memory-detail"]\').scrollIntoView({ block: "start" })' }, { sleep: 300 }, { noOverflowX: ['#main-content'] }], contrast: MD_CONTRAST },
+      { name: 'memory-markdown-backlinks-mobile', path: '/memory', actions: [...openPlaybook, ...scrollToBacklinks, { noOverflowX: ['#main-content'] }], contrast: LOWER_CONTRAST },
+      { name: 'memory-markdown-table-mobile', path: '/memory', actions: [...openPlaybook, ...TABLE_SCROLLS_IN_PANEL] },
+    ]),
   ];
 
   // Reduced motion: materials unchanged, every transition collapsed, no drag handle on the sheet.

@@ -8,6 +8,7 @@ import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embe
 import { isAdminRequest } from '../middleware/admin-auth';
 import { idempotent } from '../middleware/idempotency';
 import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES, linkMemoriesBatch } from '../services/unlinked-mentions.service';
+import { getMemoryBacklinks } from '../services/memory-backlinks.service';
 
 // Phase 6 (A2) — PATCH /memories/:id gains `supersedes: <oldMemoryId>`
 // (old row → invalidAt=now, supersededBy=:id; :id.consolidatedFrom += old).
@@ -388,6 +389,28 @@ router.get('/:id/links', async (req, res, next) => {
     });
 
     res.json(links);
+  } catch (err) { next(err); }
+});
+
+// GET /memories/:id/backlinks — memories that link TO this one (RD-1, "Linked from").
+// Same user/tenant scoping as the link routes; sources in another tenant are never listed.
+router.get('/:id/backlinks', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const result = await getMemoryBacklinks(
+      userId,
+      req.params.id,
+      {
+        tenantId: req.agentContext?.tenantId,
+        includeArchived: typeof req.query.includeArchived === 'string' && req.query.includeArchived.toLowerCase() === 'true',
+      },
+      prisma,
+    );
+    if (!result) { res.status(404).json({ error: 'not_found', message: 'Memory not found' }); return; }
+
+    res.json(result);
   } catch (err) { next(err); }
 });
 

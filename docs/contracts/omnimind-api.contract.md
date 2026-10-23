@@ -856,6 +856,14 @@ List links for a memory.
 Response 200: MemoryEntityLink[] · 404 memory not found
 Scoping (2026-10-23, RD-5): the memory must be the caller's (`x-user-id`) and, when agent headers are present, in the agent's tenant — the same rule as `POST /memories/links/batch`. Without agent headers (BoardRoom) it is user-scoped only, as before.
 
+### GET /memories/:id/backlinks (2026-10-23, RD-1)
+
+Memories that link **to** this memory — the incoming side of memory→memory links (`entityType: 'memory'`, e.g. the vault importer's `linkType: 'wikilink'` rows). Read-only; backs Memory Explorer's "Linked from" section. `GET /graph/backlinks/memory:<id>` returns only a memory's *outgoing* links and builds the whole entity graph first, so it is neither complete nor cheap for this.
+
+Scoping matches the link routes: the target memory must be the caller's and live (and in the agent's tenant when agent headers are present) → else **404**. A source memory is listed only when it is the caller's, live, not ARCHIVED (`?includeArchived=true` opts in) and — under an agent context — in the same tenant, so a backlink never crosses tenants. One item per source memory (several link types collapse into `linkTypes`), sorted by title. Reads at most 500 incoming link rows (index `(entity_type, entity_id)`); `truncated: true` when that cap was hit.
+
+**Response 200:** `{ items: [{ memoryId, title, domain, status, linkTypes: string[] }], truncated: boolean }` — schema `MemoryBacklinksResponseSchema` (shared), interface `MemoryBacklinksResponse`. Proxied by BoardRoom as `GET /api/memories/:id/backlinks`.
+
 ### DELETE /memories/:id/links/:linkId
 Remove a link. Used by `scripts/vault-import.mjs --prune` to remove `wikilink` rows a note no longer contains.
 Response 200: { status: "deleted" } · 404 memory not found (not the caller's, soft-deleted, or — with agent headers — in another tenant) or link not on that memory

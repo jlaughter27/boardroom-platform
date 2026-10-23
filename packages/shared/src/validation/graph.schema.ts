@@ -5,6 +5,8 @@ import type {
   KnowledgeGraphNode,
   KnowledgeGraphNodeType,
   KnowledgeGraphQuery,
+  MemoryBacklink,
+  MemoryBacklinksResponse,
 } from '../types/graph.types';
 
 export const KnowledgeGraphNodeTypeSchema = z.enum([
@@ -95,3 +97,21 @@ export const KnowledgeGraphQuerySchema = z
       .transform((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v)),
   })
   .strict() satisfies z.ZodType<KnowledgeGraphQuery, z.ZodTypeDef, unknown>;
+
+/** Incoming link rows `GET /memories/:id/backlinks` reads at most. */
+export const MEMORY_BACKLINKS_MAX_ROWS = 500;
+
+/** `GET /memories/:id/backlinks` item. Companion interface: `MemoryBacklink`. */
+export const MemoryBacklinkSchema = z.object({
+  memoryId: z.string().min(1),
+  title: z.string(),
+  domain: z.string().nullable(),
+  status: z.string(),
+  linkTypes: z.array(z.string().min(1)).min(1),
+}) satisfies z.ZodType<MemoryBacklink>;
+
+/** `GET /memories/:id/backlinks` response. Companion interface: `MemoryBacklinksResponse`. */
+export const MemoryBacklinksResponseSchema = z.object({
+  items: z.array(MemoryBacklinkSchema),
+  truncated: z.boolean(),
+}) satisfies z.ZodType<MemoryBacklinksResponse>;
