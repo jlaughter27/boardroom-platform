@@ -2,7 +2,7 @@
 
 **Phase in flight:** 🧭 **Phase 8 — Dev roadmap** (`docs/roadmap/PHASE-8-ROADMAP.md`): M0 Contain and stay green (W1) → M1 Verified production, MCP live, tenant-safe one memory (W1–W3) → M2 One memory everywhere + Apple-quality floor + dogfood day 1 on 2026-11-12 (W3–W4) → M3 Ops floor and daily loop (W4–W6) → M4 Verdict and pre-signup gate (W7–W8). Per-item status: `PHASE-PROGRESS-TRACKER.md` § Phase 8.
 **Where main is:** PR #22 merged as cdef1ef, PR #23 as fc19563, PR #24 (roadmap) as c2c6fca; main CI green; deploy unverified. (CI run 39868876211 on `c2c6fca` and run 39864122262 on `fc19563`: all five jobs `success`; run 39860431324 on `cdef1ef` failed at the dependency audit. Nothing about any Railway deploy has been observed from the sandbox — see `BLOCKERS.md` BLK-101.)
-**Last update:** 2026-10-22 (wave 1 integrated: Lanes A–D on `claude/amazing-mccarthy-grvem2`, PR #25 merged as `d9a5bf3`)
+**Last update:** 2026-10-23 (wave 1 merged as PR #25 `d9a5bf3`; wave 2 in review)
 **Updated by:** Claude (integration)
 
 **Wave 1 — merged** (PR #25, squash `d9a5bf3` on 2026-10-23, CI green; M1-B0 stays in review until the founder decides ADR-017; per-item state lives in `PHASE-PROGRESS-TRACKER.md` § Phase 8):
@@ -14,7 +14,9 @@
 | C — Decision & dashboard trust | M1-C3, M1-C1, M1-C2 | Reloaded session shows its question; personas stream prose, not JSON (CLS 0.0092); a failed persona gets an error card + retry, CEO says "Synthesize without …" |
 | D — Docs | M0-D1, M0-D2 | Status truth pass, ADR-016/017 (Proposed), phase 10–19 triage |
 
-**Wave 2 — next:** M1-A1 (post-deploy verify), M1-A3 (CI e2e job; replaces Lane C's minimal `checks/` autoloader), M1-D1–D4 (gold AA, reduced motion, onboarding gate, keyboard cards), then M1-B4 / M1-C4 once the founder picks the ADR-017 default tenant (M1-F7) and M0-F1 is done. Watch: `prisma migrate dev --create-only` will generate DROPs for the baselined drift in `prisma/known-drift.sql` — delete them from the generated SQL.
+**Wave 2 — in review** (wave-2 PR): M1-A3 (CI e2e gate, journey `--browser`, checks autoloader), M1-A1 (automatic post-deploy verify; waits for three repo variables), M1-D1 (AA brand gold; variant pick is founder M1-F5), M1-D3 (onboarding gate only on 404; no token-reveal overflow).
+
+**Wave 3 — blocked on the founder:** M1-B4 (entity `tenantId` migration) and M1-C4 (real dashboard actions) wait for M1-F7 (ADR-017 default tenant) and M0-F1 (pg_dump + restore drill); M1-D2 and M1-D4 follow M1-C4; M1-B1/B3 follow M1-B4. Watch: `prisma migrate dev --create-only` will generate DROPs for the baselined drift in `prisma/known-drift.sql` — delete them from the generated SQL.
 
 **Founder, urgent (W1):** M0-F1 production `pg_dump` + restore drill first → M0-F2 rotate the five R-103 secrets (the repo is public and early history holds deploy env values) → M0-F4 hand-verify the live deploy. Open blockers: `BLOCKERS.md`.
 
