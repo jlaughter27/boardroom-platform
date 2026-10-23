@@ -16,7 +16,8 @@ const router: IRouter = Router();
 /**
  * GET /graph — knowledge-graph projection for the Obsidian-style graph view.
  *
- * Query: types=goal,project,… · domain=business · memoryLimit=150 · includeArchived=false
+ * Query: types=goal,project,… · domain=business · memoryLimit=0–1000 (default 200) · includeArchived=false
+ * (memoryLimit > 1000, negative or non-integer → 422; stats.memoryTotal = memories before the cap — RD-6)
  * Response: KnowledgeGraph (nodes, edges, stats, generatedAt) — see shared/types/graph.types.ts
  */
 router.get('/', async (req, res, next) => {
