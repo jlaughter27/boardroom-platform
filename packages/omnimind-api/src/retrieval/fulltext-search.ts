@@ -34,8 +34,23 @@ export interface FulltextSearchOptions {
  * have made the injection real.
  *
  * This version uses the tagged-template form throughout. All user-controlled
- * values (userId, tenantId, tsquery) are bound parameters. The query branches
- * on tenantId presence and includeArchived to avoid optional WHERE fragments.
+ * values (userId, tenantId, tsquery, the raw query text) are bound parameters.
+ * The query branches on tenantId presence and includeArchived to avoid
+ * optional WHERE fragments.
+ *
+ * RD-2 (2026-10-23 real-data run) — ranking: a single-keyword query scored
+ * every note that mentioned the word about the same, and the note whose TITLE
+ * was the word could fall out of the top 20. Now:
+ *   - the rank vector weights the title 'A' and the body 'D' (ts_rank weights
+ *     {D 0.1, C 0.2, B 0.4, A 1.0}), so a title hit outranks body mentions;
+ *   - `title_exact` (title lexemes == query lexemes, stemming and stop words
+ *     applied by the same 'english' config) scores 1.0 and sorts first, so an
+ *     exact title can never be cut by the LIMIT;
+ *   - `id` is the final ORDER BY key: equal ranks no longer come back in heap
+ *     order, which made the LIMIT cut (and so the result set) vary between
+ *     identical calls.
+ * The match predicate is unchanged (`to_tsvector(title || ' ' || content) @@`),
+ * so the set of matching rows is the same as before; only the order moved.
  */
 export async function fulltextSearch(
   userId: string,
@@ -77,6 +92,8 @@ export async function fulltextSearch(
     last_accessed_at: Date | null;
     source_weight: number;
     rank: number;
+    /** RD-2: the title's lexemes equal the query's (case, stop words and stemming ignored). */
+    title_exact: boolean;
     domain: string | null;
     encrypted_content: Uint8Array | null;
   };
@@ -91,7 +108,10 @@ export async function fulltextSearch(
     if (tenantId && includeArchived) {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
+               ts_rank(ARRAY[0.1, 0.2, 0.4, 1.0]::float4[],
+                       setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', content), 'D'),
+                       to_tsquery('english', ${tsq})) as rank,
+               strip(to_tsvector('english', title)) = strip(to_tsvector('english', ${query})) as title_exact
         FROM memory_entries
         WHERE user_id = ${userId}
           AND tenant_id = ${tenantId}
@@ -100,13 +120,16 @@ export async function fulltextSearch(
           AND ${validity}
           AND ${classFilter}
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
-        ORDER BY rank DESC
+        ORDER BY title_exact DESC, rank DESC, id ASC
         LIMIT ${max}
       `;
     } else if (tenantId && !includeArchived) {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
+               ts_rank(ARRAY[0.1, 0.2, 0.4, 1.0]::float4[],
+                       setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', content), 'D'),
+                       to_tsquery('english', ${tsq})) as rank,
+               strip(to_tsvector('english', title)) = strip(to_tsvector('english', ${query})) as title_exact
         FROM memory_entries
         WHERE user_id = ${userId}
           AND tenant_id = ${tenantId}
@@ -116,13 +139,16 @@ export async function fulltextSearch(
           AND ${classFilter}
           AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
-        ORDER BY rank DESC
+        ORDER BY title_exact DESC, rank DESC, id ASC
         LIMIT ${max}
       `;
     } else if (!tenantId && includeArchived) {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
+               ts_rank(ARRAY[0.1, 0.2, 0.4, 1.0]::float4[],
+                       setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', content), 'D'),
+                       to_tsquery('english', ${tsq})) as rank,
+               strip(to_tsvector('english', title)) = strip(to_tsvector('english', ${query})) as title_exact
         FROM memory_entries
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
@@ -130,13 +156,16 @@ export async function fulltextSearch(
           AND ${validity}
           AND ${classFilter}
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
-        ORDER BY rank DESC
+        ORDER BY title_exact DESC, rank DESC, id ASC
         LIMIT ${max}
       `;
     } else {
       results = await prisma.$queryRaw`
         SELECT id, title, content, tags, importance, last_accessed_at, source_weight, domain, encrypted_content,
-               ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsq})) as rank
+               ts_rank(ARRAY[0.1, 0.2, 0.4, 1.0]::float4[],
+                       setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', content), 'D'),
+                       to_tsquery('english', ${tsq})) as rank,
+               strip(to_tsvector('english', title)) = strip(to_tsvector('english', ${query})) as title_exact
         FROM memory_entries
         WHERE user_id = ${userId}
           AND deleted_at IS NULL
@@ -145,7 +174,7 @@ export async function fulltextSearch(
           AND ${classFilter}
           AND (importance >= 0.4 OR COALESCE(last_accessed_at, created_at) >= ${cutoff})
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsq})
-        ORDER BY rank DESC
+        ORDER BY title_exact DESC, rank DESC, id ASC
         LIMIT ${max}
       `;
     }
@@ -175,10 +204,16 @@ export async function fulltextSearch(
       type: 'memory' as const,
       content: r.content,
       title: r.title,
-      // Partial matches always score below strict ones.
-      relevanceScore: partialMatch ? Math.min(Number(r.rank), 1.0) * 0.5 : Math.min(Number(r.rank), 1.0),
+      // RD-2: an exact title match is the strongest full-text signal there is
+      // (the user typed the note's name). Otherwise the title-weighted rank;
+      // partial matches always score below strict ones.
+      relevanceScore: r.title_exact === true
+        ? 1.0
+        : partialMatch ? Math.min(Number(r.rank), 1.0) * 0.5 : Math.min(Number(r.rank), 1.0),
       source: 'fts' as const,
-      whyIncluded: partialMatch ? `Partial full-text match for "${query}"` : `Full-text match for "${query}"`,
+      whyIncluded: r.title_exact === true
+        ? `Exact title match for "${query}"`
+        : partialMatch ? `Partial full-text match for "${query}"` : `Full-text match for "${query}"`,
       tags: r.tags,
       importance: r.importance,
       lastAccessedAt: r.last_accessed_at,

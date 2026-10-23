@@ -4,6 +4,8 @@
  * used within omnimind-api.
  */
 
+import type { MemoryBudgetStatus } from './memory.types';
+
 export interface ValidationResult {
   valid: boolean;
   errors: { field: string; message: string }[];
@@ -11,6 +13,11 @@ export interface ValidationResult {
 
 export interface PipelineResult extends ValidationResult {
   durationMs: number;
+  /**
+   * RD-4: the domain's budget standing BEFORE this write (soft — never makes
+   * `valid` false). Present whenever the budget step ran.
+   */
+  budget?: MemoryBudgetStatus;
 }
 
 export interface ScoredResult {

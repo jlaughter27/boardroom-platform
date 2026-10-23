@@ -509,6 +509,11 @@ export class OmniMindClient {
     return this.request('GET', `/memories${qs}`, userId);
   }
 
+  /** RD-4 — per-domain { count, limit, over } against the soft domain budgets (user-wide). */
+  async getMemoryBudget(userId: string) {
+    return this.request('GET', '/memories/budget', userId);
+  }
+
   async getMemoryById(userId: string, id: string) {
     return this.request('GET', `/memories/${id}`, userId);
   }

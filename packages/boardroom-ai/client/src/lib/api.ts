@@ -2,6 +2,7 @@
 // All calls go through Vite proxy: /api → localhost:3001
 
 import type {
+  MemoryBudgetReport,
   Goal,
   Project,
   Task,
@@ -630,6 +631,14 @@ export function updateContradiction(id: string, status: string, resolution?: str
     method: 'PATCH',
     body: JSON.stringify({ status, resolution }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Memory budget (RD-4) — soft per-domain limits, read-only
+// ---------------------------------------------------------------------------
+
+export function getMemoryBudget() {
+  return request<MemoryBudgetReport>('/memories/budget');
 }
 
 // ---------------------------------------------------------------------------

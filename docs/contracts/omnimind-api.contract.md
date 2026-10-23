@@ -143,17 +143,51 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
   validation: {
     syncPassed: boolean,
     errors: []             // empty on success
-  }
+  },
+  budget?: { domain, count, limit, over: true }   // RD-4: only when the domain is past its soft budget
 }
 ```
 
-**Response 422:** Validation failure (schema, temporal, or budget). `title` / `content` containing NUL (U+0000) → 422 `must not contain NUL (U+0000) characters` (2026-10-23; it used to reach Postgres and answer 500). Same rule on `PATCH /memories/:id`.
+**Domain budget — soft (RD-4, 2026-10-23):** `DOMAIN_MEMORY_BUDGETS` (business 400, personal 200, ai-systems 300, ministry 300, any other domain 250 live memories per user, counted across tenants) never fails a write. When the domain is past its limit **after** this write, the 201 (or the dedup `status: "updated"`) response carries a warning:
+```typescript
+budget?: { domain: string, count: number, limit: number, over: true }   // count = live memories in the domain after the write
+```
+Write #401 in `business` → 201 with `budget: { domain: "business", count: 401, limit: 400, over: true }`; write #400 → no `budget` field. Each over-budget write logs `memory_budget_exceeded` (warn). There is no curator / eviction-proposal mechanism yet; the overage is surfaced through that log line and `GET /memories/budget`. Before RD-4 the same write answered 422 `Domain budget exceeded (400/400)` — for MCP `memory_write` too.
+
+**Response 422:** Validation failure (schema or temporal; budgets no longer 422). `title` / `content` containing NUL (U+0000) → 422 `must not contain NUL (U+0000) characters` (2026-10-23; it used to reach Postgres and answer 500). Same rule on `PATCH /memories/:id`.
+
+### GET /memories/budget (RD-4)
+
+Read-only per-domain standing against the soft budgets. Must be matched before `GET /memories/:id`.
+
+**Query params:** `tenantId?` — count one tenant only.
+
+**Tenant:** same rules as `GET /memories`. An agent caller counts its own tenant (`scope: "tenant"`); a different `?tenantId=` → 403 `tenant_mismatch`. BoardRoom (no agent context) gets the user-wide count — the number the budget is measured against (`scope: "user"`) — or one tenant with `?tenantId=`.
+
+**Response 200** (`MemoryBudgetReport`, Zod `MemoryBudgetReportSchema`):
+```typescript
+{
+  scope: "user" | "tenant",
+  tenantId: string | null,
+  domains: Array<{ domain: string, count: number, limit: number, over: boolean }>   // over = count > limit
+}
+```
+Every configured domain is listed (count 0 included, `default` omitted), configured domains first in config order, then any other domain the user has live rows in, alphabetically. Counts are live rows (`deletedAt` null, status not `ARCHIVED`).
+
+**Errors:** 400 missing `x-user-id` · 403 `tenant_mismatch`.
 
 ### POST /memories/search (Phase 6)
 
 Hybrid search for MCP and BoardRoom — the **same retrieval stack as `POST /context/for-persona`** (structured + FTS + trigram + semantic → `rankAndDeduplicate`, forgetting curve inside the layers, decrypt). No persona tag boosts, no token budget, no recall reinforcement.
 
 **Full-text layer (2026-10-23):** a strict pass first (every query word must match); when it returns fewer than the layer limit, a ranked any-word pass fills the remaining slots below the strict hits, scored at half weight (`whyIncluded: "Partial full-text match …"`). Before this, natural-language questions rarely matched every word, so the full-text layer returned nothing and recall depended on embeddings being available. Labeled IR eval in CI (mock embeddings): `/context/for-persona` recall@10 0.520 → 0.718, MRR 0.440 → 0.532; `/memories/search` recall@10 0.535 → 0.826, MRR 0.549 → 0.688.
+
+**Ranking and determinism (RD-2, 2026-10-23):** the same query on the same rows returns the same order.
+- Full-text rank weights the **title 'A' and the body 'D'** (`ts_rank` weights `{0.1, 0.2, 0.4, 1.0}`), and a memory whose title lexemes equal the query's (`strip(to_tsvector(title)) = strip(to_tsvector(query))`, so case, stop words and stemming are ignored) scores 1.0 in the full-text layer and is never cut by its LIMIT (`whyIncluded: "Exact title match …"`). The match predicate is unchanged.
+- Every lexical layer orders ties by `id`; the ranker uses a deterministic total order (score bands of 0.05; inside a band: `sourceWeight`, then the earliest layer that found the item — structured, fts, trigram, semantic — then score, then id), so the result never depends on which layer answered first or on the heap order of tied rows.
+- **No recency boost on this endpoint.** `last_accessed_at` is written by `/context/for-persona` recall reinforcement; boosting on it made a search reorder after any persona call. (`/context/for-persona` keeps the boost.)
+- The search writes nothing (no recall reinforcement, no `last_accessed_at`).
+Before this, a single-keyword query scored ~0.42 flat across the top 10 and the note titled with the keyword could rank #2 or outside the top 20 on identical calls.
 
 **Request:**
 ```typescript

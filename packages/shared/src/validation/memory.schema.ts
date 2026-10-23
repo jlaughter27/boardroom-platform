@@ -167,3 +167,22 @@ export const MemoryProposalSchema = z.object({
 });
 
 export type MemoryProposalInput = z.infer<typeof MemoryProposalSchema>;
+
+// ── RD-4: soft domain budgets (matches MemoryBudgetStatus / MemoryBudgetReport) ──
+
+export const MemoryBudgetStatusSchema = z.object({
+  domain: z.string().min(1).describe('Memory domain (normalized, lowercase)'),
+  count: z.number().int().min(0).describe('Live memories in the domain (not deleted, not ARCHIVED)'),
+  limit: z.number().int().positive().describe('DOMAIN_MEMORY_BUDGETS value for the domain (soft)'),
+  over: z.boolean().describe('count > limit (writes still succeed)'),
+});
+
+export type MemoryBudgetStatusInput = z.infer<typeof MemoryBudgetStatusSchema>;
+
+export const MemoryBudgetReportSchema = z.object({
+  scope: z.enum(['user', 'tenant']).describe("'user' = all of the user's tenants (what the budget counts); 'tenant' = one tenant"),
+  tenantId: z.string().nullable().describe('The tenant counted when scope is tenant, else null'),
+  domains: z.array(MemoryBudgetStatusSchema),
+});
+
+export type MemoryBudgetReportInput = z.infer<typeof MemoryBudgetReportSchema>;

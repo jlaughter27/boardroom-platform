@@ -26,6 +26,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmniClient, envConfig, waitForHealth } from './client';
 import { validateSeedFile, type SeedFile, type SeedMemory } from './gold-schema';
+import { VAULT_ARCHETYPE, VAULT_ARCHETYPE_CONFIG, buildVaultMemories } from './vault-corpus';
 
 export const EVAL_TAG = 'eval-ir';
 const RESULTS_DIR = join(__dirname, '..', 'results');
@@ -56,8 +57,18 @@ export interface SeedMap {
   supersedeUnconfirmed: string[];
 }
 
-export function loadSeedFile(): SeedFile {
+/** seed-memories.json (legacy archetypes) + the generated RD-2 vault archetype. */
+export function loadRawSeed(): { archetypes: Record<string, unknown>; memories: unknown[] } {
   const raw = JSON.parse(readFileSync(join(__dirname, 'seed-memories.json'), 'utf-8'));
+  return {
+    ...raw,
+    archetypes: { ...raw.archetypes, [VAULT_ARCHETYPE]: VAULT_ARCHETYPE_CONFIG },
+    memories: [...raw.memories, ...buildVaultMemories()],
+  };
+}
+
+export function loadSeedFile(): SeedFile {
+  const raw = loadRawSeed();
   const v = validateSeedFile(raw);
   if (!v.ok || !v.value) throw new Error(`seed-memories.json invalid:\n  ${v.errors.join('\n  ')}`);
   return v.value;

@@ -3,7 +3,18 @@
  * zod so the eval tree needs nothing beyond what the root install provides.
  */
 
-export const SLICES = ['temporal', 'update', 'abstention', 'entity', 'general'] as const;
+export const SLICES = ['temporal', 'update', 'abstention', 'entity', 'general', 'keyword', 'natural-language'] as const;
+
+/**
+ * Slices each archetype kind must cover. Legacy archetypes (short one-fact
+ * memories) cover the original five; the RD-2 vault archetype (long markdown
+ * notes) covers keyword (1–2 word query → the note with that title),
+ * natural-language (a question → the note holding the answer) and abstention.
+ */
+export const REQUIRED_SLICES: Record<'legacy' | 'vault', readonly Slice[]> = {
+  legacy: ['temporal', 'update', 'abstention', 'entity', 'general'],
+  vault: ['keyword', 'natural-language', 'abstention'],
+};
 export type Slice = (typeof SLICES)[number];
 
 export const PERSONAS = ['optimist', 'critic', 'alternate', 'technician', 'questionnaire', 'doer', 'ceo'] as const;
@@ -38,7 +49,7 @@ export interface SeedMemory {
 
 export interface SeedFile {
   description?: string;
-  archetypes: Record<string, { userIdSuffix: string; domain: string }>;
+  archetypes: Record<string, { userIdSuffix: string; domain: string; /** RD-2: 'vault' = long markdown notes (vault-corpus.ts). */ kind?: 'vault' }>;
   memories: SeedMemory[];
 }
 

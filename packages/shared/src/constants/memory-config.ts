@@ -44,7 +44,11 @@ export const ARCHIVAL_THRESHOLD = 0.05;
 /**
  * Domain-specific memory budget limits (max entries per domain per user).
  * Replaces OmniMind's line-count budgets for PostgreSQL context.
- * These are soft limits — exceeded triggers curator eviction proposals.
+ * These are SOFT limits (RD-4): a write past the limit succeeds and the
+ * create response carries `budget: { domain, count, limit, over: true }`;
+ * each overage is logged (`memory_budget_exceeded`) and per-domain usage is
+ * `GET /memories/budget` (Settings → Memory budget). No curator eviction-
+ * proposal mechanism exists yet; when one does, it should consume the overage.
  */
 export const DOMAIN_MEMORY_BUDGETS: Record<string, number> = {
   ministry: 300,
