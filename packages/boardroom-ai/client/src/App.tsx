@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
-import { Layout } from './components/shared/Layout';
+import { Layout, type ShellOutletContext } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { Toaster } from './components/ui/Toast';
 import { TooltipProvider } from './components/ui/Tooltip';
@@ -117,35 +117,34 @@ export function OnboardingGate() {
     return <Navigate to="/onboarding" replace />;
   }
 
-  return (
-    <>
-      <Outlet />
-      {state.status === 'unavailable' && (
-        <ProfileUnavailableBanner
-          reason={state.reason}
-          retrying={retrying}
-          onRetry={() => { setRetrying(true); setAttempt((n) => n + 1); }}
-        />
-      )}
-    </>
-  );
+  // RD-9d: the banner is handed to the shell, which shows it under the main pane —
+  // centred on that pane (not the viewport, which includes the sidebar) and in
+  // flow, so the pane's last row is never hidden behind it.
+  const context: ShellOutletContext = {
+    paneNotice: state.status === 'unavailable' ? (
+      <ProfileUnavailableBanner
+        reason={state.reason}
+        retrying={retrying}
+        onRetry={() => { setRetrying(true); setAttempt((n) => n + 1); }}
+      />
+    ) : null,
+  };
+  return <Outlet context={context} />;
 }
 
 function ProfileUnavailableBanner({ reason, retrying, onRetry }: { reason: string; retrying: boolean; onRetry: () => void }) {
   return (
-    <div className="pointer-events-none fixed inset-x-4 bottom-4 z-toast flex justify-center">
-      <div
-        role="alert"
-        data-testid="profile-unavailable-banner"
-        className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xl border border-warning/40 bg-card p-3 pl-4 shadow-lg"
-      >
-        <TriangleAlert size={18} strokeWidth={1.75} className="shrink-0 text-warning" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">Your profile could not be loaded</p>
-          <p className="text-xs text-muted-foreground">{reason} Everything else keeps working; personalization is paused until it loads.</p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={onRetry} loading={retrying}>Retry</Button>
+    <div
+      role="alert"
+      data-testid="profile-unavailable-banner"
+      className="flex w-full max-w-lg items-center gap-3 rounded-xl border border-warning/40 bg-card p-3 pl-4 shadow-sm"
+    >
+      <TriangleAlert size={18} strokeWidth={1.75} className="shrink-0 text-warning" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground">Your profile could not be loaded</p>
+        <p className="text-xs text-muted-foreground">{reason} Everything else keeps working; personalization is paused until it loads.</p>
       </div>
+      <Button variant="secondary" size="sm" onClick={onRetry} loading={retrying}>Retry</Button>
     </div>
   );
 }
