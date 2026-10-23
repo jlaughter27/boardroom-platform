@@ -44,7 +44,7 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
         </div>
         <div
           className={`text-lg font-bold ${
-            isToday ? 'text-primary' : past ? 'text-muted-foreground' : 'text-foreground'
+            isToday ? 'text-primary-text' : past ? 'text-muted-foreground' : 'text-foreground'
           }`}
         >
           {dayNum}
@@ -66,7 +66,7 @@ export function DayColumn({ date, items, isToday }: DayColumnProps) {
                 : item.type === 'calendar'
                   ? 'text-info'
                   : item.type === 'commitment'
-                    ? 'text-primary'
+                    ? 'text-primary-text'
                     : past
                       ? 'text-muted-foreground'
                       : 'text-muted-foreground'

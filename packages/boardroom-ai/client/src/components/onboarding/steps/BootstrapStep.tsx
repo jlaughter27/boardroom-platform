@@ -32,7 +32,7 @@ export interface BootstrapStepProps {
 function StepBadge({ n }: { n: number }): JSX.Element {
   return (
     <span
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary-text"
       aria-hidden
     >
       {n}
@@ -133,7 +133,7 @@ export function BootstrapStep({
     <div className="flex flex-col gap-8">
       {/* Header */}
       <div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+        <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary-text">
           <span className="h-1.5 w-1.5 rounded-full bg-primary" />
           Optional · 2 min
         </div>
@@ -212,7 +212,7 @@ export function BootstrapStep({
             isProcessing ? 'pointer-events-none opacity-50' : ''
           }`}
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform group-hover:-translate-y-0.5">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary-text transition-transform group-hover:-translate-y-0.5">
             <IconUpload className="h-6 w-6" />
           </div>
           <div>
@@ -237,7 +237,7 @@ export function BootstrapStep({
         {/* Paste */}
         <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary-text">
               <IconPen className="h-4 w-4" />
             </div>
             <label htmlFor="bootstrap-paste">Paste the response text</label>
@@ -272,7 +272,7 @@ export function BootstrapStep({
         {/* Voice */}
         <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary-text">
               <IconMic className="h-4 w-4" />
             </div>
             <span>{BOOTSTRAP_STEP_COPY.voiceLabel}</span>

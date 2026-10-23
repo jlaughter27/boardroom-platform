@@ -1,0 +1,79 @@
+name: Post-deploy verify
+
+# Phase 8 M1-A1. Railway auto-deploys every push to main; this proves the deploy
+# actually landed and behaves: each service's public /health reports the merged
+# commit (RAILWAY_GIT_COMMIT_SHA, M0-A2), then read-only probes run. Everything
+# lives in scripts/verify-prod.sh (bash scripts/verify-prod.sh --dry-run lists
+# the probes); bash scripts/tests/verify-prod.test.sh covers it against a mock.
+#
+# Configuration (Settings → Secrets and variables → Actions):
+#   Variables  BOARDROOM_HOST, OMNIMIND_API_HOST, OMNIMIND_MCP_HOST
+#              Public host of each service (a bare host means https://<host>).
+#              A missing variable fails the run (exit 2) rather than silently
+#              verifying less.
+#   Secret     OMNIMIND_API_KEY (optional). Enables the partial_agent_identity
+#              probe; without it that probe is reported as SKIP, never passed.
+#
+# Nothing here writes to production, and no secret is printed (Actions masks
+# the secret; the script also redacts omt_/omk_ values and sends the key from a
+# 0600 header file).
+
+on:
+  # After CI finishes on main. Only a successful CI run for a push is verified:
+  # a red main is not expected to deploy, and the weekly scheduled audit run
+  # is not a deploy.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit every service must report (default: the main HEAD this run checks out)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# A newer deploy supersedes an older one: Railway serves the latest commit, so
+# an older verify still polling for its SHA would only time out. The newest run
+# is the one that counts; cancelled runs are superseded, not failed.
+concurrency:
+  group: post-deploy-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify production deploy
+    # Automatic runs start once all three host variables exist. Until then
+    # (BOARDROOM_HOST / OMNIMIND_API_HOST now, OMNIMIND_MCP_HOST after the MCP
+    # go-live) the job is skipped rather than red on every push to main: a check
+    # that is always red teaches everyone to ignore it. A manual run never
+    # skips; it fails with exit 2 on a missing variable.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+       vars.BOARDROOM_HOST != '' && vars.OMNIMIND_API_HOST != '' && vars.OMNIMIND_MCP_HOST != '')
+    runs-on: ubuntu-latest
+    # 15 min SHA poll + probes, with headroom.
+    timeout-minutes: 25
+    env:
+      EXPECTED_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
+      BOARDROOM_HOST: ${{ vars.BOARDROOM_HOST }}
+      OMNIMIND_API_HOST: ${{ vars.OMNIMIND_API_HOST }}
+      OMNIMIND_MCP_HOST: ${{ vars.OMNIMIND_MCP_HOST }}
+      OMNIMIND_API_KEY: ${{ secrets.OMNIMIND_API_KEY }}
+      VERIFY_TIMEOUT_S: "900"
+      VERIFY_INTERVAL_S: "15"
+    steps:
+      # The script version that matches the commit being verified.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Plan
+        run: bash scripts/verify-prod.sh --dry-run
+
+      - name: Verify (SHA poll + read-only probes)
+        run: bash scripts/verify-prod.sh

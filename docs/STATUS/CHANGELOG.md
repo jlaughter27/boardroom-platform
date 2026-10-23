@@ -6,9 +6,23 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Phase 8 — Wave 2: e2e gate in CI, automatic post-deploy verify, AA brand gold, safe onboarding gate
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, wave-2 PR | **Tests:** client 477 → 502 (+14 M1-D1, +11 M1-D3); shared 155, mcp 272, api 1,209, server 302 unchanged; `pnpm test:e2e` 55/55; `pnpm test:go-live` 181 + 78; `pnpm e2e:live` 24/24 (Lane A, private stack); CLS 0.0092 / 0.0018; audit 0 high
+
+Wave 1 merged as PR #25 (`d9a5bf3`); main CI run 39876543973 green on that SHA. Two lanes ran in worktrees off the synced branch.
+
+- **Lane A — M1-A3:** new CI `e2e` job (pgvector service, full-history checkout) runs `pnpm test:e2e` — the tenant-isolation + scope gate — on every PR. `playwright` 1.56.1 pinned as a root devDependency. `journey.mjs` gains `--browser chromium|webkit` and `--dry-run`, and a formal checks autoloader (fresh signed-in page per check; a failing or malformed check fails its step and the rest still run; an excluded engine is `skipped`, never passed) replacing Lane C's minimal hook; `checks/README.md` contract and `checks/smoke.mjs`. `cls.mjs` is chromium-only (WebKit reports no layout-shift entries).
+- **Lane A — M1-A1:** `.github/workflows/post-deploy-verify.yml` (`workflow_run` on CI success for a push to main, plus manual) and `scripts/verify-prod.sh`: polls each service's `/health` until `version` equals the CI run's `head_sha` (15 min), then read-only probes — `/ready` ×3, `/theme-init.js` + CSP, unauthenticated `POST /mcp` → 401 + `WWW-Authenticate`, bogus `omt_` → 401 (503 fails), `partial_agent_identity` only with the `OMNIMIND_API_KEY` secret (else *skipped*). Automatic runs wait until the `BOARDROOM_HOST`, `OMNIMIND_API_HOST`, `OMNIMIND_MCP_HOST` variables all exist, so main is not red before setup or the MCP go-live. Documented in the DEPLOYMENT-RUNBOOK deploy checklist.
+- **Lane D — M1-D1:** brand gold passes AA in both themes. Default (a): light `--color-primary` `#b5890a` → `#8f6d07` (white label 3.21 → 4.82:1); variant (b) dark-on-gold labels behind `<html data-gold="dark-label">` (5.44:1). New `--color-primary-hover` and `--color-sidebar-primary`; 41 gold-text usages repointed to `text-primary-text`; dark text on solid gold (1.89:1 in dark mode) fixed on eight surfaces; danger button, avatar initials, sidebar muted text and the login brand panel fixed. `ui-standards` token-pair test (4 states, 25 text + 3 non-text pairs; 12 failures on the old tokens) plus usage rules. `tools/visual-preview/contrast.mjs` sweeps every visible text element: 636 pairs / 0 failing (42 before).
+- **Lane D — M1-D3:** `OnboardingGate` redirects only on 404 or `onboardingComplete: false`; 5xx, network errors and an open breaker render the shell with a retry banner instead of sending an onboarded user back to onboarding. MCP snippets scroll inside an `overflow-x-auto <pre>` with a fade; `#main-content` overflowed 2920 > 1040 px before, now none at 1280 and 390 px.
+- **Founder:** pick the gold variant (M1-F5; recommendation: (b) dark-label — keeps the brand gold); add the three repo variables (+ optional `OMNIMIND_API_KEY` secret) for post-deploy verify; add the `E2E` check to branch protection with M0-F3.
+
+---
+
 ## 2026-10-22 — Phase 8 — Wave 1: four agent lanes, 11 roadmap items to review
 
-**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, wave-1 PR | **Tests:** shared 151 → 155; omnimind-api 1,175 → 1,209; omnimind-mcp 255 → 272; server 284 → 302; client 436 → 477; `pnpm test:e2e` 55/55; `pnpm e2e:live` 23/23 (Lane C, private stack); audit: 0 high (2 low, 1 moderate)
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Merged as PR #25 (`d9a5bf3`), CI green | **Tests:** shared 151 → 155; omnimind-api 1,175 → 1,209; omnimind-mcp 255 → 272; server 284 → 302; client 436 → 477; `pnpm test:e2e` 55/55; `pnpm e2e:live` 23/23 (Lane C, private stack); audit: 0 high (2 low, 1 moderate)
 
 Four lanes ran in parallel git worktrees off `c2c6fca`, each with its own gates; they were merged here and the full gate set re-run on the combined branch.
 

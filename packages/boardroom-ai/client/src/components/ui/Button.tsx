@@ -18,11 +18,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:shadow-md',
+        primary: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover hover:shadow-md',
         // Hover on quiet buttons is a hairline darken + a shadow step, not a colour jump.
         secondary: 'bg-card text-foreground border border-border shadow-sm hover:border-hairline-strong hover:shadow-md',
         ghost: 'text-muted-foreground hover:text-foreground hover:bg-muted',
-        danger: 'bg-destructive text-white shadow-sm hover:bg-destructive/90 hover:shadow-md',
+        // Paired foreground, not text-white: white on the dark-mode red (#ef4444) is 3.76:1.
+        danger: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90 hover:shadow-md',
         success: 'bg-success text-background shadow-sm hover:bg-success/90 hover:shadow-md',
         // Material surface — for buttons that float over content (toolbars, headers).
         glass: 'material text-foreground hover:shadow-lg',

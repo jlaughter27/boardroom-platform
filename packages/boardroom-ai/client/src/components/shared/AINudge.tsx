@@ -57,7 +57,7 @@ export function AINudge({
             <div className="flex items-start gap-3">
               <span className="flex-shrink-0 mt-0.5">{icon || defaultIcon}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-primary uppercase tracking-wide font-medium mb-1">
+                <p className="text-xs text-primary-text uppercase tracking-wide font-medium mb-1">
                   AI Insight
                 </p>
                 <p className="text-sm font-medium text-foreground">{title}</p>

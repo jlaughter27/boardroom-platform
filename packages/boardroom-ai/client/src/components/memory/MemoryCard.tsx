@@ -33,7 +33,7 @@ const confidenceColors: Record<string, string> = {
 };
 
 const classColors: Record<string, string> = {
-  WORKING: 'bg-primary/10 text-primary border-primary/30',
+  WORKING: 'bg-primary/10 text-primary-text border-primary/30',
   EPISODIC: 'bg-info-muted text-info border-info/30',
   SEMANTIC: 'bg-info-muted text-info border-info/30',
   DECISION: 'bg-warning-muted text-warning border-warning/30',

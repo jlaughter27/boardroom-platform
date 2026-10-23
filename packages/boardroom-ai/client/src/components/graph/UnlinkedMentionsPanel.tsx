@@ -103,7 +103,7 @@ export function UnlinkedMentionsPanel({ onLinked, onCount, onSelectNode, onClose
                       <button
                         type="button"
                         onClick={() => onSelectNode?.(`${m.entityType}:${m.entityId}`)}
-                        className="text-left text-sm font-medium text-foreground hover:text-primary"
+                        className="text-left text-sm font-medium text-foreground hover:text-primary-text"
                         title="Select in graph"
                       >
                         {m.entityLabel}

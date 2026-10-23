@@ -158,7 +158,7 @@ export default function OnboardingPage() {
           <div className="flex items-center justify-center gap-3 mb-4">
             <Logo variant="icon" size={44} className="text-primary drop-shadow-[0_0_24px_rgba(212,163,26,0.4)]" />
             <h1 className="font-display text-3xl font-bold tracking-tight">
-              <span className="text-primary">Welcome</span>{' '}
+              <span className="text-primary-text">Welcome</span>{' '}
               <span className="text-foreground">to BoardRoom</span>
             </h1>
           </div>

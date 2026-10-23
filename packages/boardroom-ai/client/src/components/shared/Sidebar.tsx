@@ -90,7 +90,7 @@ function NavItem({ item, collapsed, onNavigate, layoutId }: { item: NavItemDef; 
             className="absolute inset-0 rounded-md bg-white/10 shadow-[inset_0_1px_0_0_hsl(0_0%_100%/0.06),0_0_0_1px_hsl(0_0%_100%/0.06)]"
             transition={lastNavFromKeyboard ? instant : springs.snappy}
           >
-            <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-capsule bg-primary" />
+            <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-capsule bg-sidebar-primary" />
           </motion.span>
         )}
         <span className="relative flex shrink-0 translate-y-[0.5px]"><Icon {...NAV_ICON} /></span>
@@ -123,7 +123,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
       {/* Brand */}
       <div className="flex items-center justify-between h-14 px-4 border-b border-sidebar-hairline">
         <div className="flex items-center gap-2.5 min-w-0">
-          <Logo variant="icon" size={28} className="text-primary shrink-0" />
+          <Logo variant="icon" size={28} className="text-sidebar-primary shrink-0" />
           <AnimatePresence initial={false}>
             {!collapsed && (
               <motion.span
@@ -133,7 +133,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
                 transition={{ duration: DURATION.fast, ease: EASE_OUT }}
                 className="font-display text-lg font-semibold tracking-title whitespace-nowrap"
               >
-                <span className="text-primary">Board</span>
+                <span className="text-sidebar-primary">Board</span>
                 <span className="text-white">Room AI</span>
               </motion.span>
             )}
@@ -202,7 +202,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
                   <p className="text-sm font-medium text-white truncate">{user.name}</p>
                   <button
                     onClick={() => logout()}
-                    className="text-xs text-white/40 transition-colors duration-fast ease-out hover:text-white/70"
+                    className="text-xs text-sidebar-foreground-muted transition-colors duration-fast ease-out hover:text-white/70"
                   >
                     Sign out
                   </button>

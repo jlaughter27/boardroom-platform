@@ -123,7 +123,9 @@ export async function run({ page, api, metrics }) {
   return { ...score, budget: CLS_BUDGET, stream: replay ? 'replay(full)' : 'live', sessionId, worst };
 }
 
-export default { name: 'CLS ≤ 0.05 during dispatch', run };
+// Chromium only: WebKit reports no layout-shift entries, so under --browser webkit
+// this would read CLS 0 and pass without measuring anything.
+export default { name: 'CLS ≤ 0.05 during dispatch', browsers: ['chromium'], run };
 
 // ── Standalone: client/dist + the visual-preview mock API, light theme, 1440×900 ──
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]) && process.argv.includes('--standalone')) {

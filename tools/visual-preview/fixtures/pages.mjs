@@ -101,9 +101,44 @@ const session = {
   createdAt: iso(NOW - 2 * DAY),
 };
 
+// ── Connected AI tools (Settings) ────────────────────────────────────────────
+// "token-created-long-url" (M1-D3): when the page was opened with
+// `?state=token-created-long-url` (the browser sends it as the Referer), the
+// connect-info carries a very long MCP URL and the minted token is long too, so
+// the one-time reveal holds the longest unbreakable lines the page can show.
+// Every other page keeps the default "URL not configured" connect-info.
+const LONG_URL_STATE = 'token-created-long-url';
+const isLongUrlState = (req) => String(req.headers?.referer ?? '').includes(LONG_URL_STATE);
+const LONG_MCP_URL = 'https://omnimind-mcp-production-eu-west-2.up.railway.app/mcp/v1/tenants/josh-business-strategy-and-architecture/streamable-http?session_hint=long-url-overflow-check';
+const mcpOptions = {
+  tenants: [{ id: 'josh-business', name: 'Business' }, { id: 'josh-personal', name: 'Personal' }],
+  scopes: [
+    { id: 'memory:read', description: 'Search and read memory', write: false },
+    { id: 'memory:write', description: 'Write memories', write: true },
+    { id: 'decision:write', description: 'Log decisions', write: true },
+    { id: 'task:write', description: 'Create and update tasks', write: true },
+  ],
+};
+const mintedToken = (req) => ({
+  token: `omt_${'9f3c2a7be14d58a0c6b2e91f47d3a8c5'.repeat(3)}`,
+  record: {
+    id: 'tok_visual_long', userId: USER_ID, tenantId: req.json?.tenantId ?? 'josh-business', name: req.json?.name ?? 'Claude Code',
+    agentName: 'mcp-token:claude-code-on-the-studio-mac-mini-tok_visual_long', prefix: 'omt_9f3c2a7b', scopes: req.json?.scopes ?? ['memory:read'],
+    sourceWeight: 1, createdAt: iso(NOW), lastUsedAt: null, expiresAt: iso(NOW + 365 * DAY), revokedAt: null,
+  },
+});
+
 export default {
   routes: [
-    { method: 'GET', path: '/profile', handler: ok(profile) },
+    { method: 'GET', path: '/mcp/tokens/options', handler: ok(mcpOptions) },
+    {
+      method: 'GET', path: '/mcp/tokens/connect-info',
+      handler: (req) => ({ body: isLongUrlState(req) ? { mcpUrl: LONG_MCP_URL, appUrl: 'https://boardroom-ai-production-1092.up.railway.app', oauthEnabled: false } : { mcpUrl: null, appUrl: null, oauthEnabled: false } }),
+    },
+    { method: 'POST', path: '/mcp/tokens', handler: (req) => ({ status: 201, body: mintedToken(req) }) },
+    // `?state=profile-unavailable` (M1-D3): the profile read fails the way an open OmniMind breaker does —
+    // the shell must still render, with the retry banner, instead of redirecting to onboarding.
+    { method: 'GET', path: '/profile', handler: (req) => (String(req.headers?.referer ?? '').includes('profile-unavailable') ? { status: 503, body: { error: 'upstream_unavailable', message: 'OmniMind circuit breaker OPEN' } } : { body: profile }) },
     { method: 'PATCH', path: '/profile', handler: (req) => ({ body: { ...profile, ...(req.json ?? {}) } }) },
     { method: 'GET', path: '/sessions/s-visual', handler: ok(session) },
     { method: 'GET', path: /^\/memories\/m-[^/]+$/, handler: (req, url, m) => ({ body: { id: m[0].slice('/memories/'.length), title: 'Annual prepay discussion with Priya', content: '', tags: ['pricing'], createdAt: iso(NOW - 20 * DAY) } }) },

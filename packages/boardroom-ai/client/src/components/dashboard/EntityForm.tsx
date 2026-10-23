@@ -153,7 +153,7 @@ export function EntityForm({ entityType, onSubmit, onCancel }: EntityFormProps) 
       <div className="flex gap-2">
         <button
           type="submit"
-          className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-foreground text-sm rounded transition-colors"
+          className="px-3 py-1.5 bg-primary hover:bg-primary-hover text-primary-foreground text-sm rounded transition-colors"
         >
           Create {entityType}
         </button>

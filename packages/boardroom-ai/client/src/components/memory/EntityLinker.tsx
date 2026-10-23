@@ -89,7 +89,7 @@ export function EntityLinker({ memoryId, onLink, onClose }: EntityLinkerProps) {
             onClick={() => { setEntityType(t); setSearch(''); }}
             className={`px-3 py-1 text-xs rounded transition-colors ${
               entityType === t
-                ? 'bg-primary text-foreground'
+                ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-accent'
             }`}
           >

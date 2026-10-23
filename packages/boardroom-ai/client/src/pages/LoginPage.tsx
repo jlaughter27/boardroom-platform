@@ -68,9 +68,12 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen bg-background">
 
-      {/* ─── Left brand panel ─── */}
+      {/* ─── Left brand panel ───
+          Secondary text here sits on the warm glow blobs, which darken the page
+          behind it (muted text measured 3.6:1 there). The panel swaps in the
+          stronger secondary step the glass surfaces use (M1-D1). */}
       <div
-        className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col justify-between p-12"
+        className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col justify-between p-12 [--color-muted-foreground:var(--color-muted-foreground-on-glass)]"
       >
         {/* Static gradient blobs */}
         <div className="absolute inset-0 pointer-events-none">
@@ -107,7 +110,7 @@ export default function LoginPage() {
             <div className="flex items-center gap-3 mb-2">
               <Logo variant="icon" size={40} className="text-primary drop-shadow-[0_0_16px_rgba(212,163,26,0.4)]" />
               <h1 className="font-display text-2xl font-bold tracking-tight">
-                <span className="text-primary">Board</span><span className="text-foreground">Room AI</span>
+                <span className="text-primary-text">Board</span><span className="text-foreground">Room AI</span>
               </h1>
             </div>
           </motion.div>
@@ -123,7 +126,7 @@ export default function LoginPage() {
             <h2 className="text-4xl font-bold text-foreground leading-tight tracking-tight mb-4">
               Your AI-powered
               <br />
-              <span className="text-primary">
+              <span className="text-primary-text">
                 executive team.
               </span>
             </h2>
@@ -220,7 +223,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-center gap-3 mb-3">
               <Logo variant="icon" size={40} className="text-primary" />
               <h1 className="font-display text-2xl font-bold tracking-tight">
-                <span className="text-primary">Board</span><span className="text-foreground">Room AI</span>
+                <span className="text-primary-text">Board</span><span className="text-foreground">Room AI</span>
               </h1>
             </div>
             <p className="text-muted-foreground text-sm">
@@ -336,7 +339,7 @@ export default function LoginPage() {
                     : 'Already have an account?'}{' '}
                   <button
                     onClick={toggleMode}
-                    className="text-primary hover:text-primary/80 font-medium transition-colors duration-fast"
+                    className="text-primary-text hover:text-foreground font-medium transition-colors duration-fast"
                   >
                     {mode === 'login' ? 'Sign up free' : 'Sign in'}
                   </button>
