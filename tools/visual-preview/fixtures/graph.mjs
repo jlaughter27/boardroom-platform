@@ -6,7 +6,11 @@
 import { buildGraph, scoreMemory, FIXTURE_NOW } from './graph-data.mjs';
 
 const SEED = Number(process.env.VISUAL_PREVIEW_SEED ?? 7);
-export const { graph, memories, communities } = buildGraph(SEED);
+/** RD-6: `VISUAL_PREVIEW_MEMORIES=640` builds a vault larger than the 200-memory first page. */
+const MEMORY_COUNT = Number(process.env.VISUAL_PREVIEW_MEMORIES ?? 180);
+export const { graph, memories, communities } = buildGraph(SEED, { memories: MEMORY_COUNT });
+/** Mirrors KNOWLEDGE_GRAPH_MEMORY_LIMIT in packages/shared (default 200, max 1000). */
+const MEMORY_LIMIT = { DEFAULT: 200, MAX: 1000 };
 
 const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
 const memoriesById = new Map(memories.map((m) => [m.id, m]));
@@ -23,16 +27,21 @@ const ok = (body) => ({ body });
 const paged = (items) => ok({ items, total: items.length, offset: 0, limit: items.length });
 const notFound = (message) => ({ status: 404, body: { message } });
 
-/** `GET /graph?types=&domain=&memoryLimit=&includeArchived=` — the same filters the server applies. */
+/** `GET /graph?types=&domain=&memoryLimit=&includeArchived=` — the same filters (and 422) the server applies. */
 function getGraph(_req, url) {
   const types = url.searchParams.get('types')?.split(',').filter(Boolean);
   const domain = url.searchParams.get('domain');
-  const memoryLimit = Math.min(500, Number(url.searchParams.get('memoryLimit') ?? 150));
+  const rawLimit = url.searchParams.get('memoryLimit');
+  const memoryLimit = rawLimit === null ? MEMORY_LIMIT.DEFAULT : Number(rawLimit);
+  if (!Number.isInteger(memoryLimit) || memoryLimit < 0 || memoryLimit > MEMORY_LIMIT.MAX) {
+    return { status: 422, body: { error: 'validation_failed', details: [{ field: 'memoryLimit', message: `must be an integer 0–${MEMORY_LIMIT.MAX}` }] } };
+  }
   const includeArchived = url.searchParams.get('includeArchived') === 'true';
   let nodes = graph.nodes.filter((n) => (!types || types.includes(n.type)) && (includeArchived || n.status !== 'ARCHIVED'));
   if (domain) nodes = nodes.filter((n) => n.domain === null || n.domain === domain);
   const mems = nodes.filter((n) => n.type === 'memory').sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
   const memoryLimitHit = mems.length > memoryLimit;
+  const memoryTotal = memoryLimit > 0 && (!types || types.includes('memory')) ? mems.length : 0;
   const keptMemories = new Set(mems.slice(0, memoryLimit).map((n) => n.id));
   nodes = nodes.filter((n) => n.type !== 'memory' || keptMemories.has(n.id));
   const keep = new Set(nodes.map((n) => n.id));
@@ -40,7 +49,7 @@ function getGraph(_req, url) {
   const nodeCounts = { goal: 0, project: 0, task: 0, person: 0, decision: 0, commitment: 0, memory: 0 };
   for (const n of nodes) nodeCounts[n.type] += 1;
   const linked = new Set(); for (const e of edges) { linked.add(e.source); linked.add(e.target); }
-  return ok({ nodes, edges, stats: { nodeCounts, edgeCount: edges.length, isolatedNodes: nodes.filter((n) => !linked.has(n.id)).length, memoryLimitHit }, generatedAt: new Date(FIXTURE_NOW).toISOString() });
+  return ok({ nodes, edges, stats: { nodeCounts, edgeCount: edges.length, isolatedNodes: nodes.filter((n) => !linked.has(n.id)).length, memoryLimitHit, memoryTotal }, generatedAt: new Date(FIXTURE_NOW).toISOString() });
 }
 
 /** `GET /graph/backlinks/:nodeId` → `{ node, backlinks: [{ node, edge }] }`. */

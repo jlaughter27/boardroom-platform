@@ -81,7 +81,12 @@ const STATUS_FOR = {
  * @param {number} seed
  * @returns {{ graph: import('@boardroom/shared').KnowledgeGraph, memories: object[], communities: Map<string, string> }}
  */
-export function buildGraph(seed = 7) {
+/**
+ * `options.memories` (default 180, env VISUAL_PREVIEW_MEMORIES in graph.mjs) sizes the
+ * memory layer — RD-6 measures the layout with 500+. Memories past the 180th get a
+ * `· n` suffix so titles stay distinct; the default graph is byte-for-byte unchanged.
+ */
+export function buildGraph(seed = 7, options = {}) {
   const r = rng(seed);
   const pick = (arr) => arr[Math.floor(r() * arr.length)];
   const iso = (ms) => new Date(ms).toISOString();
@@ -188,13 +193,13 @@ export function buildGraph(seed = 7) {
   const CLASSES = ['SEMANTIC', 'SEMANTIC', 'EPISODIC', 'PROCEDURAL', 'DECISION'];
   const TAGS = ['insight', 'customer', 'risk', 'metric', 'process', 'quote'];
   let mi = 0;
-  const target = 180;
+  const target = Math.max(1, Math.floor(options.memories ?? 180));
   while (mi < target) {
     const c = COMMUNITIES[mi % COMMUNITIES.length];
     const b = byCommunity[c.key];
     const theme = c.memoryThemes[Math.floor(r() * c.memoryThemes.length)];
     const variant = pick(['', ' — follow-up', ' (customer call)', ' (retro)', ' — data point', ' (session note)']);
-    const title = `${theme}${variant}`;
+    const title = mi < 180 ? `${theme}${variant}` : `${theme}${variant} · ${mi + 1}`;
     const createdMs = when(0.6);
     const validMs = createdMs - r() * 10 * 86_400_000;
     const roll = r();
@@ -250,7 +255,7 @@ export function buildGraph(seed = 7) {
   const graph = {
     nodes,
     edges,
-    stats: { nodeCounts, edgeCount: edges.length, isolatedNodes: nodes.filter((n) => !linked.has(n.id)).length, memoryLimitHit: false },
+    stats: { nodeCounts, edgeCount: edges.length, isolatedNodes: nodes.filter((n) => !linked.has(n.id)).length, memoryLimitHit: false, memoryTotal: nodeCounts.memory },
     generatedAt: iso(FIXTURE_NOW),
   };
   return { graph, memories, communities: communityOf };

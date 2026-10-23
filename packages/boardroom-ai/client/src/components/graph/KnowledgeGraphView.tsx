@@ -13,7 +13,7 @@ import {
   truncateLabel, wantsLabel, zoomTier, type AnchoredLabel, type LabelBox,
 } from './graph-labels';
 import type { Community } from './graph-communities';
-import { clusterForce } from './graph-forces';
+import { clusterForce, cooldownTicksFor, seedNewNodes } from './graph-forces';
 import { GraphMinimap, boundsOf, fitTransform, viewportRect, type MinimapHandle, type MinimapNode } from './graph-minimap';
 import { ShapeGlyph } from './ShapeGlyph';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -111,6 +111,8 @@ const PENDING_FOCUS_TTL_MS = 5000;
 /** How long an explicit focus / fit-ids request outranks the automatic fit after a relayout. */
 export const INTENT_TTL_MS = 5000;
 const PULSE_MS = 700;
+/** Below this canvas width the floating legend + minimap step aside (they would cover the graph). */
+export const NARROW_CANVAS_PX = 560;
 const HULL_MIN_MEMBERS = 2;
 const HULL_LABEL_MIN_MEMBERS = 4;
 
@@ -190,10 +192,14 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
   const storeRef = useRef(createGraphStore());
   const communityOfRef = useRef(communityOf);
   communityOfRef.current = communityOf;
-  const { graphData, neighbours, idsChanged } = useMemo(
-    () => syncGraphData(storeRef.current, nodes, edges, depthById),
-    [nodes, edges, depthById],
-  );
+  const { graphData, neighbours, idsChanged } = useMemo(() => {
+    const res = syncGraphData(storeRef.current, nodes, edges, depthById);
+    // Newcomers (Show more, a lazy merge) start beside their neighbours / community,
+    // not on d3's spiral at the origin — seeded HERE, before the library sees the
+    // data and initialises every position-less node (RD-6).
+    if (res.idsChanged) seedNewNodes(res.graphData.nodes, res.graphData.links, communityOfRef.current);
+    return res;
+  }, [nodes, edges, depthById]);
 
   /** Degree threshold for "hub" labels at low zoom (top 8% by degree). */
   const hubDegree = useMemo(() => hubThreshold(graphData.nodes.map((n) => n.degree)), [graphData]);
@@ -657,7 +663,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
     ctx.restore();
 
     // Minimap (every other frame is plenty)
-    if (showMinimap && minimapRef.current && f.counter % 2 === 0) {
+    if (showMinimap && size.width >= NARROW_CANVAS_PX && minimapRef.current && f.counter % 2 === 0) {
       const fg = fgRef.current;
       const pts: MinimapNode[] = [];
       for (const n of graphData.nodes) {
@@ -845,7 +851,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
         onBackgroundClick={() => onSelect(null)}
         onNodeDragEnd={(n) => { n.fx = undefined; n.fy = undefined; }}
         warmupTicks={reducedMotion ? 300 : 0}
-        cooldownTicks={reducedMotion ? 0 : 220}
+        cooldownTicks={reducedMotion ? 0 : cooldownTicksFor(graphData.nodes.length)}
         d3AlphaDecay={0.03}
         d3VelocityDecay={0.32}
         onEngineTick={flushPendingFocus}
@@ -886,8 +892,10 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
         </div>
       )}
 
-      {/* Legend bar: type chips that double as the filter */}
-      {typeFilter && onToggleType && (
+      {/* Legend bar: type chips that double as the filter. On a phone-width canvas the
+          page's own type chips above already do this job, and the floating bar would
+          cover most of the graph, so it steps aside (RD-6). */}
+      {typeFilter && onToggleType && size.width >= NARROW_CANVAS_PX && (
         <div
           className={cn('absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1 p-1', FLOATING)}
           role="group"
@@ -919,8 +927,8 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
         </div>
       )}
 
-      {/* Minimap */}
-      {showMinimap && (
+      {/* Minimap (not on a phone-width canvas: it would cover a third of it) */}
+      {showMinimap && size.width >= NARROW_CANVAS_PX && (
         <div className={cn('absolute bottom-3 right-3 z-10 p-1', FLOATING)}>
           <GraphMinimap
             ref={minimapRef}
