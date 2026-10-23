@@ -6,6 +6,18 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-23 — Phase 8 real-data — Post-merge e2e on the real vault (main `8e8d907`) + persona-context fix
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed (no PR yet) | **Tests:** api 1,311 (+3 packager); e2e 58/58; private real-vault journey 22/22
+
+Fresh local stack from merged `main` (migrate deploy, production BoardRoom build, MCP gateway, UI-minted token), real Obsidian vault imported with `pnpm import:vault` at the production pace: 228 notes in 12.8 min, 0 failed, 1,385 wikilinks; 74 ministry notes held back; ministry never surfaced. No LLM or embedding keys (FTS + trigram only). Private harness and questions stay in the session scratchpad.
+
+- **Verified on real data:** markdown detail (0 raw `#`, `|---`, `[[`); hub note 71 resolved / 7 unresolved wikilinks, a click opens the target, 45 backlinks listed; graph "Showing 200 of N" → "Show more" in ~0.2 s; exact-title search ranks the note #1 for 45/46 sampled titles (1 at #4); same query twice with a persona call between → 0/12 reordered; Settings budget panel (business 109/400 …); re-import with `--prune` → 0 writes, 0 archives, 1,385 links existing; MCP search/fetch/status/graph and MCP→BoardRoom write visibility; 0 console errors.
+- **Fixed — persona context empty for long notes:** `packageForPersona` stopped at the first item over the token budget, so a question whose best matches were 20k+-character notes gave the persona **no context**. An over-budget item is now excerpted to the remaining budget (≥ 150 tokens, cut at a line break, marked as an excerpt) or skipped, and the scan continues. Real-vault persona hit rate 0.5 → 0.9; no empty packages.
+- **Observed:** a burst of ~150 API reads in a minute (eval-style harness) meets the 120/min per-user read limit; a client honouring `Retry-After` waits ~15 s once. Prune reads each note's links (228 notes ≈ 2.5 min per sync) — batch link-read endpoint remains a follow-up.
+
+---
+
 ## 2026-10-23 — Phase 8 real-data — Agent wave 3 (RD-1, RD-2, RD-4, RD-5, RD-6, RD-7, RD-9)
 
 **Branch:** `claude/amazing-mccarthy-grvem2` (rides PR #28) | **Status:** Pushed | **Tests:** shared 163, mcp 272, api 1,305, server 309, client 582; e2e 58/58; importer 19/19
