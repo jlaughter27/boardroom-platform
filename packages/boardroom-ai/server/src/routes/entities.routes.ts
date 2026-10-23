@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
 import { z } from 'zod';
-import { KnowledgeGraphQuerySchema } from '@boardroom/shared';
+import { KnowledgeGraphQuerySchema, MemoryBudgetReportSchema } from '@boardroom/shared';
 import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
@@ -416,6 +416,14 @@ router.post('/memories/search', validateBody(MemorySearchBodySchema), async (req
   try {
     const data = await omnimindClient.searchMemoriesHybrid(req.auth!.userId, req.body);
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+// RD-4 — per-domain memory budget (soft limits), read-only. Before /memories/:id.
+router.get('/memories/budget', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getMemoryBudget(req.auth!.userId);
+    res.json(MemoryBudgetReportSchema.parse(data));
   } catch (err) { next(err); }
 });
 

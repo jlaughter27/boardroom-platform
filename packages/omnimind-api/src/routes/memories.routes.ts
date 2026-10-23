@@ -203,6 +203,28 @@ router.post('/validate', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /memories/budget — RD-4: per-domain { domain, count, limit, over } for
+// the soft DOMAIN_MEMORY_BUDGETS (read-only; must be before /:id).
+// Tenant handling mirrors GET /memories: an agent sees its own tenant only
+// (a different ?tenantId → 403 tenant_mismatch); BoardRoom (no agent context)
+// gets the user-wide count — what the budget is measured against — or one
+// tenant with ?tenantId=.
+router.get('/budget', async (req, res, next) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+    const tenantParam = typeof req.query.tenantId === 'string' && req.query.tenantId.length > 0 ? req.query.tenantId : undefined;
+    const ctxTenant = req.agentContext?.tenantId;
+    if (ctxTenant && tenantParam && tenantParam !== ctxTenant) {
+      res.status(403).json({ error: 'tenant_mismatch', message: `tenantId '${tenantParam}' does not match the caller's tenant` });
+      return;
+    }
+    const report = await memoryService.getMemoryBudget(userId, ctxTenant ?? tenantParam ?? null, prisma);
+    res.json(report);
+  } catch (err) { next(err); }
+});
+
 // GET /memories — search/filter
 router.get('/', async (req, res, next) => {
   try {

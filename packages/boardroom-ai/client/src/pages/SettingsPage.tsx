@@ -6,6 +6,7 @@ import { getUserProfile, updateUserProfile } from '../lib/api';
 import { CalendarSettings } from '../components/settings/CalendarSettings';
 import { SubscriptionSettings } from '../components/settings/SubscriptionSettings';
 import { ConnectedToolsPanel } from '../components/settings/ConnectedToolsPanel';
+import { MemoryBudgetPanel } from '../components/settings/MemoryBudgetPanel';
 import { PageWrapper, PageHeader, Card, Button, Input, Badge, Skeleton, Select, Slider, useToastStore } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import type { UserProfile, RiskProfile } from '@boardroom/shared';
@@ -19,6 +20,7 @@ const SECTIONS = [
   { id: 'preferences', label: 'Preferences' },
   { id: 'integrations', label: 'Integrations' },
   { id: 'connected-tools', label: 'Connected AI tools' },
+  { id: 'memory-budget', label: 'Memory budget' },
   { id: 'subscription', label: 'Subscription' },
   { id: 'account', label: 'Account' },
 ];
@@ -255,6 +257,11 @@ export default function SettingsPage() {
           {/* Connected AI tools — personal MCP tokens (Lane C) */}
           <div id="settings-connected-tools">
             <ConnectedToolsPanel />
+          </div>
+
+          {/* Memory budget — soft per-domain limits (RD-4) */}
+          <div id="settings-memory-budget">
+            <MemoryBudgetPanel />
           </div>
 
           {/* Subscription */}

@@ -1,7 +1,7 @@
 // API request/response types — TASK-004 (DeepSeek)
 // Implement from: docs/contracts/omnimind-api.contract.md
 
-import type { Confidence, MemoryClass, SourceType } from './memory.types';
+import type { Confidence, MemoryBudgetStatus, MemoryClass, SourceType } from './memory.types';
 import type { PersonaId } from './persona.types';
 
 // --- Memory endpoints ---
@@ -24,11 +24,17 @@ export interface CreateMemoryRequest {
 
 export interface CreateMemoryResponse {
   id: string;
-  status: 'created';
+  /** 'updated' = an agent write merged into a near-duplicate (see the contract). */
+  status: 'created' | 'updated';
   validation: {
     syncPassed: boolean;
     errors: string[];
   };
+  /**
+   * RD-4: present only when the domain is over its soft budget after this
+   * write (`over: true`). The write itself succeeded.
+   */
+  budget?: MemoryBudgetStatus;
 }
 
 // --- Context endpoints ---

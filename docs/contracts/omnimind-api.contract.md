@@ -143,11 +143,38 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
   validation: {
     syncPassed: boolean,
     errors: []             // empty on success
-  }
+  },
+  budget?: { domain, count, limit, over: true }   // RD-4: only when the domain is past its soft budget
 }
 ```
 
-**Response 422:** Validation failure (schema, temporal, or budget). `title` / `content` containing NUL (U+0000) → 422 `must not contain NUL (U+0000) characters` (2026-10-23; it used to reach Postgres and answer 500). Same rule on `PATCH /memories/:id`.
+**Domain budget — soft (RD-4, 2026-10-23):** `DOMAIN_MEMORY_BUDGETS` (business 400, personal 200, ai-systems 300, ministry 300, any other domain 250 live memories per user, counted across tenants) never fails a write. When the domain is past its limit **after** this write, the 201 (or the dedup `status: "updated"`) response carries a warning:
+```typescript
+budget?: { domain: string, count: number, limit: number, over: true }   // count = live memories in the domain after the write
+```
+Write #401 in `business` → 201 with `budget: { domain: "business", count: 401, limit: 400, over: true }`; write #400 → no `budget` field. Each over-budget write logs `memory_budget_exceeded` (warn). There is no curator / eviction-proposal mechanism yet; the overage is surfaced through that log line and `GET /memories/budget`. Before RD-4 the same write answered 422 `Domain budget exceeded (400/400)` — for MCP `memory_write` too.
+
+**Response 422:** Validation failure (schema or temporal; budgets no longer 422). `title` / `content` containing NUL (U+0000) → 422 `must not contain NUL (U+0000) characters` (2026-10-23; it used to reach Postgres and answer 500). Same rule on `PATCH /memories/:id`.
+
+### GET /memories/budget (RD-4)
+
+Read-only per-domain standing against the soft budgets. Must be matched before `GET /memories/:id`.
+
+**Query params:** `tenantId?` — count one tenant only.
+
+**Tenant:** same rules as `GET /memories`. An agent caller counts its own tenant (`scope: "tenant"`); a different `?tenantId=` → 403 `tenant_mismatch`. BoardRoom (no agent context) gets the user-wide count — the number the budget is measured against (`scope: "user"`) — or one tenant with `?tenantId=`.
+
+**Response 200** (`MemoryBudgetReport`, Zod `MemoryBudgetReportSchema`):
+```typescript
+{
+  scope: "user" | "tenant",
+  tenantId: string | null,
+  domains: Array<{ domain: string, count: number, limit: number, over: boolean }>   // over = count > limit
+}
+```
+Every configured domain is listed (count 0 included, `default` omitted), configured domains first in config order, then any other domain the user has live rows in, alphabetically. Counts are live rows (`deletedAt` null, status not `ARCHIVED`).
+
+**Errors:** 400 missing `x-user-id` · 403 `tenant_mismatch`.
 
 ### POST /memories/search (Phase 6)
 
