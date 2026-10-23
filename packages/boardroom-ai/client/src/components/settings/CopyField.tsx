@@ -106,7 +106,12 @@ export function CopyField({
   return (
     <div className={cn('flex flex-col gap-1.5', className)} data-testid={testId}>
       {label && <span className="text-xs font-medium text-muted-foreground">{label}</span>}
-      <div className={cn('flex gap-2', multiline ? 'items-start' : 'items-center')}>
+      {/* A snippet block stacks over its buttons on phones (RD-9c): side by side at
+          390 px the <pre> was ~180 px wide; from `sm` up they share the row. */}
+      <div
+        className={cn('flex gap-2', multiline ? 'flex-col sm:flex-row sm:items-start' : 'items-center')}
+        data-copy-row={multiline ? 'stacked-on-phones' : undefined}
+      >
         {multiline ? (
           // A long line (an MCP URL, a bearer header) scrolls inside the block —
           // never the page. While it overflows, a fade on the trailing edge says
@@ -142,7 +147,7 @@ export function CopyField({
             className="flex-1 min-w-0 rounded-xl border border-border bg-muted px-3 h-9 text-xs font-mono text-foreground outline-none focus:ring-2 focus:ring-ring"
           />
         )}
-        <div className="flex shrink-0 gap-1">
+        <div className={cn('flex shrink-0 gap-1', multiline && 'self-end sm:self-auto')}>
           {secret && (
             <Button type="button" variant="ghost" size="sm" onClick={() => setRevealed((r) => !r)} aria-pressed={revealed}>
               {revealed ? 'Hide' : 'Show'}
