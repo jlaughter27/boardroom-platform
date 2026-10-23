@@ -83,6 +83,11 @@ jobs:
           bash -n scripts/tests/verify-prod.test.sh
           bash scripts/tests/verify-prod.test.sh
 
+      # scripts/vault-import.mjs loads an Obsidian vault into OmniMind (one memory
+      # per note, synced by vault path); mock-server test, no network.
+      - name: Vault importer test
+        run: node --test scripts/tests/vault-import.test.mjs
+
       - name: Dependency audit (high+ fails)
         run: pnpm audit --prod --audit-level high
 

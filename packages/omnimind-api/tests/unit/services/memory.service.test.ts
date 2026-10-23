@@ -205,6 +205,19 @@ describe('Memory Service', () => {
         expect(p.memoryEntry.create).toHaveBeenCalled();
       });
 
+      it('dedup: false skips the near-duplicate search and creates, even with an agent context (bulk import)', async () => {
+        const p = dedupPrisma();
+        vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);
+        p.$queryRaw.mockResolvedValue([{ id: 'dupe-1', importance: 0.4, tags: [] }]);
+        const result = await createMemory('user-1', { ...validInput, dedup: false }, agentContext, p);
+        expect(p.$queryRaw).not.toHaveBeenCalled();
+        expect(p.memoryEntry.update).not.toHaveBeenCalled();
+        expect(p.memoryEntry.create).toHaveBeenCalled();
+        expect(p.memoryEntry.create.mock.calls[0][0].data).not.toHaveProperty('dedup');
+        expect(p.memoryEntry.create.mock.calls[0][0].data).toEqual(expect.objectContaining({ tenantId: 'josh-business' }));
+        expect(result).toEqual(expect.objectContaining({ success: true }));
+      });
+
       it('O-101: dedup query is scoped to the agent tenant (tenant_id bound param)', async () => {
         const p = dedupPrisma();
         vi.mocked(generateEmbeddingWithRetry).mockResolvedValue([0.1, 0.2]);

@@ -128,9 +128,12 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
   confidence?: Confidence, // default MEDIUM
   sourceType: SourceType,  // required
   sourceRef?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  dedup?: boolean          // default true; false skips the near-duplicate auto-supersede (2026-10-23)
 }
 ```
+
+**Near-duplicate auto-supersede:** on an agent write (agent headers present), a live memory in the caller's tenant with cosine similarity > 0.92 is **updated in place** (title and content replaced, tags merged) and the response is `{ id: <existing id>, status: "updated" }`. `dedup: false` skips that search and always creates — for bulk importers that key their own rows (`scripts/vault-import.mjs` syncs by vault path) and must not let one note overwrite another. BoardRoom writes (no agent headers) never dedup.
 
 **Response 201:**
 ```typescript

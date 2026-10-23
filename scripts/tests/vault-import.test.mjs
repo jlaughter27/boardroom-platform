@@ -1,0 +1,211 @@
+// node --test scripts/tests/vault-import.test.mjs
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import {
+  parseNote, wikilinks, skipReason, isMinistry, classifyDomain, toMemory, planVault,
+  makeClient, existingVaultRows, runImport, resolveUserId, domainCounts,
+} from '../vault-import.mjs';
+
+function fixtureVault(files) {
+  const dir = mkdtempSync(join(tmpdir(), 'vault-'));
+  for (const [p, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, p)), { recursive: true });
+    writeFileSync(join(dir, p), text);
+  }
+  return dir;
+}
+
+const note = (fm, body) => `---\n${fm}\n---\n\n${body}\n`;
+
+test('parseNote reads the flat YAML subset: scalars, quoted strings, inline and block lists', () => {
+  const { frontmatter, body } = parseNote(note(
+    "type: entity\nstatus: evergreen\ncreated: '2026-05-23'\ntitle: \"Acme Widgets\"\ntags:\n- entity\n- ventures\naliases: [Acme, 'Acme-W']\nempty:",
+    '# Acme Widgets\n\nSee [[Payments Vendor]] and [[entities/CRM|CRM]].'));
+  assert.equal(frontmatter.type, 'entity');
+  assert.equal(frontmatter.created, '2026-05-23');
+  assert.equal(frontmatter.title, 'Acme Widgets');
+  assert.deepEqual(frontmatter.tags, ['entity', 'ventures']);
+  assert.deepEqual(frontmatter.aliases, ['Acme', 'Acme-W']);
+  assert.equal(frontmatter.empty, null);
+  assert.ok(body.startsWith('# Acme Widgets'));
+  assert.deepEqual(wikilinks(body), ['Payments Vendor', 'entities/CRM']);
+});
+
+test('parseNote without frontmatter returns the whole text as body', () => {
+  assert.deepEqual(parseNote('just text\n'), { frontmatter: {}, body: 'just text' });
+});
+
+test('skipReason drops vault plumbing only', () => {
+  assert.match(skipReason('wiki/log.md', {}), /plumbing/);
+  assert.match(skipReason('wiki/hot.md', {}), /plumbing/);
+  assert.match(skipReason('wiki/meta/stale-pages.base.md', {}), /Base/);
+  assert.match(skipReason('wiki/domains/ventures/_index.md', {}), /catalog/);
+  assert.match(skipReason('wiki/domains/personal/concepts-index.md', {}), /catalog/);
+  assert.match(skipReason('wiki/meta/lint-report-2026-05-23.md', {}), /maintenance/);
+  assert.match(skipReason('wiki/concepts/Old Name.md', { type: 'alias' }), /alias/);
+  assert.equal(skipReason('wiki/meta/Owner Profile.md', { type: 'meta' }), null);
+  assert.equal(skipReason('wiki/concepts/Pattern A.md', { type: 'concept' }), null);
+});
+
+test('ministry is detected by tag, folder or tgfc path — and never relabelled', () => {
+  assert.equal(isMinistry('wiki/concepts/Church Goal.md', { tags: ['ministry'] }), true);
+  assert.equal(isMinistry('wiki/concepts/X.md', { tags: ['TGFC'] }), true);
+  assert.equal(isMinistry('wiki/domains/ministry/Notes.md', {}), true);
+  assert.equal(isMinistry('.raw/audits/tgfc-audit.md', {}), true);
+  assert.equal(isMinistry('wiki/entities/Acme Widgets.md', { tags: ['ventures'] }), false);
+});
+
+test('classifyDomain: personal > learning > ai-systems > business', () => {
+  assert.equal(classifyDomain('.raw/identity/owner.md', { tags: ['ventures'] }), 'personal');
+  assert.equal(classifyDomain('wiki/concepts/Values.md', { tags: ['personal'] }), 'personal');
+  assert.equal(classifyDomain('wiki/domains/ventures/Some Course/M1.md', { tags: ['course/some-course'] }), 'learning');
+  assert.equal(classifyDomain('wiki/x/Glossary - Term.md', { type: 'glossary-term' }), 'learning');
+  assert.equal(classifyDomain('wiki/concepts/Pattern A.md', { tags: ['ai-systems'] }), 'ai-systems');
+  assert.equal(classifyDomain('wiki/entities/Acme Widgets.md', { tags: ['ventures'] }), 'business');
+});
+
+test('toMemory builds a validated-shape body keyed by path + content hash', () => {
+  const m = toMemory('wiki/entities/Acme Widgets.md', note('type: entity\nstatus: evergreen\ntags:\n- Ventures\n- Agency Ops', 'Body [[CRM]]'));
+  assert.equal(m.path, 'wiki/entities/Acme Widgets.md');
+  assert.match(m.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(m.body.title, 'Acme Widgets');
+  assert.equal(m.body.domain, 'business');
+  assert.equal(m.body.sourceType, 'API_IMPORT');
+  assert.equal(m.body.sourceRef, 'vault:wiki/entities/Acme Widgets.md');
+  assert.equal(m.body.importance, 0.7);
+  assert.deepEqual(m.body.tags, ['vault', 'vault:entity', 'ventures', 'agency-ops']);
+  assert.equal(m.body.content, 'Body [[CRM]]');
+  assert.deepEqual(m.body.metadata.vault.links, ['CRM']);
+  assert.equal(m.body.dedup, undefined, 'dedup is added by the writer, not stored on the plan');
+});
+
+test('planVault reads only wiki/ and .raw/, holds ministry back, skips plumbing', () => {
+  const dir = fixtureVault({
+    'wiki/entities/Acme Widgets.md': note('type: entity\ntags:\n- ventures', 'Acme body'),
+    'wiki/concepts/Church Goal.md': note('type: concept\ntags:\n- ministry', 'church'),
+    'wiki/log.md': '# log',
+    'wiki/domains/ventures/_index.md': '# idx',
+    '.raw/identity/me.md': '# me',
+    'skills/wiki/SKILL.md': '# tooling, not knowledge',
+    'README.md': '# readme',
+  });
+  try {
+    const plan = planVault(dir);
+    assert.deepEqual(plan.memories.map(m => m.path).sort(), ['.raw/identity/me.md', 'wiki/entities/Acme Widgets.md']);
+    assert.deepEqual(plan.ministry, ['wiki/concepts/Church Goal.md']);
+    assert.deepEqual(plan.skipped.map(s => s.path).sort(), ['wiki/domains/ventures/_index.md', 'wiki/log.md']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── Mock OmniMind ────────────────────────────────────────────────────────────
+
+function mockOmniMind({ rateLimitFirstWrite = false } = {}) {
+  const rows = new Map(); // id → row
+  const calls = [];
+  let n = 0;
+  let limited = !rateLimitFirstWrite;
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', c => { raw += c; });
+    req.on('end', () => {
+      const body = raw ? JSON.parse(raw) : undefined;
+      calls.push({ method: req.method, url: req.url, headers: req.headers, body });
+      const send = (status, json, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(json)); };
+      if (req.headers['x-api-key'] !== 'svc') return send(401, { error: 'unauthorized' });
+      const url = new URL(req.url, 'http://x');
+      if (req.method === 'POST' && url.pathname === '/auth/login') return body?.email === 'owner@example.com' ? send(200, { id: 'user-1' }) : send(404, {});
+      if (req.headers['x-user-id'] !== 'user-1') return send(400, { error: 'validation_failed' });
+      if (req.method !== 'GET' && !limited) { limited = true; return send(429, { error: 'rate_limited' }, { 'retry-after': '1' }); }
+      if (req.method === 'GET' && url.pathname === '/memories') {
+        let items = [...rows.values()];
+        if (url.searchParams.get('tags')) items = items.filter(r => r.tags.includes(url.searchParams.get('tags')) && r.tenantId === req.headers['x-tenant-id']);
+        if (url.searchParams.get('domain')) items = items.filter(r => r.domain === url.searchParams.get('domain'));
+        const offset = Number(url.searchParams.get('offset') ?? 0); const limit = Number(url.searchParams.get('limit') ?? 20);
+        return send(200, { items: items.slice(offset, offset + limit), total: items.length, offset, limit });
+      }
+      if (req.method === 'POST' && url.pathname === '/memories') {
+        if (body.title === 'over budget') return send(422, { error: 'validation_failed', details: [{ field: 'domain', message: 'Domain budget exceeded (400/400)' }] });
+        const id = `mem-${++n}`;
+        rows.set(id, { id, ...body, tenantId: req.headers['x-tenant-id'] });
+        return send(201, { id, status: 'created' });
+      }
+      const patch = /^\/memories\/(.+)$/.exec(url.pathname);
+      if (req.method === 'PATCH' && patch && rows.has(patch[1])) { Object.assign(rows.get(patch[1]), body); return send(200, rows.get(patch[1])); }
+      return send(404, { error: 'not_found' });
+    });
+  });
+  return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, rows, calls, url: `http://127.0.0.1:${server.address().port}` })));
+}
+
+test('sync: first run creates with dedup:false + agent triple + idempotency key; re-run skips; an edit patches', async () => {
+  const dir = fixtureVault({
+    'wiki/entities/Acme Widgets.md': note('type: entity\ntags:\n- ventures', 'v1'),
+    'wiki/concepts/Pattern A.md': note('type: concept\ntags:\n- ai-systems', 'wiki'),
+  });
+  const api = await mockOmniMind();
+  try {
+    const client = makeClient({ apiUrl: api.url, apiKey: 'svc', userId: await resolveUserId(makeClient({ apiUrl: api.url, apiKey: 'svc', tenant: 'josh-business', minWriteGapMs: 0 }), 'owner@example.com'), tenant: 'josh-business', minWriteGapMs: 0 });
+
+    const r1 = await runImport({ plan: planVault(dir), client, existing: await existingVaultRows(client), dryRun: false });
+    assert.equal(r1.created.length, 2);
+    const post = api.calls.find(c => c.method === 'POST' && c.url === '/memories');
+    assert.equal(post.body.dedup, false);
+    assert.equal(post.headers['x-agent-id'], 'vault-import');
+    assert.equal(post.headers['x-tenant-id'], 'josh-business');
+    assert.equal(post.headers['x-source-weight'], '1.0');
+    assert.match(post.headers['idempotency-key'], /^vault-[0-9a-f]{48}$/);
+    assert.ok([...api.rows.values()].every(r => r.tenantId === 'josh-business'));
+
+    const r2 = await runImport({ plan: planVault(dir), client, existing: await existingVaultRows(client), dryRun: false });
+    assert.deepEqual([r2.created.length, r2.updated.length, r2.unchanged.length], [0, 0, 2]);
+
+    writeFileSync(join(dir, 'wiki/entities/Acme Widgets.md'), note('type: entity\ntags:\n- ventures', 'v2'));
+    const before = api.calls.length;
+    const r3 = await runImport({ plan: planVault(dir), client, existing: await existingVaultRows(client), dryRun: false });
+    assert.deepEqual([r3.created.length, r3.updated.length, r3.unchanged.length], [0, 1, 1]);
+    const patch = api.calls.slice(before).find(c => c.method === 'PATCH');
+    assert.equal(patch.body.content, 'v2');
+    assert.equal(api.rows.size, 2, 'an edit never adds a second row');
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('dry run writes nothing; a 429 is retried after Retry-After; a budget 422 is reported, not fatal', async () => {
+  const dir = fixtureVault({
+    'wiki/entities/A.md': note('type: entity', 'a'),
+    'wiki/entities/B.md': note("type: entity\ntitle: over budget", 'b'),
+  });
+  const api = await mockOmniMind({ rateLimitFirstWrite: true });
+  try {
+    const client = makeClient({ apiUrl: api.url, apiKey: 'svc', userId: 'user-1', tenant: 'josh-business', minWriteGapMs: 0 });
+    const dry = await runImport({ plan: planVault(dir), client, existing: new Map(), dryRun: true });
+    assert.equal(dry.created.length, 2);
+    assert.equal(api.calls.length, 0);
+
+    const t0 = Date.now();
+    const r = await runImport({ plan: planVault(dir), client, existing: new Map(), dryRun: false });
+    assert.ok(Date.now() - t0 >= 900, 'waited for Retry-After');
+    assert.deepEqual(r.created, ['wiki/entities/A.md']);
+    assert.equal(r.failed.length, 1);
+    assert.equal(r.failed[0].status, 422);
+    assert.match(r.failed[0].detail, /budget/);
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('writes are paced at the configured gap; domainCounts reads user-wide totals without agent headers', async () => {
+  const dir = fixtureVault({ 'wiki/a/1.md': '# 1', 'wiki/a/2.md': '# 2', 'wiki/a/3.md': '# 3' });
+  const api = await mockOmniMind();
+  try {
+    const client = makeClient({ apiUrl: api.url, apiKey: 'svc', userId: 'user-1', tenant: 'josh-business', minWriteGapMs: 250 });
+    const t0 = Date.now();
+    await runImport({ plan: planVault(dir), client, existing: new Map(), dryRun: false });
+    assert.ok(Date.now() - t0 >= 450, 'three writes at a 250 ms gap take ≥ 500 ms minus the first');
+    const counts = await domainCounts(client, ['business']);
+    assert.deepEqual(counts, { business: 3 });
+    const get = api.calls.find(c => c.method === 'GET' && c.url.startsWith('/memories?domain='));
+    assert.equal(get.headers['x-agent-id'], undefined);
+  } finally { api.server.close(); rmSync(dir, { recursive: true, force: true }); }
+});

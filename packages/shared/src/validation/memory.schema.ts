@@ -118,6 +118,7 @@ export const CreateMemoryRequestSchema = z.object({
   confidence: ConfidenceSchema.optional().describe('Confidence level'),
   sourceRef: z.string().nullable().optional().describe('Reference to the original source'),
   metadata: z.record(z.string(), z.unknown()).optional().describe('Arbitrary metadata'),
+  dedup: z.boolean().optional().describe('false skips the near-duplicate auto-supersede (bulk imports that key their own rows, e.g. the vault importer); default true'),
 });
 
 export type CreateMemoryRequestInput = z.infer<typeof CreateMemoryRequestSchema>;
