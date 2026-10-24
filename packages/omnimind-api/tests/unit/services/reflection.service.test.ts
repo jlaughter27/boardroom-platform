@@ -193,6 +193,34 @@ describe('reflection (Phase 6)', () => {
       expect(mockPrisma.contextCapsule.create).not.toHaveBeenCalled();
     });
 
+    it('RD-12: project capsule renders DELEGATION lines owed by the person; USER rows unchanged', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({ id: 'pr1', title: 'Harvest fair', status: 'active', deadline: null, successMetrics: [] });
+      mockPrisma.decision = { findMany: vi.fn().mockResolvedValue([]) };
+      mockPrisma.projectPersonLink = { findMany: vi.fn().mockResolvedValue([]) };
+      mockPrisma.commitment = { findMany: vi.fn().mockResolvedValue([
+        { description: 'Send the volunteer rota', owedBy: 'STAKEHOLDER', stakeholder: { name: 'Sam Rivera' }, deadline: new Date('2026-11-07T23:59:59.999Z') },
+        { description: 'Book the hall', owedBy: 'USER', stakeholder: { name: 'Dana Okafor' }, deadline: new Date('2026-11-09T12:00:00Z') },
+      ]) };
+      await reflectEntity('u1', 'project', 'pr1', mockPrisma, now);
+      const content: string = mockCreateMessage.mock.calls[0][0].messages[0].content;
+      expect(content).toContain('DELEGATION open "Send the volunteer rota" owed by Sam Rivera due 2026-11-07');
+      expect(content).toContain('COMMITMENT open "Book the hall" to Dana Okafor due 2026-11-09');
+      expect(content).not.toContain('to Sam Rivera');
+    });
+
+    it('RD-12: person capsule renders OWES-USER for delegations; USER rows unchanged', async () => {
+      mockPrisma.person.findFirst.mockResolvedValue({ id: 'p1', name: 'Sam Rivera', role: null, relationshipToUser: null, notes: null });
+      mockPrisma.projectPersonLink = { findMany: vi.fn().mockResolvedValue([]) };
+      mockPrisma.commitment = { findMany: vi.fn().mockResolvedValue([
+        { description: 'Send the volunteer rota', status: 'OPEN', owedBy: 'STAKEHOLDER', deadline: new Date('2026-11-07T23:59:59.999Z') },
+        { description: 'Lend the ladder', status: 'OPEN', owedBy: 'USER', deadline: null },
+      ]) };
+      await reflectEntity('u1', 'person', 'p1', mockPrisma, now);
+      const content: string = mockCreateMessage.mock.calls[0][0].messages[0].content;
+      expect(content).toContain('OWES-USER OPEN "Send the volunteer rota" due 2026-11-07');
+      expect(content).toContain('COMMITMENT OPEN "Lend the ladder" due no date');
+    });
+
     it('404s when the entity is not visible to the user', async () => {
       mockPrisma.goal.findFirst.mockResolvedValue(null);
       await expect(reflectEntity('u1', 'goal', 'nope', mockPrisma, now)).rejects.toMatchObject({ statusCode: 404 });

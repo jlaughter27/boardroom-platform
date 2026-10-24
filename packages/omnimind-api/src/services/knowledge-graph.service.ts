@@ -111,7 +111,7 @@ export async function getKnowledgeGraph(
     wanted.has('commitment')
       ? prisma.commitment.findMany({
           where: alive,
-          select: { id: true, description: true, status: true, stakeholderId: true, linkedProjectId: true, createdAt: true },
+          select: { id: true, description: true, status: true, stakeholderId: true, linkedProjectId: true, createdAt: true, owedBy: true },
         })
       : [],
     includeMemories
@@ -233,7 +233,7 @@ export async function getKnowledgeGraph(
   for (const l of decisionProject) link('decision_project', nodeId('decision', l.decisionId), nodeId('project', l.projectId));
   for (const l of taskDeps) link('task_dependency', nodeId('task', l.taskId), nodeId('task', l.dependsOnTaskId));
   for (const c of commitments) {
-    if (c.stakeholderId) link('commitment_person', nodeId('commitment', c.id), nodeId('person', c.stakeholderId));
+    if (c.stakeholderId) link('commitment_person', nodeId('commitment', c.id), nodeId('person', c.stakeholderId), c.owedBy === 'STAKEHOLDER' ? 'owes you' : null);
     if (c.linkedProjectId) link('commitment_project', nodeId('commitment', c.id), nodeId('project', c.linkedProjectId));
   }
   for (const l of commitmentLinks) {

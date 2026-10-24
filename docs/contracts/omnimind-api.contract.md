@@ -579,6 +579,45 @@ SQL only. OPEN commitments due within 3 days or overdue. Precomputed daily by
 
 ### PATCH /commitments/:id
 
+### RD-12
+
+**Commitment direction (`owedBy`) and delegations.** Additive; existing callers are unaffected.
+
+- **Column.** `Commitment.owedBy: 'USER' | 'STAKEHOLDER'` (Prisma `enum CommitmentOwedBy`, `commitments.owed_by NOT NULL DEFAULT 'USER'`). `USER` = the user owes the counterparty (every row before RD-12). `STAKEHOLDER` = the counterparty owes the user: a **delegation**. `stakeholderId` means "counterparty person" in both directions. Every row returned by `/commitments*` now carries `owedBy`.
+- **Rule for readers.** A delegation is always worded "waiting on / owed by / owes you {name}", never "to {name}", and never counts toward the user's own overdue load. Shared `isDelegation(c)` (`owedBy === 'STAKEHOLDER'`; a missing value means USER).
+- **Deadline convention (client).** A chosen calendar date `YYYY-MM-DD` is stored as `YYYY-MM-DDT23:59:59.999Z` (shared `endOfUtcDay`), so the server's `toISOString().slice(0,10)` renderers print the chosen date. Day counts for delegations use shared `daysOverdue(deadline, now)` / `daysUntil(deadline, now)`.
+
+**POST /commitments** (extended; still `idempotent('commitments.create')`, `commitment:write`, delegated allow-list)
+
+```typescript
+{
+  // …the fields above, plus:
+  owedBy?: 'USER' | 'STAKEHOLDER',           // default USER
+  links?: { decisionId?: string, taskId?: string }   // strict: unknown keys → 422
+}
+```
+
+- `owedBy: 'STAKEHOLDER'` without `stakeholderId` → `422 { error: 'validation_failed', details: [{ field: 'stakeholderId', message: 'stakeholderId is required when owedBy is STAKEHOLDER' }] }`.
+- Ownership: `stakeholderId` (person), `linkedProjectId` (project), `links.decisionId` (decision) and `links.taskId` (task) must each belong to `x-user-id` and not be soft-deleted, else `404 { code: 'not_found', error: 'not_found', entity: 'person'|'project'|'decision'|'task', message: '<Entity> not found' }`. Nothing is written on a 404.
+- `links` become `CommitmentLink` rows created with the commitment, in the order `decision`, `task` (lowercase `entityType`, so the graph renders them as `commitment_entity` edges). `links` is not a column and is not echoed.
+- Response `201`: the Commitment row including `owedBy`. Invalidates the core-context and nudge caches.
+- `Idempotency-Key` replay returns the stored row (same `id`, `Idempotent-Replayed: true`) and creates nothing.
+
+**PATCH /commitments/:id** (hardening). A non-null `stakeholderId` or `linkedProjectId` in the patch is ownership-checked exactly as above (`404` with `entity`). `stakeholderId: null` is allowed. `owedBy` is **not** patchable (the update schema strips it): direction is fixed at create time.
+
+**GET /commitments** gains `?owedBy=USER|STAKEHOLDER` (`where.owedBy`); any other value → `422 validation_failed` (field `owedBy`). M1-B1's `commitment_list`, `status_get.snapshot.pendingCommitments` and `counts.commitments` should call `?owedBy=USER`.
+
+**GET /commitments/nudges** rows gain `owedBy` and `stakeholderName: string | null` (the counterparty's name; no nested `stakeholder` object). Shape: `{ dueSoon: CommitmentNudgeItem[], overdue: CommitmentNudgeItem[] }` (shared `CommitmentNudgeItemSchema`). Overdue / due-soon rules, the 50-row caps and the cache are unchanged; delegations take part like any OPEN row.
+
+**Readers**
+
+- Doer `Open commitments:` item and the weekly digest (`renderCommitmentLines`): a delegation renders `OVERDUE: waiting on Sam Rivera — Send the volunteer rota — due 2026-11-07 (1d overdue)` (`(today)` / `(in Nd)` / `due no deadline`). User-owed lines are byte-identical.
+- `GET /context/core`: the "Open commitments" query is `owedBy: 'USER'`. A second query (same window, `take: 5`) feeds a `## Waiting on others (due within 14 days)` section of lines `- {personName ?? 'someone'}: {description} — due YYYY-MM-DD`, emitted after "Open commitments" **only when non-empty**, so a block without delegations is byte-identical to before.
+- Reflection capsules: project → `DELEGATION open "…" owed by {name} due …`; person → `OWES-USER {status} "…" due …`.
+- Weekly memo prompt: "Open Commitments (n)" lists USER rows only; delegations go under `## Waiting on Others (n)` (`- Waiting on {name}: …`). The memo query now also filters `deletedAt: null`.
+- `GET /graph`: a STAKEHOLDER commitment's `commitment_person` edge has `label: 'owes you'` (USER → `null`).
+- MCP `status_get`: delegations appear only in the new `delegations.{overdue,dueSoon}` block (see `docs/MEMORY-PROTOCOL.md`), from the same single nudges call.
+
 ---
 
 ## User Profile

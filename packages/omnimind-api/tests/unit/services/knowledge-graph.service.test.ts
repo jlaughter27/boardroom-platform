@@ -74,6 +74,18 @@ describe('getKnowledgeGraph', () => {
     expect(g.nodes.find((n) => n.id === 'goal:g1')?.domain).toBe('business');
   });
 
+  it('RD-12: a STAKEHOLDER commitment yields a commitment_person edge labelled "owes you"; USER → null', async () => {
+    const g = await getKnowledgeGraph('user-1', {}, fakePrisma({
+      commitment: [
+        { id: 'c1', description: 'Send Alex the pricing deck', status: 'OPEN', stakeholderId: 'u1', linkedProjectId: null, createdAt: d, owedBy: 'USER' },
+        { id: 'c2', description: 'Alex sends the signed contract', status: 'OPEN', stakeholderId: 'u1', linkedProjectId: null, createdAt: d, owedBy: 'STAKEHOLDER' },
+      ],
+    }));
+    const edge = (cid: string) => g.edges.find((e) => e.type === 'commitment_person' && e.source === `commitment:${cid}`);
+    expect(edge('c1')?.label).toBeNull();
+    expect(edge('c2')?.label).toBe('owes you');
+  });
+
   it('respects the types filter and skips unneeded link tables', async () => {
     const prisma = fakePrisma();
     const g = await getKnowledgeGraph('user-1', { types: ['goal', 'project'] }, prisma);
