@@ -666,7 +666,8 @@ export function getCalendarEvents(start: Date, end: Date) {
 /**
  * RD-13 — meeting prep briefs for the next 24 h. Contract-checked: a payload
  * that fails MeetingBriefsResponseSchema resolves to `null` (the card then
- * renders nothing). `refresh` bypasses the server's 5-minute event cache.
+ * renders nothing). `refresh` bypasses the server's 5-minute event cache
+ * (honoured at most once per 30 s per user).
  */
 export async function getMeetingBriefs(opts?: { refresh?: boolean }): Promise<MeetingBriefsResponse | null> {
   const raw = await request<unknown>('/calendar/briefs' + (opts?.refresh ? '?refresh=1' : ''));

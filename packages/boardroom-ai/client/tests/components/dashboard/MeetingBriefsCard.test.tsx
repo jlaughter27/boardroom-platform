@@ -96,8 +96,14 @@ describe('<MeetingBriefsCard /> (RD-13)', () => {
     expect(rows).toHaveLength(2);
     for (const r of rows) expect(within(r).getAllByRole('button')[0]).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getAllByTestId('meeting-brief-headline').map((n) => n.textContent)).toEqual([avery.headline, bo.headline]);
-    const chip = screen.getByText('Avery Testperson ~');
+    const chip = within(rows[0]).getByTestId('meeting-brief-chip');
     expect(chip).toHaveAttribute('title', 'matched from event title');
+    // The "~" is visual only; keyboard / touch / screen-reader users get the words.
+    expect(within(chip).getByText('~')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(chip).getByText('(matched from event title)')).toHaveClass('sr-only');
+    expect(within(rows[1]).getByTestId('meeting-brief-chip').textContent).toBe('Bo Lindqvist');
+    // aria-controls only points at the panel while it exists.
+    for (const r of rows) expect(within(r).getAllByRole('button')[0]).not.toHaveAttribute('aria-controls');
     expect(within(rows[1]).getByText('+3')).toBeInTheDocument();
     expect(screen.queryByText('Send the rota draft')).toBeNull();
     expect(api.getMeetingBriefs).toHaveBeenCalledTimes(1);
@@ -110,6 +116,9 @@ describe('<MeetingBriefsCard /> (RD-13)', () => {
     const toggle = within(rows[0]).getAllByRole('button')[0];
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const panelId = toggle.getAttribute('aria-controls');
+    expect(panelId).toBeTruthy();
+    expect(document.getElementById(panelId!)).toContainElement(screen.getByTestId('brief-p1'));
     const detail = screen.getByTestId('brief-p1');
     const order = [...detail.querySelectorAll('[data-section]')].map((n) => n.getAttribute('data-section'));
     expect(order).toEqual(['You owe', 'They owe you', 'Decisions', 'capsule']); // no "Recent": empty

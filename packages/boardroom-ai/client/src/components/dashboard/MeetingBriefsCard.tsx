@@ -123,7 +123,7 @@ function EventRow({ event, briefs }: { event: MeetingBriefEvent; briefs: Record<
       <button
         type="button"
         aria-expanded={open}
-        aria-controls={panelId}
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
         className="group flex w-full items-start gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
@@ -142,7 +142,13 @@ function EventRow({ event, briefs }: { event: MeetingBriefEvent; briefs: Record<
                 data-testid="meeting-brief-chip"
                 title={p.method === 'title_first_name' ? 'matched from event title' : undefined}
               >
-                {p.displayName}{p.method === 'title_first_name' ? ' ~' : ''}
+                {p.displayName}
+                {p.method === 'title_first_name' && (
+                  <>
+                    <span aria-hidden="true" className="ml-1">~</span>
+                    <span className="sr-only"> (matched from event title)</span>
+                  </>
+                )}
               </span>
             ))}
             {extra > 0 && <span className="text-xs text-muted-foreground" data-testid="meeting-brief-more" title="attendees you don't track (or more than fit)">+{extra}</span>}
