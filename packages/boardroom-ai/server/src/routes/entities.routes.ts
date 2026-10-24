@@ -17,6 +17,7 @@ import {
   CreatePersonRequestSchema, UpdatePersonRequestSchema,
   CreateMemoryRequestSchema, UpdateMemoryRequestSchema,
   UpdateCommitmentRequestSchema,
+  CreateCommitmentRequestSchema,
 } from '@boardroom/shared';
 
 // B-113 — local schemas where shared has none
@@ -361,6 +362,15 @@ router.get('/commitments/nudges', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.getCommitmentNudges(req.auth!.userId);
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+// RD-12 — record a delegation (or any commitment). OmniMind owns the
+// ownership checks and the Idempotency-Key replay; the header is forwarded.
+router.post('/commitments', validateBody(CreateCommitmentRequestSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createCommitment(req.auth!.userId, req.body, req.get('Idempotency-Key') ?? undefined);
+    res.status(201).json(data);
   } catch (err) { next(err); }
 });
 

@@ -281,6 +281,11 @@ export class OmniMindClient {
     return this.request('PATCH', `/commitments/${id}`, userId, input);
   }
 
+  /** RD-12 — POST /commitments (delegations); forwards the dialog's Idempotency-Key. */
+  async createCommitment(userId: string, input: unknown, idempotencyKey?: string) {
+    return this.request('POST', '/commitments', userId, input, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined);
+  }
+
   async updateMemoItem(userId: string, memoId: string, itemKey: string, body: { state: 'accepted' | 'dismissed' | 'snoozed'; until?: string }) {
     return this.request('PATCH', `/cortex/memo/${encodeURIComponent(memoId)}/items/${encodeURIComponent(itemKey)}`, userId, body);
   }
