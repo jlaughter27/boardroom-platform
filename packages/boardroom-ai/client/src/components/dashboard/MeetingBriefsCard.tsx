@@ -32,7 +32,7 @@ function More({ shown, total }: { shown: number; total: number }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div data-section={title}>
+    <div className="min-w-0" data-section={title}>
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
       <ul className="mt-1 space-y-1">{children}</ul>
     </div>
@@ -55,7 +55,7 @@ function PersonDetail({ brief }: { brief: PersonBrief }) {
               <li key={c.id} className="text-sm leading-snug text-foreground">
                 {c.description}
                 {c.deadline && (
-                  <span className={cn('ml-1 text-xs', c.overdue ? 'text-danger' : 'text-muted-foreground')}>
+                  <span className={cn('ml-1 whitespace-nowrap text-xs', c.overdue ? 'text-danger' : 'text-muted-foreground')}>
                     · {c.overdue ? 'overdue ' : 'due '}{formatDue(c.deadline)}
                   </span>
                 )}
@@ -69,7 +69,7 @@ function PersonDetail({ brief }: { brief: PersonBrief }) {
             {brief.theyOwe.map((t) => (
               <li key={t.id} className="text-sm leading-snug text-foreground">
                 {t.title}
-                <span className="ml-1 text-xs text-muted-foreground">
+                <span className="ml-1 whitespace-nowrap text-xs text-muted-foreground">
                   · {t.status}{t.deadline ? ` · due ${formatDue(t.deadline)}` : ''}
                 </span>
               </li>
@@ -84,7 +84,7 @@ function PersonDetail({ brief }: { brief: PersonBrief }) {
                 <Link to={`/decisions/${d.id}`} className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">
                   {d.title}
                 </Link>
-                <span className="ml-1 text-xs text-muted-foreground">· {d.status.toLowerCase()}</span>
+                <span className="ml-1 whitespace-nowrap text-xs text-muted-foreground">· {d.status.toLowerCase()}</span>
               </li>
             ))}
             <More shown={brief.decisions.length} total={counts.decisions} />
@@ -93,7 +93,7 @@ function PersonDetail({ brief }: { brief: PersonBrief }) {
         {brief.recentMemories.length > 0 && (
           <Section title="Recent">
             {brief.recentMemories.map((m) => (
-              <li key={m.id} className="text-sm leading-snug text-foreground">
+              <li key={m.id} className="min-w-0 text-sm leading-snug text-foreground">
                 {m.title}
                 <span className="block truncate text-xs text-muted-foreground">{m.excerpt}</span>
               </li>
@@ -127,20 +127,25 @@ function EventRow({ event, briefs }: { event: MeetingBriefEvent; briefs: Record<
         onClick={() => setOpen((v) => !v)}
         className="group flex w-full items-start gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="mt-0.5 w-11 shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{formatTime(event.startTime)}</span>
+        {/* Time gets its own column from `sm` up; on phones it leads the title line so the chips keep the width. */}
+        <span className="mt-0.5 hidden w-11 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:block" data-testid="meeting-brief-time">{formatTime(event.startTime)}</span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-foreground">{event.title}</span>
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:hidden" data-testid="meeting-brief-time-inline">{formatTime(event.startTime)}</span>
+            <span className="truncate text-sm font-medium text-foreground" data-testid="meeting-brief-title">{event.title}</span>
+          </span>
           <span className="mt-1 flex flex-wrap items-center gap-1.5">
             {people.map((p) => (
               <span
                 key={p.personId}
                 className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                data-testid="meeting-brief-chip"
                 title={p.method === 'title_first_name' ? 'matched from event title' : undefined}
               >
                 {p.displayName}{p.method === 'title_first_name' ? ' ~' : ''}
               </span>
             ))}
-            {extra > 0 && <span className="text-xs text-muted-foreground">+{extra}</span>}
+            {extra > 0 && <span className="text-xs text-muted-foreground" data-testid="meeting-brief-more" title="attendees you don't track (or more than fit)">+{extra}</span>}
           </span>
           {!open && (
             <span className="mt-1 block space-y-0.5">
