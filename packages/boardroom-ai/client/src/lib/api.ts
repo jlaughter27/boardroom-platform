@@ -1326,3 +1326,27 @@ export function getMcpTokenOptions() {
 export function getMcpConnectInfo() {
   return request<McpConnectInfo>('/mcp/tokens/connect-info');
 }
+
+// ---------------------------------------------------------------------------
+// RD-12 — delegations (POST /commitments with owedBy + links)
+// ---------------------------------------------------------------------------
+
+/** Mirrors shared `CreateCommitmentRequestSchema` for the Delegate dialog. */
+export interface CreateCommitmentInput {
+  description: string;
+  stakeholderId: string;
+  /** ISO — the chosen date's end of UTC day (`endOfUtcDay`). */
+  deadline: string;
+  owedBy: 'USER' | 'STAKEHOLDER';
+  linkedProjectId?: string;
+  links?: { decisionId?: string; taskId?: string };
+}
+
+/** `POST /commitments` → 201 Commitment. One key per dialog open, so a retry or double-submit records one row. */
+export function createCommitment(input: CreateCommitmentInput, idempotencyKey: string) {
+  return request<Commitment>('/commitments', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(input),
+  });
+}

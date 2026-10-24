@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Briefcase, PanelRight } from 'lucide-react';
+import { Briefcase, PanelRight, UserRoundPlus } from 'lucide-react';
 import * as api from '../../lib/api';
 import type { ExtendedSynthesisReport } from '../../types/debate';
 import { Card, Badge, Button } from '../ui';
@@ -62,6 +62,10 @@ interface SynthesisPanelProps {
   onExpand?: () => void;
   /** M1-C2: advisors (short names) that had no answer when the synthesis started. */
   without?: string[];
+  /** RD-12: delegate one Next Action (only once the decision is committed). */
+  onDelegate?: (action: string) => void;
+  /** RD-12: why Delegate is unavailable (shown once under Next Actions when `onDelegate` is absent). */
+  delegateDisabledReason?: string;
 }
 
 /** The honest CEO step: a synthesis made without some advisors says so up front. */
@@ -126,7 +130,7 @@ function CollapsibleSection({
   );
 }
 
-export function SynthesisPanel({ report, streamingText, isStreaming, onExpand, without }: SynthesisPanelProps) {
+export function SynthesisPanel({ report, streamingText, isStreaming, onExpand, without, onDelegate, delegateDisabledReason }: SynthesisPanelProps) {
   if (isStreaming && !report) {
     return (
       <Card className="border-t-2 border-primary border-x-hairline border-b-hairline p-6" data-testid="synthesis-panel">
@@ -153,7 +157,7 @@ export function SynthesisPanel({ report, streamingText, isStreaming, onExpand, w
         )}
       </SynthesisTitle>
       <WithoutNote names={without} />
-      <SynthesisReportBody report={report} />
+      <SynthesisReportBody report={report} onDelegate={onDelegate} delegateDisabledReason={delegateDisabledReason} />
     </Card>
   );
 }
@@ -164,6 +168,9 @@ interface SynthesisSheetProps {
   onClose: () => void;
   /** The question under the title, so the sheet stands on its own. */
   question?: string;
+  /** RD-12 — forwarded to the report body. */
+  onDelegate?: (action: string) => void;
+  delegateDisabledReason?: string;
 }
 
 /**
@@ -171,7 +178,7 @@ interface SynthesisSheetProps {
  * desktop, a draggable bottom sheet on phones. The inline panel stays on the
  * page underneath, so dismissing never loses the report.
  */
-export function SynthesisSheet({ report, isOpen, onClose, question }: SynthesisSheetProps) {
+export function SynthesisSheet({ report, isOpen, onClose, question, onDelegate, delegateDisabledReason }: SynthesisSheetProps) {
   return (
     <Modal
       isOpen={isOpen}
@@ -182,14 +189,19 @@ export function SynthesisSheet({ report, isOpen, onClose, question }: SynthesisS
       description={question ?? report.recommendation}
     >
       <div data-testid="synthesis-sheet-body" className="-mt-4">
-        <SynthesisReportBody report={report} />
+        <SynthesisReportBody report={report} onDelegate={onDelegate} delegateDisabledReason={delegateDisabledReason} />
       </div>
     </Modal>
   );
 }
 
 /** The report sections \u2014 shared by the inline card and the sheet. */
-export function SynthesisReportBody({ report }: { report: ExtendedSynthesisReport }) {
+export function SynthesisReportBody({ report, onDelegate, delegateDisabledReason }: {
+  report: ExtendedSynthesisReport;
+  /** RD-12 */
+  onDelegate?: (action: string) => void;
+  delegateDisabledReason?: string;
+}) {
   return (
     <>
       <CollapsibleSection title="Disagreement Map" defaultOpen={false}>
@@ -214,10 +226,25 @@ export function SynthesisReportBody({ report }: { report: ExtendedSynthesisRepor
               <span className="flex-shrink-0 w-5 h-5 rounded-md bg-muted text-muted-foreground text-xs tnum flex items-center justify-center mt-0.5">
                 {i + 1}
               </span>
-              <span>{action}</span>
+              <span className="min-w-0 flex-1">{action}</span>
+              {onDelegate && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="-my-1 shrink-0"
+                  onClick={() => onDelegate(action)}
+                  aria-label={`Delegate: ${action}`}
+                  title="Delegate"
+                >
+                  <UserRoundPlus size={16} strokeWidth={1.75} aria-hidden="true" />
+                </Button>
+              )}
             </li>
           ))}
         </ol>
+        {!onDelegate && delegateDisabledReason && (
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="delegate-disabled-reason">{delegateDisabledReason}</p>
+        )}
       </CollapsibleSection>
 
       {report.topRisks.length > 0 && (

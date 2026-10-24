@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useEntitiesStore } from '../stores/entities.store';
 import { useUIStore } from '../stores/ui.store';
-import { isOverdue } from '@boardroom/shared';
+import { isDelegation, isOverdue } from '@boardroom/shared';
 
 export interface ProactiveQuestion {
   id: string;
@@ -61,7 +61,8 @@ export function useProactiveQuestions(): ProactiveQuestion[] {
       if (
         commitment.deadline &&
         isOverdue(new Date(commitment.deadline)) &&
-        commitment.status === 'OPEN'
+        commitment.status === 'OPEN' &&
+        !isDelegation(commitment) // RD-12: the dashboard's "Waiting on others" owns these
       ) {
         questions.push({
           id: `overdue-commitment-${commitment.id}`,

@@ -10,6 +10,8 @@ import { CommitmentHorizon, personSlots } from '../../../src/components/dashboar
 import { CommitmentNudgesWidget } from '../../../src/components/dashboard/CommitmentNudgesWidget';
 import { modelShareRow, modelLabel, modelSlot } from '../../../src/components/dashboard/LlmCostWidget';
 import { LIGHT_THEME } from '../../../src/components/viz/theme';
+import { copyToClipboard } from '../../../src/components/settings/CopyField';
+import { composeCheckIn } from '../../../src/lib/delegation';
 
 vi.mock('../../../src/lib/api', () => ({
   listMemoriesSince: vi.fn(),
@@ -21,6 +23,7 @@ vi.mock('../../../src/lib/api', () => ({
   updateCommitment: vi.fn(),
   getPeople: vi.fn(),
 }));
+vi.mock('../../../src/components/settings/CopyField', () => ({ copyToClipboard: vi.fn(async () => true) }));
 
 const NOW = Date.parse('2026-10-20T12:00:00.000Z');
 const mem = (iso: string, domain = 'business', memoryClass = 'SEMANTIC') => ({ id: `${iso}-${domain}-${memoryClass}`, createdAt: iso, domain, memoryClass } as unknown as Memory);
@@ -134,7 +137,7 @@ describe('<CommitmentNudgesWidget /> keeps Mark done working above the horizon',
   it('shows the horizon, the nudge list, and removes a completed commitment from both', async () => {
     const soon = com('soon', new Date(Date.now() + 86_400_000).toISOString(), 'p1');
     const later = com('later', new Date(Date.now() + 9 * 86_400_000).toISOString(), 'p1');
-    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [], dueSoon: [soon] });
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [], dueSoon: [{ ...soon, stakeholderName: 'Ava' }] });
     // The server list reflects the completion on the refetch that follows Mark done.
     vi.mocked(api.getCommitments).mockResolvedValueOnce([soon, later]).mockResolvedValue([later]);
     vi.mocked(api.updateCommitment).mockResolvedValue(soon);
@@ -153,5 +156,80 @@ describe('<CommitmentNudgesWidget /> keeps Mark done working above the horizon',
     const { container } = render(<CommitmentNudgesWidget />);
     await waitFor(() => expect(api.getCommitments).toHaveBeenCalled());
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+});
+
+describe('<CommitmentNudgesWidget /> — RD-12 Waiting on others', () => {
+  const day = 86_400_000;
+  // End-of-UTC-day deadline whose UTC date was yesterday → exactly "1 day overdue" whenever this runs.
+  const yesterdayEnd = () => { const d = new Date(Date.now() - day); return `${d.toISOString().slice(0, 10)}T23:59:59.999Z`; };
+  const delegation = () => ({
+    ...com('del1', yesterdayEnd(), 'p2'), description: 'Send the volunteer rota', owedBy: 'STAKEHOLDER', stakeholderName: 'Sam Rivera',
+  }) as never;
+  const mine = () => ({ ...com('mine1', new Date(Date.now() + day).toISOString(), 'p1'), owedBy: 'USER', stakeholderName: 'Ava' }) as never;
+
+  beforeEach(() => {
+    useVizStore.getState().reset();
+    useEntitiesStore.setState({ people: [{ id: 'p1', name: 'Ava' }] as never, fetchPeople: vi.fn(async () => {}) });
+    vi.mocked(api.getCommitments).mockResolvedValue([]);
+    vi.mocked(api.updateCommitment).mockResolvedValue({} as never);
+  });
+
+  it('renders delegations under "Waiting on others" as "from Sam Rivera · 1 day overdue", never "to Sam"; badges split', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [mine()] });
+    render(<CommitmentNudgesWidget />);
+    const waiting = await screen.findByTestId('waiting-on-others');
+    expect(waiting).toHaveTextContent('Waiting on others');
+    expect(waiting).toHaveTextContent('Send the volunteer rota');
+    expect(waiting).toHaveTextContent('from Sam Rivera · 1 day overdue');
+    expect(screen.getByTestId('commitment-nudges')).not.toHaveTextContent('to Sam');
+    // "Commitments to keep" badges count only the user's own rows
+    const header = screen.getByText('Commitments to keep').parentElement!;
+    expect(header).toHaveTextContent('1 due soon');
+    expect(header).not.toHaveTextContent('overdue');
+    expect(waiting).toHaveTextContent('1 overdue');
+    expect(screen.getByText('Do mine1').closest('li')).toHaveTextContent('to Ava');
+  });
+
+  it('mount makes exactly one nudges request; the commitments-changed event triggers one reload', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    await screen.findByTestId('waiting-on-others');
+    expect(api.getCommitmentNudges).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new CustomEvent('boardroom:commitments-changed'));
+    await waitFor(() => expect(api.getCommitmentNudges).toHaveBeenCalledTimes(2));
+  });
+
+  it('Copy check-in copies the composeCheckIn text', async () => {
+    const d = delegation() as { deadline: string };
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [d as never], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy check-in' }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalled());
+    expect(vi.mocked(copyToClipboard).mock.calls[0][0]).toBe(composeCheckIn({ name: 'Sam Rivera', description: 'Send the volunteer rota', deadline: d.deadline }, Date.now()));
+  });
+
+  it('Received PATCHes COMPLETED; Drop PATCHes DEFERRED and rolls back on error', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    const { unmount } = render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Received' }));
+    await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledWith('del1', expect.objectContaining({ status: 'COMPLETED' })));
+    unmount();
+
+    vi.mocked(api.updateCommitment).mockRejectedValueOnce(new Error('nope'));
+    render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Drop' }));
+    await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledWith('del1', { status: 'DEFERRED' }));
+    // optimistic removal, then rollback puts the row back
+    await waitFor(() => expect(screen.getByText('Send the volunteer rota')).toBeInTheDocument());
+  });
+
+  it('New date PATCHes deadline = endOfUtcDay(ymd) and reloads', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New date' }));
+    fireEvent.change(screen.getByLabelText('New date for Send the volunteer rota'), { target: { value: '2030-11-20' } });
+    await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledWith('del1', { deadline: '2030-11-20T23:59:59.999Z' }));
+    await waitFor(() => expect(api.getCommitmentNudges).toHaveBeenCalledTimes(2));
   });
 });

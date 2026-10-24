@@ -618,6 +618,12 @@ SQL only. OPEN commitments due within 3 days or overdue. Precomputed daily by
 - `GET /graph`: a STAKEHOLDER commitment's `commitment_person` edge has `label: 'owes you'` (USER → `null`).
 - MCP `status_get`: delegations appear only in the new `delegations.{overdue,dueSoon}` block (see `docs/MEMORY-PROTOCOL.md`), from the same single nudges call.
 
+**Cross-item notes** (recorded here because this build does not edit `docs/roadmap/`; copy into PHASE-8-ROADMAP.md at merge):
+
+- **M1-B1:** `commitment_list`, `status_get.snapshot.pendingCommitments` and `counts.commitments` call `GET /commitments?owedBy=USER`. `commitment_log` sends `owedBy` only if a future input asks for it (no tool-count change).
+- **M3-B2:** ⌘K Capture typed as a commitment offers "I owe" / "They owe me", which sets `owedBy`.
+- **M3-C1 Today:** consume `partitionNudges` (client `lib/delegation.ts`) from the same nudges response and show "Waiting on others: N overdue".
+
 ---
 
 ## User Profile
