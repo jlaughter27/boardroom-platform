@@ -103,14 +103,14 @@ export function TaskNode({ task, project }: TaskNodeProps) {
       )}
       <StatusBadge status={task.status} />
 
-      {/* RD-12 — Delegate (always visible on open tasks) */}
+      {/* RD-12 — Delegate (always visible on open tasks; the ::after pad makes a 44 px touch target without moving the icon) */}
       {task.status !== 'done' && (
         <button
           type="button"
           onClick={() => setDelegating(true)}
           aria-label={`Delegate: ${task.title}`}
           title="Delegate"
-          className="flex-shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="relative flex-shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md after:absolute after:-inset-2 after:content-[''] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <UserRoundPlus size={15} strokeWidth={1.75} aria-hidden="true" />
         </button>

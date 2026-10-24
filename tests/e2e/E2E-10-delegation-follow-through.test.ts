@@ -96,7 +96,8 @@ describe('E2E-10: delegation follow-through (RD-12)', () => {
     try {
       const status = await mcp.callTool<any>('status_get', { userId: TEST_USER_ID });
       expect(status.delegations.overdue[0]).toMatchObject({ id: created.body.id, personName: 'Sam Rivera', personId: person.body.id });
-      expect(status.delegations.overdue[0].daysOverdue).toBeGreaterThanOrEqual(0);
+      // Deadline = end of yesterday's UTC day and the run is within today (UTC): exactly 1.
+      expect(status.delegations.overdue[0].daysOverdue).toBe(1);
       expect(status.commitmentsDueSoon.overdue.map((c: { id: string }) => c.id)).not.toContain(created.body.id);
       expect(status.commitmentsDueSoon.dueSoon.map((c: { id: string }) => c.id)).toContain(mine.body.id);
     } finally {
