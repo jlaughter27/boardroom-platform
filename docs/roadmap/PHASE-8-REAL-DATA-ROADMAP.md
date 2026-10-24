@@ -88,7 +88,7 @@ Nothing below Stage 2 can be proven in production until these are done. Order ma
 | RD-15 | Venture pulse — weekly KPI snapshot per venture written by the founder's GHL MCP clients (`memory_write`), read by the weekly memo | S (MCP-side) | Needs MCP live in production; never build native GHL connectors |
 | RD-16 | Calling-alignment check — monthly: where decisions and load went by domain vs. the stated calling order | S | Needs RD-11's load data over several weeks |
 
-**Not building (recorded so it is not re-litigated):** sermon prep workshop (Sermon Lab 2.0 exists; ministry gated by RD-10); church stewardship / Planning Center dashboard (the TGFC CLT Dashboard exists; ministry-gated); pastoral care tracker (most sensitive data; RD-10 first, maybe never); native mobile or voice capture (the Claude apps reach memory through MCP once OAuth is live, M2-F1); simulators, OKR builder, strategy canvas, industry radar, network map (breadth without evidence); multi-user rooms (no second user).
+**Not building (recorded so it is not re-litigated):** sermon prep workshop (the founder already runs a separate sermon-prep system; ministry gated by RD-10); church stewardship / Planning Center dashboard (a separate church dashboard already exists; ministry-gated); pastoral care tracker (most sensitive data; RD-10 first, maybe never); native mobile or voice capture (the Claude apps reach memory through MCP once OAuth is live, M2-F1); simulators, OKR builder, strategy canvas, industry radar, network map (breadth without evidence); multi-user rooms (no second user).
 
 ## Stage 3 — After founder decisions (Phase 8 M1 remainder + scale)
 
