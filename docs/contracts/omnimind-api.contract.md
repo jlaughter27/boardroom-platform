@@ -10,6 +10,7 @@
 - **User scoping**: Every data-mutating or data-reading endpoint requires `x-user-id` header. ALL queries are scoped to this user. No cross-user data access.
 - **Agent identity (MCP callers, 2026-10-02)**: `x-agent-key: omk_…` is verified against `agents.api_key_hash`; when present, `agentId`/`tenantId`/`scopes`/`sourceWeight` come from the agent row and any disagreeing `x-agent-id` / `x-tenant-id` / `x-source-weight` header → `403 agent_header_mismatch`. Without `x-agent-key` the legacy header triple is accepted unverified (solo mode) unless `OMNIMIND_REQUIRE_AGENT_KEY=true`; a **partial** triple (`x-agent-id` without `x-tenant-id` and/or `x-source-weight`) is refused with `400 partial_agent_identity { fields }` and never falls through to the unscoped BoardRoom path (2026-10-20, E2E-5). Verified agents have `Agent.scopes` enforced per route.
 - **Scope rules (verified agents, 2026-10-03)**: `GET`/`HEAD` on `/memories`, `/context`, `/decisions`, `/tasks`, `/commitments`, `/projects`, `/people`, `/goals`, `/graph`, `/cortex`, `/usage` → `memory:read`. The POST reads `POST /memories/search`, `POST /memories/search-similar`, `POST /memories/validate`, `POST /context/for-persona` → `memory:read` (and are billed against the agent's `read` rate bucket). Writes: `/decisions` → `decision:write`, `/tasks` → `task:write`, `/commitments` → `commitment:write`, `/projects` → `project:write`; `/memories` (+ links), `/people`, `/goals`, `POST /context/reflect`, `/graph` link writers, `/cortex` scans/patches/generate/simulate, `POST /usage/llm` → `memory:write`. Missing scope → `403 insufficient_scope { required, agentId }`. Wildcards: `*`, `<prefix>:*`.
+- **POST reads — RD-13 addendum (2026-10-24)**: `POST /people/briefs` is also a POST read (`READ_POSTS` → `memory:read`, and billed against the per-user read bucket via `READ_ONLY_POST_PATHS`). Agent callers get `403 agent_context_unsupported` on it until M1-B1.
 - **Tenant scoping**: when agent context is present, reads are scoped to its tenant. `?tenantId=` that disagrees → `403`. Cross-tenant views require `x-admin-key` + `?includeAllTenants=true`.
 - **Admin**: `/admin/*` and `POST /mcp/agents` require `x-admin-key` matching `OMNIMIND_ADMIN_KEY` (timing-safe). Unset in production → `503 admin_disabled`. `GET /usage/llm/summary?all=1` is gated by the same header (→ `403 admin_required`, see below).
 - **Delegated identity (per-user MCP, 2026-10-18)**: a verified agent whose row holds the gateway-only scope `mcp:delegate` may add `x-mcp-principal: token:<mcpTokenId>` or `oauth:<mcpOauthIdentityId>`. The request then runs AS that principal: `agentId = row.agentName`, `tenantId`, `sourceWeight` and `scopes = principal.scopes ∩ (gateway.scopes − mcp:delegate)` come from the McpToken / McpOauthIdentity row, and the context carries `delegated: true, userId: row.userId`. Unknown / revoked / expired / malformed principal → `401 principal_invalid { reason }`. `x-mcp-principal` from any caller that is not a verified `mcp:delegate` agent → `403 delegation_not_allowed`. A delegated request may only act for its own user: a `?userId=`, `body.userId` or `x-user-id` that differs → `403 user_mismatch { field }`; when none is supplied on `/memories`, `/context`, `/decisions`, `/tasks`, `/goals`, `/projects`, `/people`, `/commitments`, `/graph`, `/mcp/audit` the principal's userId is injected (query, body for POST/PATCH/PUT, and the `x-user-id` header). `mcp:delegate` is never grantable to a token and `*` does not imply it. A delegated request is additionally ALLOW-listed to the entity families + `POST|GET /mcp/audit` + `POST /usage/llm` (`403 delegated_route_forbidden` elsewhere, e.g. `/auth`, `/oauth`, `/mcp/tokens*`, `/mcp/agents`, `/admin`). See **MCP** below.
@@ -313,6 +314,43 @@ Probable duplicate people via `pg_trgm similarity(a.name, b.name) >= threshold` 
 **Query params:** `threshold` (0.3–1, default 0.6) · `limit` (1–200, default 100)
 
 **Response 200:** `{ pairs: Array<{ a: Person, b: Person, similarity: number }> }` — sorted by similarity desc.
+
+### RD-13 — POST /people/briefs (meeting prep briefs)
+
+Deterministic per-person briefs for BoardRoom's "Meeting prep · next 24 h" card. **Mounted before `/people/:id`.** No LLM call, nothing persisted, nothing cached (only BoardRoom caches the Google event list, 5 min). BoardRoom sends attendee **names** and normalized **title tokens** only — never e-mails, raw titles or descriptions — and names / tokens are never persisted or logged here (the log line carries counts only). Schemas: `PersonBriefsRequestSchema` / `PersonBriefsResponseSchema` in `@boardroom/shared`.
+
+**Request body:**
+```json
+{
+  "attendees": [{ "key": "0:1", "name": "Avery Testperson" }],
+  "events": [{ "key": "e0", "titleTokens": ["lunch", "avery"], "smallMeeting": true }]
+}
+```
+`attendees` ≤ 40 (`name` trimmed 1–120 chars), `events` ≤ 8 (`titleTokens` ≤ 16, each 1–40 chars); at least one attendee or event. `smallMeeting` = at most one other attendee.
+
+**Matching (deterministic tiers only, live `Person` rows of `x-user-id`; no fuzzy / trigram tier):** attendee `exact` (normalized name equal; 2+ people → `ambiguous: true, personId: null`) → `name_tokens` (2+ tokens, first and last token equal, unique; else ambiguous). Events: `title_full` (a person's 2+ name tokens appear contiguously; skipped when two matching people share the normalized name) → `title_first_name` (small meetings only; a 3+ char token that is the first token of exactly one live person).
+
+**Sections per matched person** (batched, user-scoped; link tables scoped through `memory.userId` / `project.userId`):
+- `youOwe` — `Commitment` with `status OPEN`, `stakeholderId = person`, not deleted; overdue (`deadline < now`) first, then deadline asc (nulls last), then newest. Cap 3.
+- `theyOwe` — `Task` (latest 300 with an owner) whose free-text `owner` is the person's full name, or their first name when that first name is unique among live people; closed statuses (`done`, `completed`, `complete`, `cancelled`, `canceled`, `archived`, case/space-insensitive) excluded; deadline asc (nulls last), then priority desc. Cap 3.
+- `decisions` — via a live project linked to the person, plus full-name mentions (Unicode word boundaries) in title / question / chosenPath of decisions from the last 180 days (latest 200); deduped preferring `via: "project"`; `at = createdAt`, newest first. Cap 3.
+- `recentMemories` — explicitly linked memories only (`MemoryEntityLink`, entityType `person`), not deleted / archived / past `invalidAt`, ministry domain excluded in any spelling, decrypted (undecryptable rows dropped); `excerpt` ≤ 160 chars, newest `validAt` first, latest 200 scanned. Cap 3.
+- `capsule` — newest person `ContextCapsule`: `summary` ≤ 280 chars, `stale = staleAfter < now`, else `null`.
+- `counts` are totals before the caps. `lastInteractionAt = max(lastContactAt, newest linked memory, newest open commitment createdAt)`. `headline` is a template, e.g. `"You owe Sarah 1 overdue · Sarah owes you 2 · last touch 12d ago"` (`last touch today` / `no recorded interaction`).
+
+**Response 200:**
+```json
+{
+  "generatedAt": "ISO", "partial": false,
+  "attendeeMatches": [{ "key": "0:1", "personId": "c…", "ambiguous": false, "method": "exact" }],
+  "titleMatches": [{ "key": "e0", "personId": "c…", "method": "title_first_name" }],
+  "briefs": { "<personId>": { "personId": "…", "name": "…", "role": null, "relationshipToUser": null, "headline": "…", "lastInteractionAt": "ISO|null", "capsule": { "summary": "…", "generatedAt": "ISO", "stale": false }, "recentMemories": [{ "id", "title", "excerpt", "at" }], "youOwe": [{ "id", "description", "deadline", "overdue" }], "theyOwe": [{ "id", "title", "deadline", "status" }], "decisions": [{ "id", "title", "status", "at", "via" }], "counts": { "memories", "youOwe", "youOweOverdue", "theyOwe", "decisions" } } }
+}
+```
+
+**Errors:** `400 validation_failed` (missing `x-user-id`) · `403 agent_context_unsupported` for **any** agent caller (verified or legacy headers) until entity tenancy lands (M1-B4 → M1-B1) · `422 validation_failed { details }` (bad body). **Total:** a failing section is left empty and the answer is `200` with `partial: true`; anything escaping the service also answers `200 { partial: true, briefs: {}, attendeeMatches: <all null>, titleMatches: [] }` — never `5xx`, so one bad section cannot open BoardRoom's circuit breaker.
+
+**Scope / rate limit:** a POST read — `memory:read` (`READ_POSTS`) and the per-user **read** bucket (`READ_ONLY_POST_PATHS`); agents are refused before either matters today.
 
 ### GET /people/:id
 
