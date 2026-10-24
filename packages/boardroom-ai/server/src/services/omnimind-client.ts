@@ -455,6 +455,11 @@ export class OmniMindClient {
     return this.request('GET', '/decisions', userId);
   }
 
+  /** RD-12 — one decision by id (owner-scoped by OmniMind; 404 otherwise). */
+  async getDecision(userId: string, id: string) {
+    return this.request('GET', `/decisions/${encodeURIComponent(id)}`, userId);
+  }
+
   async listCommitments(userId: string) {
     return this.request('GET', '/commitments', userId);
   }

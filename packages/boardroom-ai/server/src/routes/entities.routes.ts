@@ -346,6 +346,16 @@ router.get('/decisions/changes', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// RD-12 — one decision by id: a committed session resolves its decision here,
+// since GET /decisions returns only the newest page. Declared after the
+// literal /decisions/* paths above so they keep matching first.
+router.get('/decisions/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getDecision(req.auth!.userId, req.params.id);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // ---------------------------------------------------------------------------
 // Commitments
 // ---------------------------------------------------------------------------

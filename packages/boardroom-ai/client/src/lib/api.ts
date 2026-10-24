@@ -288,6 +288,11 @@ export async function getDecisions(): Promise<Decision[]> {
   return res.items;
 }
 
+/** RD-12 — `GET /decisions/:id`: one decision by id (GET /decisions returns only the newest page). */
+export function getDecision(id: string): Promise<Decision> {
+  return request<Decision>(`/decisions/${encodeURIComponent(id)}`);
+}
+
 export async function getCommitments(): Promise<Commitment[]> {
   const res = await request<PaginatedResponse<Commitment>>('/commitments');
   return res.items;

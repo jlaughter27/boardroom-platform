@@ -94,9 +94,10 @@ export default function DecisionSessionPage() {
         // A session that already committed a decision shows the success state, not the form.
         if (session.decisionId) {
           const decisionId = session.decisionId;
-          api.getDecisions().then(decisions => {
+          // RD-12: by id — GET /decisions is only the newest page, so an older
+          // decision would leave Delegate disabled with a false reason.
+          api.getDecision(decisionId).then(found => {
             if (cancelled) return;
-            const found = decisions.find(d => d.id === decisionId) ?? null;
             if (found && useSessionStore.getState().currentSession?.id === id) {
               useSessionStore.setState({ committedDecision: found });
             }
