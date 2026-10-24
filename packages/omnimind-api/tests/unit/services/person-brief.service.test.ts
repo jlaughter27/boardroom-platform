@@ -230,6 +230,33 @@ describe('decisions', () => {
   });
 });
 
+describe('stable caps (ties broken by id)', () => {
+  it('youOwe / theyOwe / decisions / memories keep the same capped items whatever order the DB returns tied rows in', async () => {
+    const same = ago(4);
+    const commitments = ['k4', 'k2', 'k5', 'k1', 'k3'].map(id => ({ id, description: `Item ${id}`, deadline: null, createdAt: same, stakeholderId: 'p1', status: 'OPEN', deletedAt: null }));
+    const tasks = ['t4', 't2', 't5', 't1', 't3'].map(id => ({ id, title: `Task ${id}`, owner: 'Sarah Quill', status: 'pending', deadline: null, priority: 0 }));
+    const decisions = ['d4', 'd2', 'd5', 'd1', 'd3'].map(id => ({ id, title: `Plan ${id}`, status: 'OPEN', createdAt: same, projectLinks: [{ projectId: 'pr1' }] }));
+    const memories = ['m4', 'm2', 'm5', 'm1', 'm3'].map(id => ({ id, title: `Note ${id}`, content: 'x', domain: 'business', encryptedContent: null, validAt: same, createdAt: same, status: 'ACTIVE', deletedAt: null, invalidAt: null }));
+    const run = async (reverse: boolean) => {
+      const order = <T,>(xs: T[]) => (reverse ? [...xs].reverse() : xs);
+      const prisma = makePrisma({
+        people: [person('p1', 'Sarah Quill')],
+        commitments: order(commitments),
+        tasks: order(tasks),
+        personProjects: [{ personId: 'p1', projectId: 'pr1' }],
+        projectDecisions: order(decisions),
+        links: order(memories).map(m => ({ memoryId: m.id, entityId: 'p1' })),
+        memories: order(memories),
+      });
+      const b = (await buildPersonBriefs(U, body([att('0:0', 'Sarah Quill')]), prisma, NOW)).briefs.p1;
+      return [b.youOwe.map(x => x.id), b.theyOwe.map(x => x.id), b.decisions.map(x => x.id), b.recentMemories.map(x => x.id)];
+    };
+    const expected = [['k1', 'k2', 'k3'], ['t1', 't2', 't3'], ['d1', 'd2', 'd3'], ['m1', 'm2', 'm3']];
+    expect(await run(false)).toEqual(expected);
+    expect(await run(true)).toEqual(expected);
+  });
+});
+
 describe('recentMemories', () => {
   const m = (id: string, extra: Record<string, unknown> = {}) => ({
     id, title: `Note ${id}`, content: 'x'.repeat(300), domain: 'business', encryptedContent: null,

@@ -99,6 +99,11 @@ function isContiguousSubsequence(needle: string[], hay: string[]): boolean {
   return false;
 }
 
+/** Final tie-breaker so capped sections never depend on DB row order. */
+function idOrder(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function maxDate(...dates: Array<Date | null | undefined>): Date | null {
   let best: Date | null = null;
   for (const d of dates) if (d && (!best || d.getTime() > best.getTime())) best = d;
@@ -248,7 +253,7 @@ export async function buildPersonBriefs(
           .map(m => tryDecryptMemory(m))
           .filter((m): m is NonNullable<typeof m> => m !== null)
           .map(m => ({ m, at: m.validAt ?? m.createdAt }))
-          .sort((a, b) => b.at.getTime() - a.at.getTime());
+          .sort((a, b) => b.at.getTime() - a.at.getTime() || idOrder(a.m.id, b.m.id));
         for (const { m, at } of usable) {
           for (const pid of personsByMemory.get(m.id) ?? []) {
             const list = memoriesBy.get(pid) ?? [];
@@ -289,7 +294,7 @@ export async function buildPersonBriefs(
           const ad = a.deadlineDate?.getTime() ?? Infinity;
           const bd = b.deadlineDate?.getTime() ?? Infinity;
           if (ad !== bd) return ad - bd;
-          return b.createdAt.getTime() - a.createdAt.getTime();
+          return b.createdAt.getTime() - a.createdAt.getTime() || idOrder(a.id, b.id);
         });
       }
     } catch (err) {
@@ -333,7 +338,7 @@ export async function buildPersonBriefs(
           const ad = a.deadlineDate?.getTime() ?? Infinity;
           const bd = b.deadlineDate?.getTime() ?? Infinity;
           if (ad !== bd) return ad - bd;
-          return b.priority - a.priority;
+          return b.priority - a.priority || idOrder(a.id, b.id);
         });
       }
     } catch (err) {
@@ -421,7 +426,7 @@ export async function buildPersonBriefs(
     const memories = memoriesBy.get(pid) ?? [];
     const youOwe = youOweBy.get(pid) ?? [];
     const theyOwe = theyOweBy.get(pid) ?? [];
-    const decisions = [...(decisionsBy.get(pid)?.values() ?? [])].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const decisions = [...(decisionsBy.get(pid)?.values() ?? [])].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || idOrder(a.id, b.id));
     const counts: PersonBriefCounts = {
       ...emptyCounts(),
       memories: memories.length,
