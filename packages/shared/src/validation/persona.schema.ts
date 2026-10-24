@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { AssumptionConfidenceSchema } from './decision.schema';
+import type { Displacement, StopItem } from '../types/persona.types';
 
 // ── Persona ID Schema ──
 
@@ -63,6 +64,27 @@ export const LedgerResolutionSchema = z.object({
   resolution: z.string().describe('How the CEO resolves it and why'),
 });
 
+// ── RD-11 load check: what a decision displaces ──
+
+export const StopActionSchema = z.enum(['stop', 'pause', 'delegate', 'renegotiate', 'defer']);
+
+export const StopItemSchema = z.object({
+  title: z.string().min(1).max(200).describe('The item to give up, copied from the load section or open commitments'),
+  action: StopActionSchema,
+});
+
+export const DisplacementSchema = z.object({
+  answer: z.string().min(1).describe('1-3 sentences: what this decision displaces'),
+  stops: z.array(StopItemSchema).default([]).transform((s) => s.slice(0, 3)).describe('0-3 named items (capped at 3)'),
+  netNew: z.boolean().describe('True only when the load level is OK and nothing needs to stop'),
+});
+
+// CLAUDE rule 10 — compile-time parity: `pnpm typecheck` fails if the schemas drift from the interfaces.
+type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type AssertParity<T extends true> = T;
+export type DisplacementSchemaParity = AssertParity<MutuallyAssignable<z.infer<typeof DisplacementSchema>, Displacement>>;
+export type StopItemSchemaParity = AssertParity<MutuallyAssignable<z.infer<typeof StopItemSchema>, StopItem>>;
+
 export const SynthesisReportSchema = z.object({
   disagreementMap: z.string().describe('Summary of where personas disagree'),
   decisiveTradeoff: z.string().describe('The key tradeoff that must be made'),
@@ -73,6 +95,8 @@ export const SynthesisReportSchema = z.object({
   sourceMemoryIds: z.array(z.string()).describe('Memory IDs that informed this synthesis'),
   ledgerResolutions: z.array(LedgerResolutionSchema).optional().describe('Phase 6 — one resolution per DisagreementLedger row'),
   droppedConsiderations: z.array(z.string()).optional().describe('Phase 6 — round-1 memory ids the CEO no longer cites (server-computed)'),
+  // A malformed displacement is dropped (→ undefined); the rest of the report still validates.
+  displacement: DisplacementSchema.optional().catch(undefined).describe('RD-11 — what this displaces'),
 });
 
 export type SynthesisReportInput = z.infer<typeof SynthesisReportSchema>;

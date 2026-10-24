@@ -45,6 +45,26 @@ export interface SynthesisReport {
   ledgerResolutions?: LedgerResolution[];
   /** Phase 6 — memory ids cited in round 1 that the CEO brief no longer cites. Computed server-side. */
   droppedConsiderations?: string[];
+  /** RD-11 — what this decision displaces. Absent in review mode, on malformed output, and on pre-RD-11 stored reports. */
+  displacement?: Displacement;
+}
+
+// ── RD-11 load check: what a decision displaces ──
+
+export type StopAction = 'stop' | 'pause' | 'delegate' | 'renegotiate' | 'defer';
+
+export interface StopItem {
+  title: string;
+  action: StopAction;
+}
+
+export interface Displacement {
+  /** 1-3 sentences: what has to give so this decision can happen. */
+  answer: string;
+  /** 0-3 named items to stop / pause / delegate / renegotiate / defer. */
+  stops: StopItem[];
+  /** True only when the load level is OK and nothing needs to stop. */
+  netNew: boolean;
 }
 
 // ── Phase 6 debate protocol ──
