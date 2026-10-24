@@ -6,6 +6,20 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-24 — Phase 8 real-data — Stage 2b founder-leverage features: RD-11 load check + RD-13 meeting prep (PR A), RD-12 built
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR A open | **Tests:** shared 183, mcp 272, api 1,465, server 341, client 599; e2e 65/65 (+E2E-10 load check, +person briefs); MCP smoke 20 tools
+
+Process: per feature an architect proposed a spec, a red team attacked it against the code and CLAUDE.md, a judge reconciled the final spec (9 agents); then an isolated builder, two independent validators (spec/correctness and rules/security/privacy) and a fixer (12 agents). Specs are in the PR description.
+
+- **RD-11 Load check.** `services/load.service.ts`: SQL reads + pure arithmetic (formula v1 in `COGNITIVE_LOAD`), rendered as `## Current load` inside the core-context block every persona and the CEO already receive; no new route, table, LLM call or MCP tool. The CEO returns `displacement` ("What does this displace?" + ≤3 stop/pause/delegate/renegotiate/defer items), shown in the synthesis. Level reads UNKNOWN (never OK) while MCP tasks/commitments are not entity rows (`coverageComplete` flips with M1-B1). Weekly memo gets the section as LLM context only — not in the visible memo text, so the dashboard never shows two load numbers. Task writes and project↔task link changes now invalidate the core-context cache.
+- **RD-13 Meeting prep.** Dashboard card for meetings in the next 24 h: per known attendee "You owe / They owe you / Decisions / Recent" and the capsule summary; matched by normalized names and title tokens; deterministic, no LLM; per-section degradation; attendee e-mail addresses never sent to OmniMind; agent callers get 403 (no MCP path until M1-B1).
+- **RD-12 Delegation briefs** built and validated (migration `Commitment.owedBy`); held for PR B after PR A merges, shipping after the production pg_dump (M0-F1).
+- **Deps:** new high advisories (2026-10-23) patched via overrides — body-parser 1.20.9 / 2.4.0, multer 2.5.0, undici 7.30.1. zod GHSA-mrhx-c7xc-m3w5 has no 3.x fix: accepted in `pnpm.auditConfig.ignoreGhsas` (exposure bounded by 100 kB / 1 MB body limits) until a zod 4 migration.
+- **Roadmap:** Stage 2b (RD-11…16) and the not-building list in `PHASE-8-REAL-DATA-ROADMAP.md`.
+
+---
+
 ## 2026-10-23 — Phase 8 real-data — Post-merge e2e on the real vault (main `8e8d907`) + persona-context fix
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed (no PR yet) | **Tests:** api 1,311 (+3 packager); e2e 58/58; private real-vault journey 22/22
