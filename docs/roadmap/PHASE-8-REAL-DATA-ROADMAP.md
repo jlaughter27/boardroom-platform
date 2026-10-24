@@ -70,6 +70,26 @@ Nothing below Stage 2 can be proven in production until these are done. Order ma
 
 **Suggested order:** RD-1 and RD-2 first (they decide whether the imported vault is *pleasant to read* and *reliably findable* — the two things the founder will notice on day 1), then RD-7 (so they can't regress), then RD-4 and RD-6 (scale), then RD-5 (sync), RD-8, RD-9.
 
+## Stage 2b — Founder-leverage features (2026-10-24, debated and validated)
+
+**Why these:** the founder's recorded #1 risk is overextension, time is the binding constraint, and his stated pains are leader communication and follow-through. Each feature reuses data OmniMind already holds, adds no LLM call, and serves solo founders generally (product surface), not only this founder. Specs came from a design debate (architect → red team → judge, one per feature); the specs are in each PR description.
+
+| ID | Feature | What ships | Schema | Gate | Deferred (by the debate) |
+|---|---|---|---|---|---|
+| **RD-11** | Load check — the overextension governor | Deterministic, SQL-only open-load count (active projects per domain, open/overdue commitments and tasks, decisions past review) scored against a fixed, versioned capacity; rendered as `## Current load` inside the core-context block every persona and the CEO already receive. Every non-review decision must answer **"What does this displace?"** — the CEO returns `displacement` (answer + ≤3 items to stop/pause/delegate/renegotiate/defer), shown as "What this displaces" in the synthesis. Weekly memo gets a current-load section. Level reads **UNKNOWN, never OK**, until MCP tasks/commitments are entity rows (M1-B1/B3), so the CEO cannot claim spare capacity on undercounted data. | none | merge with PR A | `GET /context/load` + session/dashboard load strip (after M3-C1 so there is one load number), `status_get` load block (after M1-B4/B1), memo trend column (after M0-F1) |
+| **RD-12** | Delegation briefs + follow-through | One click from a decision's next actions or a task: pick a Person, edit a brief built only from fields the founder typed or ticked (what / by when / done when / optional why), share or copy it; only then a Commitment with `owedBy = STAKEHOLDER` is recorded. Open delegations return in "Waiting on others" (dashboard nudges: copy check-in, new date, received, drop), in MCP `status_get` (`delegations` block), and in Doer/core context, digest, memo and capsules — always "waiting on Sam", never inflating the founder's own load. No brief text stored; no outbound email. | `enum CommitmentOwedBy { USER STAKEHOLDER }` + `Commitment.owedBy` (default USER) | **PR B — merge only after the production pg_dump + restore drill (M0-F1)** | Gmail sending, LLM "polish", MCP-created delegations, People-page waiting list |
+| **RD-13** | Meeting prep briefs | Dashboard card for meetings in the next 24 h: per known attendee a one-line headline ("You owe Sarah 1 overdue · Sarah owes you 2 · last touch 12d ago"), expandable to open commitments both ways, tasks they owe, related decisions, explicitly linked memories and their capsule summary. Attendees matched by normalized name and title tokens ("Lunch w/ Sarah"). Deterministic, no LLM, nothing cached but the Google event list; partial data degrades per section. | none | merge with PR A | MCP person brief (inside M1-B1 after M1-B4), status_get upcoming meetings (needs an ADR for calendar data in OmniMind), `Person.emails` matching (trigger: coverage < 50% in dogfood week 1), contradiction "tensions" |
+
+**Next tier — only if the dogfood scorecard shows daily use (decide at M4):**
+
+| ID | Feature | Size | Why it waits |
+|---|---|---|---|
+| RD-14 | Decision staleness + assumption re-check at outcome review (DecisionAssumption exists) | S–M | Strengthens calibration once reviews actually happen (≥ 1/week per the scorecard) |
+| RD-15 | Venture pulse — weekly KPI snapshot per venture written by the founder's GHL MCP clients (`memory_write`), read by the weekly memo | S (MCP-side) | Needs MCP live in production; never build native GHL connectors |
+| RD-16 | Calling-alignment check — monthly: where decisions and load went by domain vs. the stated calling order | S | Needs RD-11's load data over several weeks |
+
+**Not building (recorded so it is not re-litigated):** sermon prep workshop (Sermon Lab 2.0 exists; ministry gated by RD-10); church stewardship / Planning Center dashboard (the TGFC CLT Dashboard exists; ministry-gated); pastoral care tracker (most sensitive data; RD-10 first, maybe never); native mobile or voice capture (the Claude apps reach memory through MCP once OAuth is live, M2-F1); simulators, OKR builder, strategy canvas, industry radar, network map (breadth without evidence); multi-user rooms (no second user).
+
 ## Stage 3 — After founder decisions (Phase 8 M1 remainder + scale)
 
 | ID | Work | Depends on |
