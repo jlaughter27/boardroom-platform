@@ -216,20 +216,73 @@ describe('<CommitmentNudgesWidget /> — RD-12 Waiting on others', () => {
     await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledWith('del1', expect.objectContaining({ status: 'COMPLETED' })));
     unmount();
 
-    vi.mocked(api.updateCommitment).mockRejectedValueOnce(new Error('nope'));
+    let reject!: (e: Error) => void;
+    vi.mocked(api.updateCommitment).mockImplementationOnce(() => new Promise((_, r) => { reject = r; }));
     render(<CommitmentNudgesWidget />);
     fireEvent.click(await screen.findByRole('button', { name: 'Drop' }));
     await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledWith('del1', { status: 'DEFERRED' }));
-    // optimistic removal, then rollback puts the row back
+    // optimistic removal while the PATCH is in flight…
+    expect(screen.queryByText('Send the volunteer rota')).toBeNull();
+    // …then the rejection puts the row back
+    reject(new Error('nope'));
     await waitFor(() => expect(screen.getByText('Send the volunteer rota')).toBeInTheDocument());
   });
 
-  it('New date PATCHes deadline = endOfUtcDay(ymd) and reloads', async () => {
+  it('New date PATCHes deadline = endOfUtcDay(ymd) on Save and reloads', async () => {
     vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
     render(<CommitmentNudgesWidget />);
     fireEvent.click(await screen.findByRole('button', { name: 'New date' }));
     fireEvent.change(screen.getByLabelText('New date for Send the volunteer rota'), { target: { value: '2030-11-20' } });
+    expect(api.updateCommitment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save new date' }));
     await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledWith('del1', { deadline: '2030-11-20T23:59:59.999Z' }));
     await waitFor(() => expect(api.getCommitmentNudges).toHaveBeenCalledTimes(2));
+  });
+
+  it('typing a date digit by digit saves nothing until Enter, then exactly one PATCH with the final date', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New date' }));
+    const input = screen.getByLabelText('New date for Send the volunteer rota');
+    // What Chrome reports as each year digit lands: 0002 → 0020 → 0202 → 2027.
+    for (const v of ['0002-12-25', '0020-12-25', '0202-12-25', '2027-12-25']) fireEvent.change(input, { target: { value: v } });
+    expect(api.updateCommitment).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(api.updateCommitment).toHaveBeenCalledTimes(1));
+    expect(api.updateCommitment).toHaveBeenCalledWith('del1', { deadline: '2027-12-25T23:59:59.999Z' });
+  });
+
+  it('a date before tomorrow is refused with a hint; blur with it closes the picker without saving', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New date' }));
+    const input = screen.getByLabelText('New date for Send the volunteer rota');
+    fireEvent.change(input, { target: { value: '0002-12-25' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTestId('new-date-hint')).toHaveTextContent('Pick a date from tomorrow on.');
+    fireEvent.click(screen.getByRole('button', { name: 'Save new date' }));
+    fireEvent.blur(input);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.updateCommitment).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'New date' })).toBeInTheDocument();
+  });
+
+  it('Escape closes the picker without saving', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New date' }));
+    const input = screen.getByLabelText('New date for Send the volunteer rota');
+    fireEvent.change(input, { target: { value: '2030-11-20' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'New date' })).toBeInTheDocument();
+    expect(api.updateCommitment).not.toHaveBeenCalled();
+  });
+
+  it('each row action is described by its own row', async () => {
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
+    render(<CommitmentNudgesWidget />);
+    const received = await screen.findByRole('button', { name: 'Received' });
+    expect(received).toHaveAccessibleDescription(/Send the volunteer rota/);
+    expect(screen.getByRole('button', { name: 'Drop' })).toHaveAccessibleDescription(/Send the volunteer rota/);
   });
 });

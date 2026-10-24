@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Commitment, CommitmentNudgeItem } from '@boardroom/shared';
 import { endOfUtcDay } from '@boardroom/shared';
 import * as api from '../../lib/api';
 import { copyToClipboard } from '../settings/CopyField';
-import { addDaysYmd, COMMITMENTS_CHANGED_EVENT, composeCheckIn, delegationDueLabel, localYmd, partitionNudges } from '../../lib/delegation';
+import { addDaysYmd, COMMITMENTS_CHANGED_EVENT, composeCheckIn, delegationDueLabel, isPickableYmd, localYmd, partitionNudges } from '../../lib/delegation';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { useVizSlice, useVizStore } from '../../stores/viz.store';
 import type { CommitmentNudgesResponse } from '../../types/debate';
@@ -71,33 +71,77 @@ const ROW_ACTION = 'h-7 inline-flex items-center justify-center rounded-md borde
 
 /** RD-12 — something another person owes the user: "from {name} · 2 days overdue". */
 function WaitingRow({ commitment, personName, overdue, busy, onCheckIn, onNewDate, onReceived, onDrop }: WaitingRowProps) {
+  const descId = useId();
+  const hintId = useId();
   const [picking, setPicking] = useState(false);
+  // The typed date is held here and saved only on Enter, Save or leaving the
+  // picker: a date input that is still being typed reports values such as
+  // 0002-12-25 as soon as the first year digit lands.
+  const [value, setValue] = useState('');
+  const [invalid, setInvalid] = useState(false);
+  const savedRef = useRef(false);
   const minYmd = addDaysYmd(localYmd(new Date()), 1);
+  const open = () => { savedRef.current = false; setValue(''); setInvalid(false); setPicking(true); };
+  const close = () => { setPicking(false); setValue(''); setInvalid(false); };
+  const save = () => {
+    if (savedRef.current) return;
+    if (!isPickableYmd(value, minYmd)) { setInvalid(true); return; }
+    savedRef.current = true;
+    onNewDate(commitment.id, value);
+    close();
+  };
   return (
     <li className="py-2" data-testid="waiting-row">
-      <p className="text-sm text-foreground leading-snug">{commitment.description}</p>
+      <p id={descId} className="text-sm text-foreground leading-snug">{commitment.description}</p>
       <p className="text-xs text-muted-foreground mt-0.5">
         from <span className="text-foreground">{personName}</span> ·{' '}
         <span className={overdue ? 'text-danger' : ''}>{delegationDueLabel(commitment.deadline, Date.now())}</span>
       </p>
       <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
-        <button type="button" className={ROW_ACTION} disabled={busy} onClick={() => onCheckIn(commitment, personName)}>Copy check-in</button>
+        <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={() => onCheckIn(commitment, personName)}>Copy check-in</button>
         {picking ? (
-          <input
-            type="date"
-            autoFocus
-            min={minYmd}
-            aria-label={`New date for ${commitment.description}`}
-            className="h-7 min-w-0 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
-            onChange={(e) => { if (e.target.value) { onNewDate(commitment.id, e.target.value); setPicking(false); } }}
-            onBlur={() => setPicking(false)}
-          />
+          <div
+            className="flex min-w-0 items-center gap-1"
+            onBlur={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              if (isPickableYmd(value, minYmd)) save(); else close();
+            }}
+          >
+            <input
+              type="date"
+              autoFocus
+              min={minYmd}
+              value={value}
+              aria-label={`New date for ${commitment.description}`}
+              aria-invalid={invalid || undefined}
+              aria-describedby={invalid ? hintId : undefined}
+              className="h-7 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+              onChange={(e) => { setValue(e.target.value); setInvalid(false); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); save(); }
+                else if (e.key === 'Escape') { e.preventDefault(); close(); }
+              }}
+            />
+            <button
+              type="button"
+              className={ROW_ACTION}
+              aria-label="Save new date"
+              // Keep focus in the input so the picker's blur does not close it before the click lands.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={save}
+            >
+              Save
+            </button>
+          </div>
         ) : (
-          <button type="button" className={ROW_ACTION} disabled={busy} onClick={() => setPicking(true)}>New date</button>
+          <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={open}>New date</button>
         )}
-        <button type="button" className={ROW_ACTION} disabled={busy} onClick={() => onReceived(commitment.id)} title="They delivered: mark it completed">Received</button>
-        <button type="button" className={ROW_ACTION} disabled={busy} onClick={() => onDrop(commitment.id)} title="No longer needed: mark it deferred">Drop</button>
+        <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={() => onReceived(commitment.id)} title="They delivered: mark it completed">Received</button>
+        <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={() => onDrop(commitment.id)} title="No longer needed: mark it deferred">Drop</button>
       </div>
+      {picking && invalid && (
+        <p id={hintId} className="mt-1 text-xs text-danger" data-testid="new-date-hint">Pick a date from tomorrow on.</p>
+      )}
     </li>
   );
 }
@@ -182,6 +226,8 @@ export function CommitmentNudgesWidget() {
     useToastStore.getState().addToast(ok ? 'Check-in copied' : 'Could not copy the check-in', ok ? 'success' : 'error');
   }, []);
   const setNewDate = useCallback(async (id: string, ymd: string) => {
+    // Never move a delegation into the past (or to a half-typed year), whatever the caller sent.
+    if (!isPickableYmd(ymd, addDaysYmd(localYmd(new Date()), 1))) return;
     setBusyIds((s) => new Set(s).add(id));
     try {
       await api.updateCommitment(id, { deadline: endOfUtcDay(ymd).toISOString() });
