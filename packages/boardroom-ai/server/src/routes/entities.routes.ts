@@ -377,7 +377,12 @@ router.get('/commitments/nudges', async (req: AuthRequest, res, next) => {
 
 // RD-12 — record a delegation (or any commitment). OmniMind owns the
 // ownership checks and the Idempotency-Key replay; the header is forwarded.
-router.post('/commitments', validateBody(CreateCommitmentRequestSchema), async (req: AuthRequest, res, next) => {
+// The browser body is narrower than OmniMind's: sourceSessionId (not
+// ownership-checked upstream), status and completedAt are stripped, so a
+// browser user can neither attach a commitment to another user's session nor
+// create one already completed.
+const BrowserCreateCommitmentSchema = CreateCommitmentRequestSchema.omit({ sourceSessionId: true, status: true, completedAt: true });
+router.post('/commitments', validateBody(BrowserCreateCommitmentSchema), async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.createCommitment(req.auth!.userId, req.body, req.get('Idempotency-Key') ?? undefined);
     res.status(201).json(data);

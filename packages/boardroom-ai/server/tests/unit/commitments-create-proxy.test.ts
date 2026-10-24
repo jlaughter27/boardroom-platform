@@ -7,7 +7,7 @@ import express from 'express';
 import type { Server } from 'http';
 
 vi.mock('../../src/services/omnimind-client', () => ({
-  omnimindClient: { createCommitment: vi.fn() },
+  omnimindClient: { createCommitment: vi.fn(), getDecision: vi.fn(), getDecisionChanges: vi.fn(), getCalibration: vi.fn() },
 }));
 
 import { omnimindClient } from '../../src/services/omnimind-client';
@@ -41,7 +41,11 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
 });
 
-beforeEach(() => vi.mocked(omnimindClient.createCommitment).mockReset());
+beforeEach(() => {
+  vi.mocked(omnimindClient.createCommitment).mockReset();
+  vi.mocked(omnimindClient.getDecision).mockReset();
+  vi.mocked(omnimindClient.getCalibration).mockReset();
+});
 
 const body = {
   description: 'Send the volunteer rota',
@@ -83,9 +87,43 @@ describe('POST /commitments (RD-12)', () => {
     expect(omnimindClient.createCommitment).not.toHaveBeenCalled();
   });
 
+  it('strips sourceSessionId, status and completedAt: the browser cannot attach a session or pre-complete a row', async () => {
+    vi.mocked(omnimindClient.createCommitment).mockResolvedValue({ id: 'c3' } as any);
+    const res = await post({ ...body, sourceSessionId: 'someone-elses-session', status: 'COMPLETED', completedAt: '2026-10-01T00:00:00.000Z' });
+    expect(res.status).toBe(201);
+    const sent = JSON.parse(JSON.stringify(vi.mocked(omnimindClient.createCommitment).mock.calls[0][1]));
+    expect(sent).toEqual(body);
+  });
+
   it('401 without a JWT', async () => {
     const res = await fetch(`${base}/commitments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     expect(res.status).toBe(401);
     expect(omnimindClient.createCommitment).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /decisions/:id (RD-12)', () => {
+  const get = (path: string) => fetch(`${base}${path}`, { headers: { cookie: `boardroom_token=${token}` } });
+
+  it('proxies one decision by id for the signed-in user', async () => {
+    vi.mocked(omnimindClient.getDecision).mockResolvedValue({ id: 'd-old', title: 'Fair format' } as any);
+    const res = await get('/decisions/d-old');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 'd-old', title: 'Fair format' });
+    expect(omnimindClient.getDecision).toHaveBeenCalledWith('deleg-u1', 'd-old');
+  });
+
+  it('passes an upstream 404 through', async () => {
+    vi.mocked(omnimindClient.getDecision).mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }));
+    const res = await get('/decisions/nope');
+    expect(res.status).toBe(404);
+  });
+
+  it('the literal /decisions/calibration path still wins over /decisions/:id', async () => {
+    vi.mocked(omnimindClient.getCalibration).mockResolvedValue({ reviewed: 0 } as any);
+    const res = await get('/decisions/calibration');
+    expect(res.status).toBe(200);
+    expect(omnimindClient.getCalibration).toHaveBeenCalled();
+    expect(omnimindClient.getDecision).not.toHaveBeenCalled();
   });
 });
