@@ -151,6 +151,35 @@ const openWikilinkByKeyboard = [
   { assert: 'document.activeElement && document.activeElement.hasAttribute("data-memory-title")', message: 'focus did not move to the opened memory title' },
 ];
 
+// RD-11 "What this displaces" (fixtures/pages.mjs s-load / s-load-netnew / s-visual).
+const DISP = '[data-testid="synthesis-displacement"]';
+const showDisplacement = (scope = '') => [
+  { wait: '[data-testid="synthesis-panel"]' },
+  { wait: `${scope}${DISP}` },
+  { sleep: 300 },
+  { evaluate: `document.querySelector('${scope}${DISP}').closest('.mt-4').scrollIntoView({ block: 'center' })` },
+  { sleep: 400 },
+  // The section sits after the Recommendation and before Next Actions.
+  { assert: `(() => { const root = document.querySelector('${scope || '[data-testid="synthesis-panel"]'}'); const b = [...root.querySelectorAll('button')].map((x) => x.textContent.trim()); const d = b.findIndex((t) => t.endsWith('What this displaces')); const n = b.findIndex((t) => t.endsWith('Next Actions')); return d >= 0 && n > d; })()`, message: '"What this displaces" is not directly before Next Actions' },
+];
+const openSheetDisplacement = [
+  { wait: '[data-testid="synthesis-panel"]' }, { click: '[aria-label="Open synthesis as a sheet"]' }, { wait: '[data-testid="synthesis-sheet-body"]' }, { sleep: 500 },
+  ...showDisplacement('[data-testid="synthesis-sheet-body"] '),
+];
+const DISP_CONTRAST = (scope = '') => [
+  { selector: `${scope}${DISP} > p:first-child`, label: 'displaces: answer' },
+  { selector: `${scope}${DISP} li span`, label: 'displaces: action' },
+  { selector: `${scope}${DISP} li`, label: 'displaces: item' },
+];
+const NETNEW_CONTRAST = [
+  { selector: `${DISP} > p:first-child`, label: 'displaces: answer' },
+  { selector: `${DISP} > p.text-xs`, label: 'displaces: net new note' },
+];
+const noDisplacement = [
+  { wait: '[data-testid="synthesis-panel"]' }, { sleep: 400 },
+  { assert: `!document.querySelector('${DISP}') && ![...document.querySelectorAll('button')].some((b) => b.textContent.includes('What this displaces'))`, message: 'a pre-RD-11 report rendered a "What this displaces" section' },
+];
+
 // ── Page sets ─────────────────────────────────────────────────────────────────
 export function pageSets({ legacy = false } = {}) {
   const dash = legacy ? waitLegacyDashboard : waitDashboard;
@@ -191,6 +220,10 @@ export function pageSets({ legacy = false } = {}) {
       contrast: legacy ? [] : [SHEET_TITLE],
     },
     ...(legacy ? [] : [
+      { name: 'decision-session-displacement', path: '/decisions/s-load', actions: showDisplacement(), contrast: DISP_CONTRAST() },
+      { name: 'decision-session-displacement-sheet', path: '/decisions/s-load', actions: openSheetDisplacement, contrast: DISP_CONTRAST('[data-testid="synthesis-sheet-body"] ') },
+      { name: 'decision-session-netnew', path: '/decisions/s-load-netnew', actions: showDisplacement(), contrast: NETNEW_CONTRAST },
+      { name: 'decision-session-no-displacement', path: '/decisions/s-visual', actions: noDisplacement },
       { name: 'decision-session-streaming', path: '/decisions/s-stream', actions: streamMid },
       { name: 'decision-session-error', path: '/decisions/s-stream-error', actions: afterError },
     ]),
@@ -230,6 +263,9 @@ export function pageSets({ legacy = false } = {}) {
     { name: 'dashboard-mobile', path: '/', actions: [...dash, ...settle] },
     ...(legacy ? [] : [{ name: 'profile-unavailable-mobile', path: '/?state=profile-unavailable', actions: profileUnavailable }]),
     ...(legacy ? [] : [
+      { name: 'decision-session-displacement-mobile', path: '/decisions/s-load', actions: [...showDisplacement(), { noOverflowX: ['#main-content'] }], contrast: DISP_CONTRAST() },
+      { name: 'decision-session-displacement-sheet-mobile', path: '/decisions/s-load', actions: openSheetDisplacement, contrast: DISP_CONTRAST('[data-testid="synthesis-sheet-body"] ') },
+      { name: 'decision-session-netnew-mobile', path: '/decisions/s-load-netnew', actions: showDisplacement(), contrast: NETNEW_CONTRAST },
       { name: 'decision-session-streaming-mobile', path: '/decisions/s-stream', actions: streamMid },
       // Mobile stacks the cards: scroll the failed one into view before the shot.
       { name: 'decision-session-error-mobile', path: '/decisions/s-stream-error', actions: [...afterError, { evaluate: 'document.querySelector("[data-testid=persona-card][data-state=error]").scrollIntoView({ block: "center" })' }, { sleep: 300 }] },
