@@ -63,3 +63,69 @@ describe('generateWeeklyMemo idempotency (R-O-12)', () => {
     expect(out.upcomingPressurePoints).toEqual(['review:d1']);
   });
 });
+
+// ── RD-11 — load section in the weekly memo + D3 soft-delete filters ──
+
+describe('generateWeeklyMemo load section (RD-11) + D3', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const MEMO_JSON = JSON.stringify({ thinkingQualityScore: 6, decisionsMade: 1, patternsNoticed: [], activeContradictions: [], upcomingPressurePoints: [], recommendedFocus: [], fullMemoText: 'Memo body' });
+
+  /** fakePrisma + the load reads: 4 business projects (invented titles), 1 overdue open commitment. */
+  function loadPrisma(existingMemo: unknown) {
+    const prisma = fakePrisma(existingMemo);
+    prisma.project = {
+      findMany: vi.fn().mockResolvedValue(['Podcast relaunch', 'Newsletter rebuild', 'Partner portal', 'Pricing page test'].map((title, i) => ({ id: `pb${i}`, title, status: 'active', domain: 'business', updatedAt: new Date() }))),
+    };
+    prisma.commitment.findMany = vi.fn().mockResolvedValue([{ id: 'c1', description: 'Send the deck', deadline: new Date(Date.now() - 86_400_000), linkedProjectId: 'pb1', project: { id: 'pb1', domain: 'business', deletedAt: null } }]);
+    prisma.decision.count = vi.fn().mockImplementation(({ where }: any) => Promise.resolve(where.reviewAt ? 1 : 100));
+    return prisma;
+  }
+
+  it('the LLM context and fullMemoText contain ## Current load; fullMemoText carries no project titles', async () => {
+    const prisma = loadPrisma(null);
+    mockCreateMessage.mockResolvedValue({ content: [{ type: 'text', text: MEMO_JSON }], usage: { input_tokens: 1, output_tokens: 1 } });
+    await generateWeeklyMemo('u1', prisma);
+
+    const context: string = mockCreateMessage.mock.calls[0][0].messages[0].content;
+    expect(context).toContain('## Current load (computed from your records; formula v1)');
+    expect(context).toContain('  - business: 4 / 1, 1 / 0, 0 / 20');
+    expect(context).toContain('- decisions past their review date: 1');
+    expect(context).toContain('domain_sprawl (business: 4 active projects)');
+
+    const data = prisma.weeklyMemo.create.mock.calls[0][0].data;
+    expect(data.fullMemoText.startsWith('Memo body')).toBe(true);
+    expect(data.fullMemoText).toContain('\n\n## Current load (computed from your records; formula v1)\n');
+    const loadPart = data.fullMemoText.slice(data.fullMemoText.indexOf('## Current load'));
+    for (const t of ['Podcast relaunch', 'Newsletter rebuild', 'Partner portal', 'Pricing page test']) expect(loadPart).not.toContain(t);
+    expect(loadPart).not.toContain('could pause');
+  });
+
+  it('a load failure still produces the memo, without the section', async () => {
+    const prisma = loadPrisma(null);
+    prisma.project.findMany.mockRejectedValue(new Error('db down'));
+    mockCreateMessage.mockResolvedValue({ content: [{ type: 'text', text: MEMO_JSON }], usage: { input_tokens: 1, output_tokens: 1 } });
+    const out = await generateWeeklyMemo('u1', prisma) as Record<string, unknown>;
+    expect(out.id).toBe('memo-new');
+    expect(mockCreateMessage.mock.calls[0][0].messages[0].content).not.toContain('## Current load');
+    expect(prisma.weeklyMemo.create.mock.calls[0][0].data.fullMemoText).not.toContain('## Current load');
+  });
+
+  it('D3: the decision and commitment queries exclude soft-deleted rows', async () => {
+    const prisma = loadPrisma(null);
+    mockCreateMessage.mockResolvedValue({ content: [{ type: 'text', text: MEMO_JSON }], usage: { input_tokens: 1, output_tokens: 1 } });
+    await generateWeeklyMemo('u1', prisma);
+    const decisionWheres = prisma.decision.findMany.mock.calls.map((c: any[]) => c[0].where);
+    expect(decisionWheres.find((w: any) => w.createdAt)).toMatchObject({ userId: 'u1', deletedAt: null });
+    for (const call of prisma.commitment.findMany.mock.calls) expect(call[0].where).toMatchObject({ userId: 'u1', deletedAt: null, status: 'OPEN' });
+  });
+
+  it('the idempotent path (memo already exists) runs no load queries', async () => {
+    const prisma = loadPrisma({ id: 'memo-1', userId: 'u1', thinkingQualityScore: 7, weekStart: new Date() });
+    await generateWeeklyMemo('u1', prisma);
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
+    expect(prisma.decision.count).not.toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ reviewAt: expect.anything() }) }));
+    expect(prisma.task.findMany).toHaveBeenCalledTimes(1); // the memo's own read only
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+  });
+});
