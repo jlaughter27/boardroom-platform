@@ -11,6 +11,18 @@ export interface CalendarEvent {
   externalId: string | null;
   description: string | null;
   location: string | null;
+  /** RD-13 — Google attendees. Server-internal: `GET /calendar/events` strips it. */
+  attendees?: CalendarAttendee[];
+}
+
+/** RD-13 — one Google Calendar attendee (never sent to OmniMind). */
+export interface CalendarAttendee {
+  email: string | null;
+  displayName: string | null;
+  self: boolean;
+  organizer: boolean;
+  resource: boolean;
+  responseStatus: 'needsAction' | 'declined' | 'tentative' | 'accepted' | null;
 }
 
 export interface CalendarSyncStatus {

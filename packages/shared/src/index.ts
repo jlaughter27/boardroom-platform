@@ -27,6 +27,7 @@ export * from './types/context-capsule.types';
 export * from './types/context.types';
 export * from './types/utility.types';
 export * from './types/mcp-token.types';
+export * from './types/meeting-brief.types';
 
 // Validation schemas
 export * from './validation';
@@ -39,6 +40,7 @@ export * from './constants/tool-config';
 export * from './constants/cortex-config';
 export * from './constants/model-config';
 export * from './constants/graph-config';
+export * from './constants/meeting-brief-config';
 
 // Utilities
 // NOTE (S-103): `hashing` (Node `crypto`) and `env-validator` (`process.env`)

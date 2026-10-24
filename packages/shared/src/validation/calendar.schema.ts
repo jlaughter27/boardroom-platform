@@ -2,6 +2,19 @@
 
 import { z } from 'zod';
 
+// ── Calendar Attendee Schema (RD-13) ──
+
+export const CalendarAttendeeSchema = z.object({
+  email: z.string().nullable().describe('Attendee e-mail (never sent to OmniMind)'),
+  displayName: z.string().nullable().describe('Attendee display name'),
+  self: z.boolean().describe('Whether this attendee is the calendar owner'),
+  organizer: z.boolean().describe('Whether this attendee organizes the event'),
+  resource: z.boolean().describe('Whether this attendee is a room/resource'),
+  responseStatus: z.enum(['needsAction', 'declined', 'tentative', 'accepted']).nullable().describe('RSVP status'),
+});
+
+export type CalendarAttendeeInput = z.infer<typeof CalendarAttendeeSchema>;
+
 // ── Calendar Event Schema ──
 
 export const CalendarEventSchema = z.object({
@@ -14,6 +27,7 @@ export const CalendarEventSchema = z.object({
   externalId: z.string().nullable().describe('External calendar system ID'),
   description: z.string().nullable().describe('Event description'),
   location: z.string().nullable().describe('Event location'),
+  attendees: z.array(CalendarAttendeeSchema).optional().describe('RD-13 — attendees (server-internal)'),
 });
 
 export type CalendarEventInput = z.infer<typeof CalendarEventSchema>;
