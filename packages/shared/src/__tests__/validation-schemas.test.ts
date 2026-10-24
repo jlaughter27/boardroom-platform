@@ -45,7 +45,13 @@ import {
   SourceTypeSchema,
   DecisionStatusSchema,
   CommitmentStatusSchema,
+
+  // RD-11 displacement
+  DisplacementSchema,
+  StopItemSchema,
 } from '../validation';
+import type { Displacement, StopItem } from '../types/persona.types';
+import type { DisplacementSchemaParity, StopItemSchemaParity } from '../validation/persona.schema';
 
 describe('Enum Schemas', () => {
   it('validates MemoryClass enum values', () => {
@@ -201,5 +207,71 @@ describe('Goal Schemas', () => {
       title: 'Learn TypeScript',
     };
     expect(CreateGoalRequestSchema.parse(request)).toEqual(request);
+  });
+});
+
+// ── RD-11 — SynthesisReport.displacement ──
+
+describe('SynthesisReportSchema.displacement (RD-11)', () => {
+  const base = {
+    disagreementMap: 'Optimist vs Critic on timing',
+    decisiveTradeoff: 'Speed vs focus',
+    recommendation: 'Proceed after pausing one project',
+    nextActions: ['Draft the offer'],
+    topRisks: ['Overextension'],
+    assumptionsToMonitor: [],
+    sourceMemoryIds: [],
+  };
+
+  it('parses a report without displacement (pre-RD-11 / review mode)', () => {
+    const out = SynthesisReportSchema.parse(base);
+    expect(out.displacement).toBeUndefined();
+    expect(out.recommendation).toBe(base.recommendation);
+  });
+
+  it('parses a valid displacement', () => {
+    const displacement = { answer: 'Pause the podcast relaunch to make room.', stops: [{ title: 'Podcast relaunch', action: 'pause' }], netNew: false };
+    expect(SynthesisReportSchema.parse({ ...base, displacement }).displacement).toEqual(displacement);
+  });
+
+  it('truncates 5 stops to 3', () => {
+    const stops = ['A', 'B', 'C', 'D', 'E'].map(title => ({ title, action: 'defer' }));
+    const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Too much at once.', stops, netNew: false } });
+    expect(out.displacement?.stops.map(s => s.title)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('a missing stops array becomes []', () => {
+    const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Nothing needs to stop.', netNew: true } });
+    expect(out.displacement).toEqual({ answer: 'Nothing needs to stop.', stops: [], netNew: true });
+  });
+
+  it.each([
+    ['an unknown action', { answer: 'Drop it.', stops: [{ title: 'Podcast relaunch', action: 'abandon' }], netNew: false }],
+    ['an empty answer', { answer: '', stops: [], netNew: false }],
+    ['a missing netNew', { answer: 'Pause it.', stops: [] }],
+    ['a non-object', 'pause the podcast'],
+  ])('%s gives displacement === undefined while every other field still parses', (_label, displacement) => {
+    const result = SynthesisReportSchema.safeParse({ ...base, displacement });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.displacement).toBeUndefined();
+    expect(result.data).toMatchObject(base);
+  });
+
+  it('StopItemSchema caps title length at 200 and rejects empty titles', () => {
+    expect(StopItemSchema.safeParse({ title: 'x'.repeat(201), action: 'stop' }).success).toBe(false);
+    expect(StopItemSchema.safeParse({ title: '', action: 'stop' }).success).toBe(false);
+    expect(StopItemSchema.safeParse({ title: 'Podcast relaunch', action: 'renegotiate' }).success).toBe(true);
+  });
+
+  it('type-level parity: z.infer of DisplacementSchema / StopItemSchema equals Displacement / StopItem', () => {
+    // Enforced at compile time in persona.schema.ts (`pnpm typecheck` fails on drift);
+    // these assignments make the dependency explicit here as well.
+    const displacementParity: DisplacementSchemaParity = true;
+    const stopItemParity: StopItemSchemaParity = true;
+    const parsed: Displacement = DisplacementSchema.parse({ answer: 'Defer the redesign.', stops: [{ title: 'Redesign', action: 'defer' }], netNew: false });
+    const item: StopItem = StopItemSchema.parse({ title: 'Redesign', action: 'defer' });
+    expect([displacementParity, stopItemParity]).toEqual([true, true]);
+    expect(parsed.stops[0]).toEqual(item);
   });
 });

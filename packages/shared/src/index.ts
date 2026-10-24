@@ -14,6 +14,7 @@ export * from './types/api.types';
 export * from './types/api-responses';
 export * from './types/tool.types';
 export * from './types/cortex.types';
+export * from './types/load.types';
 export * from './types/calendar.types';
 export * from './types/subscription.types';
 export * from './types/embedding.types';
