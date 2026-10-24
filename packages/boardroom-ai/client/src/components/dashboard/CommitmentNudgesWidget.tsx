@@ -67,7 +67,7 @@ interface WaitingRowProps {
   onDrop(id: string): void;
 }
 
-const ROW_ACTION = 'h-7 inline-flex items-center rounded-md border border-border px-2.5 text-xs text-foreground hover:bg-muted disabled:opacity-50 transition-colors';
+const ROW_ACTION = 'h-7 inline-flex items-center justify-center rounded-md border border-border px-2.5 text-xs text-foreground hover:bg-muted disabled:opacity-50 transition-colors';
 
 /** RD-12 — something another person owes the user: "from {name} · 2 days overdue". */
 function WaitingRow({ commitment, personName, overdue, busy, onCheckIn, onNewDate, onReceived, onDrop }: WaitingRowProps) {
@@ -80,7 +80,7 @@ function WaitingRow({ commitment, personName, overdue, busy, onCheckIn, onNewDat
         from <span className="text-foreground">{personName}</span> ·{' '}
         <span className={overdue ? 'text-danger' : ''}>{delegationDueLabel(commitment.deadline, Date.now())}</span>
       </p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
         <button type="button" className={ROW_ACTION} disabled={busy} onClick={() => onCheckIn(commitment, personName)}>Copy check-in</button>
         {picking ? (
           <input
@@ -88,7 +88,7 @@ function WaitingRow({ commitment, personName, overdue, busy, onCheckIn, onNewDat
             autoFocus
             min={minYmd}
             aria-label={`New date for ${commitment.description}`}
-            className="h-7 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+            className="h-7 min-w-0 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
             onChange={(e) => { if (e.target.value) { onNewDate(commitment.id, e.target.value); setPicking(false); } }}
             onBlur={() => setPicking(false)}
           />
@@ -241,9 +241,9 @@ export function CommitmentNudgesWidget() {
       </ul>}
       {waitingTotal > 0 && (
         <section className={mineTotal > 0 || onHorizon > 0 ? 'mt-3 border-t border-border pt-3' : ''} data-testid="waiting-on-others">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Waiting on others</h3>
-            <div className="flex gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-1">
+            <h3 className="whitespace-nowrap text-sm font-medium text-muted-foreground uppercase tracking-wide">Waiting on others</h3>
+            <div className="flex gap-1.5 whitespace-nowrap">
               {waiting.overdue.length > 0 && <Badge variant="danger">{waiting.overdue.length} overdue</Badge>}
               {waiting.dueSoon.length > 0 && <Badge variant="warning">{waiting.dueSoon.length} due soon</Badge>}
             </div>

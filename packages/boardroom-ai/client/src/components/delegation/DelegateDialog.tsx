@@ -225,6 +225,8 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
       title="Delegate"
       description="Pick who, check the brief, then share or copy it. It is recorded only after that."
       size="md"
+      // A tall form: the sheet variant scrolls its own body (side sheet on desktop, bottom sheet on phones).
+      variant="sheet"
     >
       <div className="space-y-5" data-testid="delegate-dialog">
         {/* Who */}
@@ -404,7 +406,7 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
             onChange={(e) => { setDraft(e.target.value); setDirty(true); }}
             className={cn(FIELD, 'py-2 font-mono text-xs leading-relaxed resize-y')}
           />
-          <p className="mt-1 text-xs text-muted-foreground">The brief is not saved. Only What, By and the person are recorded.</p>
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="delegate-brief-note">The brief is not saved. Only What, By and the person are recorded.</p>
         </div>
 
         {failed && (

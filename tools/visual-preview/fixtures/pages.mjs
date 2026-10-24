@@ -6,6 +6,7 @@
 // shell defaults in auth.mjs, so they win where paths overlap (`/profile`).
 
 import graphFixture from './graph.mjs';
+import { delegationRoutes } from './delegation-data.mjs';
 
 const USER_ID = 'u-josh';
 const NOW = Date.now();
@@ -217,6 +218,8 @@ export default {
     { method: 'GET', path: '/profile', handler: (req) => (String(req.headers?.referer ?? '').includes('profile-unavailable') ? { status: 503, body: { error: 'upstream_unavailable', message: 'OmniMind circuit breaker OPEN' } } : { body: profile }) },
     { method: 'PATCH', path: '/profile', handler: (req) => ({ body: { ...profile, ...(req.json ?? {}) } }) },
     { method: 'GET', path: '/sessions/s-visual', handler: ok(session) },
+    // RD-12 — delegations (see fixtures/delegation-data.mjs).
+    ...delegationRoutes(session),
     // RD-1 vault notes — ahead of the generic `m-*` stub below.
     { method: 'POST', path: '/memories/search', handler: vaultSearch },
     { method: 'GET', path: /^\/memories\/(m-vault-[^/]+)$/, handler: (_req, _url, m) => (VAULT.has(m[1]) ? { body: VAULT.get(m[1]) } : { status: 404, body: { message: 'Memory not found' } }) },
