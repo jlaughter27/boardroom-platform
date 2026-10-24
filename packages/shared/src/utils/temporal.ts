@@ -45,10 +45,11 @@ export const isOverdue = (deadline: Date): boolean => {
  * Calculate the number of days until a future date.
  * Returns negative values for dates in the past.
  * @param date - The target date
+ * @param now - Reference instant (defaults to the current time; RD-12 passes a fixed one)
  * @returns Number of days until the date (negative if past)
  */
-export const daysUntil = (date: Date): number => {
-  const diffMs = date.getTime() - Date.now();
+export const daysUntil = (date: Date | string, now: Date | number = Date.now()): number => {
+  const diffMs = new Date(date).getTime() - (typeof now === 'number' ? now : now.getTime());
   return Math.floor(diffMs / MS_PER_DAY);
 };
 

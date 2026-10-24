@@ -30,3 +30,6 @@ export * from './validation-helpers';
 
 // Domain normalization (shared refusal-gate semantics)
 export * from './domain';
+
+// Commitment direction (RD-12)
+export * from './commitment';

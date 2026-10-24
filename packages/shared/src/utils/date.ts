@@ -298,3 +298,34 @@ export const isSameDay = (date1: Date, date2: Date): boolean => {
     date1.getDate() === date2.getDate()
   );
 };
+
+// ── RD-12: UTC day-boundary deadline helpers ──
+
+/** Milliseconds in one day. */
+export const DAY_MS = 86_400_000;
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * End of the given UTC calendar day: `YYYY-MM-DD` → `YYYY-MM-DDT23:59:59.999Z`.
+ * The server's `toISOString().slice(0, 10)` renderers then print the chosen date.
+ * @throws on a malformed or impossible date
+ */
+export const endOfUtcDay = (ymd: string): Date => {
+  if (!YMD_RE.test(ymd)) throw new Error(`endOfUtcDay: expected YYYY-MM-DD, got "${ymd}"`);
+  const d = new Date(`${ymd}T23:59:59.999Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== ymd) {
+    throw new Error(`endOfUtcDay: invalid date "${ymd}"`);
+  }
+  return d;
+};
+
+const toMs = (v: Date | string | number): number =>
+  typeof v === 'number' ? v : new Date(v).getTime();
+
+/** Whole days past the deadline (ceil), never negative. 0 before the deadline. */
+export const daysOverdue = (deadline: Date | string, now: Date | number): number =>
+  Math.max(0, Math.ceil((toMs(now) - toMs(deadline)) / DAY_MS));
+
+// `daysUntil(deadline, now)` lives in ./temporal (extended with an optional `now`
+// for RD-12) — one name, one formula: Math.floor((deadline − now) / DAY_MS).
