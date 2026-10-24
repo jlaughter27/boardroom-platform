@@ -114,7 +114,11 @@ ${loadSection ? `\n${loadSection}\n` : ''}`;
   const reviewSection = awaitingReview.length
     ? `\n\n## Decisions awaiting review\n${awaitingReview.map(d => `- ${d.title} — review by ${d.reviewAt?.toISOString().split('T')[0]} (id: ${d.id})`).join('\n')}\n`
     : '';
-  const fullMemoText = `${memoData.fullMemoText ?? ''}${reviewSection}${loadSection ? `\n\n${loadSection}\n` : ''}`;
+  // RD-11: the load section feeds the memo LLM only. It is not appended to
+  // fullMemoText, which the dashboard renders beside CognitiveLoadBanner (a
+  // different, client-side formula) — the founder must never see two load
+  // numbers. One visible load source arrives with M3-C1.
+  const fullMemoText = `${memoData.fullMemoText ?? ''}${reviewSection}`;
 
   // Store
   const memo = await prisma.weeklyMemo.create({

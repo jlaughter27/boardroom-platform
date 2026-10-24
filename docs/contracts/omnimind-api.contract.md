@@ -708,7 +708,9 @@ computation fails. Task writes and project↔task link/unlink now also invalidat
 collapsed to one line, lowercased and capped at 40 characters; titles at 80 (both by code point). Computed by `services/load.service.ts`
 (SQL reads + pure arithmetic, no LLM); a block without the section is byte-identical to the pre-RD-11
 output. The response shape is unchanged. The weekly memo (`POST /cortex/memo/generate`, cron Sun 18:00)
-appends the same section without project titles to `fullMemoText`.
+gives the same section, without project titles, to the memo LLM as context only; it is not appended to
+`fullMemoText`, so the dashboard never shows a second load number beside CognitiveLoadBanner (one visible
+load source arrives with M3-C1).
 
 ### POST /context/reflect  (Phase 6)
 

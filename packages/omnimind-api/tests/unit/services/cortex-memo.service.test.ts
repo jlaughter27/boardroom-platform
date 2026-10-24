@@ -82,7 +82,7 @@ describe('generateWeeklyMemo load section (RD-11) + D3', () => {
     return prisma;
   }
 
-  it('the LLM context and fullMemoText contain ## Current load; fullMemoText carries no project titles', async () => {
+  it('the LLM context contains ## Current load; fullMemoText does not (one visible load number)', async () => {
     const prisma = loadPrisma(null);
     mockCreateMessage.mockResolvedValue({ content: [{ type: 'text', text: MEMO_JSON }], usage: { input_tokens: 1, output_tokens: 1 } });
     await generateWeeklyMemo('u1', prisma);
@@ -95,10 +95,9 @@ describe('generateWeeklyMemo load section (RD-11) + D3', () => {
 
     const data = prisma.weeklyMemo.create.mock.calls[0][0].data;
     expect(data.fullMemoText.startsWith('Memo body')).toBe(true);
-    expect(data.fullMemoText).toContain('\n\n## Current load (computed from your records; formula v1)\n');
-    const loadPart = data.fullMemoText.slice(data.fullMemoText.indexOf('## Current load'));
-    for (const t of ['Podcast relaunch', 'Newsletter rebuild', 'Partner portal', 'Pricing page test']) expect(loadPart).not.toContain(t);
-    expect(loadPart).not.toContain('could pause');
+    expect(data.fullMemoText).not.toContain('## Current load');
+    for (const t of ['Podcast relaunch', 'Newsletter rebuild', 'Partner portal', 'Pricing page test']) expect(context).not.toContain(t);
+    expect(context).not.toContain('could pause');
   });
 
   it('a load failure still produces the memo, without the section', async () => {
