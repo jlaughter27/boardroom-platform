@@ -1,6 +1,8 @@
 import { google } from 'googleapis';
+import type { calendar_v3 } from 'googleapis';
 import crypto from 'crypto';
-import type { CalendarEvent, CalendarSyncStatus } from '@boardroom/shared';
+import type { CalendarAttendee, CalendarEvent, CalendarSyncStatus } from '@boardroom/shared';
+import { MEETING_BRIEF_CONFIG } from '@boardroom/shared';
 import { omnimindClient } from './omnimind-client';
 
 const STATE_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret';
@@ -74,11 +76,51 @@ export async function handleCallback(userId: string, code: string): Promise<void
   });
 }
 
-export async function getEvents(userId: string, start: Date, end: Date): Promise<CalendarEvent[]> {
-  if (!isConfigured()) return [];
+// ── RD-13 — attendee-aware strict fetch + per-user event-list cache ─────────
+
+/** `fetchEventsStrict` when GOOGLE_CLIENT_ID / _SECRET are not set. */
+export class CalendarNotConfiguredError extends Error {
+  constructor() { super('Google Calendar not configured'); this.name = 'CalendarNotConfiguredError'; }
+}
+
+/** `fetchEventsStrict` when the user has no stored Google token. */
+export class CalendarNotConnectedError extends Error {
+  constructor() { super('Google Calendar not connected'); this.name = 'CalendarNotConnectedError'; }
+}
+
+/** Pure Google → CalendarEvent mapping, attendees included (server-internal). */
+export function mapGoogleEvent(event: calendar_v3.Schema$Event): CalendarEvent {
+  return {
+    id: event.id ?? '',
+    title: event.summary ?? 'Untitled',
+    startTime: new Date(event.start?.dateTime ?? event.start?.date ?? ''),
+    endTime: new Date(event.end?.dateTime ?? event.end?.date ?? ''),
+    allDay: !!event.start?.date && !event.start?.dateTime,
+    source: 'google',
+    externalId: event.id ?? null,
+    description: event.description ?? null,
+    location: event.location ?? null,
+    attendees: (event.attendees ?? []).map((a): CalendarAttendee => ({
+      email: a.email ?? null,
+      displayName: a.displayName ?? null,
+      self: !!a.self,
+      organizer: !!a.organizer,
+      resource: !!a.resource,
+      responseStatus: (['needsAction', 'declined', 'tentative', 'accepted'] as const).find(s => s === a.responseStatus) ?? null,
+    })),
+  };
+}
+
+/**
+ * The Google read behind `getEvents`, without its catch: throws
+ * CalendarNotConfiguredError / CalendarNotConnectedError, rethrows Google
+ * errors, and keeps attendees. Used by `GET /calendar/briefs`.
+ */
+export async function fetchEventsStrict(userId: string, start: Date, end: Date): Promise<CalendarEvent[]> {
+  if (!isConfigured()) throw new CalendarNotConfiguredError();
 
   const tokenData = await omnimindClient.getOAuthToken(userId, 'google') as Record<string, unknown> | null;
-  if (!tokenData) return [];
+  if (!tokenData) throw new CalendarNotConnectedError();
 
   const client = createOAuth2Client();
   client.setCredentials({
@@ -87,7 +129,8 @@ export async function getEvents(userId: string, start: Date, end: Date): Promise
     expiry_date: tokenData.expiresAt ? new Date(tokenData.expiresAt as string).getTime() : undefined,
   });
 
-  // Handle token refresh
+  // Handle token refresh (same as the legacy path; a concurrent refresh from
+  // the week strip is benign — both upsert a valid token and keep the refresh token).
   client.on('tokens', async (newTokens) => {
     if (newTokens.access_token) {
       await omnimindClient.saveOAuthToken(userId, {
@@ -101,30 +144,73 @@ export async function getEvents(userId: string, start: Date, end: Date): Promise
     }
   });
 
-  try {
-    const calendar = google.calendar({ version: 'v3', auth: client });
-    const response = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin: start.toISOString(),
-      timeMax: end.toISOString(),
-      singleEvents: true,
-      orderBy: 'startTime',
-      maxResults: 50,
-    });
+  const calendar = google.calendar({ version: 'v3', auth: client });
+  const response = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin: start.toISOString(),
+    timeMax: end.toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: 100,
+  });
+  return (response.data.items ?? []).map(mapGoogleEvent);
+}
 
-    return (response.data.items ?? []).map((event): CalendarEvent => ({
-      id: event.id ?? '',
-      title: event.summary ?? 'Untitled',
-      startTime: new Date(event.start?.dateTime ?? event.start?.date ?? ''),
-      endTime: new Date(event.end?.dateTime ?? event.end?.date ?? ''),
-      allDay: !!event.start?.date && !event.start?.dateTime,
-      source: 'google',
-      externalId: event.id ?? null,
-      description: event.description ?? null,
-      location: event.location ?? null,
-    }));
+interface CachedEvents { start: number; end: number; events: CalendarEvent[]; fetchedAt: number }
+const eventCache = new Map<string, CachedEvents>();
+
+/** Test helper. */
+export function __resetEventCacheForTest(): void {
+  eventCache.clear();
+}
+
+/**
+ * `fetchEventsStrict` behind a 5-minute per-user cache (at most 500 users,
+ * oldest evicted). A hit needs the cached window to cover the requested one;
+ * `refresh` bypasses it. Only the briefs route uses this — `getEvents` is not
+ * cached (behaviour preserved).
+ */
+export async function getEventsCached(
+  userId: string,
+  start: Date,
+  end: Date,
+  opts: { refresh?: boolean } = {},
+): Promise<CalendarEvent[]> {
+  const now = Date.now();
+  const cached = eventCache.get(userId);
+  // A refresh younger than the floor is served from cache, so a script or a
+  // held Retry button cannot spend the user's Google quota once per request.
+  const refresh = opts.refresh === true && !(cached && now - cached.fetchedAt < MEETING_BRIEF_CONFIG.refreshMinIntervalMs);
+  if (
+    cached && !refresh
+    && now - cached.fetchedAt < MEETING_BRIEF_CONFIG.eventCacheMs
+    && cached.start <= start.getTime() && cached.end >= end.getTime()
+  ) {
+    return cached.events.filter(e => e.endTime.getTime() > start.getTime() && e.startTime.getTime() < end.getTime());
+  }
+  // Callers ask for a window relative to "now" (`now + hours`), so the next
+  // request's end is always a little later. Fetch one cache lifetime past the
+  // requested end so every request inside the 5 minutes is still covered.
+  const fetchEnd = new Date(end.getTime() + MEETING_BRIEF_CONFIG.eventCacheMs);
+  const events = await fetchEventsStrict(userId, start, fetchEnd);
+  eventCache.delete(userId);
+  eventCache.set(userId, { start: start.getTime(), end: fetchEnd.getTime(), events, fetchedAt: now });
+  while (eventCache.size > MEETING_BRIEF_CONFIG.eventCacheMaxUsers) {
+    let oldestKey: string | null = null;
+    let oldestAt = Infinity;
+    for (const [k, v] of eventCache) if (v.fetchedAt < oldestAt) { oldestAt = v.fetchedAt; oldestKey = k; }
+    if (oldestKey === null) break;
+    eventCache.delete(oldestKey);
+  }
+  return events.filter(e => e.endTime.getTime() > start.getTime() && e.startTime.getTime() < end.getTime());
+}
+
+export async function getEvents(userId: string, start: Date, end: Date): Promise<CalendarEvent[]> {
+  try {
+    // `/calendar/events` keeps its response shape: no attendees key.
+    return (await fetchEventsStrict(userId, start, end)).map(({ attendees: _attendees, ...e }) => e);
   } catch (_err) {
-    // Token expired or revoked — return empty
+    // Not configured, not connected, token expired or revoked — return empty
     return [];
   }
 }
@@ -148,6 +234,7 @@ export async function getStatus(userId: string): Promise<CalendarSyncStatus> {
 }
 
 export async function disconnect(userId: string): Promise<void> {
+  eventCache.delete(userId); // RD-13
   await omnimindClient.deleteOAuthToken(userId, 'google');
 }
 

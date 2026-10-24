@@ -72,6 +72,9 @@ export const READ_ONLY_POST_PATHS: ReadonlySet<string> = new Set([
   '/memories/search-similar',
   '/memories/validate',
   '/context/for-persona',
+  // RD-13 — every dashboard load POSTs one meeting-brief read; billing it as a
+  // write would spend the 20/min write budget on page loads.
+  '/people/briefs',
 ]);
 
 export const rateLimiter = (req: Request, res: Response, next: NextFunction): void => {

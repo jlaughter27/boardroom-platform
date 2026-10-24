@@ -6,6 +6,9 @@ import { prisma } from '../lib/db';
 import * as entityService from '../services/entity.service';
 import { idempotent } from '../middleware/idempotency';
 import { findDuplicatePeople } from '../services/person-duplicates.service';
+import { PersonBriefsRequestSchema } from '@boardroom/shared';
+import { buildPersonBriefs, emptyPersonBriefs } from '../services/person-brief.service';
+import { logger } from '../lib/logger';
 
 const DuplicatesQuerySchema = z.object({
   threshold: z.coerce.number().min(0.3).max(1).optional(),
@@ -72,6 +75,37 @@ router.get('/duplicates', async (req, res, next) => {
     const result = await findDuplicatePeople(userId, parsed.data, prisma);
     res.json(result);
   } catch (err) { next(err); }
+});
+
+// POST /people/briefs — RD-13 meeting prep briefs. Must be mounted before /:id.
+// BoardRoom-only until entity tenancy (M1-B4/M1-B1): any agent caller → 403.
+// Deterministic (no LLM), never cached, never 5xx for a section failure: the
+// service is total and this handler falls back to 200 + partial on anything
+// that escapes it, so one bad section cannot open BoardRoom's breaker.
+router.post('/briefs', async (req, res) => {
+  const userId = req.headers['x-user-id'] as string;
+  if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
+
+  if (req.agentContext) {
+    res.status(403).json({ error: 'agent_context_unsupported', message: 'meeting briefs are BoardRoom-only until entity tenancy (M1-B4/M1-B1)' });
+    return;
+  }
+
+  const parsed = PersonBriefsRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(422).json({
+      error: 'validation_failed',
+      details: parsed.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
+    });
+    return;
+  }
+
+  try {
+    res.json(await buildPersonBriefs(userId, parsed.data, prisma, new Date()));
+  } catch (err) {
+    logger.error('[person-briefs] unexpected failure — answering partial', { userId, error: (err as Error)?.message });
+    res.json(emptyPersonBriefs(parsed.data));
+  }
 });
 
 // GET /people/:id

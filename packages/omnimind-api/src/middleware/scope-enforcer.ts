@@ -57,6 +57,9 @@ export const READ_POSTS: ReadonlySet<string> = new Set([
   '/memories/search-similar',
   '/memories/validate',
   '/context/for-persona',
+  // RD-13 — meeting prep briefs. Agent callers get 403 today; listed so the
+  // MCP follow-up (M1-B1) only has to lift the route guard.
+  '/people/briefs',
 ]);
 
 /** POST endpoints under a read-ish prefix that nevertheless mutate (R-O-03). */
