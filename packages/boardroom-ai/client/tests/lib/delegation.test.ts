@@ -8,6 +8,7 @@ import {
   defaultDeadlineYmd,
   delegationDueLabel,
   firstName,
+  isPickableYmd,
   localYmd,
   partitionNudges,
 } from '../../src/lib/delegation';
@@ -140,5 +141,20 @@ describe('partitionNudges', () => {
     expect(res.mine.dueSoon.map((c) => c.id)).toEqual(['c']);
     expect(res.waiting.overdue.map((c) => c.id)).toEqual(['b']);
     expect(res.waiting.dueSoon.map((c) => c.id)).toEqual(['d']);
+  });
+});
+
+describe('isPickableYmd', () => {
+  it('accepts a real date on or after the minimum', () => {
+    expect(isPickableYmd('2027-12-25', '2026-10-25')).toBe(true);
+    expect(isPickableYmd('2026-10-25', '2026-10-25')).toBe(true);
+  });
+  it('rejects a partly typed year, a past date, an impossible date and junk', () => {
+    expect(isPickableYmd('0002-12-25', '2026-10-25')).toBe(false);
+    expect(isPickableYmd('0202-12-25', '2026-10-25')).toBe(false);
+    expect(isPickableYmd('2026-01-31', '2026-10-25')).toBe(false);
+    expect(isPickableYmd('2027-02-30', '2026-10-25')).toBe(false);
+    expect(isPickableYmd('', '2026-10-25')).toBe(false);
+    expect(isPickableYmd('20271-01-01', '2026-10-25')).toBe(false);
   });
 });

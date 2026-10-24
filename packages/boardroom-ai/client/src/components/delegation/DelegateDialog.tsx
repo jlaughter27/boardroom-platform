@@ -15,6 +15,7 @@ import {
   dateLabel,
   defaultDeadlineYmd,
   firstName,
+  isPickableYmd,
   localYmd,
 } from '../../lib/delegation';
 import { useEntitiesStore } from '../../stores/entities.store';
@@ -82,6 +83,8 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const keyRef = useRef<string>('');
+  /** Set synchronously on the first click, so a double click cannot deliver or record twice. */
+  const inFlightRef = useRef(false);
   const [useShare, setUseShare] = useState(false);
   const minYmd = useMemo(() => addDaysYmd(localYmd(new Date()), 1), [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -89,6 +92,7 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
   useEffect(() => {
     if (!open) return;
     keyRef.current = newKey();
+    inFlightRef.current = false;
     setUseShare(detectShare());
     setQuery('');
     setPersonId(null);
@@ -148,7 +152,9 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
   /** Exactly what gets shared or copied. */
   const previewText = dirty ? draft : composed;
 
-  const canSubmit = Boolean(person) && what.trim().length > 0 && Boolean(deadlineIso) && !pending;
+  // `min` on the date input is only a hint: a past (or half-typed) date must not be recordable.
+  const dateOk = Boolean(deadlineIso) && isPickableYmd(ymd, minYmd);
+  const canSubmit = Boolean(person) && what.trim().length > 0 && dateOk && !pending;
 
   async function record(): Promise<void> {
     if (!person || !deadlineIso) return;
@@ -181,16 +187,29 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
   }
 
   async function shareAndRecord(): Promise<void> {
-    const text = previewText;
-    let delivered = false;
-    if (useShare) {
-      try { await navigator.share({ text }); delivered = true; }
-      catch (e) { if ((e as DOMException)?.name === 'AbortError') return; delivered = await copyToClipboard(text); }
-    } else {
-      delivered = await copyToClipboard(text);
+    if (inFlightRef.current || !canSubmit) return;
+    inFlightRef.current = true;
+    setPending(true);
+    try {
+      const text = previewText;
+      let delivered = false;
+      if (useShare) {
+        try { await navigator.share({ text }); delivered = true; }
+        catch (e) { if ((e as DOMException)?.name === 'AbortError') { setPending(false); return; } delivered = await copyToClipboard(text); }
+      } else {
+        delivered = await copyToClipboard(text);
+      }
+      if (!delivered) { setPending(false); toast('Could not copy. Select the text and copy it yourself.', 'error'); return; }
+      await record();
+    } finally {
+      inFlightRef.current = false;
     }
-    if (!delivered) { toast('Could not copy. Select the text and copy it yourself.', 'error'); return; }
-    await record();
+  }
+
+  async function retryRecord(): Promise<void> {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try { await record(); } finally { inFlightRef.current = false; }
   }
 
   async function copyOnly(): Promise<void> {
@@ -303,8 +322,13 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
             min={minYmd}
             value={ymd}
             onChange={(e) => setYmd(e.target.value)}
+            aria-invalid={ymd !== '' && !dateOk ? true : undefined}
+            aria-describedby={ymd !== '' && !dateOk ? `${uid}-by-hint` : undefined}
             className={cn(FIELD, 'h-10 sm:w-56')}
           />
+          {ymd !== '' && !dateOk && (
+            <p id={`${uid}-by-hint`} className="mt-1 text-xs text-danger" data-testid="delegate-by-hint">Pick a date from tomorrow on.</p>
+          )}
         </div>
 
         {/* Done when */}
@@ -412,7 +436,7 @@ export function DelegateDialog({ open, onClose, source }: DelegateDialogProps) {
         {failed && (
           <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-danger/30 bg-danger-muted px-3 py-2 text-sm text-foreground">
             <span>Copied, but not recorded.</span>
-            <Button variant="secondary" size="sm" onClick={() => void record()} loading={pending}>Retry</Button>
+            <Button variant="secondary" size="sm" onClick={() => void retryRecord()} loading={pending}>Retry</Button>
           </div>
         )}
 

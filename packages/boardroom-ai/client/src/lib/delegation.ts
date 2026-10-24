@@ -36,6 +36,21 @@ export function addDaysYmd(ymd: string, n: number): string {
   return t.toISOString().slice(0, 10);
 }
 
+/**
+ * A `YYYY-MM-DD` the user may save as a delegation date: a real calendar date
+ * no earlier than `minYmd` (local tomorrow). An HTML `min` is only advisory,
+ * and a date input that is still being typed reports values like `0002-12-25`
+ * (the first year digit), so every save path checks this first.
+ */
+export function isPickableYmd(ymd: string, minYmd: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
+  const [y, m, d] = ymd.split('-').map(Number);
+  const t = new Date(0);
+  t.setUTCFullYear(y, m - 1, d);
+  if (t.toISOString().slice(0, 10) !== ymd) return false; // 2027-02-30 and friends
+  return ymd >= minYmd;
+}
+
 /** The task's own deadline when it is at least a day away, else local today + 7. */
 export function defaultDeadlineYmd(taskDeadline: Date | string | null, now: Date): string {
   if (taskDeadline) {

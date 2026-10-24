@@ -187,6 +187,67 @@ describe('<DelegateDialog />', () => {
     release();
   });
 
+  it('a double click before the copy resolves records exactly one commitment', async () => {
+    let resolveCopy!: (ok: boolean) => void;
+    vi.mocked(copyToClipboard).mockImplementation(() => new Promise<boolean>((r) => { resolveCopy = r; }));
+    const { onClose } = open();
+    pick('Sam Rivera');
+    fireEvent.click(primary());
+    fireEvent.click(primary());
+    expect(copyToClipboard).toHaveBeenCalledTimes(1);
+    resolveCopy(true);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.createCommitment).toHaveBeenCalledTimes(1);
+  });
+
+  it('a double click while the share sheet is open records exactly one commitment', async () => {
+    let finishShare!: () => void;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: vi.fn(() => new Promise<void>((r) => { finishShare = r; })) });
+    vi.mocked(window.matchMedia).mockImplementation(((q: string) => ({ matches: q === '(pointer: coarse)', media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never);
+    const { onClose } = open();
+    pick('Sam Rivera');
+    fireEvent.click(primary());
+    fireEvent.click(primary());
+    expect(navigator.share).toHaveBeenCalledTimes(1);
+    finishShare();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.createCommitment).toHaveBeenCalledTimes(1);
+    vi.mocked(window.matchMedia).mockImplementation(((q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never);
+  });
+
+  it('after a cancelled share the primary button works again', async () => {
+    const share = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error('cancel'), { name: 'AbortError' }))
+      .mockResolvedValueOnce(undefined);
+    Object.defineProperty(navigator, 'share', { configurable: true, value: share });
+    vi.mocked(window.matchMedia).mockImplementation(((q: string) => ({ matches: q === '(pointer: coarse)', media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never);
+    const { onClose } = open();
+    pick('Sam Rivera');
+    fireEvent.click(primary());
+    await waitFor(() => expect(primary()).toBeEnabled());
+    expect(api.createCommitment).not.toHaveBeenCalled();
+    fireEvent.click(primary());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(share).toHaveBeenCalledTimes(2);
+    expect(api.createCommitment).toHaveBeenCalledTimes(1);
+    vi.mocked(window.matchMedia).mockImplementation(((q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never);
+  });
+
+  it('a By date before tomorrow disables the primary button and says why; nothing is copied or recorded', async () => {
+    open();
+    pick('Sam Rivera');
+    fireEvent.change(screen.getByLabelText('By'), { target: { value: '2020-01-01' } });
+    expect(primary()).toBeDisabled();
+    expect(screen.getByTestId('delegate-by-hint')).toHaveTextContent('Pick a date from tomorrow on.');
+    fireEvent.click(primary());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(copyToClipboard).not.toHaveBeenCalled();
+    expect(api.createCommitment).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('By'), { target: { value: '2030-11-07' } });
+    expect(primary()).toBeEnabled();
+    expect(screen.queryByTestId('delegate-by-hint')).toBeNull();
+  });
+
   it('copies exactly the textarea value after a manual edit; Reset restores the template', async () => {
     open();
     pick('Sam Rivera');
