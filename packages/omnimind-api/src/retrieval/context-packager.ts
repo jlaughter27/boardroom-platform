@@ -50,6 +50,28 @@ const PERSONA_TAG_BOOSTS: Record<string, string[]> = {
 
 const TAG_BOOST_AMOUNT = 0.15;
 
+/**
+ * Smallest excerpt worth sending (≈ 600 characters). Below this, an item that
+ * does not fit is skipped rather than cut to a fragment.
+ */
+export const MIN_EXCERPT_TOKENS = 150;
+
+/**
+ * The opening of `content` that fits in `maxTokens`, cut at a paragraph or line
+ * break when one is reasonably close, with a marker saying it is an excerpt.
+ * Found by the 2026-10-23 real-vault e2e: notes of 20k+ characters ranked first
+ * and the packager stopped at the first item over budget, so the persona got
+ * no context at all for exactly the topics with the most material.
+ */
+export function excerptToBudget(content: string, maxTokens: number): string {
+  const marker = `\n\n[… excerpt: first part of a ${content.length.toLocaleString('en-US')}-character note]`;
+  const room = Math.max(0, maxTokens * 4 - marker.length);
+  let cut = content.slice(0, room);
+  const boundary = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('\n'));
+  if (boundary >= room * 0.6) cut = cut.slice(0, boundary);
+  return cut.trimEnd() + marker;
+}
+
 export function packageForPersona(
   results: ScoredResult[],
   persona: PersonaId,
@@ -75,16 +97,25 @@ export function packageForPersona(
   // Re-sort after boosting
   boosted.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-  // Take top N within token budget
+  // Take top N within token budget. An item that does not fit is excerpted to
+  // the remaining budget (if that leaves a useful excerpt) or skipped, and the
+  // scan continues — a long top hit must not leave the persona with nothing.
   const selected: typeof boosted = [];
   let totalTokens = 0;
 
   for (const item of boosted) {
     if (selected.length >= maxItems) break;
+    const remaining = tokenBudget - totalTokens;
+    if (remaining <= 0) break;
     const itemTokens = estimateTokens(item.content);
-    if (totalTokens + itemTokens > tokenBudget) break;
-    selected.push(item);
-    totalTokens += itemTokens;
+    if (itemTokens <= remaining) {
+      selected.push(item);
+      totalTokens += itemTokens;
+    } else if (remaining >= MIN_EXCERPT_TOKENS) {
+      const content = excerptToBudget(item.content, remaining);
+      selected.push({ ...item, content });
+      totalTokens += estimateTokens(content);
+    }
   }
 
   const degradedLayers = options.degradedLayers ?? [];

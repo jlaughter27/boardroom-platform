@@ -17,6 +17,7 @@ import { CockpitRow } from '../components/dashboard/CockpitRow';
 import { MemoryPulseWidget } from '../components/dashboard/MemoryPulseWidget';
 import { WhatsMovingWidget } from '../components/dashboard/WhatsMovingWidget';
 import { ErrorBoundary } from '../components/shared/ErrorBoundary';
+import { MeetingBriefsCard } from '../components/dashboard/MeetingBriefsCard';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -137,6 +138,9 @@ export default function DashboardPage() {
             variant="info"
           />
         )}
+
+        {/* RD-13 — meeting prep for the next 24 h (renders nothing when the calendar is not configured). */}
+        <ErrorBoundary fallback={null}><MeetingBriefsCard /></ErrorBoundary>
 
         {/* Cockpit — the numbers first (viz lane). Each piece fails closed on its own. */}
         <ErrorBoundary fallback={null}>

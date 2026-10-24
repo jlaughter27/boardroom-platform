@@ -6,6 +6,7 @@ import { loadSystemPrompt } from '../lib/prompt-loader';
 import { createMessage, extractText, parseJsonFromText, hasAnthropicKey } from '../lib/anthropic';
 import { HttpError } from '../middleware/error-handler';
 import { createMemory } from './memory.service';
+import { computeLoad, loadLoadInput, renderLoadSection } from './load.service';
 
 /** Phase 6: decisions with `reviewAt <= now + 7d` and no outcome yet. */
 export const REVIEW_HORIZON_DAYS = 7;
@@ -29,10 +30,10 @@ export async function generateWeeklyMemo(userId: string, prisma: PrismaClient): 
 
   // Gather data
   const [decisions, goals, tasks, commitments, patterns, contradictions, awaitingReview] = await Promise.all([
-    prisma.decision.findMany({ where: { userId, createdAt: { gte: weekStart } }, orderBy: { createdAt: 'desc' }, take: CORTEX_CONFIG.memoMaxDecisionsToAnalyze }),
+    prisma.decision.findMany({ where: { userId, deletedAt: null, createdAt: { gte: weekStart } }, orderBy: { createdAt: 'desc' }, take: CORTEX_CONFIG.memoMaxDecisionsToAnalyze }),
     prisma.goal.findMany({ where: { userId, deletedAt: null, status: 'active' } }),
     prisma.task.findMany({ where: { userId, deletedAt: null, status: { not: 'done' } } }),
-    prisma.commitment.findMany({ where: { userId, status: 'OPEN' } }),
+    prisma.commitment.findMany({ where: { userId, deletedAt: null, status: 'OPEN' } }),
     prisma.thinkingPattern.findMany({ where: { userId }, orderBy: { confidence: 'desc' }, take: 5 }),
     prisma.contradictionAlert.findMany({ where: { userId, status: 'ACTIVE' } }),
     findDecisionsAwaitingReview(userId, prisma, now),
@@ -54,6 +55,15 @@ export async function generateWeeklyMemo(userId: string, prisma: PrismaClient): 
   if (existingMemo) {
     logger.info('Weekly memo already exists for this period', { userId, memoId: existingMemo.id });
     return { ...existingMemo, decisionsAwaitingReview };
+  }
+
+  // RD-11 — deterministic load section (no project titles), after the
+  // idempotency return so a repeat run costs nothing. Fail-open.
+  let loadSection = '';
+  try {
+    loadSection = renderLoadSection(computeLoad(await loadLoadInput(userId, prisma, now), now), { includeCandidates: false });
+  } catch (err) {
+    logger.warn('[cortex-memo] load unavailable', { userId, message: err instanceof Error ? err.message : String(err) });
   }
 
   // Build prompt context
@@ -78,7 +88,7 @@ ${patterns.map(p => `- ${p.pattern} (${p.patternType}, confidence: ${p.confidenc
 
 ## Active Contradictions
 ${contradictions.map(c => `- ${c.description} (${c.severity})`).join('\n') || 'None'}
-`;
+${loadSection ? `\n${loadSection}\n` : ''}`;
 
   // Phase 6: shared client, MODEL_IDS, explicit effort, usage recorded.
   const response = await createMessage({
@@ -104,6 +114,10 @@ ${contradictions.map(c => `- ${c.description} (${c.severity})`).join('\n') || 'N
   const reviewSection = awaitingReview.length
     ? `\n\n## Decisions awaiting review\n${awaitingReview.map(d => `- ${d.title} — review by ${d.reviewAt?.toISOString().split('T')[0]} (id: ${d.id})`).join('\n')}\n`
     : '';
+  // RD-11: the load section feeds the memo LLM only. It is not appended to
+  // fullMemoText, which the dashboard renders beside CognitiveLoadBanner (a
+  // different, client-side formula) — the founder must never see two load
+  // numbers. One visible load source arrives with M3-C1.
   const fullMemoText = `${memoData.fullMemoText ?? ''}${reviewSection}`;
 
   // Store

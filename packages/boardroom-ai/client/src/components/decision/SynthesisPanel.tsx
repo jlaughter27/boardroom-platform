@@ -4,8 +4,18 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Briefcase, PanelRight } from 'lucide-react';
 import * as api from '../../lib/api';
 import type { ExtendedSynthesisReport } from '../../types/debate';
+import type { StopAction } from '@boardroom/shared';
 import { Card, Badge, Button } from '../ui';
 import { Modal } from '../shared/Modal';
+
+/** RD-11 — the verb shown before each named stop in "What this displaces". */
+export const STOP_ACTION_LABEL: Record<StopAction, string> = {
+  stop: 'Stop',
+  pause: 'Pause',
+  delegate: 'Delegate',
+  renegotiate: 'Renegotiate',
+  defer: 'Defer',
+};
 
 /** Most memory ids resolved per synthesis; the rest render as shortened ids. */
 export const DROPPED_RESOLVE_CAP = 10;
@@ -206,6 +216,27 @@ export function SynthesisReportBody({ report }: { report: ExtendedSynthesisRepor
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Recommendation</div>
         <p className="text-lg font-medium text-foreground">{report.recommendation}</p>
       </div>
+
+      {/* RD-11 — load check. Absent in review mode, on malformed output and on pre-RD-11 reports. */}
+      {report.displacement && (
+        <CollapsibleSection title="What this displaces">
+          <div data-testid="synthesis-displacement">
+            <p className="text-sm text-foreground">{report.displacement.answer}</p>
+            {report.displacement.stops.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {report.displacement.stops.map((s, i) => (
+                  <li key={i} className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{STOP_ACTION_LABEL[s.action]}</span> — {s.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {report.displacement.netNew && report.displacement.stops.length === 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">Net new: nothing named to stop.</p>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
 
       <CollapsibleSection title="Next Actions">
         <ol className="space-y-2">

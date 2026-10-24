@@ -30,3 +30,6 @@ export * from './validation-helpers';
 
 // Domain normalization (shared refusal-gate semantics)
 export * from './domain';
+
+// Name normalization for meeting prep briefs (RD-13)
+export * from './name-normalize';

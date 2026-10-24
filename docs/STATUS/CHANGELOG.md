@@ -6,6 +6,32 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-24 — Phase 8 real-data — Stage 2b founder-leverage features: RD-11 load check + RD-13 meeting prep (PR A), RD-12 built
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR A open | **Tests:** shared 183, mcp 272, api 1,465, server 341, client 599; e2e 65/65 (+E2E-10 load check, +person briefs); MCP smoke 20 tools
+
+Process: per feature an architect proposed a spec, a red team attacked it against the code and CLAUDE.md, a judge reconciled the final spec (9 agents); then an isolated builder, two independent validators (spec/correctness and rules/security/privacy) and a fixer (12 agents). Specs are in the PR description.
+
+- **RD-11 Load check.** `services/load.service.ts`: SQL reads + pure arithmetic (formula v1 in `COGNITIVE_LOAD`), rendered as `## Current load` inside the core-context block every persona and the CEO already receive; no new route, table, LLM call or MCP tool. The CEO returns `displacement` ("What does this displace?" + ≤3 stop/pause/delegate/renegotiate/defer items), shown in the synthesis. Level reads UNKNOWN (never OK) while MCP tasks/commitments are not entity rows (`coverageComplete` flips with M1-B1). Weekly memo gets the section as LLM context only — not in the visible memo text, so the dashboard never shows two load numbers. Task writes and project↔task link changes now invalidate the core-context cache.
+- **RD-13 Meeting prep.** Dashboard card for meetings in the next 24 h: per known attendee "You owe / They owe you / Decisions / Recent" and the capsule summary; matched by normalized names and title tokens; deterministic, no LLM; per-section degradation; attendee e-mail addresses never sent to OmniMind; agent callers get 403 (no MCP path until M1-B1).
+- **RD-12 Delegation briefs** built and validated (migration `Commitment.owedBy`); held for PR B after PR A merges, shipping after the production pg_dump (M0-F1).
+- **Deps:** new high advisories (2026-10-23) patched via overrides — body-parser 1.20.9 / 2.4.0, multer 2.5.0, undici 7.30.1. zod GHSA-mrhx-c7xc-m3w5 has no 3.x fix: accepted in `pnpm.auditConfig.ignoreGhsas` (exposure bounded by 100 kB / 1 MB body limits) until a zod 4 migration.
+- **Roadmap:** Stage 2b (RD-11…16) and the not-building list in `PHASE-8-REAL-DATA-ROADMAP.md`.
+
+---
+
+## 2026-10-23 — Phase 8 real-data — Post-merge e2e on the real vault (main `8e8d907`) + persona-context fix
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed (no PR yet) | **Tests:** api 1,311 (+3 packager); e2e 58/58; private real-vault journey 22/22
+
+Fresh local stack from merged `main` (migrate deploy, production BoardRoom build, MCP gateway, UI-minted token), real Obsidian vault imported with `pnpm import:vault` at the production pace: 228 notes in 12.8 min, 0 failed, 1,385 wikilinks; 74 ministry notes held back; ministry never surfaced. No LLM or embedding keys (FTS + trigram only). Private harness and questions stay in the session scratchpad.
+
+- **Verified on real data:** markdown detail (0 raw `#`, `|---`, `[[`); hub note 71 resolved / 7 unresolved wikilinks, a click opens the target, 45 backlinks listed; graph "Showing 200 of N" → "Show more" in ~0.2 s; exact-title search ranks the note #1 for 45/46 sampled titles (1 at #4); same query twice with a persona call between → 0/12 reordered; Settings budget panel (business 109/400 …); re-import with `--prune` → 0 writes, 0 archives, 1,385 links existing; MCP search/fetch/status/graph and MCP→BoardRoom write visibility; 0 console errors.
+- **Fixed — persona context empty for long notes:** `packageForPersona` stopped at the first item over the token budget, so a question whose best matches were 20k+-character notes gave the persona **no context**. An over-budget item is now excerpted to the remaining budget (≥ 150 tokens, cut at a line break, marked as an excerpt) or skipped, and the scan continues. Real-vault persona hit rate 0.5 → 0.9; no empty packages.
+- **Observed:** a burst of ~150 API reads in a minute (eval-style harness) meets the 120/min per-user read limit; a client honouring `Retry-After` waits ~15 s once. Prune reads each note's links (228 notes ≈ 2.5 min per sync) — batch link-read endpoint remains a follow-up.
+
+---
+
 ## 2026-10-23 — Phase 8 real-data — Agent wave 3 (RD-1, RD-2, RD-4, RD-5, RD-6, RD-7, RD-9)
 
 **Branch:** `claude/amazing-mccarthy-grvem2` (rides PR #28) | **Status:** Pushed | **Tests:** shared 163, mcp 272, api 1,305, server 309, client 582; e2e 58/58; importer 19/19

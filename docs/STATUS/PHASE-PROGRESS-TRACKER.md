@@ -340,6 +340,12 @@ States: `todo` → `in-progress` → `in-review` → `merged` → `done` (see th
 | RD-8 | Ratchet retrieval-eval thresholds after three green main runs | M2 | A | RD-0 | todo | — | — |
 | RD-9 | Lane follow-up backlog (rebuttals on reload, mobile card height, snippet stacking, banner position, old-gold tokens, WebKit cookie) | M2 | C/D | — | in-review (f: documented) | 2026-10-23 | PR #28 — a–e done; f (WebKit cookie) documented only — WebKit not installed in the sandbox |
 | RD-10 | Ministry path: local-embedding hosting, lift MINISTRY_DEFERRED, import held-back ministry notes to tgfc-ministry | M3 | founder + B | founder hosting decision | todo | — | — |
+| RD-11 | Load check — deterministic open load in core context; CEO answers "What does this displace?" | M2 | B/C | — | in-review | 2026-10-24 | PR A — debated, built, 2 validators + fixer; E2E-10 load check on real Postgres; level UNKNOWN until M1-B1 |
+| RD-12 | Delegation briefs + "waiting on others" follow-through (Commitment.owedBy) | M2 | B/C | M0-F1 (migration) | built | 2026-10-24 | built + validated (8 fixes) on a local branch; PR B opens after PR A merges and ships after the pg_dump |
+| RD-13 | Meeting prep briefs on the dashboard (deterministic, next 24 h) | M2 | B/C | — | in-review | 2026-10-24 | PR A — debated, built, 2 validators + fixer (9 fixes); attendee e-mails never leave BoardRoom |
+| RD-14 | Decision staleness + assumption re-check at outcome review | M4 | B | dogfood scorecard | todo | — | gated on M4 verdict |
+| RD-15 | Venture pulse via GHL MCP clients → weekly memo | M4 | founder + B | M1-F1 | todo | — | gated on M4 verdict |
+| RD-16 | Calling-alignment check (monthly, by domain) | M4 | B | RD-11 | todo | — | gated on M4 verdict |
 
 ---
 
