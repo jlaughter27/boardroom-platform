@@ -178,8 +178,11 @@ export async function getEventsCached(
 ): Promise<CalendarEvent[]> {
   const now = Date.now();
   const cached = eventCache.get(userId);
+  // A refresh younger than the floor is served from cache, so a script or a
+  // held Retry button cannot spend the user's Google quota once per request.
+  const refresh = opts.refresh === true && !(cached && now - cached.fetchedAt < MEETING_BRIEF_CONFIG.refreshMinIntervalMs);
   if (
-    cached && !opts.refresh
+    cached && !refresh
     && now - cached.fetchedAt < MEETING_BRIEF_CONFIG.eventCacheMs
     && cached.start <= start.getTime() && cached.end >= end.getTime()
   ) {

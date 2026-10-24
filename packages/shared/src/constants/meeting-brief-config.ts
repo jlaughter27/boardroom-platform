@@ -29,6 +29,8 @@ export const MEETING_BRIEF_CONFIG = {
   /** Per-user Google event-list cache lifetime. */
   eventCacheMs: 300_000,
   eventCacheMaxUsers: 500,
+  /** `refresh=1` is ignored while the cached entry is younger than this (Google quota guard). */
+  refreshMinIntervalMs: 30_000,
   /** Task.status values (trimmed, lowercased) that mean "not owed any more". */
   closedTaskStatuses: ['done', 'completed', 'complete', 'cancelled', 'canceled', 'archived'],
 } as const;

@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
-import { MeetingBriefsResponseSchema } from '@boardroom/shared';
+import { MeetingBriefsResponseSchema, MEETING_BRIEF_CONFIG } from '@boardroom/shared';
 import type { PersonBriefsResponse } from '@boardroom/shared';
 
 vi.hoisted(() => {
@@ -216,9 +216,45 @@ describe('GET /calendar/briefs (RD-13)', () => {
     om.getPersonBriefs.mockRejectedValue(new Error('upstream said: Lunch w/ Avery avery.testperson@example.org'));
     await getBriefs();
     g.list.mockRejectedValue(new Error('google said Staff sync dana@example.org'));
+    calendarService.__resetEventCacheForTest();
     await getBriefs('?refresh=1');
+    expect(g.list).toHaveBeenCalledTimes(2);
     const logs = JSON.stringify([...(logger.info as any).mock.calls, ...(logger.warn as any).mock.calls, ...(logger.error as any).mock.calls]);
     expect(logs).not.toMatch(/@example\.org|Lunch|Staff sync/);
+  });
+
+  it('OmniMind answers partial with nothing resolved (people load failed) → unavailable, not "no meetings"', async () => {
+    om.getPersonBriefs.mockResolvedValue({
+      generatedAt: new Date().toISOString(), partial: true,
+      attendeeMatches: [
+        { key: '0:0', personId: null, ambiguous: false, method: null },
+        { key: '1:0', personId: null, ambiguous: false, method: null },
+      ],
+      titleMatches: [], briefs: {},
+    } satisfies PersonBriefsResponse);
+    const { status, body } = await getBriefs();
+    expect(status).toBe(200);
+    expect(body.calendar).toBe('unavailable');
+    expect(MeetingBriefsResponseSchema.safeParse(body).success).toBe(true);
+  });
+
+  it('partial with at least one resolved event stays connected and keeps partial=true', async () => {
+    om.getPersonBriefs.mockResolvedValue({ ...omniResponse(), partial: true });
+    const { body } = await getBriefs();
+    expect(body.calendar).toBe('connected');
+    expect(body.partial).toBe(true);
+    expect(body.events).toHaveLength(1);
+  });
+
+  it('an unexpected throw while joining answers 200 unavailable instead of hanging', async () => {
+    om.getPersonBriefs.mockResolvedValue({ ...omniResponse(), attendeeMatches: null } as unknown as PersonBriefsResponse);
+    const ctrl = AbortSignal.timeout(3000);
+    const res = await fetch(`${base}/calendar/briefs`, { signal: ctrl });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.calendar).toBe('unavailable');
+    const logs = JSON.stringify([...(logger.warn as any).mock.calls, ...(logger.error as any).mock.calls]);
+    expect(logs).not.toMatch(/@example\.org|Lunch|Staff sync|Avery|Dana/);
   });
 
   it.each(['49', '0', 'abc'])('hours=%s → 400', async (h) => {
@@ -230,10 +266,32 @@ describe('GET /calendar/briefs (RD-13)', () => {
 
 describe('event-list cache (RD-13)', () => {
   it('two calls within 5 minutes → one Google call; refresh=1 → a second; briefs are recomputed every time', async () => {
+    // Fixture events are relative to the real clock; freeze it where it is.
+    const t0 = new Date();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(t0);
     await getBriefs();
     await getBriefs();
     expect(g.list).toHaveBeenCalledTimes(1);
     expect(om.getPersonBriefs).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(new Date(t0.getTime() + MEETING_BRIEF_CONFIG.refreshMinIntervalMs));
+    await getBriefs('?refresh=1');
+    expect(g.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('refresh=1 against an entry younger than the refresh floor reuses the cache (Google quota guard)', async () => {
+    // Fixture events are relative to the real clock; freeze it where it is.
+    const t0 = new Date();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(t0);
+    await getBriefs();
+    for (let i = 0; i < 5; i += 1) await getBriefs('?refresh=1');
+    expect(g.list).toHaveBeenCalledTimes(1);
+    expect(om.getPersonBriefs).toHaveBeenCalledTimes(6);
+    vi.setSystemTime(new Date(t0.getTime() + MEETING_BRIEF_CONFIG.refreshMinIntervalMs - 1));
+    await getBriefs('?refresh=1');
+    expect(g.list).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date(t0.getTime() + MEETING_BRIEF_CONFIG.refreshMinIntervalMs));
     await getBriefs('?refresh=1');
     expect(g.list).toHaveBeenCalledTimes(2);
   });

@@ -98,6 +98,23 @@ router.get('/briefs', async (req: AuthRequest, res) => {
     return;
   }
 
+  try {
+    await buildBriefs(userId, events, now, hours, answer);
+  } catch (err) {
+    // Anything unexpected in select/join still answers (never a hung request).
+    logger.error('[calendar-briefs] build failed', { userId, error: (err as Error)?.name ?? 'Error' });
+    if (!res.headersSent) answer({ calendar: 'unavailable', events: [], briefs: {}, omitted: zeros, partial: false });
+  }
+});
+
+async function buildBriefs(
+  userId: string,
+  events: CalendarEvent[],
+  now: Date,
+  hours: number,
+  answer: (body: Omit<MeetingBriefsResponse, 'generatedAt' | 'windowEnd'>) => void,
+): Promise<void> {
+  const zeros = { noKnownPeople: 0, overCap: 0, allDayOrDeclined: 0 };
   const sel = selectBriefableEvents(events, now, hours);
   if (sel.attendeesPayload.length === 0 && sel.eventsPayload.length === 0) {
     answer({ calendar: 'connected', events: [], briefs: {}, omitted: { ...sel.omitted, noKnownPeople: sel.selected.length }, partial: false });
@@ -125,6 +142,12 @@ router.get('/briefs', async (req: AuthRequest, res) => {
     noKnownPeople: joined.noKnownPeople,
     smallTitledEvents: sel.eventsPayload.filter(e => e.smallMeeting).length,
   });
+  if (response.partial && joined.events.length === 0) {
+    // OmniMind could not resolve anyone (e.g. its people load failed) — saying
+    // "no meetings with people you track" would be wrong, so offer Retry.
+    answer({ calendar: 'unavailable', events: [], briefs: {}, omitted: zeros, partial: true });
+    return;
+  }
   answer({
     calendar: 'connected',
     events: joined.events,
@@ -132,7 +155,7 @@ router.get('/briefs', async (req: AuthRequest, res) => {
     omitted: { ...sel.omitted, noKnownPeople: joined.noKnownPeople },
     partial: response.partial,
   });
-});
+}
 
 router.post('/disconnect', async (req: AuthRequest, res, next) => {
   try {
