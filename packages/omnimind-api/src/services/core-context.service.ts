@@ -1,8 +1,9 @@
 import type { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 import { estimateTokens } from '@boardroom/shared';
-import type { CoreContextResponse } from '@boardroom/shared';
+import type { CoreContextResponse, LoadSnapshot } from '@boardroom/shared';
 import { logger } from '../lib/logger';
+import { computeLoad, loadLoadInput, renderLoadSection } from './load.service';
 
 /**
  * Phase 6 — core-memory tier (research §1, contract §Core context).
@@ -15,8 +16,15 @@ import { logger } from '../lib/logger';
  * cache. Relative deadlines are therefore rendered as absolute YYYY-MM-DD
  * dates (which only change when the data changes), never as "in 3 days".
  *
+ * RD-11: for callers WITHOUT an agent tenant (BoardRoom), the block ends with
+ * a `## Current load` section — a deterministic count of open projects,
+ * commitments and tasks by domain (load.service.ts, formula v1, no LLM). It is
+ * omitted for tenant-scoped callers (entity tables carry no tenantId until
+ * M1-B4) and omitted when the load computation fails (fail-open). A block
+ * without the load section is byte-identical to the pre-RD-11 output.
+ *
  * Cached in-process for 60 s per (user, tenant); `invalidateCoreContext(userId)`
- * drops every tenant variant and is called from the goal / project /
+ * drops every tenant variant and is called from the goal / project / task /
  * commitment / profile write paths.
  */
 
@@ -56,6 +64,8 @@ export interface CoreContextInput {
   goals: CoreContextGoal[];
   commitments: CoreContextCommitment[];
   constraints: string[];
+  /** RD-11 — load snapshot; absent/null for tenant-scoped callers or when the computation failed. */
+  load?: LoadSnapshot | null;
 }
 
 const ymd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
@@ -112,6 +122,9 @@ export function renderCoreBlock(input: CoreContextInput): string {
   if (constraints.length === 0) lines.push('- (none recorded)');
   for (const c of constraints) lines.push(`- ${c}`);
 
+  // RD-11 — appended only when present, so a block without load stays byte-identical.
+  if (input.load) lines.push('', ...renderLoadSection(input.load, { includeCandidates: true }).split('\n'));
+
   return lines.join('\n') + '\n';
 }
 
@@ -132,7 +145,17 @@ export async function loadCoreContextInput(
 ): Promise<CoreContextInput> {
   const horizon = new Date(now.getTime() + CORE_CONTEXT_COMMITMENT_HORIZON_DAYS * 86_400_000);
 
-  const [profile, goals, commitments, constraintMemories] = await Promise.all([
+  // RD-11: user-wide load counts only for non-agent callers (no tenantId on entity tables until M1-B4).
+  const loadPromise: Promise<LoadSnapshot | null> = opts.tenantId
+    ? Promise.resolve(null)
+    : loadLoadInput(userId, prisma, now)
+        .then(i => computeLoad(i, now))
+        .catch((err: unknown) => {
+          logger.warn('[core-context] load unavailable', { userId, message: err instanceof Error ? err.message : String(err) });
+          return null;
+        });
+
+  const [profile, goals, commitments, constraintMemories, load] = await Promise.all([
     prisma.userProfile.findUnique({ where: { userId } }),
     prisma.goal.findMany({
       where: { userId, deletedAt: null, status: 'active', level: { lte: 1 } },
@@ -155,6 +178,7 @@ export async function loadCoreContextInput(
       orderBy: { title: 'asc' },
       take: 10,
     }),
+    loadPromise,
   ]);
 
   const riskProfile = (profile?.riskProfile && typeof profile.riskProfile === 'object' && !Array.isArray(profile.riskProfile))
@@ -189,6 +213,7 @@ export async function loadCoreContextInput(
       personName: c.stakeholder?.name ?? null,
     })),
     constraints: constraintMemories.map(m => m.title),
+    load,
   };
 }
 
@@ -220,7 +245,7 @@ export async function getCoreContext(userId: string, prisma: PrismaClient, opts:
 
 /**
  * Drop every cached block for a user (all tenant variants). Called from goal /
- * project / commitment / profile write paths (routes in this lane; A2 calls it
+ * project / task (RD-11) / commitment / profile write paths (routes in this lane; A2 calls it
  * from entity.service).
  */
 export function invalidateCoreContext(userId: string | undefined | null): void {

@@ -16,8 +16,9 @@ function getDelegate(prisma: PrismaClient, model: EntityModel) {
 
 // Phase 6: the cached core-context block (GET /context/core) lists active goals
 // with their linked project titles — drop it on every goal / project write.
+// RD-11: its `## Current load` section counts open tasks — task writes too.
 function touchesCoreContext(model: EntityModel): boolean {
-  return model === 'goal' || model === 'project';
+  return model === 'goal' || model === 'project' || model === 'task';
 }
 
 export async function createEntity(

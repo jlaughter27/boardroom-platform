@@ -7,6 +7,9 @@ import {
   __resetCoreContextCacheForTest,
   type CoreContextInput,
 } from '../../../src/services/core-context.service';
+import { createEntity, updateEntity, deleteEntity } from '../../../src/services/entity.service';
+import { computeLoad, type LoadInput } from '../../../src/services/load.service';
+import { logger } from '../../../src/lib/logger';
 
 vi.mock('../../../src/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -165,6 +168,109 @@ describe('core context (Phase 6)', () => {
       const days = (lte.getTime() - Date.now()) / 86_400_000;
       expect(days).toBeGreaterThan(13.9);
       expect(days).toBeLessThanOrEqual(14.01);
+    });
+  });
+
+  // ── RD-11 — `## Current load` section ──
+
+  describe('RD-11 load section', () => {
+    /** Pre-RD-11 sha256 of renderCoreBlock(baseInput()) — captured from 75d75ae. */
+    const PRE_RD11_BASE_HASH = '57d054fa4b659b6a43e2afd02977d9a9d9104659e6a986b344f492fe583fc6a5';
+    const NOW = new Date('2026-11-02T12:00:00.000Z');
+    const loadInput = (): LoadInput => ({
+      projects: [
+        { id: 'pb1', title: 'Podcast relaunch', status: 'active', domain: 'business' },
+        { id: 'pm1', title: 'Choir retreat', status: 'active', domain: 'ministry' },
+      ],
+      tasks: [{ id: 't1', status: 'pending', deadline: null, projects: [{ id: 'pb1', domain: 'business', deleted: false }] }],
+      commitments: [],
+      awaitingReview: 0,
+    });
+
+    it('a block without load is byte-identical to the pre-change output (load absent or null)', () => {
+      expect(hashBlock(renderCoreBlock(baseInput()))).toBe(PRE_RD11_BASE_HASH);
+      expect(renderCoreBlock({ ...baseInput(), load: null })).toBe(renderCoreBlock(baseInput()));
+      expect(renderCoreBlock(baseInput())).not.toContain('## Current load');
+    });
+
+    it('with load, the block ends with the ## Current load section after ## Standing constraints', () => {
+      const block = renderCoreBlock({ ...baseInput(), load: computeLoad(loadInput(), NOW) });
+      const constraintsAt = block.indexOf('## Standing constraints');
+      const loadAt = block.indexOf('## Current load (computed from your records; formula v1)');
+      expect(constraintsAt).toBeGreaterThan(-1);
+      expect(loadAt).toBeGreaterThan(constraintsAt);
+      expect(block).toContain('- No hires before Q2\n\n## Current load');
+      expect(block.endsWith('  - Podcast relaunch (business; 1 open tasks, 0 open commitments)\n')).toBe(true);
+      expect(block).not.toContain('Choir retreat');
+      expect(block).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+    });
+
+    const fullPrisma = () => ({
+      userProfile: { findUnique: vi.fn().mockResolvedValue(null) },
+      goal: { findMany: vi.fn().mockResolvedValue([]) },
+      commitment: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
+      memoryEntry: { findMany: vi.fn().mockResolvedValue([]) },
+      project: { findMany: vi.fn().mockResolvedValue([{ id: 'pb1', title: 'Podcast relaunch', status: 'active', domain: 'business', updatedAt: NOW }]) },
+      task: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 't-new' }),
+        update: vi.fn().mockResolvedValue({ id: 't-new' }),
+        findFirst: vi.fn().mockResolvedValue({ id: 't-new', userId: 'u1', version: 1 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      decision: { count: vi.fn().mockResolvedValue(0) },
+    }) as any;
+
+    it('getCoreContext with tenantId runs no load queries and the block has no load section; without tenantId it is present', async () => {
+      const prisma = fullPrisma();
+      const agent = await getCoreContext('u1', prisma, { tenantId: 'tenant-fixture' });
+      expect(prisma.project.findMany).not.toHaveBeenCalled();
+      expect(prisma.task.findMany).not.toHaveBeenCalled();
+      expect(prisma.decision.count).not.toHaveBeenCalled();
+      expect(agent.block).not.toContain('## Current load');
+
+      const boardroom = await getCoreContext('u1', prisma);
+      expect(prisma.project.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.task.findMany).toHaveBeenCalledTimes(1);
+      expect(boardroom.block).toContain('## Current load');
+      expect(boardroom.block).toContain('  - business: 1 / 0, 0 / 0, 0 / 4');
+      expect(boardroom.block).toContain('- level: UNKNOWN — records show 4 points (capacity 40); spare capacity cannot be confirmed');
+    });
+
+    it('fails open: when task.findMany rejects, the block is returned without the load section and a warning is logged', async () => {
+      const prisma = fullPrisma();
+      prisma.task.findMany.mockRejectedValue(new Error('db down'));
+      const res = await getCoreContext('u1', prisma);
+      expect(res.block).toContain('# Core context');
+      expect(res.block).not.toContain('## Current load');
+      expect(logger.warn).toHaveBeenCalledWith('[core-context] load unavailable', { userId: 'u1', message: 'db down' });
+    });
+
+    it('two calls with unchanged data return the same hash; the hash changes when the load changes', async () => {
+      const prisma = fullPrisma();
+      const a = await getCoreContext('u1', prisma);
+      invalidateCoreContext('u1');
+      const b = await getCoreContext('u1', prisma);
+      expect(b.hash).toBe(a.hash);
+      prisma.task.findMany.mockResolvedValue([{ id: 't1', status: 'pending', deadline: null, projectLinks: [] }]);
+      invalidateCoreContext('u1');
+      const c = await getCoreContext('u1', prisma);
+      expect(c.hash).not.toBe(a.hash);
+      expect(c.block).toContain('  - unassigned: 0 / 0, 0 / 1, 0 / 1');
+    });
+
+    it.each(['create', 'update', 'delete'] as const)('entity.service %s for model task invalidates the core-context cache', async (op) => {
+      const prisma = fullPrisma();
+      await getCoreContext('u1', prisma);
+      await getCoreContext('u1', prisma);
+      expect(prisma.goal.findMany).toHaveBeenCalledTimes(1); // cached
+
+      if (op === 'create') await createEntity('task', 'u1', { title: 'Draft outline' }, prisma);
+      if (op === 'update') await updateEntity('task', 'u1', 't-new', { title: 'Draft outline v2' }, prisma);
+      if (op === 'delete') await deleteEntity('task', 'u1', 't-new', prisma);
+
+      await getCoreContext('u1', prisma);
+      expect(prisma.goal.findMany).toHaveBeenCalledTimes(2); // cache dropped → recomputed
     });
   });
 });

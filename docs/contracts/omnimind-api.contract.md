@@ -659,6 +659,18 @@ writes via `invalidateCoreContext(userId)` (`services/core-context.service.ts`).
 
 **Response 200:** `{ block: string, tokensEstimate: number, hash: string (sha256), generatedAt: ISO }`
 
+### RD-11
+
+GET /context/core — load check. When the caller has no agent context, `block` ends with a `## Current load`
+section. It holds deterministic counts by domain (formula v1, weights in `COGNITIVE_LOAD`), a level (ok /
+stretched / over / unknown; `unknown` replaces `ok` while MCP-logged tasks and commitments are not entity
+rows), flags, and up to 5 non-ministry, domain-assigned active project titles as pause candidates. The
+section is omitted for agent callers (tenant-scoped requests) until M1-B4, and omitted if the load
+computation fails. Task writes now also invalidate the cache. Computed by `services/load.service.ts`
+(SQL reads + pure arithmetic, no LLM); a block without the section is byte-identical to the pre-RD-11
+output. The response shape is unchanged. The weekly memo (`POST /cortex/memo/generate`, cron Sun 18:00)
+appends the same section without project titles to `fullMemoText`.
+
 ### POST /context/reflect  (Phase 6)
 
 Run reflection for one entity now (Haiku, `effort: medium`, Zod-validated; prompt
