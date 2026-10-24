@@ -99,7 +99,8 @@ export function selectBriefableEvents(events: CalendarEvent[], now: Date, hours:
     others.forEach((a, j) => {
       if (!fits) return;
       const cand = nameCandidate(a.displayName, a.email);
-      if (!cand) { unknown += 1; return; }
+      // Defense in depth: nothing address-shaped is ever sent to OmniMind.
+      if (!cand || cand.includes('@')) { unknown += 1; return; }
       const norm = normalizeName(cand);
       if (!norm) { unknown += 1; return; }
       let key = keyByNorm.get(norm) ?? newNorms.get(norm);

@@ -94,6 +94,21 @@ describe('selectBriefableEvents', () => {
     expect(s.attendeesPayload.map(a => a.name)).toEqual(['dana holt', 'Avery Testperson']);
     expect(s.eventsPayload[0].titleTokens).toEqual(['confidential', 'budget', 'review', 'avery']);
   });
+
+  it('sends no e-mail address when the display name is an address or "Name <address>"', () => {
+    const s = selectBriefableEvents([
+      ev(30, { attendees: [
+        person('avery.testperson@example.com', 'avery.testperson@example.com'),
+        person('Rowan Example <rowan@example.com>', 'rowan@example.com'),
+        person('"Quinn" <quinn.sample@example.net>', null),
+        person('pastorjohn77@example.org', null),
+      ] }),
+    ], NOW, 24);
+    const payload = JSON.stringify({ attendees: s.attendeesPayload, events: s.eventsPayload });
+    expect(payload).not.toContain('@');
+    expect(s.attendeesPayload.map(a => a.name)).toEqual(['avery testperson', 'Rowan Example', 'Quinn']);
+    expect(s.selected[0].unknownAttendees).toBe(1);
+  });
 });
 
 function brief(personId: string, name: string, open = 0): PersonBrief {

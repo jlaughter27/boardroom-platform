@@ -33,6 +33,26 @@ describe('RD-13 name normalization', () => {
     expect(nameCandidate(null, null)).toBeNull();
   });
 
+  it('nameCandidate never returns an e-mail address from the display name', () => {
+    expect(nameCandidate('avery.testperson@example.com', 'avery.testperson@example.com')).toBe('avery testperson');
+    expect(nameCandidate('avery.testperson@example.com', null)).toBe('avery testperson');
+    expect(nameCandidate('Rowan Example <rowan@example.com>', 'rowan@example.com')).toBe('Rowan Example');
+    expect(nameCandidate('"Quinn Sample" <qs@example.com>', null)).toBe('Quinn Sample');
+    expect(nameCandidate('Al <al.ford@example.com>', null)).toBe('al ford');
+    expect(nameCandidate('pastorjohn77@example.org', null)).toBeNull();
+    expect(nameCandidate('room@c_1.resource.calendar.google.com', null)).toBeNull();
+    for (const d of ['x@y', 'a.b@c.d e.f@g.h', 'Name (n@x.com)', '<n.m@x.com>']) {
+      expect(nameCandidate(d, 'other.person@example.com') ?? '').not.toContain('@');
+    }
+  });
+
+  it('normalizeName maps typographic apostrophes and dashes to ASCII', () => {
+    expect(normalizeName('Seán O\u2019Brien')).toBe("sean o'brien");
+    expect(normalizeName('Ana\u2010Lu D\u02BCAmico')).toBe("ana-lu d'amico");
+    expect(normalizeName('Mia O\u00B4Neil\u2013Park')).toBe("mia o'neil-park");
+    expect(normalizeName('Lee O`Hara')).toBe("lee o'hara");
+  });
+
   it('nameCandidate refuses room/resource calendars', () => {
     expect(nameCandidate(null, 'board.room@c_123.resource.calendar.google.com')).toBeNull();
     expect(nameCandidate('Board Room 2', 'c_abc@resource.calendar.google.com')).toBeNull();

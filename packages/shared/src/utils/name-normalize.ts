@@ -13,6 +13,10 @@ const MAX_TITLE_TOKENS = 16;
 /** NFKD → strip combining marks → lowercase → non-letters (except ' and -) to spaces → collapse. */
 export function normalizeName(s: string): string {
   return s
+    // Typographic apostrophes / dashes → ASCII before NFKD (which would turn
+    // U+00B4 into a space + combining mark), so `O’Brien` matches `O'Brien`.
+    .replace(/[\u2018\u2019\u02BC`\u00B4]/g, "'")
+    .replace(/[\u2010-\u2015]/g, '-')
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
     .toLowerCase()
@@ -30,15 +34,43 @@ export function nameTokens(s: string): string[] {
  * A name to match on for one calendar attendee: the display name when it has
  * 3+ characters, else two or more letter-only tokens from the e-mail local
  * part (`sarah.jones@x` → `sarah jones`). Room/resource calendars and
- * local parts like `pastorjohn77` give `null`.
+ * local parts like `pastorjohn77` give `null`. A display name holding an
+ * e-mail address is cleaned first, so the result never contains `@`.
  */
 export function nameCandidate(displayName: string | null | undefined, email: string | null | undefined): string | null {
   const domain = (email ?? '').split('@')[1]?.trim().toLowerCase() ?? '';
   if (domain.endsWith(RESOURCE_CALENDAR_DOMAIN)) return null;
 
   const display = (displayName ?? '').trim();
+  if (display.includes('@')) return candidateFromAddressedDisplay(display, email);
   if (display.length >= 3) return display;
 
+  return localPartCandidate(email);
+}
+
+const ADDRESS_RE = /[^\s<>"'(),;]+@[^\s<>"'(),;]+/;
+
+/**
+ * A display name that holds an e-mail address (`a.b@x.com`,
+ * `Name <a.b@x.com>`, as Outlook/ICS invites often set it) must never be sent
+ * as-is: drop every `<…>` and address-shaped token, keep what is left when it
+ * still has 3+ characters and a letter, else derive from the local part of the
+ * address found in the display name (or of `email`). Never contains `@`.
+ */
+function candidateFromAddressedDisplay(display: string, email: string | null | undefined): string | null {
+  const address = display.match(ADDRESS_RE)?.[0] ?? null;
+  const addrDomain = (address ?? '').split('@')[1]?.trim().toLowerCase() ?? '';
+  if (addrDomain.endsWith(RESOURCE_CALENDAR_DOMAIN)) return null;
+  const rest = display
+    .replace(/<[^<>]*>/g, ' ')
+    .replace(/\S*@\S*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^["'\s,;:()[\]]+|["'\s,;:()[\]]+$/g, '');
+  if (rest.length >= 3 && /\p{L}/u.test(rest) && !rest.includes('@')) return rest;
+  return localPartCandidate(address ?? email);
+}
+
+function localPartCandidate(email: string | null | undefined): string | null {
   const local = (email ?? '').split('@')[0] ?? '';
   const tokens = local
     .split(/[._-]/)
