@@ -196,6 +196,7 @@ export async function linkProjectTask(
     create: { projectId, taskId },
     update: {},
   });
+  invalidateCoreContext(userId); // RD-11: the load section reads ProjectTaskLink
   return { link, created: true };
 }
 
@@ -209,6 +210,7 @@ export async function unlinkProjectTask(
   if (!projectOk || !taskOk) return null;
   const { count } = await prisma.projectTaskLink.deleteMany({ where: { projectId, taskId } });
   if (count === 0) return null;
+  invalidateCoreContext(userId); // RD-11: the load section reads ProjectTaskLink
   return { projectId, taskId, status: 'unlinked' };
 }
 

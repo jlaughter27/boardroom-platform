@@ -103,7 +103,12 @@ export async function loadLoadInput(userId: string, prisma: PrismaClient, now: D
 // ── Pure computation ──
 
 const norm = (s: string | null | undefined): string => (s ?? '').trim().toLowerCase();
-const normDomain = (s: string | null | undefined): string => norm(s) || UNASSIGNED;
+/** Longest domain label rendered into the system block (code points). */
+const DOMAIN_MAX_CHARS = 40;
+/** Slice by code point so a cap never leaves a lone surrogate (the Anthropic API rejects those). */
+const capChars = (s: string, max: number): string => Array.from(s).slice(0, max).join('');
+/** One line, lowercased, capped: a domain string is free text and lands verbatim in the cached system block. */
+const normDomain = (s: string | null | undefined): string => capChars(norm(s).replace(/\s+/g, ' '), DOMAIN_MAX_CHARS) || UNASSIGNED;
 const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const closedProject = new Set<string>(COGNITIVE_LOAD.closedProjectStatuses);
 const closedTask = new Set<string>(COGNITIVE_LOAD.closedTaskStatuses);
@@ -241,7 +246,7 @@ export function computeLoad(input: LoadInput, now: Date, opts: ComputeLoadOption
 
 // ── Pure renderer ──
 
-const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim().slice(0, COGNITIVE_LOAD.candidateTitleMaxChars);
+const oneLine = (t: string): string => capChars(t.replace(/\s+/g, ' ').trim(), COGNITIVE_LOAD.candidateTitleMaxChars);
 
 function levelLine(s: LoadSnapshot): string {
   const cap = `capacity ${s.capacity}`;

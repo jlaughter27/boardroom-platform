@@ -666,7 +666,8 @@ section. It holds deterministic counts by domain (formula v1, weights in `COGNIT
 stretched / over / unknown; `unknown` replaces `ok` while MCP-logged tasks and commitments are not entity
 rows), flags, and up to 5 non-ministry, domain-assigned active project titles as pause candidates. The
 section is omitted for agent callers (tenant-scoped requests) until M1-B4, and omitted if the load
-computation fails. Task writes now also invalidate the cache. Computed by `services/load.service.ts`
+computation fails. Task writes and project↔task link/unlink now also invalidate the cache. Domains are
+collapsed to one line, lowercased and capped at 40 characters; titles at 80 (both by code point). Computed by `services/load.service.ts`
 (SQL reads + pure arithmetic, no LLM); a block without the section is byte-identical to the pre-RD-11
 output. The response shape is unchanged. The weekly memo (`POST /cortex/memo/generate`, cron Sun 18:00)
 appends the same section without project titles to `fullMemoText`.

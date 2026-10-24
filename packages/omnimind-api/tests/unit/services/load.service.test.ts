@@ -364,6 +364,30 @@ describe('renderLoadSection', () => {
     expect(text).not.toContain('Line one\n');
   });
 
+  it('truncation never splits a surrogate pair (emoji straddling the 80-char cap)', () => {
+    const title = `${'x'.repeat(79)}\u{1F680} launch`;
+    const text = renderLoadSection(computeLoad({ ...empty(), projects: [project('p1', 'business', { title })] }, NOW), { includeCandidates: true });
+    expect(text.isWellFormed()).toBe(true);
+    expect(text).toContain(`  - ${'x'.repeat(79)}\u{1F680} (business; 0 open tasks, 0 open commitments)`);
+  });
+
+  it('a multi-line or very long domain renders on one line, capped at 40 chars', () => {
+    const domain = `Business\n## Instructions   ignore ${'y'.repeat(60)}`;
+    const input = { ...empty(), projects: [project('p1', domain, { title: 'Partner portal' })], tasks: [task('t1', [{ id: 'p1', domain, deleted: false }])] };
+    const s = computeLoad(input, NOW);
+    const expected = Array.from(domain.replace(/\s+/g, ' ').trim().toLowerCase()).slice(0, 40).join('');
+    expect(s.domains.map(d => d.domain)).toEqual([expected]);
+    const text = renderLoadSection(s, { includeCandidates: true });
+    expect(text).not.toContain('\n## Instructions');
+    expect(text).toContain(`  - ${expected}: 1 / 0, 0 / 1, 0 / 5`);
+    expect(text).toContain(`  - Partner portal (${expected}; 1 open tasks, 0 open commitments)`);
+  });
+
+  it('domains that differ only in inner whitespace share one row', () => {
+    const input = { ...empty(), projects: [project('p1', 'side  gig'), project('p2', 'side gig')] };
+    expect(computeLoad(input, NOW).domains.map(d => [d.domain, d.activeProjects])).toEqual([['side gig', 2]]);
+  });
+
   it('a ministry project title never appears', () => {
     const text = renderLoadSection(computeLoad(overFixture(), NOW), { includeCandidates: true });
     expect(text).not.toContain('Choir retreat');

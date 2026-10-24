@@ -25,7 +25,8 @@ import { computeLoad, loadLoadInput, renderLoadSection } from './load.service';
  *
  * Cached in-process for 60 s per (user, tenant); `invalidateCoreContext(userId)`
  * drops every tenant variant and is called from the goal / project / task /
- * commitment / profile write paths.
+ * commitment / profile write paths and the goal↔project and project↔task link
+ * writers.
  */
 
 export const CORE_CONTEXT_MAX_GOALS = 8;

@@ -7,7 +7,7 @@ import {
   __resetCoreContextCacheForTest,
   type CoreContextInput,
 } from '../../../src/services/core-context.service';
-import { createEntity, updateEntity, deleteEntity } from '../../../src/services/entity.service';
+import { createEntity, updateEntity, deleteEntity, linkProjectTask, unlinkProjectTask } from '../../../src/services/entity.service';
 import { computeLoad, type LoadInput } from '../../../src/services/load.service';
 import { logger } from '../../../src/lib/logger';
 
@@ -271,6 +271,46 @@ describe('core context (Phase 6)', () => {
 
       await getCoreContext('u1', prisma);
       expect(prisma.goal.findMany).toHaveBeenCalledTimes(2); // cache dropped → recomputed
+    });
+
+    // RD-11 fix: the load section reads ProjectTaskLink (task domain + per-project open counts),
+    // so linking / unlinking a task to a project must drop the cached block.
+    const linkPrisma = () => {
+      const prisma = fullPrisma();
+      prisma.project.findFirst = vi.fn().mockResolvedValue({ id: 'pb1' });
+      prisma.task.findFirst = vi.fn().mockResolvedValue({ id: 't-new' });
+      prisma.projectTaskLink = {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({ projectId: 'pb1', taskId: 't-new' }),
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      };
+      return prisma;
+    };
+
+    it.each(['link', 'unlink'] as const)('entity.service %sProjectTask invalidates the core-context cache', async (op) => {
+      const prisma = linkPrisma();
+      await getCoreContext('u1', prisma);
+      await getCoreContext('u1', prisma);
+      expect(prisma.goal.findMany).toHaveBeenCalledTimes(1); // cached
+
+      const res = op === 'link'
+        ? await linkProjectTask('u1', 'pb1', 't-new', prisma)
+        : await unlinkProjectTask('u1', 'pb1', 't-new', prisma);
+      expect(res).not.toBeNull();
+
+      await getCoreContext('u1', prisma);
+      expect(prisma.goal.findMany).toHaveBeenCalledTimes(2); // cache dropped → recomputed
+    });
+
+    it('a no-op link (already linked) or no-op unlink (nothing removed) keeps the cache', async () => {
+      const prisma = linkPrisma();
+      prisma.projectTaskLink.findUnique.mockResolvedValue({ projectId: 'pb1', taskId: 't-new' });
+      prisma.projectTaskLink.deleteMany.mockResolvedValue({ count: 0 });
+      await getCoreContext('u1', prisma);
+      expect(await linkProjectTask('u1', 'pb1', 't-new', prisma)).toMatchObject({ created: false });
+      expect(await unlinkProjectTask('u1', 'pb1', 't-new', prisma)).toBeNull();
+      await getCoreContext('u1', prisma);
+      expect(prisma.goal.findMany).toHaveBeenCalledTimes(1);
     });
   });
 });
