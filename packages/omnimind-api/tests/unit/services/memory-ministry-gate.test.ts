@@ -54,6 +54,7 @@ describe('ministry data-sovereignty gate (H2)', () => {
     await expect(createMemory('user-1', { ...base, domain }, prisma)).rejects.toMatchObject({
       statusCode: 503,
       body: { code: 'MINISTRY_DEFERRED' },
+      refusal: true, // Lane F — sent with x-omnimind-refusal: 1, never trips BoardRoom's breaker
     });
     expect(prisma.memoryEntry.create).not.toHaveBeenCalled();
     expect(prisma.embeddingOutbox.upsert).not.toHaveBeenCalled();

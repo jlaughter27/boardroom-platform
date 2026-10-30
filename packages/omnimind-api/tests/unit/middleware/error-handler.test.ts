@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { errorHandler } from '../../../src/middleware/error-handler';
+import { errorHandler, HttpError } from '../../../src/middleware/error-handler';
 import { logger } from '../../../src/lib/logger';
 
 // Mock logger
@@ -24,6 +24,7 @@ describe('errorHandler middleware', () => {
     mockRes = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
+      setHeader: vi.fn().mockReturnThis(),
     };
     mockNext = vi.fn();
 
@@ -119,5 +120,21 @@ describe('errorHandler middleware', () => {
     });
     
     process.env.NODE_ENV = originalEnv;
+  });
+
+  // Lane F — deliberate 5xx refusals carry `x-omnimind-refusal: 1` so BoardRoom's
+  // shared circuit breaker neither retries nor counts them.
+  it('marks a refusal HttpError (503 MINISTRY_DEFERRED) with x-omnimind-refusal: 1', () => {
+    const err = new HttpError(503, { code: 'MINISTRY_DEFERRED', message: 'deferred' }, { refusal: true });
+    errorHandler(err, mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.status).toHaveBeenCalledWith(503);
+    expect(mockRes.setHeader).toHaveBeenCalledWith('x-omnimind-refusal', '1');
+    expect(mockRes.json).toHaveBeenCalledWith({ code: 'MINISTRY_DEFERRED', message: 'deferred' });
+  });
+
+  it('does not mark a plain HttpError or an unhandled 500 as a refusal', () => {
+    errorHandler(new HttpError(409, { code: 'conflict', message: 'dup' }), mockReq as Request, mockRes as Response, mockNext);
+    errorHandler(new Error('boom'), mockReq as Request, mockRes as Response, mockNext);
+    expect(mockRes.setHeader).not.toHaveBeenCalled();
   });
 });

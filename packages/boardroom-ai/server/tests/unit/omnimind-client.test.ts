@@ -364,6 +364,67 @@ describe('OmniMindClient', () => {
       await client.createDecision('user-123', {}).catch(() => {});
       expect(client.breaker.failures).toBe(1);
     });
+
+    // Lane F (2026-10-30): five POST /api/memories {domain:"ministry"} from ONE
+    // user answered 503 MINISTRY_DEFERRED and opened the shared breaker → every
+    // user (incl. login) got 503 for the cooldown. A deliberate refusal is
+    // OmniMind answering correctly, not OmniMind being down.
+    const refusal503 = (headers: Record<string, string> = { 'x-omnimind-refusal': '1' }) => ({
+      ok: false,
+      status: 503,
+      headers: new Headers(headers),
+      json: () => Promise.resolve({ code: 'MINISTRY_DEFERRED', message: 'deferred' }),
+    });
+
+    it('6x MINISTRY_DEFERRED 503 (refusal header) leaves the breaker CLOSED', async () => {
+      fetchSpy.mockResolvedValue(refusal503());
+      for (let i = 0; i < 6; i++) {
+        await expect(client.createMemory('user-a', { content: 'x', domain: 'ministry' })).rejects.toMatchObject({
+          status: 503,
+          upstream: { code: 'MINISTRY_DEFERRED' },
+        });
+      }
+      expect(client.breaker.failures).toBe(0);
+      expect(client.breaker.state).toBe('CLOSED');
+      fetchSpy.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      await expect(client.getGoals('user-b')).resolves.toEqual([]);
+    });
+
+    it('a refusal 503 is recognised by its code even without the header (older OmniMind)', async () => {
+      fetchSpy.mockResolvedValue(refusal503({}));
+      for (let i = 0; i < 6; i++) await client.createMemory('user-a', { content: 'x' }).catch(() => {});
+      expect(client.breaker.state).toBe('CLOSED');
+      expect(client.breaker.failures).toBe(0);
+    });
+
+    it('a refusal 503 on a GET is not retried', async () => {
+      fetchSpy.mockResolvedValue(refusal503());
+      await expect(client.getGoals('user-a')).rejects.toMatchObject({ status: 503 });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(client.breaker.failures).toBe(0);
+    });
+
+    it('6x bare 503 (no body / HTML / proxy) opens the breaker', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+      });
+      for (let i = 0; i < 6; i++) await client.createMemory('user-a', { content: 'x' }).catch(() => {});
+      expect(client.breaker.state).toBe('OPEN');
+    });
+
+    it('a JSON 503 with an infra code (agent_lookup_failed — DB down) still counts', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ error: 'agent_lookup_failed', message: 'Agent identity could not be verified' }),
+      });
+      for (let i = 0; i < 5; i++) await client.createMemory('user-a', { content: 'x' }).catch(() => {});
+      expect(client.breaker.state).toBe('OPEN');
+    });
   });
 
   // Lane C — the only place `userId` actually reaches OmniMind for the MCP

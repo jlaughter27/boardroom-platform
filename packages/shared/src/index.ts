@@ -42,6 +42,7 @@ export * from './constants/cortex-config';
 export * from './constants/model-config';
 export * from './constants/graph-config';
 export * from './constants/meeting-brief-config';
+export * from './constants/omnimind-http';
 
 // Utilities
 // NOTE (S-103): `hashing` (Node `crypto`) and `env-validator` (`process.env`)

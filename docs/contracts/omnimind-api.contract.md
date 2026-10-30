@@ -71,7 +71,7 @@ All errors follow this shape:
 
 ### Robustness fixes (2026-10-30)
 
-An adversarial e2e run turned malformed input into 500s; each class is now a 4xx. A 500 now means a server fault only (BoardRoom's circuit breaker counts 502/503/504, network errors and timeouts — never a plain 500).
+An adversarial e2e run turned malformed input into 500s; each class is now a 4xx. A 500 now means a server fault only (BoardRoom's circuit breaker counts 502/503/504, network errors and timeouts — never a plain 500, never a deliberate refusal, see below).
 
 | Input | Response |
 |---|---|
@@ -87,6 +87,8 @@ An adversarial e2e run turned malformed input into 500s; each class is now a 4xx
 | Commitment `sourceSessionId` longer than 128 chars | **422** `validation_failed` |
 | `GET /memories` query (`ListMemoriesQuerySchema` / `ListMemoriesQuery`): unknown `status` / `memoryClass`, `sortBy` outside `createdAt\|updatedAt\|importance\|title\|lastAccessedAt\|validAt`, `sortOrder` outside `asc\|desc`, `limit`/`offset` not a non-negative integer, `since` unparseable or outside 1900–9999, any repeated or bracketed param (`q=a&q=b`, `tenantId[]=x`) | **422** `validation_failed` |
 | `GET /commitments` query (`ListCommitmentsQuerySchema` / `ListCommitmentsQuery`): unknown `status` (case-sensitive: `open` is rejected), `limit`/`offset` not a non-negative integer, repeated params; `owedBy` keeps its RD-12 rule | **422** `validation_failed` |
+
+**Deliberate refusals (lane F, 2026-10-30).** A 5xx that is an intentional, application-level refusal — OmniMind is healthy and answered on purpose — carries the response header **`x-omnimind-refusal: 1`** (`OMNIMIND_REFUSAL_HEADER` in `@boardroom/shared` `constants/omnimind-http.ts`). Today: **503 `{ code: "MINISTRY_DEFERRED" }`** (`POST` / `PATCH /memories` ministry gate) and **503 `{ error: "admin_disabled" }`** (`/admin/*` and `POST /mcp/agents` in production without `OMNIMIND_ADMIN_KEY`). In code: `new HttpError(503, body, { refusal: true })` or `markRefusal(res)` (`middleware/error-handler.ts`). Callers must neither retry such a response nor count it toward a circuit breaker; BoardRoom's `omnimind-client.ts` honours the header and, for an OmniMind build without it, the same codes (`OMNIMIND_REFUSAL_CODES`). Infra failures never carry it and still count: proxy / gateway 502/503/504 (no body, HTML), **503 `agent_lookup_failed`** (agent / principal lookup failed — DB unavailable), network errors and timeouts. Never mark an infra failure as a refusal.
 
 Unchanged: an empty query value (`?tags=`, `?limit=`) still means "not given" (except `owedBy=`, still a 422); `includeInvalidated` / `includeAllTenants` / `overdue` are true only for the single value `true` (any case). The NUL / depth guard (`middleware/input-guard.ts`) runs after auth and the rate limiters, before every route; the title / content NUL refinements in the shared memory schemas stay. `POST /memories/:id/links` for a link that already exists (same memory, `entityType`, `entityId`, `linkType`) returns **200** with the existing row instead of a 500; only a concurrent duplicate can still reach P2002 → 409.
 

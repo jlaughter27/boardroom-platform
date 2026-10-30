@@ -1,15 +1,35 @@
 import type { Request, Response, NextFunction } from 'express';
+import { OMNIMIND_REFUSAL_HEADER } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 
+export interface HttpErrorOptions {
+  /**
+   * Lane F — a DELIBERATE application-level refusal (e.g. 503 `MINISTRY_DEFERRED`):
+   * the response carries `x-omnimind-refusal: 1` so callers neither retry it nor
+   * count it toward a circuit breaker. Never set it on an infra failure (DB down,
+   * dependency unreachable) — those must still trip the caller's breaker.
+   */
+  refusal?: boolean;
+}
+
 export class HttpError extends Error {
+  public readonly refusal: boolean;
+
   constructor(
     public readonly statusCode: number,
     // Extra fields (e.g. `existingId` on a 409) are spread into the response as-is.
     public readonly body: { code: string; message: string; [extra: string]: unknown },
+    options: HttpErrorOptions = {},
   ) {
     super(body.message);
     this.name = 'HttpError';
+    this.refusal = options.refusal === true;
   }
+}
+
+/** Marks a response as a deliberate refusal (see `HttpErrorOptions.refusal`). */
+export function markRefusal(res: Response): void {
+  res.setHeader(OMNIMIND_REFUSAL_HEADER, '1');
 }
 
 interface MappedClientError {
@@ -55,6 +75,7 @@ export const errorHandler =(err: Error, req: Request, res: Response, _next: Next
   const requestId = req.headers['x-request-id'] as string | undefined;
 
   if (err instanceof HttpError) {
+    if (err.refusal) markRefusal(res);
     res.status(err.statusCode).json({
       ...err.body,
       ...(requestId && { requestId }),

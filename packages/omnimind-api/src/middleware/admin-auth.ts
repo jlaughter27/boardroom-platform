@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { logger } from '../lib/logger';
+import { markRefusal } from './error-handler';
 
 /**
  * F-104 — admin surface requires its own secret, separate from the shared
@@ -34,6 +35,8 @@ export const requireAdminKey = (req: Request, res: Response, next: NextFunction)
 
   if (!expected) {
     if (process.env.NODE_ENV === 'production') {
+      // Lane F — a deliberate refusal (configuration), not an outage.
+      markRefusal(res);
       res.status(503).json({
         error: 'admin_disabled',
         message:
