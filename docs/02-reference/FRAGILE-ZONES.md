@@ -131,6 +131,10 @@ Currently set to the **public** Railway domain (`https://omnimind-api-production
 
 The cookie name `boardroom_token` appears in auth middleware and the login/logout handlers. If you change it in one place but not others, auth silently breaks (no error, just 401 on every request).
 
+### Logout revocation is in-process (single instance only)
+
+Every BoardRoom JWT carries a random `jti`. `POST /auth/logout` clears the cookie **and** calls `revokeToken()`, which records the `jti` (or `sha256(token)` for tokens issued before the `jti` existed) in an in-memory map until the token's own `exp`; `verifyToken()` — used by `authMiddleware`, `optionalAuthMiddleware` and the OAuth callbacks — refuses anything on that list. Two consequences: (1) **a restart / redeploy forgets the list**, so a token logged out before the deploy authenticates again until its 7-day expiry; (2) **a second BoardRoom replica would not see the other's revocations** — scaling past one instance (known limitation #7) needs the list moved to OmniMind first. Logout revokes only the presented token, not the user's other sessions. Exposure window is the 7-day `TOKEN_EXPIRY` in `middleware/auth.ts`; shortening it trades re-login friction for a smaller post-restart window (no refresh tokens exist, so a shorter expiry means users are logged out sooner).
+
 ### Service-to-service auth uses timing-safe comparison
 
 OmniMind's API key check uses `crypto.timingSafeEqual` to prevent timing attacks. Don't replace this with `===` string comparison.
