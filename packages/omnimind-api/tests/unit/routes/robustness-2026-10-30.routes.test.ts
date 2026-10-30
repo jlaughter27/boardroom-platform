@@ -161,9 +161,13 @@ describe('M4 — Prisma unique / foreign-key violations', () => {
     expect(res.body.error).toBe('conflict');
   });
 
-  it('an unknown foreign key (P2003, e.g. sourceSessionId) → 422 invalid_reference', async () => {
+  // Lane H (2026-10-30): an unknown or foreign sourceSessionId is now caught
+  // before the write (404 not_found, entity session — see
+  // commitment-source-session.routes.test.ts); a P2003 that still reaches the
+  // client (e.g. the referenced row deleted concurrently) maps to 422.
+  it('a foreign key violation from the database (P2003) → 422 invalid_reference', async () => {
     mockPrisma.commitment.create.mockRejectedValue(prismaError('P2003'));
-    const res = await request(app).post('/commitments').set(H).send({ description: 'Send Pat the deck', sourceSessionId: 'no-such-session' });
+    const res = await request(app).post('/commitments').set(H).send({ description: 'Send Pat the deck' });
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('invalid_reference');
   });
