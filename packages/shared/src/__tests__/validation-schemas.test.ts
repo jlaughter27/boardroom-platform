@@ -240,6 +240,33 @@ describe('SynthesisReportSchema.displacement (RD-11)', () => {
     expect(out.displacement?.stops.map(s => s.title)).toEqual(['A', 'B', 'C']);
   });
 
+  it('drops junk stops (empty, "(none)", copied load-section lines) before capping at 3', () => {
+    const stops = [
+      { title: '(none)', action: 'pause' },
+      { title: 'level: UNKNOWN', action: 'defer' },
+      { title: '   ', action: 'stop' },
+      { title: '', action: 'stop' },
+      { title: 'Flags: none', action: 'defer' },
+      { title: 'by domain (active projects / open commitments)', action: 'defer' },
+      { title: '- business: 3 / 2', action: 'pause' },
+      { title: 'Podcast relaunch', action: 'pause' },
+      { title: 'Newsletter redesign', action: 'defer' },
+      { title: 'Weekly ops review', action: 'delegate' },
+      { title: 'Fourth real item', action: 'stop' },
+    ];
+    const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Too much at once.', stops, netNew: false } });
+    expect(out.displacement?.stops).toEqual([
+      { title: 'Podcast relaunch', action: 'pause' },
+      { title: 'Newsletter redesign', action: 'defer' },
+      { title: 'Weekly ops review', action: 'delegate' },
+    ]);
+  });
+
+  it('a displacement whose only stops are junk keeps the answer with stops []', () => {
+    const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Pause something.', stops: [{ title: '(none)', action: 'pause' }, { title: 'level: UNKNOWN', action: 'defer' }], netNew: false } });
+    expect(out.displacement).toEqual({ answer: 'Pause something.', stops: [], netNew: false });
+  });
+
   it('a missing stops array becomes []', () => {
     const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Nothing needs to stop.', netNew: true } });
     expect(out.displacement).toEqual({ answer: 'Nothing needs to stop.', stops: [], netNew: true });

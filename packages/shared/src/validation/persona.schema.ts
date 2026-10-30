@@ -73,9 +73,31 @@ export const StopItemSchema = z.object({
   action: StopActionSchema,
 });
 
+/**
+ * A stop title that names nothing: empty, "(none)", or a line copied from the
+ * `## Current load` section ("level: UNKNOWN", "flags: none", "by domain …",
+ * "- business: …"). Rendering these verbatim gave "Pause — (none)".
+ */
+export function isJunkStopTitle(title: string): boolean {
+  const t = title.trim().toLowerCase();
+  if (!t || t === '(none)' || t === 'none') return true;
+  return t.startsWith('level:') || t.startsWith('flags:') || t.startsWith('by domain') || t.startsWith('- ');
+}
+
+/** Drop junk stops before item validation, so one bad stop never discards the whole displacement. */
+function dropJunkStops(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.filter((item) => !(
+    item && typeof item === 'object' && typeof (item as { title?: unknown }).title === 'string'
+    && isJunkStopTitle((item as { title: string }).title)
+  ));
+}
+
 export const DisplacementSchema = z.object({
   answer: z.string().min(1).describe('1-3 sentences: what this decision displaces'),
-  stops: z.array(StopItemSchema).default([]).transform((s) => s.slice(0, 3)).describe('0-3 named items (capped at 3)'),
+  stops: z.preprocess(dropJunkStops, z.array(StopItemSchema).default([]))
+    .transform((s) => s.slice(0, 3))
+    .describe('0-3 named items (junk titles dropped, capped at 3)'),
   netNew: z.boolean().describe('True only when the load level is OK and nothing needs to stop'),
 });
 
