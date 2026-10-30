@@ -12,12 +12,62 @@ export class HttpError extends Error {
   }
 }
 
-export const errorHandler = (err: Error, req: Request, res: Response, _next: NextFunction): void => {
+interface MappedClientError {
+  status: number;
+  error: string;
+  message: string;
+}
+
+/**
+ * Errors that describe a bad request rather than a server fault:
+ *  - body-parser (`express.json`): `entity.too.large` → 413 `payload_too_large`,
+ *    `entity.parse.failed` (malformed JSON, or a bare `null` body in strict
+ *    mode) → 400 `invalid_json`, any other exposed 4xx → that status.
+ *  - Prisma P2002 (unique constraint) → 409 `conflict`;
+ *    P2003 (foreign key, e.g. an unknown `sourceSessionId`) → 422 `invalid_reference`.
+ * Duck-typed so it holds across Prisma client instances and test doubles.
+ */
+export function mapClientError(err: unknown): MappedClientError | null {
+  const e = err as { type?: unknown; status?: unknown; expose?: unknown; code?: unknown; name?: unknown };
+  if (typeof e?.type === 'string' && typeof e.status === 'number') {
+    if (e.type === 'entity.too.large') {
+      return { status: 413, error: 'payload_too_large', message: 'Request body exceeds the 1 MB limit' };
+    }
+    if (e.type === 'entity.parse.failed') {
+      return { status: 400, error: 'invalid_json', message: 'Request body must be a JSON object or array' };
+    }
+    if (e.expose === true && e.status >= 400 && e.status < 500) {
+      return { status: e.status, error: 'bad_request', message: (err as Error).message };
+    }
+  }
+  if (typeof e?.code === 'string' && typeof e.name === 'string' && e.name.startsWith('PrismaClientKnownRequestError')) {
+    if (e.code === 'P2002') {
+      return { status: 409, error: 'conflict', message: 'A record with these unique fields already exists' };
+    }
+    if (e.code === 'P2003') {
+      return { status: 422, error: 'invalid_reference', message: 'A referenced record does not exist' };
+    }
+  }
+  return null;
+}
+
+export const errorHandler =(err: Error, req: Request, res: Response, _next: NextFunction): void => {
   const requestId = req.headers['x-request-id'] as string | undefined;
 
   if (err instanceof HttpError) {
     res.status(err.statusCode).json({
       ...err.body,
+      ...(requestId && { requestId }),
+    });
+    return;
+  }
+
+  // Robustness fixes 2026-10-30 — malformed input is the caller's error, not a 500.
+  const mapped = mapClientError(err);
+  if (mapped) {
+    res.status(mapped.status).json({
+      error: mapped.error,
+      message: mapped.message,
       ...(requestId && { requestId }),
     });
     return;

@@ -41,6 +41,20 @@ export interface CommitmentLinksInput {
   taskId?: string;
 }
 
+/**
+ * `GET /commitments` query string after validation (`ListCommitmentsQuerySchema`,
+ * robustness fixes 2026-10-30). A repeated param, an unknown status / owedBy or a
+ * non-integer limit/offset is a 422 `validation_failed`.
+ */
+export interface ListCommitmentsQuery {
+  status?: CommitmentStatus;
+  owedBy?: CommitmentOwedBy;
+  /** `?overdue=true` → OPEN with a past deadline. */
+  overdue: boolean;
+  limit?: number;
+  offset?: number;
+}
+
 /** RD-12 — a GET /commitments/nudges row: the commitment plus its counterparty's name. */
 export interface CommitmentNudgeItem extends Commitment {
   stakeholderName: string | null;

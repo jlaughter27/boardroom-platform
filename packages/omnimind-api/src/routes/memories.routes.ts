@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
 import { z } from 'zod';
-import { BatchMemoryLinksBodySchema, CreateMemoryRequestSchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
+import { BatchMemoryLinksBodySchema, CreateMemoryRequestSchema, ListMemoriesQuerySchema, MemoryStatusSchema, UpdateMemoryRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import * as memoryService from '../services/memory.service';
 import { backfillEmbeddings, generateEmbeddingWithRetry } from '../services/embedding.service';
@@ -232,20 +232,27 @@ router.get('/', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
-    const tenantId = req.query.tenantId as string | undefined;
+    // Robustness fixes 2026-10-30: every query param is validated here — an
+    // unknown enum / sort column, a bad number or date, or a repeated param
+    // used to reach Prisma and come back as a 500.
+    const parsedQuery = ListMemoriesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      res.status(422).json({
+        error: 'validation_failed',
+        details: parsedQuery.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
+      });
+      return;
+    }
+    const query = parsedQuery.data;
+    const tags = query.tags ? query.tags.split(',') : undefined;
+    const tenantId = query.tenantId;
     // R-O-02: invalidated rows are hidden by default; ?includeInvalidated=true opts in.
-    const includeInvalidated =
-      typeof req.query.includeInvalidated === 'string' &&
-      req.query.includeInvalidated.toLowerCase() === 'true';
+    const includeInvalidated = query.includeInvalidated;
 
     // O-105: an agent may not read outside its own tenant by passing
     // ?tenantId=<other>. Only an admin (x-admin-key) who explicitly opts in
     // with ?includeAllTenants=true may cross tenants.
-    const includeAllTenants =
-      typeof req.query.includeAllTenants === 'string' &&
-      req.query.includeAllTenants.toLowerCase() === 'true' &&
-      isAdminRequest(req);
+    const includeAllTenants = query.includeAllTenants && isAdminRequest(req);
     const ctxTenant = req.agentContext?.tenantId;
     if (ctxTenant && tenantId && tenantId !== ctxTenant && !includeAllTenants) {
       res.status(403).json({
@@ -256,18 +263,17 @@ router.get('/', async (req, res, next) => {
     }
 
     const result = await memoryService.searchMemories(userId, {
-
-      q: req.query.q as string | undefined,
-      domain: req.query.domain as string | undefined,
+      q: query.q,
+      domain: query.domain,
       tags,
       tenantId,
-      memoryClass: req.query.memoryClass as string | undefined,
-      status: req.query.status as string | undefined,
-      since: req.query.since as string | undefined,
-      sortBy: req.query.sortBy as string | undefined,
-      sortOrder: req.query.sortOrder as string | undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
-      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
+      memoryClass: query.memoryClass,
+      status: query.status,
+      since: query.since,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+      limit: query.limit,
+      offset: query.offset,
       includeAllTenants,
       includeInvalidated,
     }, req.agentContext, prisma);
@@ -380,14 +386,19 @@ router.post('/:id/links', async (req, res, next) => {
       return;
     }
 
-    const link = await prisma.memoryEntityLink.create({
-      data: {
-        memoryId: req.params.id,
-        entityType,
-        entityId,
-        linkType: (linkType as string | undefined) ?? 'relates_to',
-      },
-    });
+    const linkData = {
+      memoryId: req.params.id,
+      entityType,
+      entityId,
+      linkType: (linkType as string | undefined) ?? 'relates_to',
+    };
+    // Robustness fixes 2026-10-30: the (memory, entityType, entityId, linkType)
+    // tuple is unique — re-linking returns the existing row (200) instead of a
+    // P2002 500. A concurrent duplicate still loses the race → 409 `conflict`.
+    const existing = await prisma.memoryEntityLink.findFirst({ where: linkData });
+    if (existing) { res.status(200).json(existing); return; }
+
+    const link = await prisma.memoryEntityLink.create({ data: linkData });
 
     res.status(201).json(link);
   } catch (err) { next(err); }

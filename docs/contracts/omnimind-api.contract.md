@@ -69,6 +69,27 @@ All errors follow this shape:
 }
 ```
 
+### Robustness fixes (2026-10-30)
+
+An adversarial e2e run turned malformed input into 500s; each class is now a 4xx. A 500 now means a server fault only (BoardRoom's circuit breaker counts 502/503/504, network errors and timeouts — never a plain 500).
+
+| Input | Response |
+|---|---|
+| Malformed JSON body, or a bare `null` body (strict `express.json`) | **400** `{ error: "invalid_json", message }` |
+| Body over 1 MB | **413** `{ error: "payload_too_large", message }` |
+| Other body-parser 4xx (unsupported charset / encoding …) | that status, `{ error: "bad_request", message }` |
+| Prisma unique violation (P2002) not handled by the route | **409** `{ error: "conflict", message }` |
+| Prisma foreign-key violation (P2003), e.g. an unknown `sourceSessionId` on `POST /commitments` | **422** `{ error: "invalid_reference", message }` |
+| NUL (U+0000) in any body string or key, any query value or key, or the path (`%00`, e.g. an id) | **422** `validation_failed`, `details: [{ field, message }]` — `field` is the body path (`tags.0`, `metadata.note`), `query.<key>` or `path` |
+| JSON body nested deeper than 32 levels (e.g. `metadata`) | **422** `validation_failed` (`message: "nesting deeper than 32 levels is not allowed"`, `field` truncated to 200 chars) |
+| Request-body dates outside years 1900–9999 — commitment `deadline` / `completedAt`, person `lastContactAt`, goal / project / task `deadline` (`boundedDate()` in shared) | **422** `validation_failed` |
+| Person `interactionFrequency` not an integer in 0…2 147 483 647 (Postgres `integer`) | **422** `validation_failed` |
+| Commitment `sourceSessionId` longer than 128 chars | **422** `validation_failed` |
+| `GET /memories` query (`ListMemoriesQuerySchema` / `ListMemoriesQuery`): unknown `status` / `memoryClass`, `sortBy` outside `createdAt\|updatedAt\|importance\|title\|lastAccessedAt\|validAt`, `sortOrder` outside `asc\|desc`, `limit`/`offset` not a non-negative integer, `since` unparseable or outside 1900–9999, any repeated or bracketed param (`q=a&q=b`, `tenantId[]=x`) | **422** `validation_failed` |
+| `GET /commitments` query (`ListCommitmentsQuerySchema` / `ListCommitmentsQuery`): unknown `status` (case-sensitive: `open` is rejected), `limit`/`offset` not a non-negative integer, repeated params; `owedBy` keeps its RD-12 rule | **422** `validation_failed` |
+
+Unchanged: an empty query value (`?tags=`, `?limit=`) still means "not given" (except `owedBy=`, still a 422); `includeInvalidated` / `includeAllTenants` / `overdue` are true only for the single value `true` (any case). The NUL / depth guard (`middleware/input-guard.ts`) runs after auth and the rate limiters, before every route; the title / content NUL refinements in the shared memory schemas stay. `POST /memories/:id/links` for a link that already exists (same memory, `entityType`, `entityId`, `linkType`) returns **200** with the existing row instead of a 500; only a concurrent duplicate can still reach P2002 → 409.
+
 ---
 
 ## Health
@@ -242,6 +263,8 @@ Search/filter memories.
 - `sortOrder` — `asc` | `desc` (default: `desc`)
 - `limit` — integer, default 20, max 100
 - `offset` — integer, default 0
+
+Validated by `ListMemoriesQuerySchema` (2026-10-30): an invalid value → **422** `validation_failed` (see *Robustness fixes* under Error Responses).
 
 **Response 200:**
 ```typescript
@@ -989,7 +1012,7 @@ Memory→memory links are drawn by `GET /graph` as `memory_entity` edges.
 Create link between memory and entity.
 Request: { entityType: 'goal'|'project'|'task'|'person'|'decision'|'commitment'|'memory', entityId: string, linkType?: string (default `relates_to`) }
 `entityType` is lower-cased before validation (2026-10-03); the entity must exist for this user.
-Response 201: MemoryEntityLink · 422 unknown `entityType` · 404 memory or entity not found
+Response 201: MemoryEntityLink · 200 the existing MemoryEntityLink when the same link already exists (2026-10-30) · 409 `conflict` on a concurrent duplicate · 422 unknown `entityType` · 404 memory or entity not found
 
 ### GET /memories/:id/links
 List links for a memory.

@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { MemoryClass, MemoryStatus, Confidence, SourceType } from '../types/memory.types';
+import { queryDateString, queryEnum, queryFlag, queryNativeEnum, queryNonNegativeInt, queryString } from './bounds.schema';
 
 // ── Enum Schemas ──
 
@@ -186,3 +187,25 @@ export const MemoryBudgetReportSchema = z.object({
 });
 
 export type MemoryBudgetReportInput = z.infer<typeof MemoryBudgetReportSchema>;
+
+// ── GET /memories query (robustness fixes 2026-10-30) — matches ListMemoriesQuery ──
+
+export const MEMORY_LIST_SORT_FIELDS = ['createdAt', 'updatedAt', 'importance', 'title', 'lastAccessedAt', 'validAt'] as const;
+
+export const ListMemoriesQuerySchema = z.object({
+  q: queryString().describe('Case-insensitive substring of title or content'),
+  domain: queryString().describe('Exact domain'),
+  tags: queryString().describe('Comma-separated tags; every tag must match'),
+  tenantId: queryString().describe('Tenant filter'),
+  memoryClass: queryNativeEnum(MemoryClass),
+  status: queryNativeEnum(MemoryStatus),
+  since: queryDateString().describe('Only memories created at or after this instant'),
+  sortBy: queryEnum(MEMORY_LIST_SORT_FIELDS),
+  sortOrder: queryEnum(['asc', 'desc']),
+  limit: queryNonNegativeInt().describe('Page size (the service caps it at 100)'),
+  offset: queryNonNegativeInt(),
+  includeInvalidated: queryFlag().describe('true = include superseded / consolidated rows'),
+  includeAllTenants: queryFlag().describe('true = cross tenants (admin key only)'),
+});
+
+export type ListMemoriesQueryInput = z.infer<typeof ListMemoriesQuerySchema>;
