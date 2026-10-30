@@ -24,6 +24,7 @@
 
 - **C1 — account e-mails are case-insensitive.** `POST /auth/register` stores `lower(trim(email))` and answers `409 conflict` when any existing row matches case-insensitively (legacy mixed-case rows included); `POST /auth/login` and `POST /auth/verify` look the address up exact-first, then case-insensitively (oldest row wins). BoardRoom's `RegisterBodySchema` / `LoginBodySchema` canonicalise the address before forwarding. No migration: `users.email` stays `@unique` as typed.
 - **M6 — BoardRoom sends `x-admin-key` on `/admin/*`.** No OmniMind change: BoardRoom's admin proxy now forwards its own `OMNIMIND_ADMIN_KEY` (same value as OmniMind's) on every `/admin/*` call; when it is unset BoardRoom answers `503 admin_key_not_configured` without calling OmniMind (previously an upstream 401 surfaced as 502).
+- **L3 — agent rate buckets bill reads first.** `GET`/`HEAD` (and the POST reads above) always count against the agent's `read` bucket; the `decision` bucket (`AGENT_RATE_DECISION`, 100/h) now only counts decision writes (`POST`/`PATCH`/`DELETE` on a `decision` path). Previously `GET /decisions` spent the decision budget.
 
 ## Error Responses
 
