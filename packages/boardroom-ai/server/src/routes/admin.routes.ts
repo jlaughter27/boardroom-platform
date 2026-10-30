@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { IRouter, Response } from 'express';
+import { z } from 'zod';
 import { omnimindClient, type AdminCallOptions } from '../services/omnimind-client';
-import type { AuthRequest } from '../middleware/auth';
 
 const router: IRouter = Router();
 
@@ -46,11 +46,6 @@ function pick(req: { query: Record<string, unknown> }, keys: readonly string[], 
   return params;
 }
 
-/** The signed-in admin (requireAdmin runs before this router). */
-function callerUserId(req: unknown): string | undefined {
-  return (req as AuthRequest).auth?.userId;
-}
-
 router.get('/stats', async (req, res, next) => {
   try {
     const data = await omnimindClient.getAdminStats({ ...ALL_TENANTS }, adminOpts(res));
@@ -83,15 +78,10 @@ router.get('/memories', async (req, res, next) => {
 
 router.get('/contradictions', async (req, res, next) => {
   try {
-    // ContradictionAlert is keyed by user (F-210): OmniMind answers 400
-    // `user_scope_required` without one. Scope to the signed-in admin; a
-    // browser-supplied ?userId= is ignored.
-    const userId = callerUserId(req);
-    if (!userId) {
-      res.status(401).json({ error: 'unauthorized', message: 'Authentication required' });
-      return;
-    }
-    const params = pick(req, ['limit', 'offset'], { userId });
+    // Lane H (2026-10-30): the operator view spans every user, like the other
+    // panels — OmniMind's explicit all-users opt-in (it excludes alerts naming
+    // a ministry project). A browser-supplied ?userId= is ignored.
+    const params = pick(req, ['limit', 'offset'], { ...ALL_TENANTS });
     const data = await omnimindClient.getAdminContradictions(params, adminOpts(res));
     res.json(data);
   } catch (err) { next(err); }
@@ -112,14 +102,30 @@ router.get('/duplicates', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+const MergeBodySchema = z.object({
+  keepId: z.string().min(1).max(128),
+  archiveId: z.string().min(1).max(128),
+  userId: z.string().min(1).max(128),
+});
+
 router.post('/duplicates/merge', async (req, res, next) => {
   try {
     // The duplicates list spans all tenants, so the merge must too (else 400
-    // `tenant_scope_required`); it is attributed to the signed-in admin, never
-    // to a browser-supplied userId (OmniMind only archives that user's row).
-    const userId = callerUserId(req);
-    const body = { ...(req.body as Record<string, unknown>), ...(userId && { userId }) };
-    const data = await omnimindClient.mergeAdminDuplicates(body, { ...ALL_TENANTS }, adminOpts(res));
+    // `tenant_scope_required`). Lane H (2026-10-30): it also spans users, and
+    // each pair carries its owner (`user_id`); OmniMind archives only that
+    // owner's row, so the body's `userId` is the PAIR OWNER the panel sends
+    // (sending the signed-in admin 404'd every pair the admin did not own).
+    // This router is admin-only (requireAdmin), and OmniMind still checks that
+    // both memories belong to that user.
+    const parsed = MergeBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'validation_failed',
+        details: parsed.error.issues.map((i) => ({ field: i.path.join('.'), message: i.message })),
+      });
+      return;
+    }
+    const data = await omnimindClient.mergeAdminDuplicates({ ...parsed.data }, { ...ALL_TENANTS }, adminOpts(res));
     res.json(data);
   } catch (err) { next(err); }
 });

@@ -129,16 +129,37 @@ describe('BoardRoom /admin proxy scoping (lane F)', () => {
     expect(client.getAdminStats).toHaveBeenCalledWith(ALL, KEY);
   });
 
-  it("GET /admin/contradictions is scoped to the signed-in admin's userId", async () => {
+  // Lane H (2026-10-30): the admin panel is an operator view, so contradictions
+  // are the all-users view (OmniMind excludes ministry alerts); a
+  // browser-supplied ?userId= is ignored, as before.
+  it('GET /admin/contradictions requests the all-users view', async () => {
     await fetch(`${base}/admin/contradictions?limit=20&userId=someone-else`);
-    expect(client.getAdminContradictions).toHaveBeenCalledWith({ userId: 'admin-user-1', limit: '20' }, KEY);
+    expect(client.getAdminContradictions).toHaveBeenCalledWith({ ...ALL, limit: '20' }, KEY);
   });
 
-  it('POST /admin/duplicates/merge opts in to all tenants and attributes the merge to the signed-in admin', async () => {
+  // Lane H (2026-10-30): the duplicates list spans users and each pair carries
+  // its owner (`user_id`); OmniMind only archives the owner's row, so the merge
+  // must be sent for the pair owner, not the signed-in admin (that 404'd for
+  // every pair the admin did not own). The route is admin-gated.
+  it("POST /admin/duplicates/merge opts in to all tenants and acts for the pair owner from the body", async () => {
     await fetch(`${base}/admin/duplicates/merge`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ keepId: 'k', archiveId: 'a', userId: 'spoofed' }),
+      body: JSON.stringify({ keepId: 'k', archiveId: 'a', userId: 'pair-owner-7', extra: 'dropped' }),
     });
-    expect(client.mergeAdminDuplicates).toHaveBeenCalledWith({ keepId: 'k', archiveId: 'a', userId: 'admin-user-1' }, ALL, KEY);
+    expect(client.mergeAdminDuplicates).toHaveBeenCalledWith({ keepId: 'k', archiveId: 'a', userId: 'pair-owner-7' }, ALL, KEY);
+  });
+
+  it.each([
+    ['userId missing', { keepId: 'k', archiveId: 'a' }],
+    ['userId not a string', { keepId: 'k', archiveId: 'a', userId: 42 }],
+    ['userId empty', { keepId: 'k', archiveId: 'a', userId: '' }],
+    ['keepId missing', { archiveId: 'a', userId: 'u' }],
+  ])('POST /admin/duplicates/merge → 400 without calling OmniMind when %s', async (_label, body) => {
+    const res = await fetch(`${base}/admin/duplicates/merge`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('validation_failed');
+    expect(client.mergeAdminDuplicates).not.toHaveBeenCalled();
   });
 });
