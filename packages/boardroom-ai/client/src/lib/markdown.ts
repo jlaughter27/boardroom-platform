@@ -225,6 +225,15 @@ export const MARKDOWN_MAX_DELIMITER_RUN = 200;
  */
 export const MARKDOWN_MAX_STARS_PER_PARAGRAPH = 4_000;
 
+/**
+ * Lane F — longest run of non-whitespace still rendered as markdown. A single
+ * 100 KB token (pasted hex dump / hash / base64) spent ~11 s in browser Layout;
+ * longer runs go to the plain-text view, which soft-breaks them for display.
+ */
+export const MARKDOWN_MAX_UNBROKEN_RUN = 2_000;
+/** Lane F — the plain-text view offers a soft line break this often inside an unbroken run. */
+export const SOFT_BREAK_EVERY = 200;
+
 /** `* _ [ ] ` ~ # | > -` — the characters whose long runs make the parser super-linear. */
 const DELIMITER_CODES = new Set([...'*_[]`~#|>-'].map((c) => c.charCodeAt(0)));
 const NL = 10;
@@ -235,7 +244,7 @@ const BLOCK_START = /^[ \t]{0,3}(?:[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}[ \t]|\||>)
 export interface MarkdownRenderGuard {
   /** true → show as plain pre-wrapped text instead of parsing as markdown. */
   plain: boolean;
-  reason: 'size' | 'delimiters' | null;
+  reason: 'size' | 'delimiters' | 'long-token' | null;
 }
 
 /**
@@ -245,9 +254,42 @@ export interface MarkdownRenderGuard {
  * slow on very large content (1 MB of plain text > 45 s). One linear pass:
  * content over 60 000 characters, with a run of more than 200 identical
  * markdown punctuation characters, or with more than 4 000 `*` in one
- * paragraph is shown as plain text. Real vault notes (≤ ~25 000 characters,
+ * paragraph is shown as plain text — and (lane F) so is any unbroken run of
+ * more than 2 000 non-whitespace characters. Real vault notes (≤ ~25 000 characters,
  * ordinary formatting) still render as markdown.
  */
+/** Space, tab, CR, LF, VT, FF, NBSP and the Unicode spaces the browser may break at. */
+function isWhitespaceCode(c: number): boolean {
+  return c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0x1680 || (c >= 0x2000 && c <= 0x200b) ||
+    c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000;
+}
+
+/**
+ * Lane F — split `text` so that no segment carries an unbroken (non-whitespace)
+ * run longer than `every` characters across a segment boundary. Ordinary text
+ * comes back as one segment. The plain-text view joins the segments with
+ * `<wbr>` (display only — the text content and a copy are unchanged), which
+ * bounds the cost of line-breaking a 1 MB single token. Linear.
+ */
+export function softBreakSegments(text: string, every: number = SOFT_BREAK_EVERY): string[] {
+  const out: string[] = [];
+  let start = 0;
+  let run = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (isWhitespaceCode(text.charCodeAt(i))) {
+      run = 0;
+      continue;
+    }
+    if (++run > every) {
+      out.push(text.slice(start, i));
+      start = i;
+      run = 1;
+    }
+  }
+  out.push(text.slice(start));
+  return out;
+}
+
 export function markdownRenderGuard(md: string | null | undefined): MarkdownRenderGuard {
   const s = md ?? '';
   if (s.length > MARKDOWN_RENDER_MAX_CHARS) return { plain: true, reason: 'size' };
@@ -256,8 +298,13 @@ export function markdownRenderGuard(md: string | null | undefined): MarkdownRend
   let stars = 0;
   let lineStart = 0;
   let lineBlank = true;
+  let unbroken = 0;
+  let longToken = false;
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
+    // Lane F: recorded, not returned — a delimiter pile in the same text keeps reason 'delimiters'.
+    if (isWhitespaceCode(c)) unbroken = 0;
+    else if (++unbroken > MARKDOWN_MAX_UNBROKEN_RUN) longToken = true;
     if (c === NL) {
       // A blank line ends the paragraph; so does a line that opens a new block.
       if (lineBlank) stars = 0;
@@ -276,7 +323,7 @@ export function markdownRenderGuard(md: string | null | undefined): MarkdownRend
       run = 1;
     }
   }
-  return { plain: false, reason: null };
+  return longToken ? { plain: true, reason: 'long-token' } : { plain: false, reason: null };
 }
 
 // ── Plain text (card previews) ───────────────────────────────────────────────

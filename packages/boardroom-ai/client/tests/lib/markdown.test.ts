@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildWikilinkResolver,
+  MARKDOWN_MAX_UNBROKEN_RUN,
   markdownRenderGuard,
   markdownToPlainText,
   memoryLinkKeys,
   parseWikilink,
+  softBreakSegments,
   stripLeadingTitleHeading,
   wikilinkKey,
 } from '../../src/lib/markdown';
@@ -180,10 +182,45 @@ describe('markdownRenderGuard (M7)', () => {
     expect(markdownRenderGuard(list)).toEqual({ plain: false, reason: null });
   });
 
+  // Lane F — a single long unbroken token (pasted hex dump / hash / base64)
+  // froze the tab in Layout (10.8 s for 100 KB), not in the parser.
+  it('falls back to plain text for an unbroken run longer than 2 000 characters (lane F)', () => {
+    expect(MARKDOWN_MAX_UNBROKEN_RUN).toBe(2_000);
+    expect(markdownRenderGuard('note: ' + 'A'.repeat(2_001))).toEqual({ plain: true, reason: 'long-token' });
+    expect(markdownRenderGuard('0123456789abcdef'.repeat(300))).toEqual({ plain: true, reason: 'long-token' });
+    expect(markdownRenderGuard('A'.repeat(2_000) + ' ' + 'B'.repeat(2_000))).toEqual({ plain: false, reason: null });
+    expect(markdownRenderGuard('A'.repeat(1_500) + '\n' + 'B'.repeat(1_500))).toEqual({ plain: false, reason: null });
+    expect(markdownRenderGuard('see https://example.test/' + 'p/'.repeat(150) + ' ok')).toEqual({ plain: false, reason: null });
+  });
+
   it('is linear: 1 MB is classified in well under 50 ms', () => {
     const t = performance.now();
     markdownRenderGuard('ab*_ '.repeat(11_000));
     markdownRenderGuard('x'.repeat(1_000_000));
     expect(performance.now() - t).toBeLessThan(50);
+  });
+});
+
+describe('softBreakSegments (lane F)', () => {
+  it('returns ordinary text as one segment', () => {
+    expect(softBreakSegments('hello world\nsecond line')).toEqual(['hello world\nsecond line']);
+    expect(softBreakSegments('')).toEqual(['']);
+  });
+
+  it('cuts unbroken runs every 200 characters; whitespace resets the run; joining restores the text', () => {
+    const token = 'A'.repeat(1_000);
+    expect(softBreakSegments(token)).toEqual(Array(5).fill('A'.repeat(200)));
+    const mixed = 'x'.repeat(150) + ' ' + 'y'.repeat(150) + '\n' + 'z'.repeat(450);
+    const segs = softBreakSegments(mixed);
+    expect(segs.join('')).toBe(mixed);
+    expect(segs).toEqual(['x'.repeat(150) + ' ' + 'y'.repeat(150) + '\n' + 'z'.repeat(200), 'z'.repeat(200), 'z'.repeat(50)]);
+  });
+
+  it('honours a custom width and is linear on 1 MB', () => {
+    expect(softBreakSegments('abcdef', 2)).toEqual(['ab', 'cd', 'ef']);
+    const t = performance.now();
+    const segs = softBreakSegments('F'.repeat(1_000_000));
+    expect(segs).toHaveLength(5_000);
+    expect(performance.now() - t).toBeLessThan(100);
   });
 });
