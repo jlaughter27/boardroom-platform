@@ -75,4 +75,92 @@ describe('GoalHierarchy', () => {
     expect(await screen.findByText('Project p1')).toBeInTheDocument();
     expect(screen.queryByText('Project p2')).toBeNull();
   });
+
+  // Lane I · item 3 — the goal / project chevrons were unnamed icon buttons.
+  it('goal and project chevrons are named "Expand/Collapse <title>" and carry aria-expanded', async () => {
+    render(<GoalHierarchy />);
+    const goalToggle = screen.getByRole('button', { name: 'Expand Goal g1' });
+    expect(goalToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(goalToggle);
+    expect(screen.getByRole('button', { name: 'Collapse Goal g1' })).toHaveAttribute('aria-expanded', 'true');
+    const projectToggle = await screen.findByRole('button', { name: 'Expand Project p1' });
+    expect(projectToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(projectToggle);
+    expect(screen.getByRole('button', { name: 'Collapse Project p1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText('Task t1')).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane I · item 2 — projects linked to no goal (and tasks linked to no project)
+// were in no branch of the tree, so they could not be seen from the dashboard.
+// They now sit in "Unassigned" groups at the end, shown only when non-empty.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildGoalTree — unassigned', () => {
+  const goals = [goal('g1')];
+  const tasks = [task('t1'), task('t2'), task('t3')];
+
+  it('collects projects linked to no loaded goal, in input order', () => {
+    const { unassignedProjects } = buildGoalTree(goals, [project('p1', ['g1'], []), project('p2', [], []), project('p3', undefined, undefined), project('p4', ['g-gone'], [])], tasks);
+    expect(unassignedProjects.map((p) => p.id)).toEqual(['p2', 'p3', 'p4']);
+  });
+
+  it('collects tasks linked to no loaded project', () => {
+    const { unassignedTasks } = buildGoalTree(goals, [project('p1', ['g1'], ['t1']), project('p2', [], ['t2'])], tasks);
+    // t2 belongs to an unassigned project — it is reachable through it, so it is not "unassigned".
+    expect(unassignedTasks.map((t) => t.id)).toEqual(['t3']);
+  });
+
+  it('empty when everything is linked', () => {
+    const { unassignedProjects, unassignedTasks } = buildGoalTree(goals, [project('p1', ['g1'], ['t1', 't2', 't3'])], tasks);
+    expect(unassignedProjects).toEqual([]);
+    expect(unassignedTasks).toEqual([]);
+  });
+});
+
+describe('GoalHierarchy — unassigned groups', () => {
+  function seed(goals: Goal[], projects: unknown[], tasks: Task[]) {
+    vi.mocked(api.getGoals).mockResolvedValue(goals);
+    vi.mocked(api.getProjects).mockResolvedValue(projects as never);
+    vi.mocked(api.getTasks).mockResolvedValue(tasks);
+    useEntitiesStore.setState({ goals, projects: projects as never, tasks, isLoading: false });
+  }
+
+  it('renders an "Unassigned projects" group after the goals; its toggle is a keyboard-reachable button', async () => {
+    seed([goal('g1')], [project('p1', ['g1'], []), project('p-loose', [], [])], []);
+    render(<GoalHierarchy />);
+    const toggle = screen.getByRole('button', { name: 'Expand Unassigned projects' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle.tabIndex).toBe(0);
+    // After every goal row in document order.
+    const goalTitle = screen.getByText('Goal g1');
+    expect(goalTitle.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('1 project')).toBeInTheDocument();
+    expect(screen.queryByText('Project p-loose')).toBeNull();
+    fireEvent.click(toggle);
+    expect(await screen.findByText('Project p-loose')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Collapse Unassigned projects' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('renders an "Unassigned tasks" group for tasks in no project', async () => {
+    seed([goal('g1')], [project('p1', ['g1'], ['t1'])], [task('t1'), task('t-loose')]);
+    render(<GoalHierarchy />);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Unassigned tasks' }));
+    expect(await screen.findByText('Task t-loose')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Unassigned projects/ })).toBeNull();
+  });
+
+  it('no unassigned groups when everything is linked', () => {
+    seed([goal('g1')], [project('p1', ['g1'], ['t1'])], [task('t1')]);
+    render(<GoalHierarchy />);
+    expect(screen.queryByText(/Unassigned/)).toBeNull();
+  });
+
+  it('no goals but loose projects: the projects are still reachable (not the "No goals yet" empty state alone)', async () => {
+    seed([], [project('p-loose', [], [])], []);
+    render(<GoalHierarchy />);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Unassigned projects' }));
+    expect(await screen.findByText('Project p-loose')).toBeInTheDocument();
+  });
 });

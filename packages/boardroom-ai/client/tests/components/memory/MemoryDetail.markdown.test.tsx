@@ -3,7 +3,7 @@
  * memory's link rows (then by title), opens the target like a card click, and
  * lists backlinks ("Linked from"). Card previews strip markdown.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Memory } from '@boardroom/shared';
 import * as api from '../../../src/lib/api';
@@ -47,6 +47,13 @@ const PARTNERS = mem('m-partners', 'Design partners');
 const RETRO = mem('m-retro', 'Q3 pricing retro');
 // Not in the explorer list: resolved via its link row + a fetch by id.
 const PREPAY = mem('m-prepay', 'Annual prepay terms', 'Prepay **discount** is 2 months.', { metadata: { vault: { path: 'pricing/Annual prepay terms.md' } } } as Partial<Memory>);
+
+// The renderer is a lazy chunk (react-markdown + remark-gfm). Transforming it
+// cold under a loaded full-suite run can outlast findBy's 1 s poll, so load
+// it once up front instead of racing it in the first test.
+beforeAll(async () => {
+  await import('../../../src/components/memory/MemoryMarkdown');
+}, 30_000);
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -3,14 +3,16 @@ import type { WidgetConfig } from '@boardroom/shared';
 import { DEFAULT_WIDGETS } from '@boardroom/shared';
 import * as api from '../lib/api';
 import { useToastStore } from '../components/ui/Toast';
+import { useProfileStore } from '../stores/profile.store';
 
 export function useWidgetLayout() {
   const [widgets, setWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    api
-      .getUserProfile()
+    // Shared with OnboardingGate, which loaded it a moment ago (M2-C1).
+    useProfileStore.getState()
+      .load()
       .then((profile) => {
         if (
           profile?.dashboardLayout &&
@@ -30,7 +32,8 @@ export function useWidgetLayout() {
     const previous = widgets;
     setWidgets(next);
     try {
-      await api.updateUserProfile({ dashboardLayout: next });
+      const saved = await api.updateUserProfile({ dashboardLayout: next });
+      if (saved && typeof saved === 'object') useProfileStore.getState().setProfile(saved);
     } catch (err) {
       setWidgets(previous);
       useToastStore.getState().addToast(

@@ -6,6 +6,8 @@ import { useCortexStore } from './cortex.store';
 import { useNotificationStore } from './notification.store';
 import { useUIStore } from './ui.store';
 import { useSessionStore } from './session.store';
+import { useVizStore } from './viz.store';
+import { useProfileStore } from './profile.store';
 
 import type { ClientAuthUser } from '../lib/api';
 
@@ -62,6 +64,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     useNotificationStore.getState().reset();
     useUIStore.getState().reset();
     useSessionStore.getState().reset();
+    // Shared dashboard caches (TTL'd) must not show the next user this one's data.
+    useVizStore.getState().reset();
+    useProfileStore.getState().reset();
     set({ user: null, isAuthenticated: false });
   },
 

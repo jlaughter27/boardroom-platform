@@ -1,32 +1,30 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import type { OutcomeReviewNudge } from '@boardroom/shared';
-import { getPendingReviews, skipReview } from '../../lib/api';
+import { skipReview } from '../../lib/api';
+import { useVizSlice, useVizStore } from '../../stores/viz.store';
 import { OutcomeReviewModal } from './OutcomeReviewModal';
 import { Card, Badge, Button } from '../ui';
 
 const MAX_VISIBLE = 2;
 
+/** Drop one nudge from the shared slice (the cockpit count reads it too). */
+function dropNudge(id: string) {
+  useVizStore.setState((s) => ({
+    pendingReviews: { ...s.pendingReviews, data: (s.pendingReviews.data ?? []).filter((n) => n.id !== id) },
+  }));
+}
+
 export function OutcomeReviewBanner() {
-  const [nudges, setNudges] = useState<OutcomeReviewNudge[]>([]);
+  // Shared with the cockpit tile and the notification aggregator: one
+  // GET /outcome-reviews/pending per dashboard load (M2-C1).
+  const pending = useVizSlice('pendingReviews');
+  const nudges = (pending.data ?? []).slice(0, MAX_VISIBLE);
   const [activeNudge, setActiveNudge] = useState<OutcomeReviewNudge | null>(null);
-
-  const fetchNudges = useCallback(async () => {
-    try {
-      const data = await getPendingReviews();
-      setNudges(data.slice(0, MAX_VISIBLE));
-    } catch {
-      // Silently fail
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchNudges();
-  }, [fetchNudges]);
 
   async function handleSkip(nudgeId: string) {
     try {
       await skipReview(nudgeId);
-      setNudges((prev) => prev.filter((n) => n.id !== nudgeId));
+      dropNudge(nudgeId);
     } catch {
       // Silently fail
     }
@@ -34,7 +32,7 @@ export function OutcomeReviewBanner() {
 
   function handleReviewComplete() {
     setActiveNudge(null);
-    fetchNudges();
+    void useVizStore.getState().load('pendingReviews', true);
   }
 
   if (nudges.length === 0) return null;

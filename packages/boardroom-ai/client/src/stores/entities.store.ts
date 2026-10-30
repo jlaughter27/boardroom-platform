@@ -11,6 +11,7 @@ import type {
   ProjectLinkIds,
 } from '@boardroom/shared';
 import { useToastStore } from '../components/ui/Toast';
+import { useVizStore } from './viz.store';
 
 interface EntitiesState {
   goals: Goal[];
@@ -111,12 +112,13 @@ export const useEntitiesStore = create<EntitiesState>((set, get) => ({
   },
 
   fetchCommitments: async () => {
-    try {
-      const commitments = await api.getCommitments();
-      set({ commitments, error: null });
-    } catch (err) {
-      set({ error: (err as Error).message });
-    }
+    // Through the dashboard's viz slice (forced fresh: this also runs after a
+    // delegation write), so the Layout fetch and the cockpit / nudges widgets
+    // share one GET /commitments per load (M2-C1) and both views stay in step.
+    const viz = useVizStore.getState();
+    const commitments = await viz.load('commitments', true);
+    if (commitments) set({ commitments, error: null });
+    else set({ error: useVizStore.getState().commitments.error ?? 'Could not load commitments' });
   },
 
   fetchAll: async () => {

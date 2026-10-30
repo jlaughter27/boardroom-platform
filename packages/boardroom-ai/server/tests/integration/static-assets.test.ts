@@ -78,6 +78,12 @@ describe('static client: caching + compression', () => {
     expect(fallback.headers['cache-control']).toBe('no-cache');
   });
 
+  it('a /memory/<id> deep link (MCP tool result url) is a browser navigation → the SPA shell', async () => {
+    const res = await get('/memory/mem-123', { Accept: 'text/html,application/xhtml+xml,*/*;q=0.8' });
+    expect(res.status).toBe(200);
+    expect(res.body.toString()).toContain('SPA');
+  });
+
   it('gzips JS for a client that accepts gzip, and the body round-trips', async () => {
     const res = await get('/assets/index-Ab12Cd34.js', { 'Accept-Encoding': 'gzip' });
     expect(res.headers['content-encoding']).toBe('gzip');
