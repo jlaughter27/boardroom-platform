@@ -1,5 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
-import { MEMORY_BACKLINKS_MAX_ROWS, type MemoryBacklink, type MemoryBacklinksResponse } from '@boardroom/shared';
+import {
+  MEMORY_BACKLINKS_MAX_ROWS,
+  isMinistryDomain,
+  isMinistryTenant,
+  type MemoryBacklink,
+  type MemoryBacklinksResponse,
+} from '@boardroom/shared';
 
 /**
  * Link rows store `entityType` lower-cased (POST /memories/:id/links and the
@@ -17,6 +23,11 @@ const MEMORY_ENTITY_TYPES = ['memory', 'Memory', 'MEMORY'];
  * when it is the user's, live, not ARCHIVED (unless `includeArchived`) and in
  * the same tenant — a backlink never crosses tenants. Returns null when the
  * target is not visible (→ 404).
+ *
+ * M5 (2026-10-30): a ministry source memory is never listed — not its title,
+ * not its id — whatever the spelling of its domain (case, padding,
+ * `ministry/*`, lookalikes; shared `isMinistryDomain`), and a source in the
+ * ministry tenant is never listed to a caller outside that tenant.
  */
 export async function getMemoryBacklinks(
   userId: string,
@@ -54,11 +65,17 @@ export async function getMemoryBacklinks(
       deletedAt: null,
       ...tenant,
       ...(opts.includeArchived ? {} : { status: { not: 'ARCHIVED' as const } }),
+      NOT: { domain: { equals: 'ministry', mode: 'insensitive' as const } },
     },
-    select: { id: true, title: true, domain: true, status: true },
+    select: { id: true, title: true, domain: true, status: true, tenantId: true },
   });
 
-  const items: MemoryBacklink[] = sources.map((m) => ({
+  const ministryTenantId = process.env.OMNIMIND_MINISTRY_TENANT_ID || undefined;
+  const callerInMinistryTenant = isMinistryTenant(opts.tenantId, ministryTenantId);
+  const visible = sources.filter((m) =>
+    !isMinistryDomain(m.domain) && (callerInMinistryTenant || !isMinistryTenant(m.tenantId, ministryTenantId)));
+
+  const items: MemoryBacklink[] = visible.map((m) => ({
     memoryId: m.id,
     title: m.title,
     domain: m.domain ?? null,
