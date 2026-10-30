@@ -265,7 +265,9 @@ describe('<ConnectedToolsPanel />', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
     fireEvent.click(within(row).getByRole('button', { name: 'Confirm revoke' }));
     await waitFor(() => expect(within(row).getByRole('button', { name: 'Revoke Claude Code' })).toBeInTheDocument());
-    expect(document.activeElement).toBe(row);
+    // Focus moves in an effect after the failed request settles; wait for it rather than asserting synchronously
+    // (flaked in CI under load — roadmap M3-A5).
+    await waitFor(() => expect(document.activeElement).toBe(row));
 
     // Successful revoke: the token moves to the revoked list; focus follows it to that list's summary.
     fireEvent.click(within(row).getByRole('button', { name: 'Revoke Claude Code' }));
