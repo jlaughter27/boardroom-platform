@@ -245,14 +245,15 @@ describe('OmniMindClient', () => {
     it('opens after consecutive failures and rejects immediately', async () => {
       fetchSpy.mockResolvedValue({
         ok: false,
-        status: 500,
+        status: 503,
         json: () => Promise.resolve({ error: 'down' }),
       });
 
-      // Trip the breaker (default threshold from test env = 5)
+      // Trip the breaker (default threshold from test env = 5). POST is not
+      // retried, so each call is exactly one 503.
       const threshold = 5;
       for (let i = 0; i < threshold; i++) {
-        await client.health().catch(() => {});
+        await client.createDecision('user-123', {}).catch(() => {});
       }
 
       expect(client.breaker.state).toBe('OPEN');
@@ -269,11 +270,11 @@ describe('OmniMindClient', () => {
       // Fail a few times (but below threshold)
       fetchSpy.mockResolvedValue({
         ok: false,
-        status: 500,
+        status: 502,
         json: () => Promise.resolve({ error: 'down' }),
       });
-      await client.health().catch(() => {});
-      await client.health().catch(() => {});
+      await client.createDecision('user-123', {}).catch(() => {});
+      await client.createDecision('user-123', {}).catch(() => {});
       expect(client.breaker.failures).toBe(2);
 
       // Succeed
@@ -301,6 +302,41 @@ describe('OmniMindClient', () => {
       // 4xx should not trip the breaker — these are client-side bugs
       expect(client.breaker.failures).toBe(0);
       expect(client.breaker.state).toBe('CLOSED');
+    });
+
+    // H1 (2026-10-30): five `GET /memories?sortOrder=sideways` from ONE user
+    // answered 500 and opened the shared breaker for every user (and login).
+    it('does NOT trip on a plain 500 — OmniMind answered, the request was bad', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'internal_error' }),
+      });
+
+      for (let i = 0; i < 10; i++) {
+        await client.getGoals('attacker').catch(() => {});
+      }
+
+      expect(client.breaker.failures).toBe(0);
+      expect(client.breaker.state).toBe('CLOSED');
+      // A different user is still served.
+      fetchSpy.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      await expect(client.getGoals('victim')).resolves.toEqual([]);
+    });
+
+    it('counts network errors and timeouts toward the breaker', async () => {
+      fetchSpy.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+      await client.createDecision('user-123', {}).catch(() => {});
+      const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+      fetchSpy.mockRejectedValue(abort);
+      await client.createDecision('user-123', {}).catch(() => {});
+      expect(client.breaker.failures).toBe(2);
+    });
+
+    it.each([502, 503, 504])('counts %i toward the breaker', async (status) => {
+      fetchSpy.mockResolvedValue({ ok: false, status, json: () => Promise.resolve({ error: 'down' }) });
+      await client.createDecision('user-123', {}).catch(() => {});
+      expect(client.breaker.failures).toBe(1);
     });
   });
 

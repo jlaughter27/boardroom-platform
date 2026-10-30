@@ -191,9 +191,13 @@ export class OmniMindClient {
           throw error;
         }
 
-        // 5xx (has .status): server error — trip breaker, throw.
+        // 5xx (has .status). Only 502/503/504 (the same set the GET retry
+        // policy uses) say OmniMind itself is unhealthy and count toward the
+        // breaker. Any other 5xx (a 500 from one bad request) means OmniMind
+        // answered: it is not counted, or one user replaying a request that
+        // 500s could open the shared breaker for every user (H1).
         if (error.status && error.status >= 500) {
-          this.breaker.recordFailure();
+          if (RETRYABLE_STATUS.has(error.status)) this.breaker.recordFailure();
           throw error;
         }
 
