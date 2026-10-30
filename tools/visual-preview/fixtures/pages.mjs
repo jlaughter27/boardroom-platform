@@ -108,6 +108,35 @@ const session = {
   },
 };
 
+// ── RD-11 load check: "What this displaces" (invented titles) ───────────────
+// s-load: an over-capacity session — the CEO names three stops.
+// s-load-netnew: level OK, nothing to stop — the "Net new" note.
+// s-visual above stays a pre-RD-11 report (no displacement → no section).
+const loadSession = {
+  ...session,
+  id: 's-load',
+  ceoSynthesis: {
+    ...ceoSynthesis,
+    displacement: {
+      answer: 'Per-seat pricing adds a migration project while you are over capacity (53 points against 40). Make room before the Q1 renewal work starts.',
+      stops: [
+        { title: 'Podcast relaunch', action: 'pause' },
+        { title: 'Partner portal', action: 'defer' },
+        { title: 'Weekly vendor sync', action: 'delegate' },
+      ],
+      netNew: false,
+    },
+  },
+};
+const loadNetNewSession = {
+  ...session,
+  id: 's-load-netnew',
+  ceoSynthesis: {
+    ...ceoSynthesis,
+    displacement: { answer: 'Your recorded load is OK and a pricing-page copy change fits inside this week without dropping anything.', stops: [], netNew: true },
+  },
+};
+
 // ── Connected AI tools (Settings) ────────────────────────────────────────────
 // "token-created-long-url" (M1-D3): when the page was opened with
 // `?state=token-created-long-url` (the browser sends it as the Referer), the
@@ -217,6 +246,8 @@ export default {
     { method: 'GET', path: '/profile', handler: (req) => (String(req.headers?.referer ?? '').includes('profile-unavailable') ? { status: 503, body: { error: 'upstream_unavailable', message: 'OmniMind circuit breaker OPEN' } } : { body: profile }) },
     { method: 'PATCH', path: '/profile', handler: (req) => ({ body: { ...profile, ...(req.json ?? {}) } }) },
     { method: 'GET', path: '/sessions/s-visual', handler: ok(session) },
+    { method: 'GET', path: '/sessions/s-load', handler: ok(loadSession) },
+    { method: 'GET', path: '/sessions/s-load-netnew', handler: ok(loadNetNewSession) },
     // RD-1 vault notes — ahead of the generic `m-*` stub below.
     { method: 'POST', path: '/memories/search', handler: vaultSearch },
     { method: 'GET', path: /^\/memories\/(m-vault-[^/]+)$/, handler: (_req, _url, m) => (VAULT.has(m[1]) ? { body: VAULT.get(m[1]) } : { status: 404, body: { message: 'Memory not found' } }) },

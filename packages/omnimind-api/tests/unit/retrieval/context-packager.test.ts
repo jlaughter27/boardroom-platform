@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { packageForPersona } from '../../../src/retrieval/context-packager';
+import { packageForPersona, excerptToBudget, MIN_EXCERPT_TOKENS } from '../../../src/retrieval/context-packager';
 import type { ScoredResult } from '../../../src/retrieval/structured-filter';
 import { RETRIEVAL_CONFIG } from '@boardroom/shared';
 
@@ -84,5 +84,41 @@ describe('packageForPersona', () => {
     const pkg = packageForPersona(results, 'technician', 20, ['structured']);
 
     expect(pkg.items.length).toBeLessThanOrEqual(RETRIEVAL_CONFIG.maxItemsPerPersona);
+  });
+
+  it('a top hit longer than the whole budget is excerpted, never an empty package (real-vault e2e)', () => {
+    const long = Array.from({ length: 200 }, (_, i) => `Paragraph ${i}: ${'detail '.repeat(15)}`).join('\n\n'); // ~22k chars
+    const results = [
+      makeResult({ id: 'long-1', relevanceScore: 0.9, content: long }),
+      makeResult({ id: 'long-2', relevanceScore: 0.8, content: long }),
+    ];
+
+    const pkg = packageForPersona(results, 'technician', 2, ['fts']);
+
+    expect(pkg.items.length).toBeGreaterThan(0);
+    expect(pkg.items[0].id).toBe('long-1');
+    expect(pkg.items[0].content.startsWith('Paragraph 0:')).toBe(true);
+    expect(pkg.items[0].content).toMatch(/excerpt: first part of a [\d,]+-character note\]$/);
+    expect(pkg.tokenEstimate).toBeLessThanOrEqual(RETRIEVAL_CONFIG.tokenBudgetPerPersona);
+  });
+
+  it('an item that does not fit is skipped, and smaller lower-ranked items still fill the budget', () => {
+    const results = [
+      makeResult({ id: 'fits', relevanceScore: 0.9, content: 'x'.repeat(4 * (RETRIEVAL_CONFIG.tokenBudgetPerPersona - MIN_EXCERPT_TOKENS + 10)) }),
+      makeResult({ id: 'too-big', relevanceScore: 0.8, content: 'y'.repeat(4000) }),
+      makeResult({ id: 'small', relevanceScore: 0.7, content: 'z'.repeat(40) }),
+    ];
+
+    const pkg = packageForPersona(results, 'technician', 3, ['fts']);
+
+    expect(pkg.items.map(i => i.id)).toEqual(['fits', 'small']);
+    expect(pkg.tokenEstimate).toBeLessThanOrEqual(RETRIEVAL_CONFIG.tokenBudgetPerPersona);
+  });
+
+  it('excerptToBudget stays within the budget and cuts at a line break when one is close', () => {
+    const text = Array.from({ length: 100 }, (_, i) => `line ${i} ${'w'.repeat(30)}`).join('\n');
+    const out = excerptToBudget(text, 200);
+    expect(Math.ceil(out.length / 4)).toBeLessThanOrEqual(200);
+    expect(out.split('\n\n[')[0]).toMatch(/w$/);
   });
 });

@@ -6,6 +6,8 @@ import type {
   McpTokenOptions,
   MemoryBacklinksResponse,
 } from '@boardroom/shared';
+import { PersonBriefsResponseSchema } from '@boardroom/shared';
+import type { PersonBriefsRequest, PersonBriefsResponse } from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -733,7 +735,30 @@ export class OmniMindClient {
     const qs = new URLSearchParams({ userId }).toString();
     return this.request<McpTokenOptions>('GET', `/mcp/tokens/options?${qs}`, userId);
   }
+
+  // ---------------------------------------------------------------------------
+  // RD-13 — meeting prep briefs. A POST, so never retried; the response is
+  // contract-checked (a mismatch throws OmniMindContractError, which the
+  // /calendar/briefs route turns into `unavailable`).
+  // ---------------------------------------------------------------------------
+  async getPersonBriefs(userId: string, body: PersonBriefsRequest): Promise<PersonBriefsResponse> {
+    const raw = await this.request<unknown>('POST', '/people/briefs', userId, body);
+    const parsed = PersonBriefsResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new OmniMindContractError('POST /people/briefs', parsed.error.issues.length);
+    }
+    return parsed.data;
+  }
 }
 
 // Singleton
 export const omnimindClient = new OmniMindClient();
+
+/** RD-13 — an OmniMind response that does not match its shared Zod contract. */
+export class OmniMindContractError extends Error {
+  readonly code = 'EOMNIMIND_CONTRACT';
+  constructor(readonly endpoint: string, readonly issueCount: number) {
+    super(`OmniMind ${endpoint}: response failed contract validation (${issueCount} issue(s))`);
+    this.name = 'OmniMindContractError';
+  }
+}

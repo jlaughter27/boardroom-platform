@@ -30,6 +30,8 @@ import type {
   MemoryBacklinksResponse,
 } from '@boardroom/shared';
 import type { ClientUserMode } from '../types/debate';
+import { MeetingBriefsResponseSchema } from '@boardroom/shared';
+import type { MeetingBriefsResponse } from '@boardroom/shared';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -659,6 +661,18 @@ export function getCalendarEvents(start: Date, end: Date) {
   return request<CalendarEvent[]>(
     `/calendar/events?start=${start.toISOString()}&end=${end.toISOString()}`,
   );
+}
+
+/**
+ * RD-13 — meeting prep briefs for the next 24 h. Contract-checked: a payload
+ * that fails MeetingBriefsResponseSchema resolves to `null` (the card then
+ * renders nothing). `refresh` bypasses the server's 5-minute event cache
+ * (honoured at most once per 30 s per user).
+ */
+export async function getMeetingBriefs(opts?: { refresh?: boolean }): Promise<MeetingBriefsResponse | null> {
+  const raw = await request<unknown>('/calendar/briefs' + (opts?.refresh ? '?refresh=1' : ''));
+  const parsed = MeetingBriefsResponseSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
 
 export function disconnectCalendar() {
