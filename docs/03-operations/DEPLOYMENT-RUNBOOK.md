@@ -52,6 +52,8 @@ The MCP service is built from `packages/omnimind-mcp/Dockerfile` (no Prisma, no 
 | `OMNIMIND_MCP_OAUTH_ISSUER` | Same issuer as the MCP service, **only** when OAuth mode is configured: makes `connect-info` report `oauthEnabled: true`, so the Claude.ai/Desktop snippets show the sign-in path first and the ChatGPT snippet shows OAuth steps (ChatGPT has no header field; claude.ai's *Request headers* is a limited beta) | runbook §4 / §9, required for ChatGPT |
 | `PORT` | Injected by Railway automatically | Do not set manually |
 
+**Register every `ADMIN_EMAILS` address before go-live.** BoardRoom has no e-mail verification: whoever registers an allow-listed address first *is* that admin. Each address in `ADMIN_EMAILS` must therefore be registered by its owner (and logged in once) before the URL is shared or the variable is set on a public deployment. Since 2026-10-30 (security fix C1) addresses are matched case-insensitively, so a case or whitespace variant of a registered address is refused (`409`); for a database that predates the fix, confirm no case-duplicates exist — `SELECT lower(trim(email)), count(*) FROM users GROUP BY 1 HAVING count(*) > 1;` must return no rows (delete or rename any impostor row before setting `ADMIN_EMAILS`).
+
 ### omnimind-mcp
 
 | Variable | Description | Source |

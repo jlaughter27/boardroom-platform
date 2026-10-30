@@ -1,5 +1,6 @@
 import { prisma } from '../lib/db';
 import bcrypt from 'bcryptjs';
+import { normalizeEmail } from '@boardroom/shared';
 
 export interface RegisterUserInput {
   email: string;
@@ -42,7 +43,14 @@ export async function verifyCredentials(email: string, password: string): Promis
  * Returns the created user with their team ID.
  */
 export async function registerUser(input: RegisterUserInput): Promise<AuthUser> {
-  const existing = await prisma.user.findUnique({ where: { email: input.email } });
+  // Security fix C1: new accounts are stored as lower(trim(email)) and the
+  // existence check is case-insensitive, so a case variant of an existing
+  // address (including legacy mixed-case rows) is a 409, never a second account.
+  const email = normalizeEmail(input.email);
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true },
+  });
   if (existing) {
     const err = Object.assign(new Error('Email already registered'), { code: 'CONFLICT' });
     throw err;
@@ -51,7 +59,7 @@ export async function registerUser(input: RegisterUserInput): Promise<AuthUser> 
   const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
-        email: input.email,
+        email,
         passwordHash: input.passwordHash,
         name: input.name,
       },
@@ -82,19 +90,27 @@ export async function registerUser(input: RegisterUserInput): Promise<AuthUser> 
   };
 }
 
+const withFirstTeam = {
+  teamMemberships: {
+    take: 1,
+    orderBy: { id: 'asc' as const },
+  },
+};
+
 /**
- * Look up a user by email. Returns user with team membership or null.
+ * Look up a user by email, case-insensitively (security fix C1). Rows written
+ * before the fix may be mixed-case, so the exact (trimmed) address wins first;
+ * otherwise the oldest case-insensitive match. Returns user with team membership or null.
  */
 export async function getUserByEmail(email: string): Promise<AuthUser | null> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: {
-      teamMemberships: {
-        take: 1,
-        orderBy: { id: 'asc' },
-      },
-    },
-  });
+  const trimmed = email.trim();
+  const user =
+    (await prisma.user.findUnique({ where: { email: trimmed }, include: withFirstTeam }))
+    ?? (await prisma.user.findFirst({
+      where: { email: { equals: normalizeEmail(trimmed), mode: 'insensitive' } },
+      include: withFirstTeam,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }));
 
   if (!user) return null;
 

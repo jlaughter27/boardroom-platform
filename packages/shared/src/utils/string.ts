@@ -279,3 +279,16 @@ export const isValidUuid = (text: string): boolean => {
 export const countWords = (text: string): number => {
   return text.trim().split(/\s+/).filter(word => word.length > 0).length;
 };
+
+/**
+ * Canonical form of an e-mail address: `lower(trim(email))`. Account e-mails are
+ * stored and compared in this form (security fix C1, 2026-10-30) so a case or
+ * whitespace variant can never become a second account.
+ * @example
+ * ```ts
+ * normalizeEmail('  Founder@Example.TEST '); // 'founder@example.test'
+ * ```
+ */
+export const normalizeEmail = (email: string): string => {
+  return email.trim().toLowerCase();
+};
