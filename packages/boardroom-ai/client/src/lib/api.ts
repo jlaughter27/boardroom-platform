@@ -1013,12 +1013,15 @@ export interface AdminMemory {
   updatedAt: string;
 }
 
+/** Mirrors OmniMind's ContradictionAlert row (GET /admin/contradictions). */
 export interface AdminContradiction {
   id: string;
-  memoryAId: string;
-  memoryBId: string;
+  userId: string;
   description: string;
+  entityA: unknown;
+  entityB: unknown;
   severity: string;
+  status: string;
   detectedAt: string;
   resolvedAt: string | null;
 }

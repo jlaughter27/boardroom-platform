@@ -8,7 +8,7 @@
 | 2 | `backup` | **M0-F1** prod `pg_dump -Fc` → `backups/prod-<ts>.dump.gz` (gitignored, off-Railway) + sha256; `services/backup/restore-drill.sh` into a throwaway `pgvector/pgvector:pg16` container; drill row appended to `BACKUP-DRILLS.md`; read-only case-duplicate e-mail check (stops the launch if any) | confirm |
 | 3 | `rotate` | **M0-F2** new `OMNIMIND_API_KEY` (api + app + mcp in one window), `JWT_SECRET` (logs everyone out), the new Anthropic/OpenAI keys you paste (hidden input or `NEW_ANTHROPIC_API_KEY` / `NEW_OPENAI_API_KEY`), `ENCRYPTION_KEY` only with `--rotate-encryption-key` (stored Google tokens become unreadable → reconnect Google). Verifies the old service key gets 401. | backup < 24 h, confirm |
 | 4 | `protect` | **M0-F3** branch protection on `main` requiring the six CI checks; reads it back | confirm |
-| 5 | `merge` | merges the launch PR (default #30); Railway deploys it and runs migrations at boot | backup < 24 h, confirm |
+| 5 | `merge` | merges the launch PR (default #30, two additive migrations: `commitment_owed_by`, `decision_session_state`); Railway deploys it and runs them at boot | backup < 24 h, confirm |
 | 6 | `verify` | **M0-F4** waits until `/health` on omnimind-api and boardroom-ai reports the merge sha | — |
 | 7 | `mcp` | `scripts/mcp-go-live.sh` — third Railway service, gateway agent, tenant owners, first token, §7 checks | backup < 24 h |
 | 8 | `prod-check` | `scripts/verify-prod.sh` against all three services | — |

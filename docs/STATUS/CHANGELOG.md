@@ -6,6 +6,18 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-30 — Phase 8 real-data — Backlog cleared (RD-17, RD-18) + launch kit
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #30) | **Status:** Pushed; merge only after M0-F1 | **Tests:** shared 338, mcp 289, api 1,842, server 459, client 753; e2e 80/80 (+E2E-14 session persistence)
+
+- **RD-17 Decision Lab persistence (lane J):** sessions live in OmniMind `decision_sessions` (new `state` JSONB snapshot, `status`, `mode`, `deleted_at`, `updated_at`) behind `/decision-sessions` (BoardRoom-only; agents 403); BoardRoom keeps a write-through cache (coalesced writes, reload after restart, memory-only fallback when OmniMind is down). Decisions link back through the new `decisions.decision_session_id` (unique, `ON DELETE SET NULL`). Migration `20261030000000_decision_session_state` (additive) — PR #30 now carries two migrations, both behind the M0-F1 backup.
+- **Lane G (auth):** logout revokes the JWT; `TRUST_PROXY_HOPS` (default 1 in production, 0 elsewhere) so a client-written `X-Forwarded-For` cannot rotate the login limiter; BoardRoom maps body-parser errors to 413 `payload_too_large` / 400 `invalid_json`; non-gateway agent keys are bound to their tenant's owner (`403 user_mismatch`); a `SECURITY:` warning on every production boot while `OMNIMIND_REQUIRE_AGENT_KEY` is off.
+- **Lane H (data):** admin duplicate merge and contradictions work across users; ministry rows (any spelling, or the ministry tenant for outside callers) are excluded from `/memories/search`, `GET /memories`, search-similar, `/context/for-persona` and the graph; budget buckets grouped by `normalizeDomain`; `Commitment.sourceSessionId` must be the caller's session; `{ id: 'desc' }` tie-breakers on every paged entity list; link DELETE documented as 200; UI memory writes go to the user's own tenant.
+- **Lane I (UI):** `/memory/:id` deep links (MCP result links now open the memory, "Memory not found" otherwise); "Unassigned projects / tasks" groups in the goal tree; graph legend and type chips are one tab stop each (arrow keys, no canvas pan); tree chevrons named + `aria-expanded`; dashboard requests 24 → 20 with no URL fetched twice (in-flight GET dedupe + single owners for profile, outcome reviews, commitments); logout clears the dashboard cache.
+- **Launch kit:** `scripts/launch.sh` / `pnpm launch` + `docs/03-operations/LAUNCH.md` — backup + restore drill → rotation → branch protection → merge → deploy verify → MCP go-live → verify-prod, gated on a passing drill from the last 24 h.
+
+---
+
 ## 2026-10-30 — Phase 8 real-data — Massive end-to-end test of PR B; every high finding fixed
 
 **Branch:** `claude/amazing-mccarthy-grvem2` (PR #30) | **Status:** Pushed, CI green; merge only after M0-F1 | **Tests:** shared 331, mcp 289, api 1,696, server 417, client 717; e2e 78/78 (+E2E-12 decision commit, +E2E-13 project links); private real-vault journey 28/28; MCP smoke 20 tools
