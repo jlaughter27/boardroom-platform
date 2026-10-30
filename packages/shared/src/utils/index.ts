@@ -33,3 +33,5 @@ export * from './domain';
 
 // Name normalization for meeting prep briefs (RD-13)
 export * from './name-normalize';
+// Commitment direction (RD-12)
+export * from './commitment';

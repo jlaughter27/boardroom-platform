@@ -3,7 +3,7 @@
  * memory's link rows (then by title), opens the target like a card click, and
  * lists backlinks ("Linked from"). Card previews strip markdown.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Memory } from '@boardroom/shared';
 import * as api from '../../../src/lib/api';
@@ -47,6 +47,13 @@ const PARTNERS = mem('m-partners', 'Design partners');
 const RETRO = mem('m-retro', 'Q3 pricing retro');
 // Not in the explorer list: resolved via its link row + a fetch by id.
 const PREPAY = mem('m-prepay', 'Annual prepay terms', 'Prepay **discount** is 2 months.', { metadata: { vault: { path: 'pricing/Annual prepay terms.md' } } } as Partial<Memory>);
+
+// The renderer is a lazy chunk (react-markdown + remark-gfm). Transforming it
+// cold under a loaded full-suite run can outlast findBy's 1 s poll, so load
+// it once up front instead of racing it in the first test.
+beforeAll(async () => {
+  await import('../../../src/components/memory/MemoryMarkdown');
+}, 30_000);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -153,6 +160,31 @@ describe('MemoryDetail markdown + wikilinks + backlinks (RD-1)', () => {
     const textarea = document.querySelector('textarea')!;
     expect(textarea.value).toContain('[[Competitor teardown]]');
     expect(textarea.value).toContain('| Tier | Price |');
+  });
+});
+
+describe('MemoryDetail render guard (M7)', () => {
+  it('shows pathological content as plain pre-wrapped text with a note, quickly', () => {
+    const evil = mem('m-evil', 'Stars', '*'.repeat(20_000) + 'X' + '*'.repeat(20_000));
+    const t = performance.now();
+    render(<MemoryDetail memory={evil} />);
+    const plain = screen.getByTestId('memory-plain-content');
+    expect(performance.now() - t).toBeLessThan(2_000);
+    expect(plain).toHaveTextContent('Shown as plain text (very large or unusual formatting).');
+    expect(plain.textContent).toContain('X');
+    expect(screen.queryByTestId('memory-markdown')).toBeNull();
+    expect(screen.queryByTestId('memory-markdown-loading')).toBeNull();
+  });
+
+  it('shows a 1 MB memory as plain text', () => {
+    render(<MemoryDetail memory={mem('m-big', 'Big', 'Plain notes about the plan.\n'.repeat(37_000))} />);
+    expect(screen.getByTestId('memory-plain-content')).toBeInTheDocument();
+  });
+
+  it('ordinary notes still render as markdown', async () => {
+    renderSelected();
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-plain-content')).toBeNull();
   });
 });
 

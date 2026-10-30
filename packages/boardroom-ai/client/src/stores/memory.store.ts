@@ -47,12 +47,19 @@ interface MemoryState {
   nextCursor: string | null;
   /** True when the current result set came from the hybrid endpoint */
   hybridActive: boolean;
+  /** A deep-linked id (`/memory/:id`, `/memory?id=`) that resolved to no memory */
+  notFoundId: string | null;
 
   clearError: () => void;
   setEngine: (engine: MemorySearchEngine) => void;
   search: (filters?: MemoryFilters) => Promise<void>;
   loadMore: () => Promise<void>;
   select: (id: string) => void;
+  /**
+   * Select a memory by id even when it is not in the loaded page (deep links):
+   * the list first, else `GET /memories/:id`. A 404 sets `notFoundId`.
+   */
+  openById: (id: string) => Promise<void>;
   clearSelection: () => void;
   updateMemory: (id: string, input: Record<string, unknown>) => Promise<void>;
   archiveMemory: (id: string) => Promise<void>;
@@ -64,6 +71,8 @@ interface MemoryState {
 // (search or loadMore) whose sequence is no longer current is dropped so a
 // slow stale response cannot overwrite a newer result set or its offset.
 let requestSeq = 0;
+// Same idea for deep-link opens: a newer open (or a manual selection) wins.
+let openSeq = 0;
 
 function toListParams(filters: MemoryFilters, limit: number, offset: number): api.ListMemoriesParams {
   const { tags, asOf: _asOf, includeArchived: _inc, ...rest } = filters;
@@ -108,6 +117,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   layers: {},
   nextCursor: null,
   hybridActive: false,
+  notFoundId: null,
 
   clearError: () => set({ error: null }),
 
@@ -198,11 +208,29 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   select: (id) => {
+    openSeq++;
     const found = get().memories.find((m) => m.id === id) ?? null;
-    set({ selectedMemory: found });
+    set({ selectedMemory: found, notFoundId: null });
   },
 
-  clearSelection: () => set({ selectedMemory: null }),
+  openById: async (id) => {
+    const seq = ++openSeq;
+    const known = get().memories.find((m) => m.id === id);
+    if (known) { set({ selectedMemory: known, notFoundId: null }); return; }
+    set({ notFoundId: null });
+    try {
+      const memory = await api.getMemory(id);
+      if (seq !== openSeq) return;
+      set({ selectedMemory: memory, notFoundId: null });
+    } catch (err) {
+      if (seq !== openSeq) return;
+      // Duck-typed (ApiError carries `status`): tests often mock the api module wholesale.
+      if ((err as { status?: unknown })?.status === 404) set({ selectedMemory: null, notFoundId: id });
+      else set({ error: (err as Error).message });
+    }
+  },
+
+  clearSelection: () => { openSeq++; set({ selectedMemory: null, notFoundId: null }); },
 
   updateMemory: async (id, input) => {
     const toast = useToastStore.getState().addToast;
@@ -264,5 +292,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       layers: {},
       nextCursor: null,
       hybridActive: false,
+      notFoundId: null,
     }),
 }));

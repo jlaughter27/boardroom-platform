@@ -175,6 +175,17 @@ function connect(bearer: string, port = mcp.port) {
   return { client, transport, connect: () => client.connect(transport) };
 }
 
+/** Audit rows are fire-and-forget: poll for the call instead of sleeping a fixed 20 ms (flaky under load). */
+async function waitForCall(path: string, match: (s: Seen) => boolean = () => true, timeoutMs = 3000): Promise<Seen> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const hit = [...seen].reverse().find(s => s.path === path && match(s));
+    if (hit) return hit;
+    if (Date.now() > deadline) throw new Error(`fake API never saw ${path}`);
+    await new Promise(r => setTimeout(r, 10));
+  }
+}
+
 function lastCall(path: string): Seen {
   const hit = [...seen].reverse().find(s => s.path === path);
   if (!hit) throw new Error(`fake API never saw ${path}`);
@@ -438,8 +449,7 @@ describe('omt_ token principals', () => {
     expect(call.headers).not.toHaveProperty('x-source-weight');
 
     // The audit row is attributed to the principal's agent / tenant.
-    await new Promise(r => setTimeout(r, 20));
-    const audit = lastCall('/mcp/audit');
+    const audit = await waitForCall('/mcp/audit', s => s.headers['x-mcp-principal'] === 'token:tok_alice' && (s.body as { toolName?: string })?.toolName === 'memory_search');
     expect(audit.body).toMatchObject({ agentId: 'claude-ai-alice', tenantId: 'josh-business', toolName: 'memory_search' });
     expect(audit.headers['x-mcp-principal']).toBe('token:tok_alice');
 
@@ -510,8 +520,7 @@ describe('legacy static key keeps its identity headers', () => {
     expect(call.headers).not.toHaveProperty('x-mcp-principal');
     expect(call.headers).not.toHaveProperty('x-agent-key');
     // Every outbound call of this session (audit rows included) is gateway-key-free.
-    await new Promise(r => setTimeout(r, 20));
-    const audit = lastCall('/mcp/audit');
+    const audit = await waitForCall('/mcp/audit', s => s.headers['x-agent-id'] === 'env-agent');
     expect(audit.headers['x-agent-id']).toBe('env-agent');
     expect(audit.headers).not.toHaveProperty('x-agent-key');
     for (const s of seen.filter(s => s.headers['x-agent-id'] === 'env-agent')) expect(s.headers['x-agent-key']).toBeUndefined();

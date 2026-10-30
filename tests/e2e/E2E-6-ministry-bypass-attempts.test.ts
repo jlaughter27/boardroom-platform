@@ -39,7 +39,8 @@ interface ApiResponse {
 async function apiCreateMemory(
   baseUrl: string,
   apiKey: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  tenantId = 'josh-business'
 ): Promise<ApiResponse> {
   const res = await fetch(`${baseUrl}/memories`, {
     method: 'POST',
@@ -48,7 +49,7 @@ async function apiCreateMemory(
       'x-api-key': apiKey,
       'x-user-id': TEST_USER_ID,
       'x-agent-id': 'test-ministry-bypass',
-      'x-tenant-id': 'josh-business',
+      'x-tenant-id': tenantId,
       'x-source-weight': '1.0',
     },
     body: JSON.stringify(payload),
@@ -220,6 +221,59 @@ describe('E2E-6 / D16: ministry-domain bypass attempts are all refused', () => {
       expect(stored.domain.toLowerCase()).not.toBe('ministry');
       expect(stored.domain).toContain('ministry');
     }
+  });
+
+  /** H2 (2026-10-30): nothing reached memory_entries OR the OpenAI embedding outbox. */
+  async function expectNothingWrittenOrQueued(): Promise<void> {
+    await expectNoMemoriesWritten();
+    expect(await harness.prisma.embeddingOutbox.count()).toBe(0);
+  }
+
+  it.each([
+    ['trailing zero-width space', 'ministry\u200b'],
+    ['leading zero-width space', '\u200bministry'],
+    ['Cyrillic i lookalike', 'm\u0456nistry'],
+    ['sub-domain', 'ministry/pastoral'],
+    ['plural', 'ministries'],
+    ['tenant id as domain', 'tgfc-ministry'],
+  ])('H2: %s (%j) is refused with 503 and nothing is stored or queued for OpenAI', async (_label, domain) => {
+    const res = await apiCreateMemory(harness.config.apiBaseUrl, harness.config.apiKey, {
+      title: 'H2 probe',
+      content: 'invented pastoral note',
+      domain,
+      sourceType: 'MCP_AGENT',
+      dedup: false,
+    });
+    expect(res.status).toBe(503);
+    expect((res.body as { code?: string }).code).toBe('MINISTRY_DEFERRED');
+    await expectNothingWrittenOrQueued();
+  });
+
+  it('H2: any write in the tgfc-ministry tenant is refused, whatever its domain', async () => {
+    for (const domain of ['general', 'business']) {
+      const res = await apiCreateMemory(harness.config.apiBaseUrl, harness.config.apiKey, {
+        title: 'H2 tenant probe',
+        content: 'invented pastoral counselling note',
+        domain,
+        sourceType: 'MCP_AGENT',
+        dedup: false,
+      }, 'tgfc-ministry');
+      expect(res.status).toBe(503);
+      expect((res.body as { code?: string }).code).toBe('MINISTRY_DEFERRED');
+    }
+    await expectNothingWrittenOrQueued();
+  });
+
+  it('H2: a business write in a business tenant still lands (and is queued for embedding)', async () => {
+    const res = await apiCreateMemory(harness.config.apiBaseUrl, harness.config.apiKey, {
+      title: 'H2 control',
+      content: 'invented business note',
+      domain: 'business',
+      sourceType: 'MCP_AGENT',
+      dedup: false,
+    });
+    expect(res.status).toBe(201);
+    expect(await harness.prisma.embeddingOutbox.count()).toBe(1);
   });
 
   it('null/undefined domain is rejected as a validation error', async () => {

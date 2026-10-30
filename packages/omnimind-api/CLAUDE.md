@@ -24,6 +24,7 @@ Every first-class entity has its own route + service file:
 - projects (projects.routes.ts + entity.service.ts)
 - tasks (tasks.routes.ts + entity.service.ts)
 - decisions (decisions.routes.ts + decision.service.ts)
+- decision-sessions (decision-sessions.routes.ts + decision-session.service.ts) — RD-17, BoardRoom-only persisted Decision Lab sessions
 - commitments (commitments.routes.ts + commitment.service.ts)
 - user-profile (user-profile.routes.ts + user-profile.service.ts)
 - context (context.routes.ts + context-assembler.service.ts)

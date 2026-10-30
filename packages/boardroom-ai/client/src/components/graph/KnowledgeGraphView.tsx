@@ -17,6 +17,7 @@ import { clusterForce, cooldownTicksFor, seedNewNodes } from './graph-forces';
 import { GraphMinimap, boundsOf, fitTransform, viewportRect, type MinimapHandle, type MinimapNode } from './graph-minimap';
 import { ShapeGlyph } from './ShapeGlyph';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { useRovingTabIndex } from '../../hooks/useRovingTabIndex';
 import { cn } from '../../lib/cn';
 
 /**
@@ -162,6 +163,8 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
   const tooltipRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<MinimapHandle>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  // The floating legend is one tab stop (roving tabindex), not one per type.
+  const legendRoving = useRovingTabIndex(NODE_TYPES.length);
   const [palette, setPalette] = useState<GraphPalette>(() => readGraphPalette());
   const [hoverId, setHoverId] = useState<string | null>(null);
   const reducedMotion = useReducedMotion();
@@ -898,16 +901,18 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
       {typeFilter && onToggleType && size.width >= NARROW_CANVAS_PX && (
         <div
           className={cn('absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1 p-1', FLOATING)}
-          role="group"
+          role="toolbar"
           aria-label="Legend and type filter"
           data-testid="graph-legend"
+          onKeyDown={legendRoving.onKeyDown}
         >
-          {NODE_TYPES.map((t) => {
+          {NODE_TYPES.map((t, i) => {
             const on = typeFilter.has(t);
             return (
               <button
                 key={t}
                 type="button"
+                {...legendRoving.itemProps(i)}
                 onClick={() => onToggleType(t)}
                 aria-pressed={on}
                 title={`${on ? 'Hide' : 'Show'} ${TYPE_LABEL[t].toLowerCase()}`}
@@ -916,7 +921,7 @@ export const KnowledgeGraphView = forwardRef<KnowledgeGraphViewHandle, Props>(fu
                   on ? 'text-foreground hover:bg-muted' : 'text-muted-foreground/70 line-through decoration-muted-foreground/50 hover:bg-muted',
                 )}
               >
-                <span style={{ color: palette.type[t], opacity: on ? 1 : 0.4 }}><ShapeGlyph shape={TYPE_SHAPE[t]} color="currentColor" size={10} /></span>
+                <span aria-hidden="true" style={{ color: palette.type[t], opacity: on ? 1 : 0.4 }}><ShapeGlyph shape={TYPE_SHAPE[t]} color="currentColor" size={10} /></span>
                 <span>{TYPE_LABEL[t]}</span>
                 {typeCounts && typeCounts[t] !== undefined && size.width >= 1000 && (
                   <span className="tabular-nums text-muted-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>{typeCounts[t]}</span>

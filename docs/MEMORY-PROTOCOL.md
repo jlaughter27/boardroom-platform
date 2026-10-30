@@ -100,6 +100,8 @@ Use when Josh makes a commitment to someone or something external. Not for inter
 
 Run this at the start of a session to get a snapshot of active decisions, in-progress tasks, blockers, and open commitments. It runs four searches in parallel and returns a composite view. **Phase 6:** it also returns `commitmentsDueSoon: { dueSoon, overdue }` from `GET /commitments/nudges` (commitments due within 3 days or past deadline). If that endpoint is unavailable the rest of the snapshot still returns and `commitmentsDueSoon.error` says why.
 
+**RD-12 — `status_get.delegations`.** Commitments carry a direction (`owedBy`). Rows the user owes (`USER`, or no `owedBy`) stay in `commitmentsDueSoon`; rows another person owes the user (`owedBy: 'STAKEHOLDER'`, a delegation made from BoardRoom's Delegate dialog) appear **only** in `delegations: { overdue, dueSoon, error? }`, each item `{ id, description, personId, personName, deadline, daysOverdue }` (`daysOverdue` is whole days past an end-of-UTC-day deadline, `0` when not yet due; at most 10 per list). Both blocks come from the same single nudges call, so a nudges failure sets the same `error` on both. Word them as "waiting on {personName}", never "to {personName}", and do not count them as the user's own overdue load. The audit row keeps delegation ids, deadlines and day counts and drops `description`, `personName` and `personId`.
+
 This is your "what's the state of the world" tool. Use it before diving into any sustained work.
 
 ### `project_status` / `project_summary`
@@ -122,6 +124,8 @@ Use when you need to recall who someone is — their role, relationship to Josh,
 | `ministry` | TGFC pastoral data | **Ollama (local only)** |
 
 **Ministry domain is air-gapped from OpenAI.** If Ollama is unavailable, writes to `domain: 'ministry'` are refused. Do not retry with a different domain — wait for Ollama to come back up.
+
+**Every spelling counts as ministry (2026-10-30).** `Ministry`, `ministry` with zero-width characters, full-width or accented letters, Cyrillic / Greek lookalikes, `ministries`, `ministry/<anything>`, `ministry-<anything>` and `tgfc-ministry` are all normalized to `ministry` and refused with `MINISTRY_DEFERRED`. **In the `tgfc-ministry` tenant every write is a ministry write:** `memory_write` with no `domain` defaults to `ministry` there (not `general`), `decision_log` with no `domain` defaults to `ministry` (not `business`), and an explicit `general` / `business` / `personal` domain is treated as `ministry` too — so, while the ministry path is deferred, a token bound to `tgfc-ministry` cannot store memories or decisions. Reads are unchanged.
 
 ---
 
@@ -184,7 +188,7 @@ Every tool is registered with MCP spec 2025-11-25 **annotations** (hints — the
 | `person_get` | `memory:read` | ✓ | – | ✓ | |
 | `commitment_log` | `commitment:write` | – | – | – | `idempotencyKey` |
 | `commitment_list` | `memory:read` | ✓ | – | ✓ | `cursor` → `nextCursor`, page ≤ 20 |
-| `status_get` | `memory:read` | ✓ | – | ✓ | includes `commitmentsDueSoon` |
+| `status_get` | `memory:read` | ✓ | – | ✓ | includes `commitmentsDueSoon` and `delegations` (RD-12) |
 | `graph_neighborhood` | `memory:read` | ✓ | – | ✓ | capped at 60 nodes |
 | `search` | `memory:read` | ✓ | – | ✓ | ChatGPT connector shape; `limit` ≤ 20 |
 | `fetch` | `memory:read` | ✓ | – | ✓ | ChatGPT connector shape; memory ids only |

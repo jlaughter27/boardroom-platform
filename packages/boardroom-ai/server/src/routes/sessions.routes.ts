@@ -2,7 +2,9 @@ import { Router } from 'express';
 import type { IRouter, Response } from 'express';
 import type { AuthRequest } from '../middleware/auth';
 import { checkSessionLimit } from '../middleware/session-rate-limiter';
-import { CEOOrchestrator, type SessionState } from '../agents/orchestrator';
+import { CEOOrchestrator } from '../agents/orchestrator';
+import { DecisionSessionStore, SessionCapacityError, type StoredSession } from '../services/session-store';
+import { logger } from '../lib/logger';
 import { checkSufficiency } from '../agents/sufficiency';
 import { omnimindClient } from '../services/omnimind-client';
 import { proposeExtractions, confirmExtractions } from '../services/extraction.service';
@@ -21,49 +23,30 @@ import { createAnthropicClient } from '../lib/anthropic-client';
 const router: IRouter = Router();
 router.use(checkSessionLimit);
 
-// In-memory session store (Phase 1 -- will persist to OmniMind later)
-const MAX_SESSIONS = 10000;
-// B-119: idle TTL — a session expires 30 minutes after its LAST activity, not
-// its creation, so long deliberations no longer 404 mid-flow.
-const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
+// RD-17 — sessions are persisted in OmniMind (`/decision-sessions`); this
+// process keeps a cache. See services/session-store.ts for the write-through /
+// load-on-miss / fallback rules. B-119: the cache's idle TTL counts from the
+// LAST activity (every route that names a session touches it via `get`).
+export const sessionStore = new DecisionSessionStore(omnimindClient, {
+  // B-114: release the per-session tool invocation budget when a session leaves the cache.
+  onEvict: (id) => toolRegistry.resetSession(id),
+});
 
-interface StoredSession extends SessionState {
-  createdAt: number;
-  lastActivityAt: number;
-  /**
-   * R-B-06: set SYNCHRONOUSLY before the first `await` in POST /:id/decide so a
-   * concurrent second commit is rejected while the first is still in flight
-   * (`decisionId` is only known after OmniMind answers). Cleared on failure.
-   */
-  decisionPending?: boolean;
-}
-
-const sessions = new Map<string, StoredSession>();
-let sessionCounter = 0;
-
-function expireSession(id: string): void {
-  sessions.delete(id);
-  // B-114: release the per-session tool invocation budget when a session ends.
-  toolRegistry.resetSession(id);
-}
-
-// Cleanup idle sessions every 5 minutes
+// Evict idle sessions from the cache every 5 minutes (persisted ones reload on demand).
 const sweeper = setInterval(() => {
-  const now = Date.now();
-  for (const [id, session] of sessions) {
-    if (now - session.lastActivityAt > SESSION_IDLE_TTL_MS) {
-      expireSession(id);
-    }
-  }
+  sessionStore.sweep().catch((err) => logger.warn('[SessionStore] sweep failed', { message: err instanceof Error ? err.message : String(err) }));
 }, 5 * 60 * 1000);
 sweeper.unref?.();
 
-// B-119: every route that names a session touches lastActivityAt.
-router.param('id', (_req, _res, next, id) => {
-  const session = sessions.get(String(id));
-  if (session) session.lastActivityAt = Date.now();
-  next();
-});
+/** The signed-in user's session (cache, else OmniMind) or a 404 response. */
+async function ownedSession(req: AuthRequest, res: Response): Promise<StoredSession | null> {
+  const session = await sessionStore.get(String(req.params.id), req.auth!.userId);
+  if (!session) {
+    res.status(404).json({ error: 'not_found', message: 'Session not found' });
+    return null;
+  }
+  return session;
+}
 
 // B-111: abort upstream LLM work when the client disconnects.
 //
@@ -105,33 +88,24 @@ function getOrchestrator(): CEOOrchestrator {
   return new CEOOrchestrator(omnimindClient, apiKey);
 }
 
-// POST /sessions -- create
-router.post('/', validateBody(CreateSessionBodySchema), (req: AuthRequest, res, next) => {
+// POST /sessions -- create (RD-17: persisted in OmniMind; memory-only fallback)
+router.post('/', validateBody(CreateSessionBodySchema), async (req: AuthRequest, res, next) => {
   try {
     const { question, mode, asOf } = req.body as { question: string; mode: UserMode; roomId?: string; asOf?: string };
 
-    if (sessions.size >= MAX_SESSIONS) {
-      res.status(503).json({ error: 'capacity_exceeded', message: 'Too many active sessions. Please try again later.' });
-      return;
+    let session: StoredSession;
+    try {
+      session = await sessionStore.create(req.auth!.userId, { question, mode, ...(asOf ? { asOf } : {}) });
+    } catch (err) {
+      if (err instanceof SessionCapacityError) {
+        res.status(503).json({ error: 'capacity_exceeded', message: 'Too many active sessions. Please try again later.' });
+        return;
+      }
+      throw err;
     }
 
-    const id = `session_${++sessionCounter}_${Date.now()}`;
-    const now = Date.now();
-    const session: StoredSession = {
-      id,
-      userId: req.auth!.userId,
-      question,
-      mode,
-      personaResponses: new Map(),
-      synthesis: null,
-      createdAt: now,
-      lastActivityAt: now,
-      ...(asOf ? { asOf } : {}),
-    };
-    sessions.set(id, session);
-
     res.status(201).json({
-      sessionId: id,
+      sessionId: session.id,
       question,
       mode,
       personasToFire: getPersonasForMode(mode),
@@ -141,45 +115,39 @@ router.post('/', validateBody(CreateSessionBodySchema), (req: AuthRequest, res, 
 });
 
 // GET /sessions/:id
-router.get('/:id', (req: AuthRequest, res) => {
-  const session = sessions.get(String(req.params.id));
-  if (!session || session.userId !== req.auth!.userId) {
-    res.status(404).json({ error: 'not_found', message: 'Session not found' });
-    return;
-  }
-  res.json({
-    id: session.id,
-    question: session.question,
-    mode: session.mode,
-    personaResponses: Object.fromEntries(session.personaResponses),
-    ceoSynthesis: session.synthesis,
-    sufficiencyScore: null,
-    createdAt: new Date(session.createdAt).toISOString(), // S-1: real creation time
-    // Phase 6
-    rebuttals: Object.fromEntries(session.rebuttals ?? []),
-    ledger: session.ledger ?? [],
-    decisionId: session.decisionId ?? null,
-    asOf: session.asOf ?? null,
-  });
+router.get('/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const session = await ownedSession(req, res);
+    if (!session) return;
+    res.json({
+      id: session.id,
+      question: session.question,
+      mode: session.mode,
+      personaResponses: Object.fromEntries(session.personaResponses),
+      ceoSynthesis: session.synthesis,
+      sufficiencyScore: null,
+      createdAt: new Date(session.createdAt).toISOString(), // S-1: real creation time
+      // Phase 6
+      rebuttals: Object.fromEntries(session.rebuttals ?? []),
+      ledger: session.ledger ?? [],
+      decisionId: session.decisionId ?? null,
+      asOf: session.asOf ?? null,
+    });
+  } catch (err) { next(err); }
 });
 
-// GET /sessions -- list (returns recent from in-memory store)
-// S-1: each row carries the session's REAL createdAt and the list is newest
-// first (it used to stamp `now` on every row, so the client could not order).
-router.get('/', (req: AuthRequest, res) => {
-  const userId = req.auth!.userId;
-  const userSessions = Array.from(sessions.values())
-    .filter(s => s.userId === userId)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map(s => ({
-      id: s.id,
-      question: s.question,
-      mode: s.mode,
-      personaCount: s.personaResponses.size,
-      hasSynthesis: s.synthesis !== null,
-      createdAt: new Date(s.createdAt).toISOString(),
-    }));
-  res.json({ items: userSessions, total: userSessions.length, offset: 0, limit: 20 });
+const ListSessionsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).catch(20),
+  offset: z.coerce.number().int().min(0).catch(0),
+});
+
+// GET /sessions -- list, newest first (S-1: each row carries its REAL createdAt).
+// RD-17: the page comes from OmniMind; memory-only sessions are listed first on page 1.
+router.get('/', async (req: AuthRequest, res, next) => {
+  try {
+    const { limit, offset } = ListSessionsQuerySchema.parse({ limit: req.query.limit ?? 20, offset: req.query.offset ?? 0 });
+    res.json(await sessionStore.list(req.auth!.userId, limit, offset));
+  } catch (err) { next(err); }
 });
 
 /**
@@ -205,11 +173,8 @@ async function unknownAdvisors(session: StoredSession, personaIds: string[]): Pr
 // that is not an advisor of this session → 400 `unknown_persona`.
 router.post('/:id/dispatch', validateBody(DispatchSessionBodySchema), llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(String(req.params.id));
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     const { personaIds } = (req.body ?? {}) as DispatchSessionRequest;
     if (personaIds) {
       const unknown = await unknownAdvisors(session, personaIds);
@@ -223,36 +188,40 @@ router.post('/:id/dispatch', validateBody(DispatchSessionBodySchema), llmRateLim
       }
     }
     const orchestrator = getOrchestrator();
-    await orchestrator.dispatch(session, res, abortOnClose(res), personaIds ? { personaIds } : {});
+    // RD-17: persist once round 1 is on the session, and again at the end (rebuttals + ledger).
+    const onRoundComplete = () => sessionStore.schedulePersist(session);
+    try {
+      await orchestrator.dispatch(session, res, abortOnClose(res), personaIds ? { personaIds, onRoundComplete } : { onRoundComplete });
+    } finally {
+      sessionStore.schedulePersist(session);
+    }
   } catch (err) { next(err); }
 });
 
 // POST /sessions/:id/synthesize -- CEO synthesis (SSE)
 router.post('/:id/synthesize', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(String(req.params.id));
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     // quick-take has no persona fan-out by design (B-112) — allow 0 responses there.
     if (session.personaResponses.size === 0 && session.mode !== 'quick-take') {
       res.status(400).json({ error: 'validation_failed', details: [{ field: 'session', message: 'Dispatch personas first' }] });
       return;
     }
     const orchestrator = getOrchestrator();
-    await orchestrator.synthesize(session, res, abortOnClose(res));
+    try {
+      await orchestrator.synthesize(session, res, abortOnClose(res));
+    } finally {
+      sessionStore.schedulePersist(session); // RD-17: CEO synthesis
+    }
   } catch (err) { next(err); }
 });
 
 // POST /sessions/:id/check-ambiguity
 router.post('/:id/check-ambiguity', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(String(req.params.id));
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
     const client = createAnthropicClient(apiKey);
@@ -264,11 +233,8 @@ router.post('/:id/check-ambiguity', llmRateLimiter, async (req: AuthRequest, res
 // POST /sessions/:id/questionnaire
 router.post('/:id/questionnaire', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(String(req.params.id));
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     const orchestrator = getOrchestrator();
     const result = await orchestrator.runQuestionnaire(session, abortOnClose(res));
     res.json(result);
@@ -276,27 +242,24 @@ router.post('/:id/questionnaire', llmRateLimiter, async (req: AuthRequest, res, 
 });
 
 // POST /sessions/:id/questionnaire/answers
-router.post('/:id/questionnaire/answers', validateBody(QuestionnaireAnswersBodySchema), (req: AuthRequest, res) => {
-  const session = sessions.get(String(req.params.id));
-  if (!session || session.userId !== req.auth!.userId) {
-    res.status(404).json({ error: 'not_found', message: 'Session not found' });
-    return;
-  }
-  const { answers } = req.body as z.infer<typeof QuestionnaireAnswersBodySchema>;
-  session.questionnaireAnswers = answers;
-  const enrichment = answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n');
-  session.question = `${session.question}\n\n## Clarifications\n${enrichment}`;
-  res.json({ enrichedContext: true, additionalContextItems: answers.length });
+router.post('/:id/questionnaire/answers', validateBody(QuestionnaireAnswersBodySchema), async (req: AuthRequest, res, next) => {
+  try {
+    const session = await ownedSession(req, res);
+    if (!session) return;
+    const { answers } = req.body as z.infer<typeof QuestionnaireAnswersBodySchema>;
+    session.questionnaireAnswers = answers;
+    const enrichment = answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n');
+    session.question = `${session.question}\n\n## Clarifications\n${enrichment}`;
+    sessionStore.schedulePersist(session); // RD-17: the enriched question
+    res.json({ enrichedContext: true, additionalContextItems: answers.length });
+  } catch (err) { next(err); }
 });
 
 // POST /sessions/:id/plan -- doer mode
 router.post('/:id/plan', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(String(req.params.id));
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     const orchestrator = getOrchestrator();
     const result = await orchestrator.runDoer(session, abortOnClose(res));
     res.json(result);
@@ -306,11 +269,8 @@ router.post('/:id/plan', llmRateLimiter, async (req: AuthRequest, res, next) => 
 // POST /sessions/:id/extract-memories
 router.post('/:id/extract-memories', llmRateLimiter, async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(req.params.id);
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
     const client = createAnthropicClient(apiKey);
@@ -323,11 +283,8 @@ router.post('/:id/extract-memories', llmRateLimiter, async (req: AuthRequest, re
 // POST /sessions/:id/confirm-memories
 router.post('/:id/confirm-memories', validateBody(ConfirmMemoriesBodySchema), async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(req.params.id);
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     const { accepted, modified, rejected } = req.body as {
       accepted?: number[];
       modified?: { index: number; changes: Partial<MemoryProposal> }[];
@@ -346,11 +303,8 @@ router.post('/:id/confirm-memories', validateBody(ConfirmMemoriesBodySchema), as
 // happened), assumptions from the CEO report, mode from the session, decidedAt now.
 router.post('/:id/decide', validateBody(DecideBodySchema), async (req: AuthRequest, res, next) => {
   try {
-    const session = sessions.get(String(req.params.id));
-    if (!session || session.userId !== req.auth!.userId) {
-      res.status(404).json({ error: 'not_found', message: 'Session not found' });
-      return;
-    }
+    const session = await ownedSession(req, res);
+    if (!session) return;
     if (session.decisionId) {
       res.status(409).json({ error: 'already_decided', message: 'This session already committed a decision', decisionId: session.decisionId });
       return;
@@ -373,24 +327,25 @@ router.post('/:id/decide', validateBody(DecideBodySchema), async (req: AuthReque
     }
     session.decisionPending = false;
     session.decisionId = decision.id; // commitDecision sets it too; make the invariant explicit here
+    // RD-17: write the commit through now (no debounce); never blocks or fails the reply.
+    void sessionStore.persistNow(session);
     res.status(201).json(decision);
   } catch (err) { next(err); }
 });
 
 // GET /sessions/:id/export
-router.get('/:id/export', (req: AuthRequest, res) => {
-  const session = sessions.get(req.params.id);
-  if (!session || session.userId !== req.auth!.userId) {
-    res.status(404).json({ error: 'not_found', message: 'Session not found' });
-    return;
-  }
-  const format = (req.query.format as string) ?? 'json';
-  if (format === 'pdf') {
-    res.status(501).json({ error: 'not_implemented', message: 'PDF export coming in Phase 2' });
-    return;
-  }
-  const exported = exportSession(session);
-  res.json(exported);
+router.get('/:id/export', async (req: AuthRequest, res, next) => {
+  try {
+    const session = await ownedSession(req, res);
+    if (!session) return;
+    const format = (req.query.format as string) ?? 'json';
+    if (format === 'pdf') {
+      res.status(501).json({ error: 'not_implemented', message: 'PDF export coming in Phase 2' });
+      return;
+    }
+    const exported = exportSession(session);
+    res.json(exported);
+  } catch (err) { next(err); }
 });
 
 export const sessionsRouter = router;

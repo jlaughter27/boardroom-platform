@@ -128,3 +128,39 @@ describe('generateWeeklyMemo load section (RD-11) + D3', () => {
     expect(mockCreateMessage).not.toHaveBeenCalled();
   });
 });
+
+describe('generateWeeklyMemo — RD-12 delegations + soft-delete fix', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('filters deletedAt: null, lists only USER rows under Open Commitments and delegations under Waiting on Others', async () => {
+    const prisma = fakePrisma(null);
+    prisma.commitment.findMany.mockResolvedValue([
+      { description: 'Book the hall', owedBy: 'USER', deadline: new Date('2026-11-09T12:00:00Z'), stakeholder: { name: 'Dana Okafor' } },
+      { description: 'Send the volunteer rota', owedBy: 'STAKEHOLDER', deadline: new Date('2026-11-07T23:59:59.999Z'), stakeholder: { name: 'Sam Rivera' } },
+      { description: 'Return the projector', owedBy: 'STAKEHOLDER', deadline: null, stakeholder: null },
+    ]);
+    mockCreateMessage.mockResolvedValue({
+      content: [{ type: 'text', text: JSON.stringify({ thinkingQualityScore: 6, decisionsMade: 1, patternsNoticed: [], activeContradictions: [], upcomingPressurePoints: [], recommendedFocus: [], fullMemoText: 'Memo body' }) }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    await generateWeeklyMemo('u1', prisma);
+    const q = prisma.commitment.findMany.mock.calls[0][0];
+    expect(q.where).toEqual({ userId: 'u1', status: 'OPEN', deletedAt: null });
+    expect(q.include).toEqual({ stakeholder: { select: { name: true } } });
+    const prompt = JSON.stringify(mockCreateMessage.mock.calls[0][0].messages);
+    expect(prompt).toContain('## Open Commitments (1)\\n- Book the hall due 2026-11-09\\n\\n## Waiting on Others (2)\\n- Waiting on Sam Rivera: Send the volunteer rota due 2026-11-07\\n- Waiting on someone: Return the projector\\n');
+  });
+
+  it('no delegations → no Waiting on Others section', async () => {
+    const prisma = fakePrisma(null);
+    prisma.commitment.findMany.mockResolvedValue([{ description: 'Book the hall', owedBy: 'USER', deadline: null, stakeholder: null }]);
+    mockCreateMessage.mockResolvedValue({
+      content: [{ type: 'text', text: JSON.stringify({ thinkingQualityScore: 6, decisionsMade: 1, patternsNoticed: [], activeContradictions: [], upcomingPressurePoints: [], recommendedFocus: [], fullMemoText: 'Memo body' }) }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    await generateWeeklyMemo('u1', prisma);
+    const prompt = JSON.stringify(mockCreateMessage.mock.calls[0][0].messages);
+    expect(prompt).toContain('## Open Commitments (1)\\n- Book the hall\\n\\n## Known Thinking Patterns');
+    expect(prompt).not.toContain('Waiting on Others');
+  });
+});

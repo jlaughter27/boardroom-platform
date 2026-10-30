@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { COGNITIVE_LOAD } from '@boardroom/shared';
+import { COGNITIVE_LOAD, isMinistryDomain } from '@boardroom/shared';
 import type {
   LoadDomainRow,
   LoadFlag,
@@ -29,7 +29,6 @@ import type {
 
 const DAY_MS = 86_400_000;
 const UNASSIGNED = 'unassigned';
-const MINISTRY = 'ministry';
 
 export interface LoadInput {
   projects: Array<{ id: string; title: string; status: string; domain: string }>;
@@ -75,7 +74,9 @@ export async function loadLoadInput(userId: string, prisma: PrismaClient, now: D
       },
     }),
     prisma.commitment.findMany({
-      where: { userId, deletedAt: null, status: 'OPEN' },
+      // RD-12: delegations (owedBy STAKEHOLDER) are work others owe the founder;
+      // they never count toward his own load.
+      where: { userId, deletedAt: null, status: 'OPEN', owedBy: 'USER' },
       select: { id: true, deadline: true, linkedProjectId: true, project: { select: { id: true, domain: true, deletedAt: true } } },
     }),
     prisma.decision.count({
@@ -216,7 +217,8 @@ export function computeLoad(input: LoadInput, now: Date, opts: ComputeLoadOption
 
   // Stop candidates — active, domain-assigned, non-ministry projects; fewest open items first
   const eligible: LoadStopCandidate[] = activeProjects
-    .filter(p => { const d = normDomain(p.domain); return d !== MINISTRY && d !== UNASSIGNED; })
+    // M2: shared ministry test (ministry/*, ministries, lookalikes), not just an exact 'ministry'.
+    .filter(p => !isMinistryDomain(p.domain) && normDomain(p.domain) !== UNASSIGNED)
     .map(p => ({
       projectId: p.id,
       title: p.title,
@@ -281,7 +283,7 @@ export function renderLoadSection(s: LoadSnapshot, opts: RenderLoadOptions): str
   if (opts.includeCandidates && s.stopCandidates.length > 0) {
     lines.push('- active projects you could pause (fewest open items first):');
     for (const c of s.stopCandidates) {
-      lines.push(`  - ${oneLine(c.title)} (${c.domain}; ${c.openTasks} open tasks, ${c.openCommitments} open commitments)`);
+      lines.push(`  - ${oneLine(c.title)} (${c.domain}; ${c.openTasks} open ${c.openTasks === 1 ? 'task' : 'tasks'}, ${c.openCommitments} open ${c.openCommitments === 1 ? 'commitment' : 'commitments'})`);
     }
     if (s.omittedCandidates > 0) lines.push(`  - +${s.omittedCandidates} more not listed`);
   }

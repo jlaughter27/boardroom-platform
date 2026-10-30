@@ -1,13 +1,21 @@
 import { z } from 'zod';
 
+/**
+ * Security fix C1 (2026-10-30): account e-mails are canonicalised to
+ * `lower(trim(email))` at the boundary (the same form as `normalizeEmail`), so
+ * `ADMIN@x.test` / ` admin@x.test` can never register beside `admin@x.test`.
+ * OmniMind normalises again and checks existence case-insensitively.
+ */
+const AccountEmailSchema = z.string().trim().toLowerCase().email().max(255);
+
 export const RegisterBodySchema = z.object({
-  email: z.string().email().max(255),
+  email: AccountEmailSchema,
   password: z.string().min(8).max(128),
   name: z.string().min(1).max(100),
 });
 
 export const LoginBodySchema = z.object({
-  email: z.string().email().max(255),
+  email: AccountEmailSchema,
   password: z.string().min(1).max(128),
 });
 

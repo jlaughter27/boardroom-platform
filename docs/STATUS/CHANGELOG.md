@@ -6,6 +6,45 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-30 — Phase 8 real-data — Backlog cleared (RD-17, RD-18) + launch kit
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #30) | **Status:** Pushed; merge only after M0-F1 | **Tests:** shared 338, mcp 289, api 1,842, server 459, client 753; e2e 80/80 (+E2E-14 session persistence)
+
+- **RD-17 Decision Lab persistence (lane J):** sessions live in OmniMind `decision_sessions` (new `state` JSONB snapshot, `status`, `mode`, `deleted_at`, `updated_at`) behind `/decision-sessions` (BoardRoom-only; agents 403); BoardRoom keeps a write-through cache (coalesced writes, reload after restart, memory-only fallback when OmniMind is down). Decisions link back through the new `decisions.decision_session_id` (unique, `ON DELETE SET NULL`). Migration `20261030000000_decision_session_state` (additive) — PR #30 now carries two migrations, both behind the M0-F1 backup.
+- **Lane G (auth):** logout revokes the JWT; `TRUST_PROXY_HOPS` (default 1 in production, 0 elsewhere) so a client-written `X-Forwarded-For` cannot rotate the login limiter; BoardRoom maps body-parser errors to 413 `payload_too_large` / 400 `invalid_json`; non-gateway agent keys are bound to their tenant's owner (`403 user_mismatch`); a `SECURITY:` warning on every production boot while `OMNIMIND_REQUIRE_AGENT_KEY` is off.
+- **Lane H (data):** admin duplicate merge and contradictions work across users; ministry rows (any spelling, or the ministry tenant for outside callers) are excluded from `/memories/search`, `GET /memories`, search-similar, `/context/for-persona` and the graph; budget buckets grouped by `normalizeDomain`; `Commitment.sourceSessionId` must be the caller's session; `{ id: 'desc' }` tie-breakers on every paged entity list; link DELETE documented as 200; UI memory writes go to the user's own tenant.
+- **Lane I (UI):** `/memory/:id` deep links (MCP result links now open the memory, "Memory not found" otherwise); "Unassigned projects / tasks" groups in the goal tree; graph legend and type chips are one tab stop each (arrow keys, no canvas pan); tree chevrons named + `aria-expanded`; dashboard requests 24 → 20 with no URL fetched twice (in-flight GET dedupe + single owners for profile, outcome reviews, commitments); logout clears the dashboard cache.
+- **Launch kit:** `scripts/launch.sh` / `pnpm launch` + `docs/03-operations/LAUNCH.md` — backup + restore drill → rotation → branch protection → merge → deploy verify → MCP go-live → verify-prod, gated on a passing drill from the last 24 h.
+
+---
+
+## 2026-10-30 — Phase 8 real-data — Massive end-to-end test of PR B; every high finding fixed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #30) | **Status:** Pushed, CI green; merge only after M0-F1 | **Tests:** shared 331, mcp 289, api 1,696, server 417, client 717; e2e 78/78 (+E2E-12 decision commit, +E2E-13 project links); private real-vault journey 28/28; MCP smoke 20 tools
+
+Four e2e lanes (real vault on a fresh stack; every suite + upgrade-path migration; adversarial security; UI/mobile/a11y in Chromium), then six fix lanes (A–F) in isolated worktrees, an adversarial re-test of the fixes, and a final real-vault run on the merged head.
+
+- **Security:** admin via an e-mail case variant (emails normalised, case-insensitive lookups); one user could open BoardRoom's shared circuit breaker for everyone — first via malformed queries (now 4xx, never counted), then via OmniMind's deliberate 503 `MINISTRY_DEFERRED` (refusals carry `x-omnimind-refusal: 1` and never trip or retry); ministry gate bypasses (NFKC, zero-width, lookalikes, letters-only skeleton; the tgfc-ministry tenant is refused for every domain; ministry rows kept out of core context, backlinks and admin lists); prompt-injected titles flattened to one line in core context.
+- **Data correctness:** decision commit failed on real Postgres (BoardRoom's in-memory session id hit the decisions FK); entity lists stopped at 20 rows (proxy dropped `limit`; client now pages); Goals & Projects tree grouped by domain instead of links (`GET /projects?include=links`); person briefs listed delegations under "You owe"; delegations due > 3 days out vanished from "Waiting on others" (`waitingLater`); OmniMind 500s on bad input now 4xx (413/400/409/422, NUL and depth guards, tsvector-too-long → 413); junk displacement stops dropped.
+- **Rate limits:** reads no longer billed to the write bucket for agents; an agent acting for a user now gets its own per-user bucket — the final real-vault run showed MCP searches emptying the shared bucket and blanking the same user's dashboard.
+- **UI:** dashboard and phone layouts no longer scroll sideways; toasts clear of sheets; tapping a memory on a phone shows it; keyboard focus in the token and memory flows; Memory Explorer no longer freezes on pathological markdown or a long unbroken token; admin panel works end to end; static assets compressed (brotli/gzip, SSE excluded) with immutable caching for hashed files; truthful dashboard copy.
+- **Test de-flakes:** MCP front-door, ConnectedToolsPanel and GraphPage tests poll instead of sleeping.
+- **Deferred:** RD-17 Decision Lab session persistence; RD-18 follow-up backlog (tracker).
+
+---
+
+## 2026-10-30 — Phase 8 real-data — PR #29 merged (RD-11, RD-13); RD-12 delegation briefs in PR B
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** #29 merged as `9b98a48`; PR B open (merge after M0-F1) | **Tests:** shared 198, mcp 276, api 1,518, server 349, client 653; e2e 67/67
+
+- **RD-12 Delegation briefs** integrated on top of RD-11/RD-13: one-click Delegate from a committed decision's next actions or a task, a brief built only from fields the founder ticks (never stored), share/copy then record `Commitment.owedBy = STAKEHOLDER`; "Waiting on others" in the dashboard nudges (copy check-in, new date, received, drop), MCP `status_get` `delegations` block (tool count stays 20), Doer/core context, digest, memo and capsules worded "waiting on". Migration `20261024014904_commitment_owed_by` is additive (enum + NOT NULL DEFAULT 'USER').
+- **Integration fix:** RD-11's load query now filters `owedBy: USER` — work others owe the founder never counts toward his load (test added). RD-12's e2e renamed E2E-11 (E2E-10 is the load check).
+- **Deps:** systeminformation 5.33.15 → 5.33.19 via override (GHSA-3f7j-7jwc-fxfj, Windows-only command injection, published after #29's CI run).
+- **Core-context block text change (documented, lane F):** an "Open commitments" line omits ` to {personName}` when the description already names the counterparty's first name (whole word, case-insensitive, ≥ 2 characters) — "Deliver the brief to Marco" + Marco Ruiz no longer reads "… to Marco to Marco Ruiz". Blocks holding such a commitment changed bytes and `hash` (one persona prompt-cache miss) once; the contract's byte-identical promise now names this exception (`omnimind-api.contract.md`, Core context M2/M3).
+- **Fix lane F (adversarial re-test):** deliberate OmniMind 503 refusals (`MINISTRY_DEFERRED`, `admin_disabled`) carry `x-omnimind-refusal: 1` and never trip or retry BoardRoom's shared breaker; admin panel works end-to-end (server-side `includeAllTenants=true`, contradictions scoped to the signed-in admin) and the cross-user admin memory / duplicate lists exclude ministry rows; residual ministry-domain bypasses closed (letters-only skeleton, Cherokee / Armenian lookalikes); Postgres 54000 (tsvector too long) → 413; Memory Explorer soft-breaks long unbroken tokens (1 MB single token: 53.8 s → 0.6 s layout in Chromium).
+
+---
+
 ## 2026-10-24 — Phase 8 real-data — Stage 2b founder-leverage features: RD-11 load check + RD-13 meeting prep (PR A), RD-12 built
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR A open | **Tests:** shared 183, mcp 272, api 1,465, server 341, client 599; e2e 65/65 (+E2E-10 load check, +person briefs); MCP smoke 20 tools

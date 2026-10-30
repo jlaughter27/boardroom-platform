@@ -152,3 +152,32 @@ export interface MemoryBudgetReport {
   tenantId: string | null;
   domains: MemoryBudgetStatus[];
 }
+
+/** Columns `GET /memories` may sort by (robustness fixes 2026-10-30). */
+export type MemoryListSortField = 'createdAt' | 'updatedAt' | 'importance' | 'title' | 'lastAccessedAt' | 'validAt';
+
+/**
+ * `GET /memories` query string after validation (`ListMemoriesQuerySchema`).
+ * Every value is a single string on the wire; a repeated or bracketed param,
+ * an unknown enum value, a non-integer limit/offset or an unparseable /
+ * out-of-range `since` is a 422 `validation_failed`.
+ */
+export interface ListMemoriesQuery {
+  q?: string;
+  domain?: string;
+  /** Comma-separated tag list (every tag must match). */
+  tags?: string;
+  tenantId?: string;
+  memoryClass?: MemoryClass;
+  status?: MemoryStatus;
+  /** ISO date-time; years 1900–9999. */
+  since?: string;
+  sortBy?: MemoryListSortField;
+  sortOrder?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+  /** `?includeInvalidated=true` (any case). */
+  includeInvalidated: boolean;
+  /** `?includeAllTenants=true` (any case); honoured for admin callers only. */
+  includeAllTenants: boolean;
+}

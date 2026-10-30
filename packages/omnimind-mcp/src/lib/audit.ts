@@ -40,6 +40,9 @@ const OUTPUT_SAFE_KEYS = new Set([
   'rawId', 'rawRowKept',
   // memory_write extraction mode ('async' | 'deferred'): M1-B2 makes deferred writes countable in the audit log.
   'extraction',
+  // RD-12 — status_get.delegations: ids, deadlines, day counts and direction only.
+  // personName / stakeholderName / description / personId are deliberately NOT listed.
+  'delegations', 'daysOverdue', 'owedBy',
 ]);
 
 /**

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useEntitiesStore } from '../stores/entities.store';
-import { COGNITIVE_LOAD, isOverdue } from '@boardroom/shared';
+import { COGNITIVE_LOAD, isDelegation, isOverdue } from '@boardroom/shared';
 
 export interface CognitiveLoadWarning {
   type: 'overloaded' | 'too_many_overdue' | 'deadline_cluster';
@@ -28,7 +28,7 @@ export function useCognitiveLoad(): CognitiveLoadWarning[] {
   // Overdue check
   const overdueTasks = activeTasks.filter(t => t.deadline && isOverdue(new Date(t.deadline)));
   const overdueCommitments = commitments.filter(
-    c => c.deadline && c.status === 'OPEN' && isOverdue(new Date(c.deadline))
+    c => c.deadline && c.status === 'OPEN' && isOverdue(new Date(c.deadline)) && !isDelegation(c) // RD-12
   );
   const totalOverdue = overdueTasks.length + overdueCommitments.length;
   if (totalOverdue > COGNITIVE_LOAD.maxOverdueBeforeAlert) {

@@ -1,14 +1,16 @@
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import type { Memory } from '@boardroom/shared';
 import { MemoryClass, MemoryStatus, Confidence } from '@boardroom/shared';
 import { useMemoryStore } from '../../stores/memory.store';
+import { useEntitiesStore } from '../../stores/entities.store';
 import * as api from '../../lib/api';
 import type { MemoryEntityLink } from '../../lib/api';
 import { EntityLinker } from './EntityLinker';
 import { LazyMemoryMarkdown } from './memory-markdown-loader';
 import { MemoryBacklinks } from './MemoryBacklinks';
+import { MemoryPlainText } from './MemoryPlainText';
 import { useMemoryWikilinks } from './use-memory-wikilinks';
-import { stripLeadingTitleHeading } from '../../lib/markdown';
+import { markdownRenderGuard, stripLeadingTitleHeading } from '../../lib/markdown';
 
 interface MemoryDetailProps {
   memory: Memory;
@@ -47,6 +49,16 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
   goal: 'bg-success-muted text-success border-success/30',
   project: 'bg-primary/10 text-primary-text border-primary/30',
 };
+
+/** A link chip's label: the memory title / person name / goal or project title; a short id only while unresolved. */
+function linkedEntityName(link: MemoryEntityLink, memories: Map<string, Memory>, names: Map<string, string>): string {
+  const type = link.entityType.toLowerCase();
+  if (type === 'memory') {
+    const m = memories.get(link.entityId);
+    if (m) return m.title;
+  }
+  return names.get(`${type}:${link.entityId}`) ?? `${link.entityId.slice(0, 8)}…`;
+}
 
 /** Placeholder while the markdown renderer chunk loads (first open only). */
 function MarkdownSkeleton() {
@@ -107,8 +119,29 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
     }).catch(() => setLoadingLinks(false));
   }, [memory.id]);
 
+  // Link chips show the entity's name, not its id. People / goals / projects come
+  // from the entities store; a type the store has not loaded yet is fetched once.
+  const people = useEntitiesStore((s) => s.people);
+  const goals = useEntitiesStore((s) => s.goals);
+  const projects = useEntitiesStore((s) => s.projects);
+  const linkTypes = useMemo(() => new Set(entityLinks.map((l) => l.entityType.toLowerCase())), [entityLinks]);
+  useEffect(() => {
+    const store = useEntitiesStore.getState();
+    if (linkTypes.has('person') && store.people.length === 0) void store.fetchPeople();
+    if (linkTypes.has('goal') && store.goals.length === 0) void store.fetchGoals();
+    if (linkTypes.has('project') && store.projects.length === 0) void store.fetchProjects();
+  }, [linkTypes]);
+  const entityNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const p of people) names.set(`person:${p.id}`, p.name);
+    for (const g of goals) names.set(`goal:${g.id}`, g.title);
+    for (const p of projects) names.set(`project:${p.id}`, p.title);
+    return names;
+  }, [people, goals, projects]);
+
   // RD-1: [[wikilinks]] resolve through the outgoing link rows, then by title.
   const { resolve: resolveWikilink, open: openMemory, byId: linkedById } = useMemoryWikilinks(memory, entityLinks);
+  const renderGuard = useMemo(() => markdownRenderGuard(memory.content), [memory.content]);
 
   function refreshLinks() {
     api.getMemoryLinks(memory.id).then(links => {
@@ -253,6 +286,9 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             rows={6}
             className="w-full mt-1 bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40 resize-y"
           />
+        ) : renderGuard.plain ? (
+          // M7: very large or pathological content would freeze the tab in the markdown parser.
+          <MemoryPlainText className="mt-1" content={memory.content ?? ''} />
         ) : (
           <Suspense fallback={<MarkdownSkeleton />}>
             <LazyMemoryMarkdown
@@ -457,9 +493,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
               >
                 <span className="max-w-[16rem] truncate">
                   {link.entityType}:{' '}
-                  {link.entityType.toLowerCase() === 'memory' && linkedById.get(link.entityId)
-                    ? linkedById.get(link.entityId)!.title
-                    : `${link.entityId.slice(0, 8)}...`}
+                  {linkedEntityName(link, linkedById, entityNames)}
                 </span>
                 <button
                   onClick={() => handleDeleteLink(link.id)}

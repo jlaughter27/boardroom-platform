@@ -380,7 +380,7 @@ describe('renderLoadSection', () => {
     const text = renderLoadSection(s, { includeCandidates: true });
     expect(text).not.toContain('\n## Instructions');
     expect(text).toContain(`  - ${expected}: 1 / 0, 0 / 1, 0 / 5`);
-    expect(text).toContain(`  - Partner portal (${expected}; 1 open tasks, 0 open commitments)`);
+    expect(text).toContain(`  - Partner portal (${expected}; 1 open task, 0 open commitments)`);
   });
 
   it('domains that differ only in inner whitespace share one row', () => {
@@ -436,6 +436,7 @@ describe('loadLoadInput (mocked prisma)', () => {
     expect(prisma.project.findMany.mock.calls[0][0].where.status).toEqual({ notIn: [...COGNITIVE_LOAD.closedProjectStatuses] });
     expect(prisma.task.findMany.mock.calls[0][0].where.status).toEqual({ notIn: [...COGNITIVE_LOAD.closedTaskStatuses] });
     expect(prisma.commitment.findMany.mock.calls[0][0].where.status).toBe('OPEN');
+    expect(prisma.commitment.findMany.mock.calls[0][0].where.owedBy).toBe('USER'); // RD-12: delegations are not the founder's load
     expect(prisma.decision.count.mock.calls[0][0].where).toEqual({ userId: 'user-fixture', deletedAt: null, outcomeRating: null, reviewAt: { not: null, lte: NOW } });
 
     expect(input).toEqual({

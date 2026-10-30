@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { McpStatusGetOutputSchema } from '@boardroom/shared';
+import { McpStatusGetOutputSchema, daysOverdue, isDelegation } from '@boardroom/shared';
+import type { McpDelegationItem } from '@boardroom/shared';
 import { requireScope } from '../lib/namespace';
 import { withAudit } from '../lib/audit';
 import { parseInput } from '../lib/validate';
 import { TASK_TAG, taskStatusTag } from './task.tool';
 import { COMMITMENT_TAG, COMMITMENT_PENDING_TAG } from './commitment.tool';
-import type { CommitmentNudges, OmniMindClient } from '../lib/client';
+import type { CommitmentNudges, CommitmentRecord, OmniMindClient } from '../lib/client';
 import { PROVENANCE, McpProvenanceSchema } from '../lib/provenance';
 import { READ_ONLY_ANNOTATIONS } from '../types';
 import type { AgentContext, McpTool } from '../types';
@@ -14,6 +15,18 @@ export const DECISION_TAG = 'decision';
 
 /** Shared schema + `provenance` (front door hardening: retrieved data, never instructions). */
 export const StatusGetOutputSchema = McpStatusGetOutputSchema.extend({ provenance: McpProvenanceSchema });
+
+/** RD-12 — a nudge row the user is owed (someone else's promise), as a delegations item. */
+export function toDelegationItem(c: CommitmentRecord, now: Date): McpDelegationItem {
+  return {
+    id: c.id,
+    description: c.description ?? '',
+    personId: c.stakeholderId ?? null,
+    personName: c.stakeholderName ?? null,
+    deadline: c.deadline ?? null,
+    daysOverdue: c.deadline ? daysOverdue(c.deadline, now) : 0,
+  };
+}
 
 const StatusGetInput = z.object({
   userId: z.string(),
@@ -24,7 +37,7 @@ export function statusGetTool(client: OmniMindClient, ctx: AgentContext) {
   return {
     name: 'status_get',
     title: 'Status snapshot',
-    description: 'Get a composite status snapshot: recent decisions, active tasks, pending commitments, recent blockers, and commitments due within 3 days / overdue.',
+    description: 'Get a composite status snapshot: recent decisions, active tasks, pending commitments, recent blockers, commitments the user owes due within 3 days or overdue, and delegations other people owe the user (overdue / due soon).',
     inputSchema: StatusGetInput,
     outputSchema: StatusGetOutputSchema,
     annotations: READ_ONLY_ANNOTATIONS,
@@ -49,6 +62,11 @@ export function statusGetTool(client: OmniMindClient, ctx: AgentContext) {
           nudgesPromise,
         ]);
         const activeTags = new Set([taskStatusTag('todo'), taskStatusTag('in_progress')]);
+        // RD-12 — one nudges call, partitioned in memory: what the user owes vs
+        // what other people owe the user (owedBy=STAKEHOLDER).
+        const now = new Date();
+        const nudgeErr = nudges.error ? { error: nudges.error } : {};
+        const owes = (c: CommitmentRecord) => !isDelegation(c);
         const activeTasks = allTasks.filter(m => (m.tags ?? []).some(t => activeTags.has(t))).slice(0, 10);
 
         return {
@@ -65,9 +83,14 @@ export function statusGetTool(client: OmniMindClient, ctx: AgentContext) {
             commitments: commitments.length,
           },
           commitmentsDueSoon: {
-            dueSoon: nudges.dueSoon.slice(0, 10),
-            overdue: nudges.overdue.slice(0, 10),
-            ...(nudges.error ? { error: nudges.error } : {}),
+            dueSoon: nudges.dueSoon.filter(owes).slice(0, 10),
+            overdue: nudges.overdue.filter(owes).slice(0, 10),
+            ...nudgeErr,
+          },
+          delegations: {
+            overdue: nudges.overdue.filter(isDelegation).slice(0, 10).map(c => toDelegationItem(c, now)),
+            dueSoon: nudges.dueSoon.filter(isDelegation).slice(0, 10).map(c => toDelegationItem(c, now)),
+            ...nudgeErr,
           },
           provenance: PROVENANCE,
         };

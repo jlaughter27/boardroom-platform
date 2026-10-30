@@ -190,8 +190,27 @@ describe('rateLimiter IP fallback (F-105 / F-207)', () => {
 
   it('agent identity is used before falling back to IP', () => {
     expect(rateLimitKeyFor({ headers: { 'x-agent-id': 'agent-z' }, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'agent:agent-z', byIp: false });
-    expect(rateLimitKeyFor({ headers: { 'x-user-id': 'u1', 'x-agent-id': 'agent-z' }, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'user:u1', byIp: false });
+    expect(rateLimitKeyFor({ headers: { 'x-user-id': 'u1' }, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'user:u1', byIp: false });
     expect(rateLimitKeyFor({ headers: {}, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'ip:9.9.9.9', byIp: true });
+  });
+
+  it('an agent acting for a user gets its own per-user bucket (resolved identity first, then the header)', () => {
+    expect(rateLimitKeyFor({ headers: { 'x-user-id': 'u1', 'x-agent-id': 'agent-z' }, ip: '9.9.9.9' } as unknown as Request)).toEqual({ key: 'user:u1:agent:agent-z', byIp: false });
+    expect(rateLimitKeyFor({ headers: { 'x-user-id': 'u1', 'x-agent-id': 'spoof' }, agentContext: { agentId: 'mcp-token:claude-000001' }, ip: '9.9.9.9' } as unknown as Request))
+      .toEqual({ key: 'user:u1:agent:mcp-token:claude-000001', byIp: false });
+  });
+
+  it('an MCP client reading hard never rate-limits the same user in BoardRoom (real-vault e2e 2026-10-30)', () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as unknown as Response;
+    const next = vi.fn();
+    const user = `u-split-${Date.now()}`;
+    const mcp = { path: '/memories/search', method: 'POST', headers: { 'x-user-id': user }, agentContext: { agentId: 'mcp-token:claude-000001' }, ip: '9.9.9.9' } as unknown as Request;
+    const ui = { path: '/memories', method: 'GET', headers: { 'x-user-id': user }, ip: '9.9.9.9' } as unknown as Request;
+    for (let i = 0; i < USER_READ_RATE_LIMIT_PER_MINUTE + 5; i++) rateLimiter(mcp, res, next);
+    expect(res.status).toHaveBeenCalledWith(429); // the agent's own bucket still throttles it
+    (res.status as ReturnType<typeof vi.fn>).mockClear();
+    rateLimiter(ui, res, next);
+    expect(res.status).not.toHaveBeenCalled();
   });
 
   it('M-106: POST /mcp/audit is left to the agent limiter audit bucket', () => {

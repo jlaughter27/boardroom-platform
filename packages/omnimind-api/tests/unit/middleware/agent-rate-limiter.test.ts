@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Request, Response } from 'express';
 import { agentRateLimiter, classifyOp, agentKeyFor, NON_AGENT_MULTIPLIER } from '../../../src/middleware/agent-rate-limiter';
+import { READ_ONLY_POST_PATHS } from '../../../src/middleware/rate-limiter';
 
 
 const mkRes = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }) as unknown as Response;
@@ -20,6 +21,31 @@ describe('agentRateLimiter', () => {
     expect(classifyOp({ method: 'POST', path: '/context/for-persona' } as Request)).toBe('read');
     expect(classifyOp({ method: 'POST', path: '/context/reflect' } as Request)).toBe('write');
     expect(classifyOp({ method: 'HEAD', path: '/memories' } as Request)).toBe('read');
+  });
+
+  it('L3 (2026-10-30): GET/HEAD on decision paths are reads; only decision WRITES hit the decision bucket', () => {
+    expect(classifyOp({ method: 'GET', path: '/decisions' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'GET', path: '/decisions/calibration' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'GET', path: '/decisions/abc123' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'HEAD', path: '/decisions' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'GET', path: '/mcp/audit/stats' } as Request)).toBe('read');
+    expect(classifyOp({ method: 'POST', path: '/decisions' } as Request)).toBe('decision');
+    expect(classifyOp({ method: 'PATCH', path: '/decisions/abc123' } as Request)).toBe('decision');
+    expect(classifyOp({ method: 'DELETE', path: '/decisions/abc123' } as Request)).toBe('decision');
+    // every POST read the per-user limiter knows is a read here too
+    for (const path of READ_ONLY_POST_PATHS) expect(classifyOp({ method: 'POST', path } as Request), path).toBe('read');
+  });
+
+  it('L3: 150 GET /decisions do not spend the 100/h decision budget', () => {
+    const agent = `agent-decision-reads-${Date.now()}`;
+    const next = vi.fn();
+    const res = mkRes();
+    const list = { method: 'GET', path: '/decisions', headers: { 'x-agent-id': agent } } as unknown as Request;
+    const log = { method: 'POST', path: '/decisions', headers: { 'x-agent-id': agent } } as unknown as Request;
+    for (let i = 0; i < 150; i++) agentRateLimiter(list, res, next); // > DECISION_LIMIT (100), < READ_LIMIT (1000)
+    agentRateLimiter(log, res, next);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(151);
   });
 
   it('R-O-07: POST /memories/search does not consume the write budget', () => {

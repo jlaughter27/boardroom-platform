@@ -40,6 +40,8 @@ interface SessionState {
   /** Decision committed from this session via `POST /sessions/:id/decide`. */
   committedDecision: Decision | null;
   isCommitting: boolean;
+  /** Plain-language reason the last commit failed, shown inside the commit card (never the raw upstream message). */
+  commitError: string | null;
   /** Controller for whichever SSE stream (dispatch or synthesis) is in flight. */
   abortController: AbortController | null;
   error: string | null;
@@ -47,6 +49,7 @@ interface SessionState {
   errorStatus: number | null;
 
   clearError: () => void;
+  clearCommitError: () => void;
   createSession: (question: string, mode: ClientUserMode) => Promise<void>;
   /** Run the session's advisors; `personaIds` re-runs only those (Retry on a failed card). */
   dispatch: (options?: { personaIds?: string[] }) => Promise<void>;
@@ -124,6 +127,23 @@ export function describeSessionError(err: unknown, fallback: string): { message:
   return { message: err instanceof Error ? err.message : fallback, status: null };
 }
 
+const COMMIT_RETRY_MESSAGE = 'Your decision was not saved. Your answers are still here — try again in a moment.';
+
+/**
+ * The commit card's own error line. Upstream messages ("OmniMind POST
+ * /decisions: 500") are for logs, not people: only statuses with a plain
+ * meaning get their own wording, everything else asks for a retry.
+ */
+export function describeCommitError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 402) return 'Your plan does not include committing decisions — upgrade to continue.';
+    if (err.status === 404) return 'This session is no longer available, so the decision could not be saved. Start a new decision to commit it.';
+    if (err.status === 409) return 'This decision is already being saved — wait a moment, then reload the page.';
+    if (err.status === 400 || err.status === 422) return 'Some details were not accepted. Check the chosen path and the expected outcome, then try again.';
+  }
+  return COMMIT_RETRY_MESSAGE;
+}
+
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
@@ -194,11 +214,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isSimulating: false,
   committedDecision: null,
   isCommitting: false,
+  commitError: null,
   abortController: null,
   error: null,
   errorStatus: null,
 
   clearError: () => set({ error: null, errorStatus: null }),
+  clearCommitError: () => set({ commitError: null }),
 
   createSession: async (question, mode) => {
     // Abort any in-flight stream BEFORE clearing state so it cannot keep
@@ -226,6 +248,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         simulation: null,
         committedDecision: null,
         isCommitting: false,
+        commitError: null,
         error: null,
         errorStatus: null,
       });
@@ -431,7 +454,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   commitDecision: async (input) => {
     const { currentSession } = get();
     if (!currentSession) return null;
-    set({ isCommitting: true, error: null, errorStatus: null });
+    set({ isCommitting: true, commitError: null, error: null, errorStatus: null });
     try {
       const decision = await api.commitDecision(currentSession.id, input);
       set({ committedDecision: decision, isCommitting: false });
@@ -454,7 +477,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       const { message, status } = describeSessionError(err, 'Could not commit decision');
       useToastStore.getState().addToast(message, 'error');
-      set({ error: message, errorStatus: status, isCommitting: false });
+      set({ error: message, errorStatus: status, isCommitting: false, commitError: describeCommitError(err) });
       return null;
     }
   },
@@ -484,6 +507,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       isSimulating: false,
       committedDecision: null,
       isCommitting: false,
+      commitError: null,
       abortController: null,
       error: null,
       errorStatus: null,

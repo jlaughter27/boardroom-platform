@@ -17,6 +17,7 @@ import {
   GoalSchema,
   CreateGoalRequestSchema,
   ProjectSchema,
+  ProjectWithLinksSchema,
   CreateProjectRequestSchema,
   TaskSchema,
   CreateTaskRequestSchema,
@@ -240,6 +241,33 @@ describe('SynthesisReportSchema.displacement (RD-11)', () => {
     expect(out.displacement?.stops.map(s => s.title)).toEqual(['A', 'B', 'C']);
   });
 
+  it('drops junk stops (empty, "(none)", copied load-section lines) before capping at 3', () => {
+    const stops = [
+      { title: '(none)', action: 'pause' },
+      { title: 'level: UNKNOWN', action: 'defer' },
+      { title: '   ', action: 'stop' },
+      { title: '', action: 'stop' },
+      { title: 'Flags: none', action: 'defer' },
+      { title: 'by domain (active projects / open commitments)', action: 'defer' },
+      { title: '- business: 3 / 2', action: 'pause' },
+      { title: 'Podcast relaunch', action: 'pause' },
+      { title: 'Newsletter redesign', action: 'defer' },
+      { title: 'Weekly ops review', action: 'delegate' },
+      { title: 'Fourth real item', action: 'stop' },
+    ];
+    const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Too much at once.', stops, netNew: false } });
+    expect(out.displacement?.stops).toEqual([
+      { title: 'Podcast relaunch', action: 'pause' },
+      { title: 'Newsletter redesign', action: 'defer' },
+      { title: 'Weekly ops review', action: 'delegate' },
+    ]);
+  });
+
+  it('a displacement whose only stops are junk keeps the answer with stops []', () => {
+    const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Pause something.', stops: [{ title: '(none)', action: 'pause' }, { title: 'level: UNKNOWN', action: 'defer' }], netNew: false } });
+    expect(out.displacement).toEqual({ answer: 'Pause something.', stops: [], netNew: false });
+  });
+
   it('a missing stops array becomes []', () => {
     const out = SynthesisReportSchema.parse({ ...base, displacement: { answer: 'Nothing needs to stop.', netNew: true } });
     expect(out.displacement).toEqual({ answer: 'Nothing needs to stop.', stops: [], netNew: true });
@@ -273,5 +301,25 @@ describe('SynthesisReportSchema.displacement (RD-11)', () => {
     const item: StopItem = StopItemSchema.parse({ title: 'Redesign', action: 'defer' });
     expect([displacementParity, stopItemParity]).toEqual([true, true]);
     expect(parsed.stops[0]).toEqual(item);
+  });
+});
+
+// ── GET /projects?include=links ──
+
+describe('ProjectWithLinksSchema', () => {
+  const project = {
+    id: 'p1', userId: 'u1', title: 'Saturday market stall', status: 'active', deadline: null,
+    successMetrics: [], domain: 'business', version: 1, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
+  };
+
+  it('parses a project with goal / task link ids', () => {
+    const out = ProjectWithLinksSchema.parse({ ...project, goalIds: ['g1'], taskIds: ['t1', 't2'] });
+    expect(out.goalIds).toEqual(['g1']);
+    expect(out.taskIds).toEqual(['t1', 't2']);
+  });
+
+  it('requires both id arrays', () => {
+    expect(ProjectWithLinksSchema.safeParse({ ...project, goalIds: [] }).success).toBe(false);
+    expect(ProjectSchema.safeParse(project).success).toBe(true);
   });
 });

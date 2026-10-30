@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { createHash } from 'crypto';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
+import { isMinistryDomain, isMinistryTenant } from '@boardroom/shared';
 
 const OPENAI_MODEL = 'text-embedding-3-small';
 const DIMENSIONS = 1536;
@@ -138,8 +139,8 @@ export async function generateEmbeddingWithRetry(
   text: string,
   domain?: string
 ): Promise<number[] | null> {
-  const normalizedDomain = domain?.trim().toLowerCase();
-  if (normalizedDomain === 'ministry') {
+  // H2: shared ministry test (lookalikes, zero-width, `ministry/*`, `ministries`).
+  if (isMinistryDomain(domain)) {
     try {
       const vec = await ollamaEmbed(text);
       return padTo1536(vec);
@@ -190,15 +191,25 @@ export async function generateEmbeddingWithRetry(
 
 export { padTo1536, ollamaEmbed };
 
+/**
+ * H2 — the domain the embedder routes on. A row in the ministry tenant is
+ * ministry whatever its `domain` column says (legacy rows written before the
+ * tenant gate), so it goes to the local embedder and never to OpenAI.
+ */
+function embeddingDomain(domain: string | null | undefined, tenantId: string | null | undefined): string | undefined {
+  if (isMinistryTenant(tenantId, process.env.OMNIMIND_MINISTRY_TENANT_ID || undefined)) return 'ministry';
+  return domain ?? undefined;
+}
+
 export async function embedMemory(memoryId: string): Promise<void> {
   const memory = await prisma.memoryEntry.findUnique({
     where: { id: memoryId },
-    select: { id: true, title: true, content: true, domain: true },
+    select: { id: true, title: true, content: true, domain: true, tenantId: true },
   });
   if (!memory) return;
 
   const text = `${memory.title}\n\n${memory.content}`;
-  const embedding = await generateEmbeddingWithRetry(text, memory.domain);
+  const embedding = await generateEmbeddingWithRetry(text, embeddingDomain(memory.domain, memory.tenantId));
   if (!embedding) {
     logger.error('Embedding generation permanently failed', { memoryId });
     return;
@@ -228,8 +239,8 @@ export async function backfillEmbeddings(
   // non-negotiable ministry rule. generateEmbeddingWithRetry routes
   // domain='ministry' to the local Ollama embedder and returns null (skip)
   // when it is unavailable; it never falls back to OpenAI.
-  const memories = await prisma.$queryRaw<{ id: string; title: string; content: string; domain: string | null }[]>`
-    SELECT id, title, content, domain FROM "memory_entries"
+  const memories = await prisma.$queryRaw<{ id: string; title: string; content: string; domain: string | null; tenantId?: string | null }[]>`
+    SELECT id, title, content, domain, tenant_id AS "tenantId" FROM "memory_entries"
     WHERE "user_id" = ${userId}
       AND "deleted_at" IS NULL
       AND status != 'ARCHIVED'
@@ -240,8 +251,8 @@ export async function backfillEmbeddings(
   let processed = 0;
   for (const mem of memories) {
     const text = `${mem.title}\n\n${mem.content}`;
-    const domain = mem.domain?.trim().toLowerCase();
-    if (domain === 'ministry') {
+    const domain = embeddingDomain(mem.domain, mem.tenantId);
+    if (isMinistryDomain(domain)) {
       logger.info('Backfill: ministry row routed to local embedder (never OpenAI)', { memoryId: mem.id });
     }
     const embedding = await generateEmbeddingWithRetry(text, domain);

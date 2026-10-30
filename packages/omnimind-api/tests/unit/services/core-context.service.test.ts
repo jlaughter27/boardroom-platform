@@ -74,6 +74,18 @@ describe('core context (Phase 6)', () => {
     expect(block).toContain('- Keep burn under 20k\n- No hires before Q2');
   });
 
+  it('does not repeat the counterparty when the description already names them (e2e 2026-10-30)', () => {
+    const input = baseInput();
+    input.commitments = [
+      { id: 'c3', description: 'Deliver the pricing brief to Marco', deadline: '2026-10-06', personName: 'Marco Ruiz' },
+      { id: 'c4', description: 'Send the deck', deadline: '2026-10-07', personName: 'Marco Ruiz' },
+    ];
+    const block = renderCoreBlock(input);
+    expect(block).toContain('- Deliver the pricing brief to Marco — due 2026-10-06');
+    expect(block).not.toContain('to Marco to Marco Ruiz');
+    expect(block).toContain('- Send the deck to Marco Ruiz — due 2026-10-07');
+  });
+
   it('caps goals at 8, lowest level first', () => {
     const input = baseInput();
     input.goals = Array.from({ length: 12 }, (_, i) => ({
@@ -84,6 +96,29 @@ describe('core context (Phase 6)', () => {
     expect(goalLines).toHaveLength(8);
     // all six level-0 goals (06..11) present, then two level-1
     expect(goalLines.slice(0, 6).every(l => /Goal (06|07|08|09|10|11)/.test(l))).toBe(true);
+  });
+
+  // RD-12 — byte-identical guard: this is the exact block (and hash) the
+  // renderer produced at 75d75ae, before the delegations section existed.
+  const GOLDEN_BLOCK = '# Core context\n\n## Profile\n- decision_frequency: weekly\n- industry: SaaS\n- risk_profile: financial=0.30, strategic=0.70\n- role: Founder\n- values: family > craft\n\n## Active goals (top 8)\n- Grow ARR (level 0, business)\n- Launch v2 (level 1, business, due 2026-12-01)\n  - projects: API; Billing\n\n## Open commitments (due within 14 days)\n- Send proposal to Dana — due 2026-10-05\n- Call accountant\n\n## Standing constraints\n- Keep burn under 20k\n- No hires before Q2\n';
+  const GOLDEN_HASH = '57d054fa4b659b6a43e2afd02977d9a9d9104659e6a986b344f492fe583fc6a5';
+
+  it('RD-12: a fixture with no delegations renders byte-identical to the pre-RD-12 block', () => {
+    expect(renderCoreBlock(baseInput())).toBe(GOLDEN_BLOCK);
+    expect(hashBlock(renderCoreBlock(baseInput()))).toBe(GOLDEN_HASH);
+    expect(renderCoreBlock({ ...baseInput(), delegations: [] })).toBe(GOLDEN_BLOCK);
+  });
+
+  it('RD-12: delegations add a sorted "Waiting on others" section after open commitments', () => {
+    const block = renderCoreBlock({
+      ...baseInput(),
+      delegations: [
+        { id: 'd2', description: 'Return the projector', deadline: null, personName: null },
+        { id: 'd1', description: 'Send the volunteer rota', deadline: '2026-11-07', personName: 'Sam Rivera' },
+      ],
+    });
+    expect(block).toContain('- Call accountant\n\n## Waiting on others (due within 14 days)\n- Sam Rivera: Send the volunteer rota — due 2026-11-07\n- someone: Return the projector\n\n## Standing constraints');
+    expect(block).not.toContain('to Sam Rivera');
   });
 
   it('changes the hash when data changes', () => {
@@ -159,6 +194,24 @@ describe('core context (Phase 6)', () => {
       expect(mockPrisma.goal.findMany).toHaveBeenCalledTimes(6);
     });
 
+    it('RD-12: the user-owed query filters owedBy USER; a second take-5 query loads delegations', async () => {
+      mockPrisma.commitment.findMany.mockImplementation(({ where }: any) => Promise.resolve(where.owedBy === 'STAKEHOLDER'
+        ? [{ id: 'd1', description: 'Send the volunteer rota', deadline: new Date('2026-10-07T23:59:59.999Z'), stakeholder: { name: 'Sam Rivera' } }]
+        : [{ id: 'c1', description: 'Ship', deadline: new Date('2026-10-04T10:00:00Z'), stakeholder: { name: 'Lee' } }]));
+      const out = await getCoreContext('u1', mockPrisma);
+      const calls = mockPrisma.commitment.findMany.mock.calls.map((c: any) => c[0]);
+      expect(calls).toHaveLength(2);
+      const own = calls.find((c: any) => c.where.owedBy === 'USER');
+      const del = calls.find((c: any) => c.where.owedBy === 'STAKEHOLDER');
+      expect(own.take).toBe(20);
+      expect(del.take).toBe(5);
+      expect(del.include).toEqual(own.include);
+      expect(del.orderBy).toEqual(own.orderBy);
+      expect({ ...del.where, owedBy: 'USER', deadline: null }).toEqual({ ...own.where, deadline: null });
+      expect(out.block).toContain('- Ship to Lee — due 2026-10-04');
+      expect(out.block).toContain('## Waiting on others (due within 14 days)\n- Sam Rivera: Send the volunteer rota — due 2026-10-07');
+    });
+
     it('queries only live, active, level ≤ 1 goals and open commitments inside the 14-day horizon', async () => {
       await getCoreContext('u1', mockPrisma);
       expect(mockPrisma.goal.findMany.mock.calls[0][0].where).toMatchObject({ userId: 'u1', deletedAt: null, status: 'active', level: { lte: 1 } });
@@ -200,7 +253,7 @@ describe('core context (Phase 6)', () => {
       expect(constraintsAt).toBeGreaterThan(-1);
       expect(loadAt).toBeGreaterThan(constraintsAt);
       expect(block).toContain('- No hires before Q2\n\n## Current load');
-      expect(block.endsWith('  - Podcast relaunch (business; 1 open tasks, 0 open commitments)\n')).toBe(true);
+      expect(block.endsWith('  - Podcast relaunch (business; 1 open task, 0 open commitments)\n')).toBe(true);
       expect(block).not.toContain('Choir retreat');
       expect(block).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     });

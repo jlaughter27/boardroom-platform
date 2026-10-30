@@ -30,7 +30,10 @@ function fakePrisma(over: Partial<Record<string, unknown[]>> = {}, memoryCount?:
     ]),
     memoryEntry: table(over.memoryEntry ?? [
       { id: 'm1', title: 'Pricing call notes', domain: 'business', importance: 0.7, status: 'CONFIRMED', memoryClass: 'EPISODIC', createdAt: d },
-      { id: 'm2', title: 'Sermon prep', domain: 'ministry', importance: 0.9, status: 'CONFIRMED', memoryClass: 'SEMANTIC', createdAt: d },
+      // Lane H (2026-10-30): ministry memories are excluded from the graph now
+      // (tests/unit/services/ministry-read-paths.test.ts); this unlinked
+      // fixture row is a personal one.
+      { id: 'm2', title: 'Weekend plans', domain: 'personal', importance: 0.9, status: 'CONFIRMED', memoryClass: 'SEMANTIC', createdAt: d },
     ], memoryCount),
     goalProjectLink: table(over.goalProjectLink ?? [{ goalId: 'g2', projectId: 'p1' }]),
     projectTaskLink: table(over.projectTaskLink ?? [{ projectId: 'p1', taskId: 't1' }, { projectId: 'p1', taskId: 't2' }]),
@@ -68,10 +71,22 @@ describe('getKnowledgeGraph', () => {
       expect(ids.has(e.source)).toBe(true);
       expect(ids.has(e.target)).toBe(true);
     }
-    // ministry memory with no links is isolated
+    // the personal memory with no links is isolated
     expect(g.stats.isolatedNodes).toBe(1);
     // domains normalized
     expect(g.nodes.find((n) => n.id === 'goal:g1')?.domain).toBe('business');
+  });
+
+  it('RD-12: a STAKEHOLDER commitment yields a commitment_person edge labelled "owes you"; USER → null', async () => {
+    const g = await getKnowledgeGraph('user-1', {}, fakePrisma({
+      commitment: [
+        { id: 'c1', description: 'Send Alex the pricing deck', status: 'OPEN', stakeholderId: 'u1', linkedProjectId: null, createdAt: d, owedBy: 'USER' },
+        { id: 'c2', description: 'Alex sends the signed contract', status: 'OPEN', stakeholderId: 'u1', linkedProjectId: null, createdAt: d, owedBy: 'STAKEHOLDER' },
+      ],
+    }));
+    const edge = (cid: string) => g.edges.find((e) => e.type === 'commitment_person' && e.source === `commitment:${cid}`);
+    expect(edge('c1')?.label).toBeNull();
+    expect(edge('c2')?.label).toBe('owes you');
   });
 
   it('respects the types filter and skips unneeded link tables', async () => {
@@ -87,7 +102,7 @@ describe('getKnowledgeGraph', () => {
   it('domain filter keeps matching nodes plus their domain-less neighbours only', async () => {
     const g = await getKnowledgeGraph('user-1', { domain: 'Business' }, fakePrisma());
     const ids = new Set(g.nodes.map((n) => n.id));
-    expect(ids.has('memory:m2')).toBe(false);      // ministry memory removed
+    expect(ids.has('memory:m2')).toBe(false);      // personal memory removed by the domain filter
     expect(ids.has('task:t1')).toBe(true);         // domain-less task kept via project edge
     expect(ids.has('decision:d1')).toBe(true);     // domain-less decision kept via project edge
     expect(g.edges.every((e) => ids.has(e.source) && ids.has(e.target))).toBe(true);

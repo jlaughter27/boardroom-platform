@@ -2,6 +2,8 @@
 
 import { z } from 'zod';
 import { MemoryClass, MemoryStatus, Confidence, SourceType } from '../types/memory.types';
+import { queryDateString, queryEnum, queryFlag, queryNativeEnum, queryNonNegativeInt, queryString } from './bounds.schema';
+import { normalizeDomain } from '../utils/domain';
 
 // ── Enum Schemas ──
 
@@ -103,14 +105,16 @@ const noNul = (s: string) => !s.includes('\u0000');
  * Normalize domain values so refusal gates (e.g. ministry) cannot be bypassed
  * by case variation or padding. WS-6 F-101.
  *
- * Trim whitespace, lowercase, reject empty. The downstream refusal check
- * (`memory.service.ts`) compares against `'ministry'` (lowercase) — anything
- * that should be refused MUST normalize to that form here.
+ * Shared `normalizeDomain` (H2, 2026-10-30): NFKC, strip zero-width/format
+ * characters, trim, lowercase, and collapse every ministry-like spelling
+ * (lookalikes, `ministries`, `ministry/*`, `tgfc-ministry`) to `'ministry'`.
+ * The downstream refusal check (`memory.service.ts`) compares against
+ * `'ministry'` — anything that should be refused MUST normalize to that form here.
  */
 const DomainSchema = z
   .string()
   .min(1)
-  .transform(s => s.trim().toLowerCase())
+  .transform(s => normalizeDomain(s))
   .refine(s => s.length > 0, { message: 'domain cannot be empty after trim' });
 
 export const CreateMemoryRequestSchema = z.object({
@@ -186,3 +190,25 @@ export const MemoryBudgetReportSchema = z.object({
 });
 
 export type MemoryBudgetReportInput = z.infer<typeof MemoryBudgetReportSchema>;
+
+// ── GET /memories query (robustness fixes 2026-10-30) — matches ListMemoriesQuery ──
+
+export const MEMORY_LIST_SORT_FIELDS = ['createdAt', 'updatedAt', 'importance', 'title', 'lastAccessedAt', 'validAt'] as const;
+
+export const ListMemoriesQuerySchema = z.object({
+  q: queryString().describe('Case-insensitive substring of title or content'),
+  domain: queryString().describe('Exact domain'),
+  tags: queryString().describe('Comma-separated tags; every tag must match'),
+  tenantId: queryString().describe('Tenant filter'),
+  memoryClass: queryNativeEnum(MemoryClass),
+  status: queryNativeEnum(MemoryStatus),
+  since: queryDateString().describe('Only memories created at or after this instant'),
+  sortBy: queryEnum(MEMORY_LIST_SORT_FIELDS),
+  sortOrder: queryEnum(['asc', 'desc']),
+  limit: queryNonNegativeInt().describe('Page size (the service caps it at 100)'),
+  offset: queryNonNegativeInt(),
+  includeInvalidated: queryFlag().describe('true = include superseded / consolidated rows'),
+  includeAllTenants: queryFlag().describe('true = cross tenants (admin key only)'),
+});
+
+export type ListMemoriesQueryInput = z.infer<typeof ListMemoriesQuerySchema>;

@@ -21,6 +21,40 @@ const STATUS_BORDER: Record<string, string> = {
   BLOCKED: 'border-l-danger',
 };
 
+/**
+ * The expand/collapse chevron of a tree row: a named button ("Expand <title>" /
+ * "Collapse <title>") carrying aria-expanded, so a screen reader announces what
+ * it opens and whether it is open.
+ */
+export function TreeChevron({ title, expanded, onToggle, controls, className }: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  /** id of the region it shows, when that region is in the DOM */
+  controls?: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={expanded ? controls : undefined}
+      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title}`}
+      className={className ?? 'text-muted-foreground hover:text-foreground transition-colors flex-shrink-0'}
+    >
+      <svg
+        className={`w-4 h-4 transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`}
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+      </svg>
+    </button>
+  );
+}
+
 export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
   const { updateGoal, deleteGoal, createProject } = useEntitiesStore();
   const [expanded, setExpanded] = useState(false);
@@ -45,12 +79,9 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
   }
 
   function handleAddProject(data: Record<string, unknown>) {
-    // TODO(C-111): the project is NOT linked to `goal.id` yet. There is no
-    // goal→project link endpoint on the BoardRoom server (entities.routes.ts
-    // has no `/goals/:id/projects` or GoalProjectLink route), and the previous
-    // `_goalId` field was silently stripped by Zod server-side. Once the server
-    // exposes a link endpoint, call it here after createProject resolves.
-    createProject(data);
+    // C-111: created under this goal, so link it (GoalProjectLink) — the tree
+    // groups projects by their links.
+    createProject(data, goal.id);
     setShowAddProject(false);
   }
 
@@ -67,18 +98,7 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
       onMouseLeave={() => setHovered(false)}
     >
       <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-        >
-          <svg
-            className={`w-4 h-4 transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`}
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-          </svg>
-        </button>
+        <TreeChevron title={goal.title} expanded={expanded} onToggle={() => setExpanded(!expanded)} />
 
         {editing ? (
           <input

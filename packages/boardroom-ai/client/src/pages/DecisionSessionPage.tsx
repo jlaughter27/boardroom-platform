@@ -12,6 +12,7 @@ import { SimulationButton } from '../components/decision/SimulationButton';
 import { SimulationPanel } from '../components/decision/SimulationPanel';
 import { DecisionCommitCard } from '../components/decision/DecisionCommitCard';
 import { WhatChangedCard } from '../components/decision/WhatChangedCard';
+import { DelegateDialog, type DelegationSource } from '../components/delegation/DelegateDialog';
 import * as api from '../lib/api';
 import { truncate } from '@boardroom/shared';
 import { PERSONA_CONFIGS } from '@boardroom/shared';
@@ -52,9 +53,10 @@ export default function DecisionSessionPage() {
     currentSession, personaResponses, personaStreaming, streamingPersonas,
     synthesis, synthesisStreaming, isDispatching, isSynthesizing,
     sufficiency, simulation, isSimulating, error, errorStatus,
-    rebuttals, rebuttingPersonas, committedDecision, isCommitting,
+    rebuttals, rebuttingPersonas, committedDecision, isCommitting, commitError,
     personaErrors, dispatchScope, synthesisWithout,
     createSession, dispatch, retryPersona, synthesize, checkAmbiguity, runSimulation, commitDecision, reset, clearError,
+    clearCommitError,
   } = useSessionStore();
 
   // Loader keyed on the route id (C-107): navigating A → B must not render A's
@@ -93,9 +95,10 @@ export default function DecisionSessionPage() {
         // A session that already committed a decision shows the success state, not the form.
         if (session.decisionId) {
           const decisionId = session.decisionId;
-          api.getDecisions().then(decisions => {
+          // RD-12: by id — GET /decisions is only the newest page, so an older
+          // decision would leave Delegate disabled with a false reason.
+          api.getDecision(decisionId).then(found => {
             if (cancelled) return;
-            const found = decisions.find(d => d.id === decisionId) ?? null;
             if (found && useSessionStore.getState().currentSession?.id === id) {
               useSessionStore.setState({ committedDecision: found });
             }
@@ -122,6 +125,23 @@ export default function DecisionSessionPage() {
     if (wasSynthesizing.current && !isSynthesizing && synthesis) setSynthesisSheetOpen(true);
     wasSynthesizing.current = isSynthesizing;
   }, [isSynthesizing, synthesis]);
+
+  // RD-12 — Delegate a Next Action once the decision is committed (the
+  // committed Decision is what the brief may cite, and only when ticked).
+  const [delegateSource, setDelegateSource] = useState<DelegationSource | null>(null);
+  const onDelegate = committedDecision
+    ? (action: string) => setDelegateSource({
+        what: action,
+        decision: {
+          id: committedDecision.id,
+          title: committedDecision.title,
+          chosenPath: committedDecision.chosenPath,
+          rationale: committedDecision.rationale,
+          expectedOutcome: committedDecision.expectedOutcome ?? null,
+        },
+      })
+    : undefined;
+  const delegateDisabledReason = committedDecision ? undefined : 'Commit the decision to delegate its actions.';
 
   const hasPersonas = Object.keys(personaResponses).length > 0 || streamingPersonas.size > 0 || Object.keys(personaErrors).length > 0;
   const allPersonasDone = currentSession
@@ -397,12 +417,17 @@ export default function DecisionSessionPage() {
                     isStreaming={isSynthesizing}
                     without={synthesisWithout}
                     onExpand={synthesis ? () => setSynthesisSheetOpen(true) : undefined}
+                    onDelegate={onDelegate}
+                    delegateDisabledReason={delegateDisabledReason}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
             {synthesis && (
-              <SynthesisSheet report={synthesis} question={currentSession?.question} isOpen={synthesisSheetOpen} onClose={() => setSynthesisSheetOpen(false)} />
+              <SynthesisSheet report={synthesis} question={currentSession?.question} isOpen={synthesisSheetOpen} onClose={() => setSynthesisSheetOpen(false)} onDelegate={onDelegate} delegateDisabledReason={delegateDisabledReason} />
+            )}
+            {delegateSource && (
+              <DelegateDialog open onClose={() => setDelegateSource(null)} source={delegateSource} />
             )}
 
             {/* Decision commit (Phase 6) — shown once synthesis is complete */}
@@ -413,7 +438,9 @@ export default function DecisionSessionPage() {
                   personaResponses={personaResponses}
                   committed={committedDecision}
                   isCommitting={isCommitting}
+                  error={commitError}
                   onCommit={commitDecision}
+                  onClearError={clearCommitError}
                 />
               </motion.div>
             )}

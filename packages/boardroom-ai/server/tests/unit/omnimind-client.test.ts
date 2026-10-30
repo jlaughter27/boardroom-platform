@@ -46,6 +46,32 @@ describe('OmniMindClient', () => {
     expect(opts.headers['x-admin-key']).toBeUndefined();
   });
 
+  // M6 (2026-10-30) — OmniMind /admin/* is behind x-admin-key; without it every admin panel call was 401 → 502.
+  it('every admin call sends x-admin-key (and never displaces x-api-key)', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    const opts = { adminKey: 'adm-secret' };
+    const calls: Array<[() => Promise<unknown>, string, string]> = [
+      [() => client.getAdminStats({ includeAllTenants: 'true' }, opts), 'GET', '/admin/stats?includeAllTenants=true'],
+      [() => client.getAdminAgents({ includeAllTenants: 'true' }, opts), 'GET', '/admin/agents?includeAllTenants=true'],
+      [() => client.getAdminAudit({ limit: '5' }, opts), 'GET', '/admin/audit?limit=5'],
+      [() => client.getAdminMemories({ q: 'x' }, opts), 'GET', '/admin/memories?q=x'],
+      [() => client.getAdminContradictions({}, opts), 'GET', '/admin/contradictions?'],
+      [() => client.triggerAdminSummarize(opts), 'POST', '/admin/summarize'],
+      [() => client.getAdminDuplicates({ threshold: '0.9' }, opts), 'GET', '/admin/duplicates?threshold=0.9'],
+      [() => client.mergeAdminDuplicates({ keepId: 'a' }, { includeAllTenants: 'true' }, opts), 'POST', '/admin/duplicates/merge?includeAllTenants=true'],
+      [() => client.triggerAdminDecay(opts), 'POST', '/admin/decay/run'],
+    ];
+    for (const [i, [run, method, path]] of calls.entries()) {
+      await run();
+      const [url, init] = fetchSpy.mock.calls[i];
+      expect(url, path).toBe(`http://test:3333${path}`);
+      expect(init.method, path).toBe(method);
+      expect(init.headers['x-admin-key'], path).toBe('adm-secret');
+      expect(init.headers['x-api-key'], path).toBe('test-key');
+      expect(init.headers['x-user-id'], path).toBeUndefined();
+    }
+  });
+
   it('omits x-user-id when userId is not provided', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,
@@ -245,14 +271,15 @@ describe('OmniMindClient', () => {
     it('opens after consecutive failures and rejects immediately', async () => {
       fetchSpy.mockResolvedValue({
         ok: false,
-        status: 500,
+        status: 503,
         json: () => Promise.resolve({ error: 'down' }),
       });
 
-      // Trip the breaker (default threshold from test env = 5)
+      // Trip the breaker (default threshold from test env = 5). POST is not
+      // retried, so each call is exactly one 503.
       const threshold = 5;
       for (let i = 0; i < threshold; i++) {
-        await client.health().catch(() => {});
+        await client.createDecision('user-123', {}).catch(() => {});
       }
 
       expect(client.breaker.state).toBe('OPEN');
@@ -269,11 +296,11 @@ describe('OmniMindClient', () => {
       // Fail a few times (but below threshold)
       fetchSpy.mockResolvedValue({
         ok: false,
-        status: 500,
+        status: 502,
         json: () => Promise.resolve({ error: 'down' }),
       });
-      await client.health().catch(() => {});
-      await client.health().catch(() => {});
+      await client.createDecision('user-123', {}).catch(() => {});
+      await client.createDecision('user-123', {}).catch(() => {});
       expect(client.breaker.failures).toBe(2);
 
       // Succeed
@@ -301,6 +328,102 @@ describe('OmniMindClient', () => {
       // 4xx should not trip the breaker — these are client-side bugs
       expect(client.breaker.failures).toBe(0);
       expect(client.breaker.state).toBe('CLOSED');
+    });
+
+    // H1 (2026-10-30): five `GET /memories?sortOrder=sideways` from ONE user
+    // answered 500 and opened the shared breaker for every user (and login).
+    it('does NOT trip on a plain 500 — OmniMind answered, the request was bad', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'internal_error' }),
+      });
+
+      for (let i = 0; i < 10; i++) {
+        await client.getGoals('attacker').catch(() => {});
+      }
+
+      expect(client.breaker.failures).toBe(0);
+      expect(client.breaker.state).toBe('CLOSED');
+      // A different user is still served.
+      fetchSpy.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      await expect(client.getGoals('victim')).resolves.toEqual([]);
+    });
+
+    it('counts network errors and timeouts toward the breaker', async () => {
+      fetchSpy.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+      await client.createDecision('user-123', {}).catch(() => {});
+      const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+      fetchSpy.mockRejectedValue(abort);
+      await client.createDecision('user-123', {}).catch(() => {});
+      expect(client.breaker.failures).toBe(2);
+    });
+
+    it.each([502, 503, 504])('counts %i toward the breaker', async (status) => {
+      fetchSpy.mockResolvedValue({ ok: false, status, json: () => Promise.resolve({ error: 'down' }) });
+      await client.createDecision('user-123', {}).catch(() => {});
+      expect(client.breaker.failures).toBe(1);
+    });
+
+    // Lane F (2026-10-30): five POST /api/memories {domain:"ministry"} from ONE
+    // user answered 503 MINISTRY_DEFERRED and opened the shared breaker → every
+    // user (incl. login) got 503 for the cooldown. A deliberate refusal is
+    // OmniMind answering correctly, not OmniMind being down.
+    const refusal503 = (headers: Record<string, string> = { 'x-omnimind-refusal': '1' }) => ({
+      ok: false,
+      status: 503,
+      headers: new Headers(headers),
+      json: () => Promise.resolve({ code: 'MINISTRY_DEFERRED', message: 'deferred' }),
+    });
+
+    it('6x MINISTRY_DEFERRED 503 (refusal header) leaves the breaker CLOSED', async () => {
+      fetchSpy.mockResolvedValue(refusal503());
+      for (let i = 0; i < 6; i++) {
+        await expect(client.createMemory('user-a', { content: 'x', domain: 'ministry' })).rejects.toMatchObject({
+          status: 503,
+          upstream: { code: 'MINISTRY_DEFERRED' },
+        });
+      }
+      expect(client.breaker.failures).toBe(0);
+      expect(client.breaker.state).toBe('CLOSED');
+      fetchSpy.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      await expect(client.getGoals('user-b')).resolves.toEqual([]);
+    });
+
+    it('a refusal 503 is recognised by its code even without the header (older OmniMind)', async () => {
+      fetchSpy.mockResolvedValue(refusal503({}));
+      for (let i = 0; i < 6; i++) await client.createMemory('user-a', { content: 'x' }).catch(() => {});
+      expect(client.breaker.state).toBe('CLOSED');
+      expect(client.breaker.failures).toBe(0);
+    });
+
+    it('a refusal 503 on a GET is not retried', async () => {
+      fetchSpy.mockResolvedValue(refusal503());
+      await expect(client.getGoals('user-a')).rejects.toMatchObject({ status: 503 });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(client.breaker.failures).toBe(0);
+    });
+
+    it('6x bare 503 (no body / HTML / proxy) opens the breaker', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+      });
+      for (let i = 0; i < 6; i++) await client.createMemory('user-a', { content: 'x' }).catch(() => {});
+      expect(client.breaker.state).toBe('OPEN');
+    });
+
+    it('a JSON 503 with an infra code (agent_lookup_failed — DB down) still counts', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ error: 'agent_lookup_failed', message: 'Agent identity could not be verified' }),
+      });
+      for (let i = 0; i < 5; i++) await client.createMemory('user-a', { content: 'x' }).catch(() => {});
+      expect(client.breaker.state).toBe('OPEN');
     });
   });
 

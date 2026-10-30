@@ -168,7 +168,11 @@ async function loadRelated(
       prisma.projectPersonLink.findMany({ where: { projectId: entityId }, include: { person: { select: { name: true, role: true, deletedAt: true } } } }),
     ]);
     for (const d of decisions) lines.push(`DECISION ${ymd(d.createdAt)} "${d.title}" status=${d.status}${d.chosenPath ? ` chosen="${d.chosenPath}"` : ''}${d.outcome ? ` outcome="${d.outcome}" (${d.outcomeRating}/5)` : ''}`);
-    for (const c of commitments) lines.push(`COMMITMENT open "${c.description}"${c.stakeholder ? ` to ${c.stakeholder.name}` : ''} due ${ymd(c.deadline)}`);
+    for (const c of commitments) {
+      // RD-12: a delegation is owed BY the person, not to them.
+      if (c.owedBy === 'STAKEHOLDER') lines.push(`DELEGATION open "${c.description}" owed by ${c.stakeholder?.name ?? 'someone'} due ${ymd(c.deadline)}`);
+      else lines.push(`COMMITMENT open "${c.description}"${c.stakeholder ? ` to ${c.stakeholder.name}` : ''} due ${ymd(c.deadline)}`);
+    }
     for (const l of people) if (!l.person.deletedAt) lines.push(`PERSON ${l.person.name}${l.role ? ` (${l.role})` : l.person.role ? ` (${l.person.role})` : ''}`);
   } else if (entityType === 'goal') {
     const links = await prisma.goalProjectLink.findMany({ where: { goalId: entityId }, include: { project: true } });
@@ -178,7 +182,11 @@ async function loadRelated(
       prisma.commitment.findMany({ where: { userId, deletedAt: null, stakeholderId: entityId }, orderBy: { createdAt: 'desc' }, take: 10 }),
       prisma.projectPersonLink.findMany({ where: { personId: entityId }, include: { project: { select: { title: true, status: true, deletedAt: true } } } }),
     ]);
-    for (const c of commitments) lines.push(`COMMITMENT ${c.status} "${c.description}" due ${ymd(c.deadline)}`);
+    for (const c of commitments) {
+      // RD-12: this person owes the user.
+      if (c.owedBy === 'STAKEHOLDER') lines.push(`OWES-USER ${c.status} "${c.description}" due ${ymd(c.deadline)}`);
+      else lines.push(`COMMITMENT ${c.status} "${c.description}" due ${ymd(c.deadline)}`);
+    }
     for (const l of projects) if (!l.project.deletedAt) lines.push(`PROJECT "${l.project.title}" status=${l.project.status}${l.role ? ` role=${l.role}` : ''}`);
   }
   return lines;

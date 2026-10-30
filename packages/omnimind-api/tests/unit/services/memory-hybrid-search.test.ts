@@ -97,7 +97,11 @@ describe('hybridSearchMemories', () => {
 
     // row fetch re-applies tenant + explicit filters
     expect(prisma.memoryEntry.findMany).toHaveBeenCalledWith({
-      where: { id: { in: ['m1', 'm2'] }, userId: 'user-1', deletedAt: null, tenantId: 'josh-business', domain: 'business', tags: { hasEvery: ['x'] }, status: { not: 'ARCHIVED' } },
+      where: {
+        id: { in: ['m1', 'm2'] }, userId: 'user-1', deletedAt: null, tenantId: 'josh-business', domain: 'business', tags: { hasEvery: ['x'] }, status: { not: 'ARCHIVED' },
+        // Lane H (2026-10-30): canonical ministry forms excluded in SQL.
+        AND: [{ NOT: { domain: { startsWith: 'ministry', mode: 'insensitive' } } }, { NOT: { tenantId: 'tgfc-ministry' } }],
+      },
     });
   });
 

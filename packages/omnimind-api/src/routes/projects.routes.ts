@@ -28,20 +28,35 @@ router.post('/', idempotent('projects.create'), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /projects — list
+// GET /projects — list (?include=links adds goalIds / taskIds)
 router.get('/', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
+    // ?include=links → goalIds / taskIds per project (GoalProjectLink /
+    // ProjectTaskLink, soft-deleted ends excluded): the Goals & Projects tree.
+    const withLinks = req.query.include === 'links';
     const result = await entityService.listEntities('project', userId, {
       status: req.query.status as string | undefined,
       domain: req.query.domain as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
-    }, prisma);
+    }, prisma, withLinks ? {
+      goalLinks: { where: { goal: { deletedAt: null } }, select: { goalId: true } },
+      taskLinks: { where: { task: { deletedAt: null } }, select: { taskId: true } },
+    } : undefined);
 
-    res.json(result);
+    if (!withLinks) { res.json(result); return; }
+    res.json({
+      ...result,
+      items: (result.items as Array<Record<string, unknown> & { goalLinks?: Array<{ goalId: string }>; taskLinks?: Array<{ taskId: string }> }>)
+        .map(({ goalLinks, taskLinks, ...project }) => ({
+          ...project,
+          goalIds: (goalLinks ?? []).map(l => l.goalId),
+          taskIds: (taskLinks ?? []).map(l => l.taskId),
+        })),
+    });
   } catch (err) { next(err); }
 });
 

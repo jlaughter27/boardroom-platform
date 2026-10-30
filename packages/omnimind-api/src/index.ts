@@ -15,6 +15,7 @@ import { rateLimiter, stopRateLimiterCleanup } from './middleware/rate-limiter';
 import { agentRateLimiter, stopAgentRateLimiterCleanup } from './middleware/agent-rate-limiter';
 import { requireAdminKey } from './middleware/admin-auth';
 import { errorHandler } from './middleware/error-handler';
+import { inputGuard } from './middleware/input-guard';
 import { healthRouter, readyRouter } from './routes/health.routes';
 import { memoriesRouter } from './routes/memories.routes';
 import { peopleRouter } from './routes/people.routes';
@@ -22,6 +23,7 @@ import { goalsRouter } from './routes/goals.routes';
 import { projectsRouter } from './routes/projects.routes';
 import { tasksRouter } from './routes/tasks.routes';
 import { decisionsRouter } from './routes/decisions.routes';
+import { decisionSessionsRouter } from './routes/decision-sessions.routes';
 import { commitmentsRouter } from './routes/commitments.routes';
 import { userProfileRouter } from './routes/user-profile.routes';
 import { contextRouter } from './routes/context.routes';
@@ -78,6 +80,9 @@ app.use(delegatedUserIsolation);
 app.use(agentScopeEnforcer);
 app.use(rateLimiter);
 app.use(agentRateLimiter);
+// Robustness fixes 2026-10-30: NUL (U+0000) in body / query / path and JSON
+// nested past 32 levels → 422 before any route (Postgres cannot store NUL).
+app.use(inputGuard);
 
 // Routes
 app.use('/health', healthRouter);
@@ -89,6 +94,8 @@ app.use('/goals', goalsRouter);
 app.use('/projects', projectsRouter);
 app.use('/tasks', tasksRouter);
 app.use('/decisions', decisionsRouter);
+// RD-17: persisted Decision Lab sessions (BoardRoom only; agent callers 403).
+app.use('/decision-sessions', decisionSessionsRouter);
 app.use('/commitments', commitmentsRouter);
 app.use('/user-profile', userProfileRouter);
 app.use('/context', contextRouter);

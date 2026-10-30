@@ -124,8 +124,9 @@ export default function DecisionLabPage() {
 
         {/* Filter/sort bar */}
         {!isLoading && sessions.length > 0 && (
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex gap-1">
+          // Wraps on a phone (7 mode filters + the sort do not fit 390 px) — never scrolls the page.
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4" data-testid="decision-filter-row">
+            <div className="flex flex-wrap gap-1">
               {FILTER_TABS.map((tab) => (
                 <button
                   key={tab.value}

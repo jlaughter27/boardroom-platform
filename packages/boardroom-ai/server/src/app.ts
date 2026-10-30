@@ -10,6 +10,7 @@ import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import { authMiddleware, optionalAuthMiddleware } from './middleware/auth';
 import { requireAdmin } from './middleware/admin.middleware';
 import { authRouter } from './routes/auth.routes';
@@ -29,10 +30,33 @@ import { mcpTokensRouter } from './routes/mcp-tokens.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { llmRateLimiter } from './middleware/llm-rate-limiter';
 import { logger } from './lib/logger';
+import { resolveTrustProxy } from './lib/trust-proxy';
+import { mapBodyParserError } from './lib/client-errors';
 
 export interface CreateAppOptions {
   /** Override the client build directory (tests). Defaults to ../../client/dist. */
   clientDist?: string;
+}
+
+/** Hashed build output (`/assets/*`): content-addressed, safe to cache forever. */
+export const ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+/** The SPA shell: always revalidate, so a deploy is picked up on the next load. */
+export const INDEX_CACHE_CONTROL = 'no-cache';
+
+/** `express.static` setHeaders: decided on the path inside the build dir (`assets/…`, `index.html`). */
+function staticCacheHeaders(root: string): (res: Response, filePath: string) => void {
+  return (res, filePath) => {
+    const rel = path.relative(root, filePath).split(path.sep).join('/');
+    if (rel.startsWith('assets/')) res.setHeader('Cache-Control', ASSET_CACHE_CONTROL);
+    else if (rel === 'index.html') res.setHeader('Cache-Control', INDEX_CACHE_CONTROL);
+  };
+}
+
+/** Never compress a Server-Sent Events stream (it would be buffered); otherwise the library default (compressible types). */
+export function shouldCompress(req: Request, res: Response): boolean {
+  const type = String(res.getHeader('Content-Type') ?? '');
+  if (type.startsWith('text/event-stream')) return false;
+  return compression.filter(req, res);
 }
 
 export function createApp(options: CreateAppOptions = {}): express.Express {
@@ -40,7 +64,10 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
 
   // B-104: Railway terminates TLS at a single proxy hop. Without this, req.ip is
   // the proxy address and every per-IP limiter becomes one site-wide bucket.
-  app.set('trust proxy', 1);
+  // Lane G: the hop count is TRUST_PROXY_HOPS (default 1 in production, off
+  // elsewhere) — trusting a hop with no proxy in front lets a client-written
+  // X-Forwarded-For rotate the login limiter key. See lib/trust-proxy.ts.
+  app.set('trust proxy', resolveTrustProxy());
 
   // ---------------------------------------------------------------------------
   // 1. Global middleware
@@ -76,6 +103,12 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
 
   app.use(express.json());
   app.use(cookieParser());
+  // Response compression (gzip / brotli, negotiated from Accept-Encoding) for the
+  // static client and JSON alike. Global-middleware slot (step 1): it only wraps
+  // the response, so the load-bearing order below is unchanged. SSE is excluded —
+  // a compressed event stream is buffered until it ends, which would break
+  // persona streaming (streaming.ts sets text/event-stream before the first write).
+  app.use(compression({ filter: shouldCompress }));
 
   // ---------------------------------------------------------------------------
   // 2. Strip /api prefix — Vite dev proxy adds this, production serves both from
@@ -113,7 +146,10 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   if (process.env.NODE_ENV === 'production') {
     const clientDist = options.clientDist ?? path.resolve(__dirname, '../../client/dist');
     const indexHtml = path.join(clientDist, 'index.html');
-    app.use(express.static(clientDist));
+    // Vite fingerprints everything under /assets (name-<hash>.js|css|woff2), so
+    // those never change at a URL: cache for a year, immutable. index.html names
+    // the current hashes, so it must always be revalidated (no-cache).
+    app.use(express.static(clientDist, { setHeaders: staticCacheHeaders(clientDist) }));
 
     // B-102 — SPA fallback predicate (replaces the hand-maintained prefix list):
     //   * GET only
@@ -127,6 +163,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
       if (req.originalUrl.startsWith('/api/')) { next(); return; }
       if (req.accepts(['json', 'html']) !== 'html') { next(); return; }
       if (!fs.existsSync(indexHtml)) { next(); return; }
+      res.setHeader('Cache-Control', INDEX_CACHE_CONTROL);
       res.sendFile(indexHtml);
     });
   }
@@ -171,6 +208,17 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     const status = (err as Error & { status?: number }).status;
     const upstream = (err as Error & { upstream?: unknown }).upstream;
+
+    // Lane G item 3: body-parser failures are the client's fault — 413
+    // payload_too_large / 400 invalid_json, not a logged internal_error.
+    if (!upstream) {
+      const mapped = mapBodyParserError(err);
+      if (mapped) {
+        logger.warn('Rejected request body', { error: mapped.error, path: req.path, method: req.method });
+        res.status(mapped.status).json({ error: mapped.error, message: mapped.message });
+        return;
+      }
+    }
 
     // Upstream OmniMind errors
     if (upstream) {

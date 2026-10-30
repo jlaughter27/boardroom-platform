@@ -4,6 +4,7 @@ import { useEntitiesStore } from '../../stores/entities.store';
 import { StatusBadge, DomainBadge } from './StatusBadge';
 import { TaskNode } from './TaskNode';
 import { EntityForm } from './EntityForm';
+import { TreeChevron } from './GoalNode';
 
 interface ProjectNodeProps {
   project: Project;
@@ -34,12 +35,9 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
   }
 
   function handleAddTask(data: Record<string, unknown>) {
-    // TODO(C-111): the task is NOT linked to `project.id` yet. There is no
-    // project→task link endpoint on the BoardRoom server (no ProjectTaskLink
-    // route in entities.routes.ts), and the previous `_projectId` field was
-    // silently stripped by Zod server-side. Once the server exposes a link
-    // endpoint, call it here after createTask resolves.
-    createTask(data);
+    // C-111: created under this project, so link it (ProjectTaskLink) — the
+    // project lists only its linked tasks.
+    createTask(data, project.id);
     setShowAddTask(false);
   }
 
@@ -55,22 +53,12 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
         onMouseLeave={() => setHovered(false)}
       >
         {/* Expand/collapse */}
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-muted-foreground hover:text-muted-foreground transition-colors flex-shrink-0"
-        >
-          <svg
-            className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`}
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fillRule="evenodd"
-              d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
+        <TreeChevron
+          title={project.title}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+        />
 
         {/* Project icon */}
         <span className="text-muted-foreground flex-shrink-0">
@@ -155,7 +143,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
       {expanded && (
         <div className="mt-1 space-y-0.5">
           {tasks.map((task) => (
-            <TaskNode key={task.id} task={task} />
+            <TaskNode key={task.id} task={task} project={{ id: project.id, title: project.title }} />
           ))}
           {tasks.length === 0 && !showAddTask && (
             <p className="text-xs text-bg-active pl-16 py-1">No tasks yet</p>

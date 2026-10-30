@@ -68,7 +68,7 @@ export function registerResources(server: McpServer, client: OmniMindClient, ctx
         resources: [{ uri: `omnimind://${ctx.tenantId}/status`, name: `status (${ctx.tenantId})`, mimeType: RESOURCE_MIME }],
       }),
     }),
-    meta('Status snapshot', 'Same payload as the status_get tool: recent decisions, active tasks, blockers, pending commitments, commitments due soon.'),
+    meta('Status snapshot', 'Same payload as the status_get tool: recent decisions, active tasks, blockers, pending commitments, commitments the user owes due soon, and delegations other people owe the user.'),
     async (uri, vars) => {
       assertTenant(ctx, one(vars.tenant));
       if (!ctx.defaultUserId) return noUser(uri.href);

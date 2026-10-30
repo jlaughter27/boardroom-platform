@@ -95,3 +95,5 @@ does not re-run or checksum-verify applied migrations.
 | `20261002100000_phase6_foundation` | Phase 6 foundation tables/columns |
 | `20261018000000_mcp_tokens` | Lane A1 — `mcp_tokens`, `mcp_oauth_identities` |
 | `20261018000001_mcp_identity_hardening` | Lane A1 review — unique OAuth `agent_name`, FKs → `users` (cascade), drop redundant `token_hash` index |
+| `20261024014904_commitment_owed_by` | RD-12 — `commitments.owed_by` |
+| `20261030000000_decision_session_state` | RD-17 — persisted Decision Lab sessions: `DecisionSessionStatus` enum; `decision_sessions.{mode, status, state, updated_at, deleted_at}`; `decisions.decision_session_id` (unique, FK → `decision_sessions`, `ON DELETE SET NULL`). Additive only |

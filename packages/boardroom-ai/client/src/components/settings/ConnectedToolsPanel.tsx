@@ -126,6 +126,14 @@ export function ConnectedToolsPanel() {
   /** Set after a successful revoke: the row moves to the revoked list (a new instance), so focus is restored here, not in the row. */
   const [focusAfterRevoke, setFocusAfterRevoke] = useState(false);
 
+  /** Set when the form or the token reveal closes (Cancel / Done): it unmounts under focus, so "New token" takes it back. */
+  const [focusNewToken, setFocusNewToken] = useState(false);
+  useEffect(() => {
+    if (!focusNewToken || creating) return;
+    setFocusNewToken(false);
+    newTokenRef.current?.focus();
+  }, [focusNewToken, creating]);
+
   useEffect(() => {
     if (!focusAfterRevoke) return;
     setFocusAfterRevoke(false);
@@ -242,7 +250,7 @@ export function ConnectedToolsPanel() {
                 connectInfo={connectInfo}
                 connectInfoError={connectInfoError}
                 onCreated={handleCreated}
-                onDone={() => setCreating(false)}
+                onDone={() => { setCreating(false); setFocusNewToken(true); }}
               />
             </div>
           )}

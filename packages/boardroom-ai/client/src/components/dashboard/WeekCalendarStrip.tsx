@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useEntitiesStore } from '../../stores/entities.store';
-import { isOverdue } from '@boardroom/shared';
+import { isDelegation, isOverdue } from '@boardroom/shared';
 import { getCalendarEvents } from '../../lib/api';
 import { DayColumn } from './DayColumn';
 import type { DayItem } from './DayColumn';
@@ -73,6 +73,7 @@ export function WeekCalendarStrip() {
 
     for (const c of commitments) {
       if (!c.deadline) continue;
+      if (isDelegation(c)) continue; // RD-12: someone else's deadline, not the user's week
       const dl = new Date(c.deadline);
       if (dl >= weekStart && dl < weekEnd) {
         const k = key(dl);

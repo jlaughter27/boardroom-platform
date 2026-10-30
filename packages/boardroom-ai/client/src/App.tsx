@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
+import { useProfileStore } from './stores/profile.store';
 import { Layout, type ShellOutletContext } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { Toaster } from './components/ui/Toast';
@@ -8,7 +9,6 @@ import { TooltipProvider } from './components/ui/Tooltip';
 import { RouteTransitionArmer } from './hooks/useRouteTransition';
 
 const CommandPalette = lazy(() => import('./components/ui/CommandPalette').then(m => ({ default: m.CommandPalette })));
-import * as api from './lib/api';
 import { ApiError } from './lib/api';
 import { TriangleAlert } from 'lucide-react';
 import { Button } from './components/ui/Button';
@@ -89,7 +89,9 @@ export function OnboardingGate() {
 
   useEffect(() => {
     let cancelled = false;
-    api.getUserProfile()
+    // Always fresh (force): an onboarding that just finished must not be judged on
+    // a cached profile. This also primes the shared profile the dashboard reads (M2-C1).
+    useProfileStore.getState().load({ force: true })
       .then((profile) => {
         if (cancelled) return;
         setState(!profile || !profile.onboardingComplete ? { status: 'onboarding' } : { status: 'ready' });
@@ -155,6 +157,51 @@ const PageFallback = (
   </div>
 );
 
+/**
+ * `/memory/:id` — the deep link MCP tool results carry
+ * (`${OMNIMIND_MCP_APP_URL}/memory/<id>`). Memory Explorer selects a memory
+ * from `?id=`, the form the in-app links already use, so this only rewrites
+ * the URL (replace: Back skips the redirect).
+ */
+export function MemoryDeepLink() {
+  const { id = '' } = useParams();
+  return <Navigate to={id ? `/memory?id=${encodeURIComponent(id)}` : '/memory'} replace />;
+}
+
+/** The route table (exported so tests can mount it in a MemoryRouter). */
+export function AppRoutes() {
+  return (
+    <Suspense fallback={PageFallback}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<ProtectedRoute />}>
+          {/* Onboarding — no sidebar/layout */}
+          <Route path="/onboarding" element={<OnboardingPage />} />
+          {/* Main app — with onboarding gate */}
+          <Route element={<OnboardingGate />}>
+            <Route element={<Layout />}>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/decisions" element={<DecisionLabPage />} />
+              <Route path="/decisions/:id" element={<DecisionSessionPage />} />
+              <Route path="/memory" element={<MemoryExplorerPage />} />
+              <Route path="/memory/:id" element={<MemoryDeepLink />} />
+              <Route path="/people" element={<PeopleDirectoryPage />} />
+              <Route path="/graph" element={<GraphPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/personas" element={<CustomPersonasPage />} />
+              <Route path="/integrations" element={<IntegrationsPage />} />
+              <Route element={<AdminRoute />}>
+                <Route path="/admin" element={<AdminPage />} />
+              </Route>
+            </Route>
+          </Route>
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
+  );
+}
+
 export default function App() {
   const { checkAuth } = useAuthStore();
 
@@ -172,33 +219,7 @@ export default function App() {
       <Suspense fallback={null}>
         <CommandPalette />
       </Suspense>
-      <Suspense fallback={PageFallback}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route element={<ProtectedRoute />}>
-            {/* Onboarding — no sidebar/layout */}
-            <Route path="/onboarding" element={<OnboardingPage />} />
-            {/* Main app — with onboarding gate */}
-            <Route element={<OnboardingGate />}>
-              <Route element={<Layout />}>
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/decisions" element={<DecisionLabPage />} />
-                <Route path="/decisions/:id" element={<DecisionSessionPage />} />
-                <Route path="/memory" element={<MemoryExplorerPage />} />
-                <Route path="/people" element={<PeopleDirectoryPage />} />
-                <Route path="/graph" element={<GraphPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/personas" element={<CustomPersonasPage />} />
-                <Route path="/integrations" element={<IntegrationsPage />} />
-                <Route element={<AdminRoute />}>
-                  <Route path="/admin" element={<AdminPage />} />
-                </Route>
-              </Route>
-            </Route>
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+      <AppRoutes />
       </TooltipProvider>
     </BrowserRouter>
     </>

@@ -5,6 +5,7 @@ import type {
   MemoryBudgetReport,
   Goal,
   Project,
+  ProjectWithLinks,
   Task,
   Person,
   Decision,
@@ -48,7 +49,38 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
+/**
+ * Identical GETs in flight right now, keyed by full URL (M2-C1: one dashboard
+ * load asked for the same list from several widgets at once). Entries are
+ * removed when the request settles, so this never caches and a failure never
+ * outlives its own request.
+ */
+const inflightGets = new Map<string, Promise<unknown>>();
+
+/** Each joined caller gets its own copy, so one mutating its result cannot change another's. */
+function copyJson<T>(value: T): T {
+  if (value === undefined || value === null || typeof value !== 'object') return value;
+  return typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Only plain GETs coalesce: no body, no custom headers and no AbortSignal (one
+ * caller aborting must not cancel another's request).
+ */
+function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' || options.body != null || options.headers || options.signal) return send<T>(path, options);
+  const key = `/api${path}`;
+  const pending = inflightGets.get(key) as Promise<T> | undefined;
+  if (pending) return pending.then(copyJson);
+  const p = send<T>(path, options).finally(() => {
+    if (inflightGets.get(key) === p) inflightGets.delete(key);
+  });
+  inflightGets.set(key, p);
+  return p;
+}
+
+async function send<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
@@ -265,34 +297,73 @@ export function checkAmbiguity(sessionId: string) {
 // Entity reads
 // ---------------------------------------------------------------------------
 
-export async function getGoals(): Promise<Goal[]> {
-  const res = await request<PaginatedResponse<Goal>>('/goals');
-  return res.items;
+/** Page size OmniMind allows for entity lists (entity.service caps `limit` at 100). */
+export const ENTITY_PAGE_SIZE = 100;
+/** Safety cap on rows read for one entity list. */
+export const ENTITY_LIST_CAP = 1000;
+
+/**
+ * Every row of a paged OmniMind list (`{ items, total }`), page by page with
+ * `limit=100`, until a short page, `total`, or the cap. OmniMind's default page
+ * is 20 — reading only that silently cut people, tasks and commitments.
+ */
+async function fetchAllPages<T>(path: string, params: Record<string, string> = {}, cap = ENTITY_LIST_CAP): Promise<T[]> {
+  const out: T[] = [];
+  for (let offset = 0; out.length < cap; ) {
+    const qs = new URLSearchParams({ ...params, limit: String(ENTITY_PAGE_SIZE), offset: String(offset) });
+    const page = await request<PaginatedResponse<T>>(`${path}?${qs.toString()}`);
+    const items = page.items ?? [];
+    out.push(...items);
+    offset += items.length;
+    if (items.length < ENTITY_PAGE_SIZE || (typeof page.total === 'number' && offset >= page.total)) break;
+  }
+  return out.slice(0, cap);
 }
 
-export async function getProjects(): Promise<Project[]> {
-  const res = await request<PaginatedResponse<Project>>('/projects');
-  return res.items;
+export async function getGoals(): Promise<Goal[]> {
+  return fetchAllPages<Goal>('/goals');
+}
+
+/** Every project with its link ids (`include=links` → `goalIds` / `taskIds`). */
+export async function getProjects(): Promise<ProjectWithLinks[]> {
+  return fetchAllPages<ProjectWithLinks>('/projects', { include: 'links' });
+}
+
+/** C-111 — `POST /goals/:goalId/projects/:projectId` (GoalProjectLink, idempotent). */
+export function linkGoalProject(goalId: string, projectId: string) {
+  return request<{ id: string; goalId: string; projectId: string }>(
+    `/goals/${encodeURIComponent(goalId)}/projects/${encodeURIComponent(projectId)}`,
+    { method: 'POST' },
+  );
+}
+
+/** C-111 — `POST /projects/:projectId/tasks/:taskId` (ProjectTaskLink, idempotent). */
+export function linkProjectTask(projectId: string, taskId: string) {
+  return request<{ id: string; projectId: string; taskId: string }>(
+    `/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`,
+    { method: 'POST' },
+  );
 }
 
 export async function getTasks(): Promise<Task[]> {
-  const res = await request<PaginatedResponse<Task>>('/tasks');
-  return res.items;
+  return fetchAllPages<Task>('/tasks');
 }
 
 export async function getPeople(): Promise<Person[]> {
-  const res = await request<PaginatedResponse<Person>>('/people');
-  return res.items;
+  return fetchAllPages<Person>('/people');
 }
 
 export async function getDecisions(): Promise<Decision[]> {
-  const res = await request<PaginatedResponse<Decision>>('/decisions');
-  return res.items;
+  return fetchAllPages<Decision>('/decisions');
+}
+
+/** RD-12 — `GET /decisions/:id`: one decision by id (GET /decisions returns only the newest page). */
+export function getDecision(id: string): Promise<Decision> {
+  return request<Decision>(`/decisions/${encodeURIComponent(id)}`);
 }
 
 export async function getCommitments(): Promise<Commitment[]> {
-  const res = await request<PaginatedResponse<Commitment>>('/commitments');
-  return res.items;
+  return fetchAllPages<Commitment>('/commitments');
 }
 
 export interface UpdateCommitmentInput {
@@ -942,12 +1013,15 @@ export interface AdminMemory {
   updatedAt: string;
 }
 
+/** Mirrors OmniMind's ContradictionAlert row (GET /admin/contradictions). */
 export interface AdminContradiction {
   id: string;
-  memoryAId: string;
-  memoryBId: string;
+  userId: string;
   description: string;
+  entityA: unknown;
+  entityB: unknown;
   severity: string;
+  status: string;
   detectedAt: string;
   resolvedAt: string | null;
 }
@@ -986,6 +1060,8 @@ export interface DuplicatePair {
   b_id: string;
   b_title: string;
   b_created: string;
+  /** Lane H — the user both memories belong to; the merge runs for this user. */
+  user_id: string;
   cosine: number;
 }
 
@@ -1339,4 +1415,28 @@ export function getMcpTokenOptions() {
 /** `GET /mcp/tokens/connect-info` → MCP URL, app URL and whether OAuth is on. */
 export function getMcpConnectInfo() {
   return request<McpConnectInfo>('/mcp/tokens/connect-info');
+}
+
+// ---------------------------------------------------------------------------
+// RD-12 — delegations (POST /commitments with owedBy + links)
+// ---------------------------------------------------------------------------
+
+/** Mirrors shared `CreateCommitmentRequestSchema` for the Delegate dialog. */
+export interface CreateCommitmentInput {
+  description: string;
+  stakeholderId: string;
+  /** ISO — the chosen date's end of UTC day (`endOfUtcDay`). */
+  deadline: string;
+  owedBy: 'USER' | 'STAKEHOLDER';
+  linkedProjectId?: string;
+  links?: { decisionId?: string; taskId?: string };
+}
+
+/** `POST /commitments` → 201 Commitment. One key per dialog open, so a retry or double-submit records one row. */
+export function createCommitment(input: CreateCommitmentInput, idempotencyKey: string) {
+  return request<Commitment>('/commitments', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(input),
+  });
 }

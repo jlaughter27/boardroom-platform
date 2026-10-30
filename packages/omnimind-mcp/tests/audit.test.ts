@@ -35,6 +35,21 @@ describe('sanitizeOutputForAudit (M-104)', () => {
   });
 });
 
+describe('sanitizeOutputForAudit — RD-12 status_get.delegations', () => {
+  it('keeps delegations[].id, deadline and daysOverdue; drops description, personName and personId', () => {
+    const out = sanitizeOutputForAudit({
+      commitmentsDueSoon: { dueSoon: [], overdue: [{ id: 'c1', description: 'Book the hall', owedBy: 'USER', stakeholderName: 'Dana Okafor' }] },
+      delegations: {
+        overdue: [{ id: 'c3', description: 'Send the volunteer rota', personId: 'p1', personName: 'Sam Rivera', deadline: '2026-11-07T23:59:59.999Z', daysOverdue: 1 }],
+        dueSoon: [],
+        error: 'nudges down',
+      },
+    }) as Record<string, any>;
+    expect(out.delegations).toEqual({ overdue: [{ id: 'c3', deadline: '2026-11-07T23:59:59.999Z', daysOverdue: 1 }], dueSoon: [], error: 'nudges down' });
+    expect(out.commitmentsDueSoon.overdue).toEqual([{ id: 'c1', owedBy: 'USER' }]);
+  });
+});
+
 describe('withAudit / auditRefusal', () => {
   it('withAudit sanitizes output and redacts ministry input', async () => {
     const c = client();

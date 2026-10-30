@@ -299,6 +299,46 @@ describe('KnowledgeGraphView — communities, legend, hover card, settled flag',
     expect(onToggleType).toHaveBeenCalledWith('memory');
   });
 
+  // Lane I · item 3 — every legend chip used to be its own tab stop (one per
+  // node type), on top of the page's own type chips. The legend is now one
+  // tab stop: a toolbar with a roving tabindex, arrows / Home / End move.
+  it('the legend is a single tab stop; arrow keys, Home and End move focus between chips', () => {
+    const onToggleType = vi.fn();
+    const outerKeyDown = vi.fn();
+    render(<div onKeyDown={outerKeyDown}><KnowledgeGraphView nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} typeFilter={new Set(['project', 'memory'])} onToggleType={onToggleType} /></div>);
+    const legend = screen.getByTestId('graph-legend');
+    expect(legend).toHaveAttribute('role', 'toolbar');
+    expect(legend).toHaveAccessibleName('Legend and type filter');
+    const chips = within(legend).getAllByRole('button');
+    expect(chips.length).toBeGreaterThan(2);
+    // Exactly one chip is in the tab order.
+    expect(chips.filter((b) => b.tabIndex === 0)).toHaveLength(1);
+    expect(chips[0].tabIndex).toBe(0);
+    // Nothing decorative inside is focusable.
+    expect(legend.querySelectorAll('[tabindex]:not(button)')).toHaveLength(0);
+
+    chips[0].focus();
+    fireEvent.keyDown(chips[0], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(chips[1]);
+    expect(chips[1].tabIndex).toBe(0);
+    expect(chips[0].tabIndex).toBe(-1);
+    fireEvent.keyDown(chips[1], { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(chips[0]);
+    fireEvent.keyDown(chips[0], { key: 'ArrowLeft' }); // wraps
+    expect(document.activeElement).toBe(chips[chips.length - 1]);
+    fireEvent.keyDown(chips[chips.length - 1], { key: 'Home' });
+    expect(document.activeElement).toBe(chips[0]);
+    fireEvent.keyDown(chips[0], { key: 'End' });
+    expect(document.activeElement).toBe(chips[chips.length - 1]);
+    // Arrow keys in the legend move focus only: they do not bubble on to the
+    // canvas's key handler (which pans the graph on arrows).
+    expect(outerKeyDown).not.toHaveBeenCalled();
+    // Toggling still works from the keyboard-focused chip; keys do not toggle.
+    expect(onToggleType).not.toHaveBeenCalled();
+    fireEvent.click(chips[chips.length - 1]);
+    expect(onToggleType).toHaveBeenCalledTimes(1);
+  });
+
   it('hovering shows a DOM hover card with title, type and community; leaving removes it', () => {
     render(<KnowledgeGraphView nodes={[node('project:p', { label: 'Knowledge Graph', status: 'active', domain: 'business' }), ...nodes.slice(1)]} edges={edges} selectedId={null} onSelect={noop} showLabels={false} communityOf={communityOf} communities={[{ ...communities[0], label: 'Knowledge Graph · Maya' }]} />);
     const hover = registry.props!.onNodeHover as (n: { id: string } | null) => void;

@@ -47,6 +47,19 @@
  *      `delegated-user-isolation.ts` (mounted right after this middleware)
  *      pins the request's userId to the principal's user.
  *
+ * Lane G (2026-10-30) — OWNER-BOUND agent keys:
+ *
+ *   5. A VERIFIED agent WITHOUT `mcp:delegate` is bound to its tenant's owner
+ *      (`Tenant.ownerUserId`, 60 s in-memory cache): the context gets
+ *      `userId = owner, ownerBound: true`, and `delegated-user-isolation.ts`
+ *      refuses any other `x-user-id` / `?userId=` / `body.userId` (403
+ *      `user_mismatch`). Before, an `omk_` key could act for any user. A tenant
+ *      with NO owner leaves the key unbound (warned once per tenant) so solo
+ *      setups keep working — set the owner (`PATCH /admin/tenants/:id`,
+ *      runbook step 2) to bind it. Gateways (`mcp:delegate`) are not bound
+ *      here: a delegated principal is pinned by path 4, and a bare gateway
+ *      only calls the token/identity resolution routes.
+ *
  * IMPORTANT: This middleware MUST be wired AFTER `apiKeyAuth` in `index.ts`.
  */
 
@@ -71,8 +84,16 @@ export interface AgentContext {
    * agentName, and `userId` the user it belongs to.
    */
   delegated?: boolean;
-  /** The delegated principal's user. Only present when `delegated` is true. */
+  /**
+   * The user this context may act for: the delegated principal's user
+   * (`delegated`), or the agent tenant's owner (`ownerBound`). Absent = unbound.
+   */
   userId?: string;
+  /**
+   * Lane G: true when a non-gateway verified agent is pinned to its tenant's
+   * owner (`Tenant.ownerUserId`). delegated-user-isolation enforces `userId`.
+   */
+  ownerBound?: boolean;
 }
 
 // TypeScript declaration merging — extend Express.Request with `agentContext`.
@@ -89,9 +110,30 @@ const LAST_SEEN_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 const lastSeenTouchedAt = new Map<string, number>();
 const legacyWarned = new Set<string>();
 
+const TENANT_OWNER_CACHE_TTL_MS = 60 * 1000;
+const tenantOwnerCache = new Map<string, { ownerUserId: string | null; expiresAt: number }>();
+const ownerlessWarned = new Set<string>();
+
 export function __resetAgentContextStateForTest(): void {
   lastSeenTouchedAt.clear();
   legacyWarned.clear();
+  tenantOwnerCache.clear();
+  ownerlessWarned.clear();
+}
+
+/**
+ * Lane G: the owner of an agent's tenant (null = no owner configured / no
+ * tenant row). Cached for 60 s, so setting or changing an owner takes up to a
+ * minute to bind keys already in use. Throws on DB failure (caller fails closed).
+ */
+async function resolveTenantOwner(tenantId: string): Promise<string | null> {
+  const now = Date.now();
+  const hit = tenantOwnerCache.get(tenantId);
+  if (hit && hit.expiresAt > now) return hit.ownerUserId;
+  const row = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { ownerUserId: true } });
+  const ownerUserId = row?.ownerUserId ?? null;
+  tenantOwnerCache.set(tenantId, { ownerUserId, expiresAt: now + TENANT_OWNER_CACHE_TTL_MS });
+  return ownerUserId;
 }
 
 export function hashApiKey(rawKey: string): string {
@@ -277,12 +319,32 @@ export async function agentContextMiddleware(
           userId: delegated.userId,
         };
       } else {
+        // ── Path 5: bind a non-gateway key to its tenant's owner (lane G) ──
+        let ownerUserId: string | null = null;
+        if (!agent.scopes.includes(MCP_DELEGATE_SCOPE)) {
+          try {
+            ownerUserId = await resolveTenantOwner(agent.tenantId);
+          } catch (err) {
+            // Fail CLOSED: never fall back to an unbound key because the lookup failed.
+            logger.error('agent-context: tenant owner lookup failed', { agent: agent.name, err: (err as Error).message });
+            res.status(503).json({ error: 'agent_lookup_failed', message: 'Agent tenant owner could not be resolved' });
+            return;
+          }
+          if (!ownerUserId && !ownerlessWarned.has(agent.tenantId)) {
+            ownerlessWarned.add(agent.tenantId);
+            logger.warn('agent-context: agent tenant has no owner — x-agent-key is NOT bound to a user (set the tenant owner to bind it)', {
+              agent: agent.name,
+              tenantId: agent.tenantId,
+            });
+          }
+        }
         req.agentContext = {
           agentId: agent.name,
           tenantId: agent.tenantId,
           sourceWeight: agent.sourceWeight,
           scopes: agent.scopes,
           verified: true,
+          ...(ownerUserId ? { userId: ownerUserId, ownerBound: true } : {}),
         };
       }
       touchLastSeen(agent.id);

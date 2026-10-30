@@ -14,7 +14,7 @@ export function sessionStartText(ctx: AgentContext, domain?: string): string {
   return [
     `You are starting a work session as agent "${ctx.agentName}" in tenant "${ctx.tenantId}". Establish the state of the world before doing anything else.`,
     '',
-    '1. Call `status_get` — recent decisions, active tasks, blockers, pending commitments and `commitmentsDueSoon` (due within 3 days / overdue).',
+    '1. Call `status_get` — recent decisions, active tasks, blockers, pending commitments, `commitmentsDueSoon` (what the user owes, due within 3 days / overdue) and `delegations` (what other people owe the user, overdue / due soon).',
     `2. Call \`memory_search\` with a focused query for the domain you are working in (domain: "${dom}"). Use 2–5 concrete nouns, not "everything"; page with \`cursor\` only if the first page is clearly incomplete.`,
     '3. Read the blockers and overdue commitments that touch your work before you plan.',
     '4. Search before you write: if a fact already exists, `memory_supersede` it instead of creating a duplicate.',

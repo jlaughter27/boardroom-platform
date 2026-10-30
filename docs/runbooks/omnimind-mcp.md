@@ -94,7 +94,7 @@ node packages/omnimind-mcp/dist/index.js keygen \
   # All tenants at once: "?includeAllTenants=true" plus -H "x-admin-key: $OMNIMIND_ADMIN_KEY"
   ```
 - The gateway **never acts on its own scopes**: a request without `x-mcp-principal` from it is just an ordinary agent call, and `x-mcp-principal` from any agent without `mcp:delegate` is `403 delegation_not_allowed`. Delegated principals are additionally confined to an allow-list of routes (the tool-backing reads/writes); anything else — including every `/mcp/tokens*` management route — is `403 delegated_route_forbidden`, and the token-management routes refuse *any* agent context, so a stolen gateway key cannot mint or list tokens.
-- Once the gateway is the only MCP writer, set `OMNIMIND_REQUIRE_AGENT_KEY=true` on omnimind-api so unverified `x-agent-id` headers are refused (Known Limitation 8).
+- Once the gateway is the only MCP writer, set `OMNIMIND_REQUIRE_AGENT_KEY=true` on omnimind-api so unverified `x-agent-id` headers are refused (Known Limitation 8). The default stays `false` because solo / stdio setups use the header triple, but a production omnimind-api logs `SECURITY: OMNIMIND_REQUIRE_AGENT_KEY is not "true" in production …` at WARN on every boot until it is set — with it unset, anyone holding the service key can claim any agent, tenant and source weight and skip scope enforcement. Give any remaining stdio / static client its own `omk_` key first (they get `401 agent_key_required` afterwards).
 
 ### Rotation (read before you rotate)
 
@@ -140,6 +140,8 @@ curl -s -X DELETE -H "x-admin-key: $OMNIMIND_ADMIN_KEY" https://omnimind-api-pro
 ```
 
 `omt_` tokens are unaffected: each token names its tenant at minting time.
+
+**Owners also bind agent keys (lane G).** A non-gateway `omk_` agent key (stdio / Claude Code / legacy static identity — any agent row *without* `mcp:delegate`) acts **only for its tenant's owner**: an `x-user-id`, `?userId=` or `body.userId` naming anyone else is `403 user_mismatch`, and a missing one is filled in with the owner on the entity routes. A tenant with **no** owner leaves its keys unbound (one `agent tenant has no owner` warning per tenant in the API log) — set the owner to close that. The owner is cached for 60 s, so a change binds keys already in use within a minute. The gateway is not affected (delegated principals are pinned by `x-mcp-principal`). This binds the *agent identity*; the shared `x-api-key` itself still reaches every user without agent headers, so keep it server-side only.
 
 ---
 

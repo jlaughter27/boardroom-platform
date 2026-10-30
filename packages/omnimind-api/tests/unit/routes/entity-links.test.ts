@@ -97,9 +97,12 @@ describe('POST/DELETE /projects/:projectId/tasks/:taskId', () => {
     const res = await request(app).post('/projects/p1/tasks/t-foreign').set(H);
     expect(res.status).toBe(404);
   });
-  it('DELETE 200 / 404', async () => {
+  // Lane H (2026-10-30): the contract now documents this 200 + body (it said 204).
+  it('DELETE 200 { projectId, taskId, status } / 404', async () => {
     mockPrisma.projectTaskLink.deleteMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
-    expect((await request(app).delete('/projects/p1/tasks/t1').set(H)).status).toBe(200);
+    const ok = await request(app).delete('/projects/p1/tasks/t1').set(H);
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual({ projectId: 'p1', taskId: 't1', status: 'unlinked' });
     expect((await request(app).delete('/projects/p1/tasks/t1').set(H)).status).toBe(404);
   });
 });

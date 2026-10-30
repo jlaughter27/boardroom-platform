@@ -64,7 +64,7 @@ describe('POST /sessions/:id/decide', () => {
     expect(res.status).toBe(404);
   });
 
-  it('201 creates the Decision through OmniMind with mode/sessionId/decidedAt and then 409 on a second commit', async () => {
+  it('201 creates the Decision through OmniMind with mode/decidedAt (memory-only session: no session link) and then 409 on a second commit', async () => {
     const created = await post('/sessions', { question: 'Should I hire a senior engineer?', mode: 'premortem', asOf: '2026-09-01T00:00:00.000Z' });
     expect(created.status).toBe(201);
     expect(created.json.personasToFire).toEqual(['critic', 'technician', 'questionnaire']);
@@ -79,7 +79,7 @@ describe('POST /sessions/:id/decide', () => {
     expect(input).toMatchObject({
       question: 'Should I hire a senior engineer?',
       chosenPath: 'Hire now', rationale: 'speed', expectedOutcome: 'Ship Q3 on time', probabilitySuccess: 0.65,
-      status: 'DECIDED', mode: 'premortem', sessionId: id, personaForecasts: [], assumptions: [],
+      status: 'DECIDED', mode: 'premortem', sessionId: null, decisionSessionId: null, personaForecasts: [], assumptions: [],
     });
     expect(new Date(input.reviewAt).toISOString()).toBe('2026-12-01T00:00:00.000Z');
     expect(input.decidedAt).toBeInstanceOf(Date);

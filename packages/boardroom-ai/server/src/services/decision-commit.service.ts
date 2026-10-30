@@ -1,6 +1,7 @@
 // Phase 6 — POST /sessions/:id/decide. Pure builder (unit-tested) + thin
 // committer that talks to OmniMind. The Decision row is OmniMind's; BoardRoom
-// only assembles the payload from in-memory session state.
+// only assembles the payload from session state (RD-17: and links it to the
+// persisted Decision Lab session via `decisionSessionId`).
 
 import { z } from 'zod';
 import type { Assumption, PersonaForecast, PersonaId } from '@boardroom/shared';
@@ -31,7 +32,18 @@ export interface DecisionCreateInput {
   constraints: string[];
   status: 'DECIDED';
   reviewAt: Date;
-  sessionId: string;
+  /**
+   * Always null: `decisions.session_id` is the legacy FK to OmniMind's meeting
+   * `sessions` table (Room → Session), which Decision Lab sessions are not.
+   */
+  sessionId: null;
+  /**
+   * RD-17 — the Decision Lab session (`decision_sessions`) the decision comes
+   * from: the session id when it is persisted in OmniMind, else null (a
+   * memory-only session's local id would fail the FK). Never an id OmniMind
+   * does not know.
+   */
+  decisionSessionId: string | null;
   probabilitySuccess: number;
   expectedOutcome: string;
   personaForecasts: PersonaForecast[];
@@ -90,7 +102,8 @@ export function buildDecisionInput(session: SessionState, body: DecideBody, now:
     constraints: [],
     status: 'DECIDED',
     reviewAt,
-    sessionId: session.id,
+    sessionId: null,
+    decisionSessionId: session.persisted ? session.id : null,
     probabilitySuccess: body.probabilitySuccess,
     expectedOutcome: body.expectedOutcome,
     personaForecasts: forecasts,
@@ -100,6 +113,12 @@ export function buildDecisionInput(session: SessionState, body: DecideBody, now:
 }
 
 export interface CommittedDecision { id: string; [k: string]: unknown }
+
+/** OmniMind 422 `invalid_reference` (an unknown / foreign / archived link target). */
+function isInvalidReference(err: unknown): boolean {
+  const e = err as { status?: unknown; upstream?: { error?: unknown } } | null;
+  return e?.status === 422 && e.upstream?.error === 'invalid_reference';
+}
 
 /**
  * Create the Decision in OmniMind, link it to the projects the session's
@@ -112,7 +131,18 @@ export async function commitDecision(
   now: Date = new Date(),
 ): Promise<CommittedDecision> {
   const input = buildDecisionInput(session, body, now);
-  const decision = await omnimind.createDecision(session.userId, input) as CommittedDecision;
+  let decision: CommittedDecision;
+  try {
+    decision = await omnimind.createDecision(session.userId, input) as CommittedDecision;
+  } catch (err) {
+    // RD-17: OmniMind refused the session link (e.g. the session was archived
+    // meanwhile). The decision matters more than the link: commit once without it.
+    if (!input.decisionSessionId || !isInvalidReference(err)) throw err;
+    logger.warn('[Decide] session link refused — committing without it', {
+      sessionId: session.id, message: err instanceof Error ? err.message : String(err),
+    });
+    decision = await omnimind.createDecision(session.userId, { ...input, decisionSessionId: null }) as CommittedDecision;
+  }
   session.decisionId = decision.id;
 
   for (const projectId of session.projectIds ?? []) {

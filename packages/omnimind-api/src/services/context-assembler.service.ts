@@ -1,4 +1,5 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
+import { isHiddenMinistryRow, ministryExclusionWhere } from '../lib/ministry-read';
 import type { PersonaId } from '@boardroom/shared';
 import { estimateTokens, MemoryClass } from '@boardroom/shared';
 import { structuredFilter } from '../retrieval/structured-filter';
@@ -196,7 +197,7 @@ export async function assembleContextForPersona(
   const totalCandidates = structured.length + fts.length + trigram.length + semantic.length + entityResults.length;
 
   // Rank and deduplicate memory results
-  const rankedMemories = rankAndDeduplicate(
+  const rankedAll = rankAndDeduplicate(
     [
       { layer: 'structured', results: structured },
       { layer: 'fts', results: fts },
@@ -205,6 +206,9 @@ export async function assembleContextForPersona(
     ],
     30
   );
+  // Lane H (2026-10-30): legacy ministry rows (any domain spelling, or the
+  // ministry tenant for a caller outside it) never reach a persona.
+  const rankedMemories = await dropMinistryMemories(userId, rankedAll, options?.tenantId, prisma);
 
   // WS-3: reinforce recall — bump recall_count for every memory we actually
   // surfaced to the persona. Fire-and-forget; failure here must not block the
@@ -258,6 +262,28 @@ export async function assembleContextForPersona(
     items: [...prepended, ...pkg.items],
     tokenEstimate: pkg.tokenEstimate + prependedTokens,
   };
+}
+
+/**
+ * Lane H — the retrieval layers return no tenant, so re-read `{ id, domain,
+ * tenantId }` for the ranked memory ids: canonical ministry forms are
+ * excluded in SQL (a missing id is dropped), every other spelling by
+ * `isHiddenMinistryRow`. Non-memory results pass through untouched.
+ */
+async function dropMinistryMemories(
+  userId: string,
+  ranked: ScoredResult[],
+  callerTenantId: string | undefined,
+  prisma: PrismaClient,
+): Promise<ScoredResult[]> {
+  const ids = ranked.filter(r => r.type === 'memory').map(r => r.id);
+  if (ids.length === 0) return ranked;
+  const rows = await prisma.memoryEntry.findMany({
+    where: { id: { in: ids }, userId, AND: ministryExclusionWhere(callerTenantId) as Prisma.MemoryEntryWhereInput[] },
+    select: { id: true, domain: true, tenantId: true },
+  });
+  const visible = new Set(rows.filter(r => !isHiddenMinistryRow(r, callerTenantId)).map(r => r.id));
+  return ranked.filter(r => r.type !== 'memory' || visible.has(r.id));
 }
 
 const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);

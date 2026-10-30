@@ -23,7 +23,26 @@ export function validateOmniMindEnv(): void {
   }
 
   const requireAgentKey = process.env.OMNIMIND_REQUIRE_AGENT_KEY;
-  if (requireAgentKey !== undefined && !['true', 'false'].includes(requireAgentKey.toLowerCase())) {
+  if (requireAgentKey !== undefined && !['true', 'false'].includes(requireAgentKey.trim().toLowerCase())) {
     logger.warn('OMNIMIND_REQUIRE_AGENT_KEY should be "true" or "false"; treating as false', { value: requireAgentKey });
   }
+
+  const posture = agentKeyPostureWarning(process.env);
+  if (posture) logger.warn(posture, { OMNIMIND_REQUIRE_AGENT_KEY: requireAgentKey ?? '(unset)' });
+}
+
+/**
+ * Lane G item 5 — the production posture warning for unverified agent headers.
+ * Same parse as agent-context's requireAgentKey(): only "true" (trimmed, any
+ * case) turns the legacy x-agent-id / x-tenant-id / x-source-weight fast-path
+ * off. The default stays "false" (solo mode depends on it); this makes the
+ * choice visible on every production boot instead of silently open.
+ */
+export function agentKeyPostureWarning(env: Record<string, string | undefined>): string | null {
+  if (env.NODE_ENV !== 'production') return null;
+  if ((env.OMNIMIND_REQUIRE_AGENT_KEY ?? '').trim().toLowerCase() === 'true') return null;
+  return 'SECURITY: OMNIMIND_REQUIRE_AGENT_KEY is not "true" in production — unverified agent identity headers '
+    + '(x-agent-id + x-tenant-id + x-source-weight, no x-agent-key) are trusted as-is, so any holder of the service key '
+    + 'can claim any agent / tenant / source weight and skip scope enforcement. Set OMNIMIND_REQUIRE_AGENT_KEY=true once the '
+    + 'hosted MCP gateway is the only MCP writer (docs/runbooks/omnimind-mcp.md §1, Known Limitation 8).';
 }

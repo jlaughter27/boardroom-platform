@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Decision, Goal, Person, Project } from '@boardroom/shared';
+import { isDelegation } from '@boardroom/shared';
 import * as api from '../../lib/api';
 import { useEntitiesStore } from '../../stores/entities.store';
 import type { DecisionChangesResponse } from '../../types/debate';
@@ -192,7 +193,7 @@ export function buildChangeEvents(data: DecisionChangesResponse): ChangeEvent[] 
   for (const c of data.commitments) {
     const done = c.status === 'COMPLETED';
     out.push({
-      id: `commitment:${c.id}`, kind: 'commitment', sign: '+', title: c.description,
+      id: `commitment:${c.id}`, kind: 'commitment', sign: '+', title: isDelegation(c) ? `Waiting on: ${c.description}` : c.description,
       meta: done ? 'completed' : c.deadline ? `due ${new Date(c.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : null,
       at: iso(done ? c.completedAt ?? c.createdAt : c.createdAt), href: null,
     });

@@ -410,6 +410,14 @@ describe('memory markdown (RD-1)', () => {
     expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
   });
 
+  it('M7: the plain-text fallback is used only behind markdownRenderGuard', () => {
+    const users = scan((line, rel) => /<MemoryPlainText\b/.test(line) && rel !== 'components/memory/MemoryPlainText.tsx');
+    expect(users.map((h) => h.split(':')[0])).toEqual(['components/memory/MemoryDetail.tsx']);
+    const detail = readFileSync(join(SRC, 'components/memory/MemoryDetail.tsx'), 'utf8');
+    expect(detail).toMatch(/markdownRenderGuard\(memory\.content\)/);
+    expect(detail).toMatch(/renderGuard\.plain \? \(/);
+  });
+
   it('memory cards build their preview with markdownToPlainText', () => {
     const src = readFileSync(join(SRC, 'components/memory/MemoryCard.tsx'), 'utf8');
     expect(src).toMatch(/markdownToPlainText\(/);
@@ -482,5 +490,39 @@ describe('decorative gold tokens follow the current gold (RD-9e)', () => {
       const src = readFileSync(join(SRC, rel), 'utf8');
       expect(src, rel).toMatch(/<Logo variant="icon"[^>]*drop-shadow-\[0_0_\d+px_var\(--color-primary-glow\)\]/);
     }
+  });
+});
+
+// ── UI e2e L4 fixes (lane E, 2026-10-30) ────────────────────────────────────
+/**
+ * A real-backend sweep found `#main-content` scrolling sideways on the
+ * dashboard: `sr-only` on a `<table>` does not hide it from layout (a table
+ * sizes to its content and ignores `width: 1px` / `overflow: hidden`), so the
+ * chart twins stayed 200–400 px wide. The visually-hidden box must be a block
+ * wrapper. The page-level check (`#main-content` scrollWidth ≤ clientWidth at
+ * 390 and 1440) lives in tools/visual-preview/shoot-pages.mjs.
+ */
+describe('layout never scrolls the page sideways (UI e2e L4)', () => {
+  it('no `sr-only` on a <table> (wrap it: <div className="sr-only"><table …>)', () => {
+    const hits = scan((line) => /<table\b[^>]*\bsr-only\b/.test(line));
+    expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
+  });
+
+  it('the chart table twin is hidden by a clipped wrapper', () => {
+    const src = readFileSync(join(SRC, 'components/viz/ChartFrame.tsx'), 'utf8');
+    expect(src).toMatch(/<div className="sr-only"[^>]*>\s*<table\b/);
+  });
+
+  it('wide tab / filter rows wrap or scroll inside their own row, never the page', () => {
+    const admin = readFileSync(join(SRC, 'pages/AdminPage.tsx'), 'utf8');
+    expect(admin).toMatch(/<ScrollRow\b[^>]*data-testid="admin-tabs"/);
+    const lab = readFileSync(join(SRC, 'pages/DecisionLabPage.tsx'), 'utf8');
+    expect(lab).toMatch(/className="flex flex-wrap[^"]*"\s+data-testid="decision-filter-row"/);
+  });
+
+  it('toasts move off an open dialog (the Toaster reads [aria-modal] dialogs) and keep the polite live region', () => {
+    const src = readFileSync(join(SRC, 'components/ui/Toast.tsx'), 'utf8');
+    expect(src).toMatch(/\[role="dialog"\]\[aria-modal="true"\]/);
+    expect(src).toMatch(/aria-live="polite"/);
   });
 });

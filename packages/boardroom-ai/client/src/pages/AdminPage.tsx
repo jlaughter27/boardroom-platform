@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { PageWrapper, PageHeader, Button, Skeleton } from '../components/ui';
+import { PageWrapper, PageHeader, Button, Skeleton, ScrollRow } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn } from '../lib/motion';
 import * as api from '../lib/api';
 import type { AdminStats, AdminAgent, AdminAuditEntry, AdminMemory, AdminContradiction, DuplicatePair } from '../lib/api';
-import { useAuthStore } from '../stores/auth.store';
 
 type Tab = 'overview' | 'memories' | 'audit' | 'agents' | 'contradictions' | 'duplicates';
 
@@ -372,7 +371,6 @@ function DuplicatesTab() {
   const [error, setError] = useState<string | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(0.85);
-  const userId = useAuthStore((s) => s.user?.userId);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -384,14 +382,11 @@ function DuplicatesTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleMerge(keepId: string, archiveId: string) {
-    if (!userId) {
-      setError('Not signed in — cannot attribute merge.');
-      return;
-    }
+  // Lane H (2026-10-30): pairs span users; the merge runs for the pair's owner.
+  async function handleMerge(keepId: string, archiveId: string, ownerUserId: string) {
     setMerging(archiveId);
     try {
-      await api.mergeAdminDuplicates(keepId, archiveId, userId);
+      await api.mergeAdminDuplicates(keepId, archiveId, ownerUserId);
       setPairs((prev) => prev.filter((p) => !(p.a_id === keepId && p.b_id === archiveId) && !(p.a_id === archiveId && p.b_id === keepId)));
     } catch (e) {
       setError((e as Error).message);
@@ -441,7 +436,7 @@ function DuplicatesTab() {
                     size="sm"
                     variant="secondary"
                     disabled={merging === p.b_id}
-                    onClick={() => handleMerge(p.a_id, p.b_id)}
+                    onClick={() => handleMerge(p.a_id, p.b_id, p.user_id)}
                     className="text-xs"
                   >
                     {merging === p.b_id ? 'Merging…' : 'Keep A'}
@@ -450,7 +445,7 @@ function DuplicatesTab() {
                     size="sm"
                     variant="secondary"
                     disabled={merging === p.a_id}
-                    onClick={() => handleMerge(p.b_id, p.a_id)}
+                    onClick={() => handleMerge(p.b_id, p.a_id, p.user_id)}
                     className="text-xs"
                   >
                     {merging === p.a_id ? 'Merging…' : 'Keep B'}
@@ -492,13 +487,15 @@ export default function AdminPage() {
       <motion.div {...fadeIn} className="p-6 h-full flex flex-col min-h-0">
         <PageHeader title="Admin" subtitle="MCP memory layer overview — cross-agent, cross-tenant." />
 
-        {/* Tab bar */}
-        <div className="flex gap-1 border-b border-border mb-5">
+        {/* Tab bar — scrolls inside its own row on a phone (fade on the edge with more),
+            never the page. The hairline is an inset shadow so the 2 px active bar covers it
+            without overflowing the scroll box. */}
+        <ScrollRow className="gap-1 mb-5 shrink-0 shadow-[inset_0_-1px_0_var(--color-border)]" data-testid="admin-tabs">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 tab === id
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -507,7 +504,7 @@ export default function AdminPage() {
               {label}
             </button>
           ))}
-        </div>
+        </ScrollRow>
 
         <div className="flex-1 overflow-y-auto min-h-0">
           {tab === 'overview' && <OverviewTab />}

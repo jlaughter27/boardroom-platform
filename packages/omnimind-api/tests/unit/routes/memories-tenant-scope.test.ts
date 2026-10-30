@@ -64,12 +64,23 @@ describe('GET /memories tenant override (O-105)', () => {
 
   it('admin (x-admin-key) + includeAllTenants=true may cross tenants', async () => {
     process.env.OMNIMIND_ADMIN_KEY = 'adm';
-    const res = await request(app).get('/memories?tenantId=tgfc-ministry&includeAllTenants=true')
+    const res = await request(app).get('/memories?tenantId=synthetic-other-tenant&includeAllTenants=true')
       .set('x-api-key', API_KEY).set('x-admin-key', 'adm').set('x-user-id', 'cuser00000000000000000001').set(legacyAgent);
     expect(res.status).toBe(200);
     expect(mockPrisma.memoryEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ tenantId: 'tgfc-ministry' }),
+      where: expect.objectContaining({ tenantId: 'synthetic-other-tenant' }),
     }));
+    delete process.env.OMNIMIND_ADMIN_KEY;
+  });
+
+  // Lane H (2026-10-30): the ministry tenant is never listed to a caller outside it — not even to an admin cross-tenant read.
+  it('admin cross-tenant read of the ministry tenant answers an empty page without querying', async () => {
+    process.env.OMNIMIND_ADMIN_KEY = 'adm';
+    const res = await request(app).get('/memories?tenantId=tgfc-ministry&includeAllTenants=true')
+      .set('x-api-key', API_KEY).set('x-admin-key', 'adm').set('x-user-id', 'cuser00000000000000000001').set(legacyAgent);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ items: [], total: 0 });
+    expect(mockPrisma.memoryEntry.findMany).not.toHaveBeenCalled();
     delete process.env.OMNIMIND_ADMIN_KEY;
   });
 });

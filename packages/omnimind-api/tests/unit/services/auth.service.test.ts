@@ -7,6 +7,7 @@ vi.mock('../../../src/lib/db', () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
     },
     team: {
@@ -19,6 +20,7 @@ vi.mock('../../../src/lib/db', () => ({
 describe('Auth Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (prisma.user.findFirst as any).mockResolvedValue(null);
   });
 
   describe('registerUser', () => {
@@ -63,7 +65,7 @@ describe('Auth Service', () => {
     });
 
     it('should throw CONFLICT error when email already exists', async () => {
-      (prisma.user.findUnique as any).mockResolvedValue({
+      (prisma.user.findFirst as any).mockResolvedValue({
         id: 'existing-user',
         email: 'test@example.com',
       });
@@ -76,8 +78,10 @@ describe('Auth Service', () => {
         })
       ).rejects.toThrow('Email already registered');
       
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { email: 'test@example.com' },
+      // C1: the existence check is case-insensitive on the normalised address.
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: { equals: 'test@example.com', mode: 'insensitive' } },
+        select: { id: true },
       });
     });
   });

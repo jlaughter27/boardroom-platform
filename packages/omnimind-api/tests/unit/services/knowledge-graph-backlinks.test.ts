@@ -45,6 +45,12 @@ describe('parseNodeId', () => {
   });
 });
 
+// Lane H (2026-10-30): canonical ministry forms are excluded in SQL (josh-business caller → ministry tenant excluded too).
+const MINISTRY_EXCLUSION = [
+  { NOT: { domain: { startsWith: 'ministry', mode: 'insensitive' } } },
+  { NOT: { tenantId: 'tgfc-ministry' } },
+];
+
 describe('getBacklinks', () => {
   it('returns the node and every incident edge in both directions, including memory backlinks read directly from MemoryEntityLink', async () => {
     const prisma = fakePrisma();
@@ -71,7 +77,7 @@ describe('getBacklinks', () => {
     const prisma = fakePrisma();
     await getBacklinks('user-1', 'project:p1', { tenantId: 'josh-business' }, prisma);
     expect(prisma.memoryEntry.findMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', deletedAt: null, tenantId: 'josh-business', status: { not: 'ARCHIVED' }, id: { in: ['m1'] } },
+      where: { userId: 'user-1', deletedAt: null, tenantId: 'josh-business', status: { not: 'ARCHIVED' }, AND: MINISTRY_EXCLUSION, id: { in: ['m1'] } },
       select: expect.any(Object),
     });
   });
@@ -90,7 +96,7 @@ describe('getBacklinks', () => {
     expect(res!.backlinks[0].node.id).toBe('project:p1');
     expect(res!.backlinks[0].edge).toMatchObject({ type: 'memory_entity', source: 'memory:m1', target: 'project:p1' });
     expect(prisma.memoryEntry.findFirst).toHaveBeenCalledWith({
-      where: { userId: 'user-1', deletedAt: null, tenantId: 'josh-business', status: { not: 'ARCHIVED' }, id: 'm1' },
+      where: { userId: 'user-1', deletedAt: null, tenantId: 'josh-business', status: { not: 'ARCHIVED' }, AND: MINISTRY_EXCLUSION, id: 'm1' },
       select: expect.any(Object),
     });
   });

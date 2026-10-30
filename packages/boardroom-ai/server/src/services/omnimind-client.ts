@@ -6,8 +6,32 @@ import type {
   McpTokenOptions,
   MemoryBacklinksResponse,
 } from '@boardroom/shared';
-import { PersonBriefsResponseSchema } from '@boardroom/shared';
+import { PersonBriefsResponseSchema, OMNIMIND_REFUSAL_CODES, OMNIMIND_REFUSAL_HEADER } from '@boardroom/shared';
 import type { PersonBriefsRequest, PersonBriefsResponse } from '@boardroom/shared';
+import type {
+  CreateDecisionSessionRequest,
+  UpdateDecisionSessionRequest,
+  DecisionSession,
+  DecisionSessionSummary,
+} from '@boardroom/shared';
+
+/** RD-17 — a DecisionSession as it arrives over HTTP (dates are ISO strings). */
+export interface DecisionSessionWire extends Omit<DecisionSession, 'createdAt' | 'updatedAt'> {
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionSessionSummaryWire extends Omit<DecisionSessionSummary, 'createdAt' | 'updatedAt'> {
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionSessionListWire {
+  items: DecisionSessionSummaryWire[];
+  total: number;
+  offset: number;
+  limit: number;
+}
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -27,6 +51,23 @@ const RETRY_BASE_MS = 100;
 const BREAKER_THRESHOLD = Number(process.env.OMNIMIND_BREAKER_THRESHOLD) || 5;
 const BREAKER_COOLDOWN_MS = Number(process.env.OMNIMIND_BREAKER_COOLDOWN_MS) || 15_000;
 const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+/**
+ * Lane F — a deliberate OmniMind refusal answered with a 5xx (503
+ * `MINISTRY_DEFERRED`, 503 `admin_disabled`): OmniMind is healthy and answered
+ * on purpose. Marked by the `x-omnimind-refusal: 1` header, or — for an OmniMind
+ * build that predates the header — by a known refusal code in the JSON body.
+ * Never retried, never counted toward the shared breaker: one user replaying a
+ * refused write must not open the breaker for every user (and login).
+ * A 503 with an infra code (`agent_lookup_failed`: DB down) has neither and counts.
+ */
+function isDeliberateRefusal(res: Response, upstream: unknown): boolean {
+  const headers = (res as { headers?: Headers }).headers;
+  if (headers && typeof headers.get === 'function' && headers.get(OMNIMIND_REFUSAL_HEADER) === '1') return true;
+  const body = upstream as { code?: unknown; error?: unknown } | null;
+  const code = typeof body?.code === 'string' ? body.code : typeof body?.error === 'string' ? body.error : undefined;
+  return code !== undefined && OMNIMIND_REFUSAL_CODES.includes(code);
+}
 
 // ---------------------------------------------------------------------------
 // Circuit breaker — in-memory, per-process (no Redis).
@@ -70,6 +111,23 @@ class CircuitBreaker {
   toJSON() {
     return { state: this.state, failures: this.failures };
   }
+}
+
+/** M6 — per-call admin credential for OmniMind's `/admin/*` (sent as `x-admin-key`). */
+export interface AdminCallOptions {
+  adminKey?: string;
+}
+
+/** Paging (and, for /projects, `include=links`) forwarded to an OmniMind list endpoint. */
+export interface ListQuery {
+  limit?: string;
+  offset?: string;
+  include?: string;
+}
+
+function listQs(query: ListQuery): string {
+  const params = Object.entries(query).filter(([, v]) => typeof v === 'string' && v !== '') as Array<[string, string]>;
+  return params.length ? `?${new URLSearchParams(params).toString()}` : '';
 }
 
 export class OmniMindClient {
@@ -161,13 +219,15 @@ export class OmniMindClient {
 
         if (!res.ok) {
           const error = await res.json().catch(() => ({ error: 'upstream_error' }));
+          const refusal = isDeliberateRefusal(res, error);
           const err = Object.assign(new Error(`OmniMind ${method} ${path}: ${res.status}`), {
             status: res.status,
             upstream: error,
+            ...(refusal && { refusal: true }),
           });
 
-          // Retry gateway errors (502/503/504) for idempotent methods
-          if (isIdempotent && RETRYABLE_STATUS.has(res.status) && attempt < maxAttempts) {
+          // Retry gateway errors (502/503/504) for idempotent methods — never a deliberate refusal.
+          if (isIdempotent && !refusal && RETRYABLE_STATUS.has(res.status) && attempt < maxAttempts) {
             lastError = err;
             await this.backoff(attempt);
             continue;
@@ -183,7 +243,7 @@ export class OmniMindClient {
         if (res.status === 204) return undefined as T;
         return res.json() as Promise<T>;
       } catch (err: unknown) {
-        const error = err as Error & { status?: number; code?: string };
+        const error = err as Error & { status?: number; code?: string; refusal?: boolean };
 
         // 4xx: client-side error — throw immediately, don't trip breaker.
         // The server responded correctly; the request was bad.
@@ -191,9 +251,14 @@ export class OmniMindClient {
           throw error;
         }
 
-        // 5xx (has .status): server error — trip breaker, throw.
+        // 5xx (has .status). Only 502/503/504 (the same set the GET retry
+        // policy uses) say OmniMind itself is unhealthy and count toward the
+        // breaker. Any other 5xx (a 500 from one bad request) means OmniMind
+        // answered: it is not counted, or one user replaying a request that
+        // 500s could open the shared breaker for every user (H1).
         if (error.status && error.status >= 500) {
-          this.breaker.recordFailure();
+          // A deliberate refusal (MINISTRY_DEFERRED, …) is OmniMind answering: not counted.
+          if (RETRYABLE_STATUS.has(error.status) && !error.refusal) this.breaker.recordFailure();
           throw error;
         }
 
@@ -255,6 +320,34 @@ export class OmniMindClient {
     return this.request('POST', '/decisions', userId, input);
   }
 
+  // ---------------------------------------------------------------------------
+  // RD-17 — persisted Decision Lab sessions (`/decision-sessions`)
+  // ---------------------------------------------------------------------------
+
+  async createDecisionSession(userId: string, input: CreateDecisionSessionRequest) {
+    return this.request<DecisionSessionWire>('POST', '/decision-sessions', userId, input);
+  }
+
+  async getDecisionSession(userId: string, id: string) {
+    return this.request<DecisionSessionWire>('GET', `/decision-sessions/${encodeURIComponent(id)}`, userId);
+  }
+
+  async listDecisionSessions(userId: string, query: { limit?: number; offset?: number } = {}) {
+    const params = Object.entries(query)
+      .filter(([, v]) => typeof v === 'number')
+      .map(([k, v]): [string, string] => [k, String(v)]);
+    const qs = params.length ? `?${new URLSearchParams(params).toString()}` : '';
+    return this.request<DecisionSessionListWire>('GET', `/decision-sessions${qs}`, userId);
+  }
+
+  async updateDecisionSession(userId: string, id: string, input: UpdateDecisionSessionRequest) {
+    return this.request<DecisionSessionWire>('PATCH', `/decision-sessions/${encodeURIComponent(id)}`, userId, input);
+  }
+
+  async archiveDecisionSession(userId: string, id: string) {
+    return this.request<{ id: string; status: 'archived' }>('DELETE', `/decision-sessions/${encodeURIComponent(id)}`, userId);
+  }
+
   async getCalibration(userId: string, params?: Record<string, string>) {
     const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
     return this.request('GET', `/decisions/calibration${qs}`, userId);
@@ -281,6 +374,11 @@ export class OmniMindClient {
   /** Phase 6 — lets the nudges widget mark a commitment FULFILLED / etc. */
   async updateCommitment(userId: string, id: string, input: unknown) {
     return this.request('PATCH', `/commitments/${id}`, userId, input);
+  }
+
+  /** RD-12 — POST /commitments (delegations); forwards the dialog's Idempotency-Key. */
+  async createCommitment(userId: string, input: unknown, idempotencyKey?: string) {
+    return this.request('POST', '/commitments', userId, input, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined);
   }
 
   async updateMemoItem(userId: string, memoId: string, itemKey: string, body: { state: 'accepted' | 'dismissed' | 'snoozed'; until?: string }) {
@@ -432,28 +530,33 @@ export class OmniMindClient {
     return this.request('POST', '/tasks', userId, input);
   }
 
-  async listGoals(userId: string) {
-    return this.request('GET', '/goals', userId);
+  async listGoals(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/goals${listQs(query)}`, userId);
   }
 
-  async listProjects(userId: string) {
-    return this.request('GET', '/projects', userId);
+  async listProjects(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/projects${listQs(query)}`, userId);
   }
 
-  async listPeople(userId: string) {
-    return this.request('GET', '/people', userId);
+  async listPeople(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/people${listQs(query)}`, userId);
   }
 
-  async listTasks(userId: string) {
-    return this.request('GET', '/tasks', userId);
+  async listTasks(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/tasks${listQs(query)}`, userId);
   }
 
-  async listDecisions(userId: string) {
-    return this.request('GET', '/decisions', userId);
+  async listDecisions(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/decisions${listQs(query)}`, userId);
   }
 
-  async listCommitments(userId: string) {
-    return this.request('GET', '/commitments', userId);
+  /** RD-12 — one decision by id (owner-scoped by OmniMind; 404 otherwise). */
+  async getDecision(userId: string, id: string) {
+    return this.request('GET', `/decisions/${encodeURIComponent(id)}`, userId);
+  }
+
+  async listCommitments(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/commitments${listQs(query)}`, userId);
   }
 
   async updateGoal(userId: string, id: string, input: unknown) {
@@ -670,46 +773,54 @@ export class OmniMindClient {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');
   }
 
-  // Admin (no userId — cross-agent views)
-  async getAdminStats(params?: Record<string, string>) {
+  // Admin (no userId — cross-agent views). M6: OmniMind mounts /admin/* behind
+  // `requireAdminKey`, so every call carries `x-admin-key` (BoardRoom's
+  // OMNIMIND_ADMIN_KEY, resolved by admin.routes.ts — 503 there when unset).
+  private adminHeaders(options: AdminCallOptions): Record<string, string> | undefined {
+    return options.adminKey ? { 'x-admin-key': options.adminKey } : undefined;
+  }
+
+  async getAdminStats(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/stats${qs}`);
+    return this.request('GET', `/admin/stats${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminAgents() {
-    return this.request('GET', '/admin/agents');
+  async getAdminAgents(params?: Record<string, string>, options: AdminCallOptions = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/agents${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminAudit(params?: Record<string, string>) {
+  async getAdminAudit(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/audit${qs}`);
+    return this.request('GET', `/admin/audit${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminMemories(params?: Record<string, string>) {
+  async getAdminMemories(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/memories${qs}`);
+    return this.request('GET', `/admin/memories${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminContradictions(params?: Record<string, string>) {
+  async getAdminContradictions(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/contradictions${qs}`);
+    return this.request('GET', `/admin/contradictions${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async triggerAdminSummarize() {
-    return this.request('POST', '/admin/summarize');
+  async triggerAdminSummarize(options: AdminCallOptions = {}) {
+    return this.request('POST', '/admin/summarize', undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminDuplicates(params?: Record<string, string>) {
+  async getAdminDuplicates(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/duplicates${qs}`);
+    return this.request('GET', `/admin/duplicates${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async mergeAdminDuplicates(body: Record<string, unknown>) {
-    return this.request('POST', '/admin/duplicates/merge', undefined, body);
+  async mergeAdminDuplicates(body: Record<string, unknown>, params?: Record<string, string>, options: AdminCallOptions = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('POST', `/admin/duplicates/merge${qs}`, undefined, body, this.adminHeaders(options));
   }
 
-  async triggerAdminDecay() {
-    return this.request('POST', '/admin/decay/run');
+  async triggerAdminDecay(options: AdminCallOptions = {}) {
+    return this.request('POST', '/admin/decay/run', undefined, undefined, this.adminHeaders(options));
   }
 
   // ---------------------------------------------------------------------------

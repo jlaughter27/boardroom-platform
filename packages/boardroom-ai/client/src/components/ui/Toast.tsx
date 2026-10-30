@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
 import { CircleCheck, CircleX, Info, TriangleAlert, X } from 'lucide-react';
 import { create } from 'zustand';
@@ -126,13 +126,89 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
   );
 }
 
+/** The toast column is `w-80`; keep this many px clear of an open dialog's edge. */
+const TOAST_WIDTH = 320;
+const GAP = 16;
+
+export type ToastPlacement =
+  | { kind: 'corner' }
+  | { kind: 'beside'; right: number }
+  | { kind: 'top' };
+
+/**
+ * Where the toast stack goes so it never covers an open dialog or sheet — in
+ * particular its footer, where the primary action lives (a toast fired by that
+ * action, e.g. "Copied, but not recorded", used to sit right on top of Retry,
+ * and hovering it paused the timer, so it stayed there).
+ *
+ * - No modal open: the bottom-right corner.
+ * - A modal that leaves room on its left (the 1440 px side sheet, a centred
+ *   dialog): bottom, just left of the modal.
+ * - A modal that spans the width (a phone bottom sheet): top-centre.
+ */
+export function toastPlacement(doc: Document = document, viewportWidth = window.innerWidth): ToastPlacement {
+  const dialogs = [...doc.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')];
+  if (dialogs.length === 0) return { kind: 'corner' };
+  const left = Math.min(...dialogs.map((d) => d.getBoundingClientRect().left));
+  if (left >= TOAST_WIDTH + GAP * 2) return { kind: 'beside', right: Math.round(viewportWidth - left + GAP) };
+  return { kind: 'top' };
+}
+
+function samePlacement(a: ToastPlacement, b: ToastPlacement): boolean {
+  if (a.kind !== b.kind) return false;
+  return a.kind !== 'beside' || b.kind !== 'beside' || a.right === b.right;
+}
+
+/** Re-place while toasts are visible: on DOM changes (a dialog opening or closing in its portal) and on resize. */
+function useToastPlacement(active: boolean): ToastPlacement {
+  const [placement, setPlacement] = useState<ToastPlacement>({ kind: 'corner' });
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    let pending = false;
+    const update = () => {
+      const next = toastPlacement();
+      setPlacement((prev) => (samePlacement(prev, next) ? prev : next));
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      frame = requestAnimationFrame(() => { pending = false; update(); });
+    };
+    update();
+    const mo = new MutationObserver(schedule);
+    mo.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      mo.disconnect();
+      window.removeEventListener('resize', schedule);
+      if (pending) cancelAnimationFrame(frame);
+    };
+  }, [active]);
+  return placement;
+}
+
+const PLACEMENT_CLASS: Record<ToastPlacement['kind'], string> = {
+  corner: 'bottom-4 right-4',
+  beside: 'bottom-4',
+  top: 'top-4 left-1/2 -translate-x-1/2',
+};
+
 export function Toaster() {
   const { toasts, removeToast } = useToastStore();
+  const placement = useToastPlacement(toasts.length > 0);
+  const style: CSSProperties | undefined = placement.kind === 'beside' ? { right: placement.right } : undefined;
 
   return (
     <div
-      className="pointer-events-none fixed bottom-4 right-4 z-toast flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 [&>*]:pointer-events-auto"
+      className={cn(
+        'pointer-events-none fixed z-toast flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 [&>*]:pointer-events-auto',
+        PLACEMENT_CLASS[placement.kind]
+      )}
+      style={style}
       aria-live="polite"
+      data-testid="toaster"
+      data-placement={placement.kind}
     >
       <AnimatePresence mode="popLayout">
         {toasts.map((toast) => (

@@ -32,7 +32,13 @@ export const IP_BUCKET_MULTIPLIER = Math.max(1, parseInt(process.env.IP_RATE_LIM
 
 /**
  * F-105/F-207: never skip. Key precedence:
- *   1. `x-user-id`                (per-user, the normal BoardRoom/MCP case)
+ *   1. `x-user-id`                (per-user, the normal BoardRoom/MCP case);
+ *                                  an agent acting for that user (resolved
+ *                                  agentContext first, then `x-agent-id`) gets
+ *                                  its own per-user bucket, so an MCP client
+ *                                  searching hard cannot rate-limit the same
+ *                                  user's dashboard (2026-10-30 real-vault e2e).
+ *                                  The agent limiter still caps each agent.
  *   2. agent identity             (per-agent, for agent calls without a user)
  *   3. client IP                  (accurate behind Railway: index.ts sets
  *                                  `trust proxy`) — omitting headers no longer
@@ -40,8 +46,11 @@ export const IP_BUCKET_MULTIPLIER = Math.max(1, parseInt(process.env.IP_RATE_LIM
  */
 export function rateLimitKeyFor(req: Request): { key: string; byIp: boolean } {
   const userId = req.headers['x-user-id'];
-  if (typeof userId === 'string' && userId.length > 0) return { key: `user:${userId}`, byIp: false };
   const agentId = req.agentContext?.agentId ?? req.headers['x-agent-id'];
+  if (typeof userId === 'string' && userId.length > 0) {
+    if (typeof agentId === 'string' && agentId.length > 0) return { key: `user:${userId}:agent:${agentId}`, byIp: false };
+    return { key: `user:${userId}`, byIp: false };
+  }
   if (typeof agentId === 'string' && agentId.length > 0) return { key: `agent:${agentId}`, byIp: false };
   return { key: `ip:${req.ip ?? 'unknown'}`, byIp: true };
 }

@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Commitment, Decision, LlmUsageSummary, Memory, OutcomeReviewNudge } from '@boardroom/shared';
+import { isDelegation } from '@boardroom/shared';
 import { useVizSlice } from '../../stores/viz.store';
+import { useEntitiesStore } from '../../stores/entities.store';
 import { StatTile, type StatDelta } from '../viz/StatTile';
 import { countByWeek, dueWithin, horizon, monthToDate, periodDelta, toTime, type DateLike } from '../viz/aggregate';
 import { formatUsd } from '../viz/scales';
@@ -9,7 +11,8 @@ import { formatUsd } from '../viz/scales';
 const TREND_WEEKS = 8;
 const DUE_DAYS = 7;
 
-const isOpenCommitment = (c: Commitment) => c.status === 'OPEN';
+// RD-12: delegations never count toward the user's own commitments tile.
+const isOpenCommitment = (c: Commitment) => c.status === 'OPEN' && !isDelegation(c);
 const roundFormat = (n: number) => String(Math.round(n));
 
 // ---------------------------------------------------------------------------
@@ -58,19 +61,36 @@ export function commitmentsTile(commitments: Commitment[], now: DateLike = Date.
   };
 }
 
-export function reviewsTile(nudges: OutcomeReviewNudge[], now: DateLike = Date.now()): TileModel {
-  const open = nudges.filter((n) => n.status === 'pending' || n.status === 'sent');
+/**
+ * Decisions whose outcome review is due: an open review nudge, or a committed
+ * decision whose `reviewAt` has passed with no outcome recorded (the nudge job
+ * may not have run for it yet). One entry per decision. With nothing due the
+ * hint says "none due" — not "all outcomes reviewed", which a future review
+ * date (or a nudge that was never scheduled) would make untrue.
+ */
+export function reviewsTile(nudges: OutcomeReviewNudge[], now: DateLike = Date.now(), decisions: Decision[] = []): TileModel {
   const t = toTime(now) ?? Date.now();
-  const oldest = open.reduce<number | null>((acc, n) => {
-    const s = toTime(n.scheduledFor);
-    return s === null ? acc : acc === null ? s : Math.min(acc, s);
-  }, null);
+  const due = new Map<string, number | null>();
+  const note = (key: string, at: number | null) => {
+    const prev = due.get(key);
+    due.set(key, prev === undefined || prev === null ? at : at === null ? prev : Math.min(prev, at));
+  };
+  for (const n of nudges) {
+    if (n.status === 'pending' || n.status === 'sent') note(n.decisionId ? `d:${n.decisionId}` : `n:${n.id}`, toTime(n.scheduledFor));
+  }
+  for (const d of decisions) {
+    if (String(d.status) !== 'DECIDED' || d.outcome) continue;
+    const at = toTime(d.reviewAt);
+    if (at !== null && at <= t) note(`d:${d.id}`, at);
+  }
+  const oldest = [...due.values()].reduce<number | null>((acc, s) => (s === null ? acc : acc === null ? s : Math.min(acc, s)), null);
   const days = oldest === null ? 0 : Math.max(0, Math.floor((t - oldest) / 86_400_000));
+  const count = due.size;
   return {
-    value: String(open.length),
-    numeric: open.length,
-    hint: open.length === 0 ? 'all outcomes reviewed' : days > 0 ? `oldest waiting ${days} d` : 'due today',
-    tone: open.length === 0 ? 'success' : days >= 7 ? 'danger' : 'warning',
+    value: String(count),
+    numeric: count,
+    hint: count === 0 ? 'none due' : days > 0 ? `oldest waiting ${days} d` : 'due today',
+    tone: count === 0 ? 'success' : days >= 7 ? 'danger' : 'warning',
   };
 }
 
@@ -137,13 +157,15 @@ export function CockpitRow({ isAdmin, now }: CockpitRowProps) {
   const memories = useVizSlice('memories');
   const commitments = useVizSlice('commitments');
   const reviews = useVizSlice('pendingReviews');
+  // Already loaded by the shell (Layout fetches decisions on mount): no extra request.
+  const knownDecisions = useEntitiesStore((s) => s.decisions);
   const usage = useVizSlice('usage', isAdmin);
   const decisions = useVizSlice('decisions', !isAdmin || usage.error !== null);
 
   const t = now ?? Date.now();
   const mem = useMemo(() => (memories.data ? memoriesTile(memories.data, t) : null), [memories.data, t]);
   const com = useMemo(() => (commitments.data ? commitmentsTile(commitments.data, t) : null), [commitments.data, t]);
-  const rev = useMemo(() => (reviews.data ? reviewsTile(reviews.data, t) : null), [reviews.data, t]);
+  const rev = useMemo(() => (reviews.data ? reviewsTile(reviews.data, t, knownDecisions) : null), [reviews.data, t, knownDecisions]);
   const showSpend = isAdmin && usage.error === null;
   const spend = useMemo(() => (showSpend && usage.data ? spendTile(usage.data, t) : null), [showSpend, usage.data, t]);
   const dec = useMemo(() => (!showSpend && decisions.data ? decisionsTile(decisions.data, t) : null), [showSpend, decisions.data, t]);

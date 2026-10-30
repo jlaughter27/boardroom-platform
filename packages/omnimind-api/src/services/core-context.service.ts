@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
-import { estimateTokens } from '@boardroom/shared';
+import { estimateTokens, isMinistryDomain, isMinistryTenant } from '@boardroom/shared';
 import type { CoreContextResponse, LoadSnapshot } from '@boardroom/shared';
 import { logger } from '../lib/logger';
 import { computeLoad, loadLoadInput, renderLoadSection } from './load.service';
@@ -22,6 +22,13 @@ import { computeLoad, loadLoadInput, renderLoadSection } from './load.service';
  * omitted for tenant-scoped callers (entity tables carry no tenantId until
  * M1-B4) and omitted when the load computation fails (fail-open). A block
  * without the load section is byte-identical to the pre-RD-11 output.
+ *
+ * Safety (2026-10-30): ministry rows never reach the block in any spelling
+ * (M2 — constraint memories, goals, linked projects, commitments and
+ * delegations tied to a ministry project or person, load pause candidates),
+ * and every user-controlled string is collapsed to one line and capped (M3 —
+ * `oneLine`), so a title cannot fake a `## Profile` section or close the
+ * block. Strings without control characters render byte-identically.
  *
  * Cached in-process for 60 s per (user, tenant); `invalidateCoreContext(userId)`
  * drops every tenant variant and is called from the goal / project / task /
@@ -67,10 +74,43 @@ export interface CoreContextInput {
   constraints: string[];
   /** RD-11 — load snapshot; absent/null for tenant-scoped callers or when the computation failed. */
   load?: LoadSnapshot | null;
+  /** RD-12 — open delegations (others owe the user); section emitted only when non-empty. */
+  delegations?: CoreContextCommitment[];
 }
 
 const ymd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
+
+/** M3 — longest user string rendered into the block (code points). */
+export const CORE_CONTEXT_MAX_STRING_CHARS = 200;
+/** C0/C1 controls (incl. \t \r \n), DEL and the Unicode line/paragraph separators. */
+const CONTROL_RUN_RE = /[\s\u0000-\u001f\u007f-\u009f\u2028\u2029]*[\u0000-\u001f\u007f-\u009f\u2028\u2029][\s\u0000-\u001f\u007f-\u009f\u2028\u2029]*/g;
+
+/**
+ * M3 — one line, capped. Any whitespace run that contains a control character
+ * or line separator becomes a single space (so embedded newlines cannot start
+ * a fake `## Profile` heading or a `</core-context>` line), and the result is
+ * capped at 200 code points with a trailing `…`. A string with no control
+ * characters and ≤ 200 code points is returned unchanged (byte-identical
+ * blocks, prefix cache stable).
+ */
+export function oneLine(value: string, max: number = CORE_CONTEXT_MAX_STRING_CHARS): string {
+  const cleaned = value.replace(CONTROL_RUN_RE, ' ');
+  const out = cleaned === value ? value : cleaned.trim();
+  const chars = Array.from(out);
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : out;
+}
+
+/** M2 — the configured ministry tenant (same env var decision.service reads). */
+const inMinistryTenant = (tenantId: string | null | undefined): boolean =>
+  isMinistryTenant(tenantId, process.env.OMNIMIND_MINISTRY_TENANT_ID || undefined);
+
+/** M2 — a commitment tied to a ministry project or a ministry person is ministry data. */
+const isMinistryCommitment = (c: { project?: { domain: string | null } | null; stakeholder?: { domains?: string[] | null } | null }): boolean =>
+  (!!c.project && isMinistryDomain(c.project.domain)) || (c.stakeholder?.domains ?? []).some(d => isMinistryDomain(d));
 const byTitle = <T extends { title: string; id: string }>(a: T, b: T) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+/** RD-12 — the same ordering the commitments section uses (deadline, description, id). */
+const compareCommitments = (a: CoreContextCommitment, b: CoreContextCommitment) =>
+  (a.deadline ?? '9999-99-99').localeCompare(b.deadline ?? '9999-99-99') || a.description.localeCompare(b.description) || a.id.localeCompare(b.id);
 
 /**
  * Pure renderer. Same input → same string. Exported for unit tests.
@@ -82,12 +122,12 @@ export function renderCoreBlock(input: CoreContextInput): string {
   if (input.profile) {
     const p = input.profile;
     const entries: Array<[string, string]> = [];
-    if (p.role) entries.push(['role', p.role]);
-    if (p.industry) entries.push(['industry', p.industry]);
-    if (p.decisionFrequency) entries.push(['decision_frequency', p.decisionFrequency]);
-    const risk = Object.keys(p.riskProfile).sort().map(k => `${k}=${Number(p.riskProfile[k]).toFixed(2)}`);
+    if (p.role) entries.push(['role', oneLine(p.role)]);
+    if (p.industry) entries.push(['industry', oneLine(p.industry)]);
+    if (p.decisionFrequency) entries.push(['decision_frequency', oneLine(p.decisionFrequency)]);
+    const risk = Object.keys(p.riskProfile).sort().map(k => `${oneLine(k)}=${Number(p.riskProfile[k]).toFixed(2)}`);
     if (risk.length > 0) entries.push(['risk_profile', risk.join(', ')]);
-    if (p.valueHierarchy.length > 0) entries.push(['values', p.valueHierarchy.join(' > ')]);
+    if (p.valueHierarchy.length > 0) entries.push(['values', p.valueHierarchy.map(v => oneLine(v)).join(' > ')]);
     entries.sort((a, b) => a[0].localeCompare(b[0]));
     if (entries.length === 0) lines.push('- (no profile details yet)');
     for (const [k, v] of entries) lines.push(`- ${k}: ${v}`);
@@ -100,10 +140,10 @@ export function renderCoreBlock(input: CoreContextInput): string {
   if (goals.length === 0) lines.push('- (none)');
   for (const g of goals) {
     const meta: string[] = [`level ${g.level}`];
-    if (g.domain) meta.push(g.domain);
+    if (g.domain) meta.push(oneLine(g.domain));
     if (g.deadline) meta.push(`due ${g.deadline}`);
-    lines.push(`- ${g.title} (${meta.join(', ')})`);
-    const projects = [...g.projects].sort((a, b) => a.localeCompare(b));
+    lines.push(`- ${oneLine(g.title)} (${meta.join(', ')})`);
+    const projects = g.projects.map(t => oneLine(t)).sort((a, b) => a.localeCompare(b));
     if (projects.length > 0) lines.push(`  - projects: ${projects.join('; ')}`);
   }
 
@@ -113,13 +153,28 @@ export function renderCoreBlock(input: CoreContextInput): string {
   );
   if (commitments.length === 0) lines.push('- (none)');
   for (const c of commitments) {
-    const who = c.personName ? ` to ${c.personName}` : '';
+    const description = oneLine(c.description);
+    const personName = c.personName ? oneLine(c.personName) : c.personName;
+    // Skip the counterparty when the description already names them ("Deliver the brief to Marco" + Marco Ruiz).
+    const first = personName?.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    const named = first.length > 1 && new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(description);
+    const who = personName && !named ? ` to ${personName}` : '';
     const due = c.deadline ? ` — due ${c.deadline}` : '';
-    lines.push(`- ${c.description}${who}${due}`);
+    lines.push(`- ${description}${who}${due}`);
+  }
+
+  // RD-12 — "waiting on", never "to". Omitted entirely when empty so a
+  // no-delegation block stays byte-identical (prefix-cache stable).
+  const delegations = [...(input.delegations ?? [])].sort(compareCommitments);
+  if (delegations.length > 0) {
+    lines.push('', `## Waiting on others (due within ${CORE_CONTEXT_COMMITMENT_HORIZON_DAYS} days)`);
+    for (const d of delegations) {
+      lines.push(`- ${d.personName ? oneLine(d.personName) : 'someone'}: ${oneLine(d.description)}${d.deadline ? ` — due ${d.deadline}` : ''}`);
+    }
   }
 
   lines.push('', '## Standing constraints');
-  const constraints = [...new Set(input.constraints.map(s => s.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const constraints = [...new Set(input.constraints.map(s => oneLine(s.trim())).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   if (constraints.length === 0) lines.push('- (none recorded)');
   for (const c of constraints) lines.push(`- ${c}`);
 
@@ -137,6 +192,14 @@ export interface CoreContextOptions {
   /** R-O-05: agent tenant — constraint memories are scoped to it when present. */
   tenantId?: string;
 }
+
+const CONSTRAINT_LIMIT = 10;
+const CONSTRAINT_SCAN_TAKE = 30;
+/** M2 — the same include for both commitment queries: counterparty name + domains, linked project domain. */
+const COMMITMENT_INCLUDE = {
+  stakeholder: { select: { name: true, domains: true } },
+  project: { select: { domain: true } },
+} as const;
 
 export async function loadCoreContextInput(
   userId: string,
@@ -156,30 +219,39 @@ export async function loadCoreContextInput(
           return null;
         });
 
-  const [profile, goals, commitments, constraintMemories, load] = await Promise.all([
+  const [profile, goals, commitments, constraintMemories, load, delegations] = await Promise.all([
     prisma.userProfile.findUnique({ where: { userId } }),
     prisma.goal.findMany({
       where: { userId, deletedAt: null, status: 'active', level: { lte: 1 } },
-      include: { projectLinks: { include: { project: { select: { title: true, deletedAt: true, status: true } } } } },
+      include: { projectLinks: { include: { project: { select: { title: true, deletedAt: true, status: true, domain: true } } } } },
       orderBy: [{ level: 'asc' }, { title: 'asc' }],
       take: CORE_CONTEXT_MAX_GOALS * 2, // over-fetch; renderer sorts + slices deterministically
     }),
     prisma.commitment.findMany({
-      where: { userId, deletedAt: null, status: 'OPEN', deadline: { not: null, lte: horizon } },
-      include: { stakeholder: { select: { name: true } } },
+      where: { userId, deletedAt: null, status: 'OPEN', deadline: { not: null, lte: horizon }, owedBy: 'USER' },
+      include: COMMITMENT_INCLUDE,
       orderBy: { deadline: 'asc' },
       take: 20,
     }),
     prisma.memoryEntry.findMany({
       where: {
-        userId, deletedAt: null, status: { not: 'ARCHIVED' }, tags: { has: 'constraint' }, invalidAt: null, domain: { not: 'ministry' },
+        userId, deletedAt: null, status: { not: 'ARCHIVED' }, tags: { has: 'constraint' }, invalidAt: null,
+        // M2: case-insensitive here; lookalike / sub-domain / ministry-tenant rows are dropped below.
+        NOT: { domain: { equals: 'ministry', mode: 'insensitive' } },
         ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
       },
-      select: { title: true },
+      select: { title: true, domain: true, tenantId: true },
       orderBy: { title: 'asc' },
-      take: 10,
+      take: CONSTRAINT_SCAN_TAKE, // over-fetch; the ministry post-filter then keeps the first 10
     }),
     loadPromise,
+    // RD-12 — delegations: same window, own cap, own section.
+    prisma.commitment.findMany({
+      where: { userId, deletedAt: null, status: 'OPEN', deadline: { not: null, lte: horizon }, owedBy: 'STAKEHOLDER' },
+      include: COMMITMENT_INCLUDE,
+      orderBy: { deadline: 'asc' },
+      take: 5,
+    }),
   ]);
 
   const riskProfile = (profile?.riskProfile && typeof profile.riskProfile === 'object' && !Array.isArray(profile.riskProfile))
@@ -196,7 +268,7 @@ export async function loadCoreContextInput(
           valueHierarchy: profile.valueHierarchy,
         }
       : null,
-    goals: goals.map(g => ({
+    goals: goals.filter(g => !isMinistryDomain(g.domain)).map(g => ({
       id: g.id,
       title: g.title,
       level: g.level,
@@ -204,17 +276,26 @@ export async function loadCoreContextInput(
       deadline: ymd(g.deadline),
       domain: g.domain,
       projects: g.projectLinks
-        .filter(l => !l.project.deletedAt && l.project.status !== 'archived')
+        .filter(l => !l.project.deletedAt && l.project.status !== 'archived' && !isMinistryDomain(l.project.domain))
         .map(l => l.project.title),
     })),
-    commitments: commitments.map(c => ({
+    commitments: commitments.filter(c => !isMinistryCommitment(c)).map(c => ({
       id: c.id,
       description: c.description,
       deadline: ymd(c.deadline),
       personName: c.stakeholder?.name ?? null,
     })),
-    constraints: constraintMemories.map(m => m.title),
+    constraints: constraintMemories
+      .filter(m => !isMinistryDomain(m.domain) && !inMinistryTenant(m.tenantId))
+      .slice(0, CONSTRAINT_LIMIT)
+      .map(m => m.title),
     load,
+    delegations: (delegations ?? []).filter(c => !isMinistryCommitment(c)).map(c => ({
+      id: c.id,
+      description: c.description,
+      deadline: ymd(c.deadline),
+      personName: c.stakeholder?.name ?? null,
+    })),
   };
 }
 

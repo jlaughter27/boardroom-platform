@@ -45,7 +45,7 @@ The middleware stack in `packages/boardroom-ai/server/src/index.ts` has a strict
 ### The sequence (do not reorder):
 
 ```
-0. app.set('trust proxy', 1)  — before anything reads req.ip
+0. app.set('trust proxy', resolveTrustProxy())  — before anything reads req.ip (TRUST_PROXY_HOPS; 1 in production)
 1. Global middleware (helmet, CORS, **Stripe webhook with express.raw()**, JSON parser, cookie parser)
 2. API prefix rewriting (/api/* → /*)
 3. Public BROWSER-NAVIGATED GETs: /health + both OAuth callbacks (direct handlers)
@@ -71,6 +71,8 @@ The stack lives in `server/src/app.ts` (`createApp()`); `index.ts` only calls it
 **OAuth callbacks as direct handlers:** `app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback)` — not `app.get(path, router)`, which hands the router the unstripped URL and never matches (B-107).
 
 **OAuth callbacks (and /health) BEFORE the SPA fallback (step 3 above step 4):** Google redirects the user's *browser* to `/calendar/callback?code=…&state=…` with `Accept: text/html`. That is exactly what the SPA predicate matches (GET, not `/api/`, prefers HTML), so when the callbacks were registered *below* the `app.get('*')` fallback the handler never ran, the user saw the SPA shell, and the OAuth token was never stored (review finding R-B-02). Any public route a browser *navigates* to (not `fetch()`es) must be registered above the fallback; fetch-driven public routes (`/auth/*`) can stay below it because they send a JSON Accept. The auth wall stays below both. `app-middleware-order.test.ts` sends the callbacks with a real browser Accept header and asserts they reach the handler (400 invalid state), not index.html.
+
+**`trust proxy` = exactly the hops really in front (step 0):** `lib/trust-proxy.ts` reads `TRUST_PROXY_HOPS` — unset means `1` in production (Railway's single edge, which appends the real client as the right-most `X-Forwarded-For` entry) and off everywhere else. Never set it to `true` (trusts every hop = the client-written left-most entry) or a count larger than the real proxy chain: the login/register limiters key on `req.ip`, and a trusted hop that is not a real proxy lets the caller choose a fresh bucket per request by rotating `X-Forwarded-For` (lane G item 2). `0` = socket peer only (with Railway in front that collapses everyone into one bucket — B-104). Covered by `tests/integration/trust-proxy-login-limiter.test.ts`.
 
 **Cookie parser BEFORE auth middleware:** Auth reads JWT from `req.cookies.boardroom_token`. Without cookie parser running first, `req.cookies` is undefined.
 
@@ -131,6 +133,10 @@ Currently set to the **public** Railway domain (`https://omnimind-api-production
 
 The cookie name `boardroom_token` appears in auth middleware and the login/logout handlers. If you change it in one place but not others, auth silently breaks (no error, just 401 on every request).
 
+### Logout revocation is in-process (single instance only)
+
+Every BoardRoom JWT carries a random `jti`. `POST /auth/logout` clears the cookie **and** calls `revokeToken()`, which records the `jti` (or `sha256(token)` for tokens issued before the `jti` existed) in an in-memory map until the token's own `exp`; `verifyToken()` — used by `authMiddleware`, `optionalAuthMiddleware` and the OAuth callbacks — refuses anything on that list. Two consequences: (1) **a restart / redeploy forgets the list**, so a token logged out before the deploy authenticates again until its 7-day expiry; (2) **a second BoardRoom replica would not see the other's revocations** — scaling past one instance (known limitation #7) needs the list moved to OmniMind first. Logout revokes only the presented token, not the user's other sessions. Exposure window is the 7-day `TOKEN_EXPIRY` in `middleware/auth.ts`; shortening it trades re-login friction for a smaller post-restart window (no refresh tokens exist, so a shorter expiry means users are logged out sooner).
+
 ### Service-to-service auth uses timing-safe comparison
 
 OmniMind's API key check uses `crypto.timingSafeEqual` to prevent timing attacks. Don't replace this with `===` string comparison.
@@ -190,7 +196,7 @@ With `OMNIMIND_MCP_TOKEN_AUTH=true` (or an OAuth issuer) the process identity is
 - `delegated-user-isolation.ts` pins `x-user-id` to the principal's user; a tool argument naming another user is refused.
 - Token minting is gated by `tenants.owner_user_id` — unset owners mean "No tenant is assigned to your account yet" in Settings and `403` from `POST /mcp/tokens`.
 
-Legacy static-bearer mode (`OMNIMIND_MCP_API_KEY`) still binds every caller to the one process identity (whose own `omk_` key is `OMNIMIND_MCP_STATIC_AGENT_KEY`; the gateway key is never used for static callers) — never expose it on a shared URL. The server exits 1 when none of static bearer / token auth / OAuth issuer is configured; keep it that way. A request with no credential gets `401` `{"error":"unauthorized"}`, a bad credential `401` `{"error":"invalid_token"}` (the reason is logged, never returned), and 30 failures per minute from one IP get `429` — keyed on `X-Forwarded-For` only when `OMNIMIND_MCP_TRUST_PROXY=true`, which Railway needs or one bad token locks every client out.
+Legacy static-bearer mode (`OMNIMIND_MCP_API_KEY`) still binds every caller to the one process identity (whose own `omk_` key is `OMNIMIND_MCP_STATIC_AGENT_KEY`; the gateway key is never used for static callers) — never expose it on a shared URL. The server exits 1 when none of static bearer / token auth / OAuth issuer is configured; keep it that way. A request with no credential gets `401` `{"error":"unauthorized"}`, a bad credential `401` `{"error":"invalid_token"}` (the reason is logged, never returned), and 30 failures per minute from one IP get `429` — keyed on `X-Forwarded-For` only when `OMNIMIND_MCP_TRUST_PROXY=true`, which Railway needs or one bad token locks every client out. With the flag on, only the **right-most** XFF entry is used (`clientIpOf` in `src/lib/rate-limit.ts`) — the one Railway's single edge appends from the real peer — so a client-written XFF prefix cannot rotate its bucket; this is exactly one trusted hop, the same rule as BoardRoom's `TRUST_PROXY_HOPS=1`. Per-IP is deliberate for *unauthenticated* failures (there is no identity to key on yet; a per-token key would let one IP spray unlimited bogus tokens). The flag must stay off wherever the service is reachable without that edge in front, or the right-most entry is client-written too (lane G item 6 review, 2026-10-30: by design, no code change).
 
 ### PRM path, `/mcp` path and 401 shape
 
@@ -209,6 +215,7 @@ The MCP endpoint is **`https://<mcp-host>/mcp`** — that is what `OMNIMIND_MCP_
 | Browser-navigated public GETs (`/health`, OAuth callbacks) | Must be registered ABOVE the SPA fallback (step 3), or Google's redirect gets index.html (R-B-02) |
 | `abortOnClose()` in `sessions.routes.ts` | Listens on `res.on('close')`, never `req.on('close')` — the request emits `close` as soon as express.json() drains the body (R-B-01) |
 | Cookie name `boardroom_token` | Grep all usages before changing |
+| `TRUST_PROXY_HOPS` (boardroom-ai) | Default 1 in production, off elsewhere; integer only — never `true`, never more hops than real proxies, or `X-Forwarded-For` rotates the login rate-limit key |
 | `OMNIMIND_API_KEY` | Must match in both services |
 | Shared package `composite: true` | Required for project references |
 | `OMNIMIND_MCP_ALLOWED_HOSTS` (omnimind-mcp) | Exact bare public host; `/health` passes regardless, so a green deploy can still 403 every client |
