@@ -45,6 +45,17 @@ function DashboardSkeleton() {
   );
 }
 
+/**
+ * "You haven't run a decision analysis in 7+ days": only for someone who has
+ * decided before. A brand-new account (zero decisions ever, or the list still
+ * loading) is not "7+ days" behind on anything.
+ */
+export function decisionNudgeDue(decisions: ReadonlyArray<{ createdAt: Date | string }>, now: number = Date.now()): boolean {
+  if (decisions.length === 0) return false;
+  const last = Math.max(...decisions.map((d) => new Date(d.createdAt).getTime()));
+  return Math.floor((now - last) / 86_400_000) >= 7;
+}
+
 export default function DashboardPage() {
   const { visibleWidgets, widgets, isLoading, updateLayout, resetToDefault } =
     useWidgetLayout();
@@ -61,13 +72,7 @@ export default function DashboardPage() {
   const firstName = user?.name?.split(' ')[0] ?? 'there';
 
   // Nudge: no decisions in 7+ days
-  const lastDecisionDate = decisions.length > 0
-    ? Math.max(...decisions.map((d) => new Date(d.createdAt).getTime()))
-    : 0;
-  const daysSinceLastDecision = lastDecisionDate
-    ? Math.floor((Date.now() - lastDecisionDate) / (1000 * 60 * 60 * 24))
-    : Infinity;
-  const showDecisionNudge = daysSinceLastDecision >= 7;
+  const showDecisionNudge = decisionNudgeDue(decisions);
 
   // Nudge: weekly memo available today
   const memoIsToday = latestMemo

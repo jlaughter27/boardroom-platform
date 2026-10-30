@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useMemoryStore } from '../../stores/memory.store';
 import { MemoryCard } from './MemoryCard';
 import { preloadMemoryMarkdown } from './memory-markdown-loader';
+import { focusOpenedMemory } from './use-memory-wikilinks';
 
 function SkeletonCard() {
   return (
@@ -59,7 +60,7 @@ export function MemoryList() {
           key={memory.id}
           memory={memory}
           isSelected={selectedMemory?.id === memory.id}
-          onClick={() => select(memory.id)}
+          onClick={() => { select(memory.id); focusOpenedMemory(); }}
           score={hybridActive ? scores[memory.id] : undefined}
           layers={hybridActive ? layers[memory.id] : undefined}
         />

@@ -336,4 +336,25 @@ describe('<ConnectedToolsPanel />', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByTestId('mcp-token-row-tok_1')).toBeInTheDocument();
   });
+
+  it('keyboard: New token puts focus on the first field, the created token takes focus next, Done/Cancel return it to New token (UI e2e L4)', async () => {
+    arrange([]);
+    vi.mocked(api.createMcpToken).mockResolvedValue({ token: 'omt_abcd1234_RAWSECRET', record: record() });
+    const form = await openForm();
+    await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText('AI client')));
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Create token' }));
+    const created = await screen.findByTestId('mcp-token-created');
+    await waitFor(() => expect(document.activeElement).toBe(created));
+    expect(created).toHaveAttribute('tabindex', '-1');
+    expect(created).toHaveAccessibleName(/shown once and cannot be retrieved again/);
+
+    fireEvent.click(within(created).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New token' })));
+
+    // Cancel on a fresh form also hands focus back instead of dropping it on <body>.
+    const again = await clickNewToken();
+    fireEvent.click(within(again).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New token' })));
+  });
 });

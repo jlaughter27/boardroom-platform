@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { PageWrapper, PageHeader, Button, Skeleton } from '../components/ui';
+import { PageWrapper, PageHeader, Button, Skeleton, ScrollRow } from '../components/ui';
 import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn } from '../lib/motion';
 import * as api from '../lib/api';
@@ -492,13 +492,15 @@ export default function AdminPage() {
       <motion.div {...fadeIn} className="p-6 h-full flex flex-col min-h-0">
         <PageHeader title="Admin" subtitle="MCP memory layer overview — cross-agent, cross-tenant." />
 
-        {/* Tab bar */}
-        <div className="flex gap-1 border-b border-border mb-5">
+        {/* Tab bar — scrolls inside its own row on a phone (fade on the edge with more),
+            never the page. The hairline is an inset shadow so the 2 px active bar covers it
+            without overflowing the scroll box. */}
+        <ScrollRow className="gap-1 mb-5 shrink-0 shadow-[inset_0_-1px_0_var(--color-border)]" data-testid="admin-tabs">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 tab === id
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -507,7 +509,7 @@ export default function AdminPage() {
               {label}
             </button>
           ))}
-        </div>
+        </ScrollRow>
 
         <div className="flex-1 overflow-y-auto min-h-0">
           {tab === 'overview' && <OverviewTab />}

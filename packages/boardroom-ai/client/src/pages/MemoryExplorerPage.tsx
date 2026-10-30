@@ -68,7 +68,7 @@ export default function MemoryExplorerPage() {
 
           {/* Right panel: detail (45%) */}
           <div className="w-full lg:w-[45%] min-h-0">
-            <div className="bg-card border border-border rounded-lg p-4 h-full overflow-y-auto sticky top-0">
+            <div className="bg-card border border-border rounded-lg p-4 h-full overflow-y-auto sticky top-0 scroll-mt-4" data-memory-panel>
               {selectedMemory ? (
                 <motion.div {...slideIn} key={selectedMemory.id}>
                   <div className="flex items-center justify-between mb-3">

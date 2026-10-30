@@ -9,6 +9,7 @@ export { Menu, type MenuEntry, type MenuItemDef, type MenuSeparatorDef } from '.
 export { Avatar } from './Avatar';
 export { Progress } from './Progress';
 export { Tabs } from './Tabs';
+export { ScrollRow } from './ScrollRow';
 export { Select } from './Select';
 export { Switch } from './Switch';
 export { Slider } from './Slider';

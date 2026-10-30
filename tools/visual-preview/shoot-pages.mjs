@@ -180,14 +180,58 @@ const noDisplacement = [
   { assert: `!document.querySelector('${DISP}') && ![...document.querySelectorAll('button')].some((b) => b.textContent.includes('What this displaces'))`, message: 'a pre-RD-11 report rendered a "What this displaces" section' },
 ];
 
+// UI e2e L4 (lane E). The dashboard's chart table twins used to widen the main pane
+// (34–50 px at 1440, 94–177 px at 390): the page must not scroll sideways once the
+// charts are in. The Decision Lab filter row and the Admin tabs must fit a phone
+// (wrap, or scroll inside their own row with a fade on the edge that has more).
+const MAIN_NO_OVERFLOW = { noOverflowX: ['#main-content'] };
+const decisionLabFits = [
+  { wait: '[data-testid="decision-filter-row"]', timeout: 20000 },
+  { evaluate: 'document.querySelector("[data-testid=decision-filter-row]").scrollIntoView({ block: "center" })' }, { sleep: 400 }, MAIN_NO_OVERFLOW,
+  { assert: '(() => { const r = document.querySelector("[data-testid=decision-filter-row]").getBoundingClientRect(); return r.right <= document.documentElement.clientWidth; })()', message: 'the Decision Lab filter row runs past the viewport' },
+];
+const adminTabsScroll = [
+  { wait: '[data-testid="admin-tabs"]' }, { sleep: 600 }, MAIN_NO_OVERFLOW,
+  { assert: '(() => { const r = document.querySelector("[data-testid=admin-tabs]"); return r.scrollWidth > r.clientWidth && r.hasAttribute("data-more-end"); })()', message: 'the Admin tabs do not scroll inside their own row with a trailing fade at 390 px' },
+];
+// Tap a memory on a phone: the detail (stacked under the list) scrolls into view and its title takes focus.
+const tapMemoryMobile = [
+  { wait: '[aria-label="Search memories"]' },
+  { type: { selector: '[aria-label="Search memories"]', text: 'pricing playbook' } },
+  { wait: 'button:has(h3:text-is("Pricing playbook"))' },
+  { click: 'button:has(h3:text-is("Pricing playbook"))' },
+  { wait: '[data-memory-title]:text-is("Pricing playbook")' },
+  { sleep: 700 },
+  { assert: 'document.activeElement && document.activeElement.hasAttribute("data-memory-title")', message: 'focus did not move to the opened memory title' },
+  { assert: '(() => { const r = document.querySelector("[data-memory-panel]").getBoundingClientRect(); const m = document.querySelector("#main-content").getBoundingClientRect(); return r.top >= m.top - 1 && r.top < m.top + 80; })()', message: 'the memory detail panel was not scrolled to the top of the pane' },
+];
+// A toast fired from inside the Delegate sheet ("Copy only") must not cover the sheet's
+// footer (Copy & record / Retry): the toast stack moves beside (1440) or above (390) it.
+const DELEGATE = '[data-testid="delegate-dialog"]';
+const delegateToastClear = [
+  { wait: '[data-testid="synthesis-panel"] button[aria-label^="Delegate:"]', timeout: 20000 },
+  { click: '[data-testid="synthesis-panel"] button[aria-label^="Delegate:"]' },
+  { wait: DELEGATE }, { sleep: 400 },
+  { click: `${DELEGATE} ul[aria-label="People"] button:has-text("Sam Ortiz")` },
+  { sleep: 300 },
+  { evaluate: `(() => { const body = document.querySelector('${DELEGATE}').parentElement; body.scrollTop = body.scrollHeight; })()` },
+  { sleep: 300 },
+  { click: `${DELEGATE} button:has-text("Copy only")` },
+  { wait: '[role="status"]' },
+  { sleep: 700 },
+  { assert: '(() => { const t = document.querySelector("[data-testid=toaster]"); return t && t.dataset.placement !== "corner"; })()', message: 'the toaster stayed in the corner with a sheet open' },
+  { assert: '(() => { const toast = document.querySelector("[role=status]").getBoundingClientRect(); const d = document.querySelector("[role=dialog][aria-modal=true]"); const p = document.querySelector("[data-testid=delegate-primary]").getBoundingClientRect(); const overlapsFooter = !(toast.right <= p.left || toast.left >= p.right || toast.bottom <= p.top || toast.top >= p.bottom); const hit = document.elementFromPoint(p.left + p.width / 2, p.top + p.height / 2); return !!d && !overlapsFooter && !!hit && !!hit.closest("[data-testid=delegate-primary]"); })()', message: 'a toast covers the Delegate footer (Copy & record)' },
+];
+
 // ── Page sets ─────────────────────────────────────────────────────────────────
 export function pageSets({ legacy = false } = {}) {
   const dash = legacy ? waitLegacyDashboard : waitDashboard;
   const graph = (name) => DEFAULT_PAGES.find((p) => p.name === name);
 
   const desktop = [
-    { name: 'dashboard', path: '/', actions: [...dash, ...settle] },
+    { name: 'dashboard', path: '/', actions: [...dash, ...settle, ...(legacy ? [] : [MAIN_NO_OVERFLOW])] },
     ...(legacy ? [] : [{ name: 'profile-unavailable', path: '/?state=profile-unavailable', actions: profileUnavailable }]),
+    ...(legacy ? [] : [{ name: 'delegate-toast-clear', path: '/decisions/s-delegate', actions: delegateToastClear }]),
     {
       name: 'dashboard-scrolled', path: '/',
       actions: [...dash, ...scrollUnderHeader, ...(legacy ? [] : [{ assert: '!!document.querySelector("header[data-scrolled]")', message: 'header did not flip data-scrolled after scrolling' }])],
@@ -260,8 +304,14 @@ export function pageSets({ legacy = false } = {}) {
   ];
 
   const mobile = [
-    { name: 'dashboard-mobile', path: '/', actions: [...dash, ...settle] },
+    { name: 'dashboard-mobile', path: '/', actions: [...dash, ...settle, ...(legacy ? [] : [MAIN_NO_OVERFLOW])] },
     ...(legacy ? [] : [{ name: 'profile-unavailable-mobile', path: '/?state=profile-unavailable', actions: profileUnavailable }]),
+    ...(legacy ? [] : [
+      { name: 'decision-lab-mobile', path: '/decisions', actions: decisionLabFits },
+      { name: 'admin-tabs-mobile', path: '/admin', actions: adminTabsScroll },
+      { name: 'memory-tap-mobile', path: '/memory', actions: tapMemoryMobile },
+      { name: 'delegate-toast-clear-mobile', path: '/decisions/s-delegate', actions: delegateToastClear },
+    ]),
     ...(legacy ? [] : [
       { name: 'decision-session-displacement-mobile', path: '/decisions/s-load', actions: [...showDisplacement(), { noOverflowX: ['#main-content'] }], contrast: DISP_CONTRAST() },
       { name: 'decision-session-displacement-sheet-mobile', path: '/decisions/s-load', actions: openSheetDisplacement, contrast: DISP_CONTRAST('[data-testid="synthesis-sheet-body"] ') },
