@@ -471,7 +471,7 @@ Link a project to a goal (`GoalProjectLink`, idempotent on the unique pair). Bot
 
 ### DELETE /goals/:goalId/projects/:projectId
 
-Remove the link. **204**.
+Remove the link. **200** `{ goalId, projectId, status: "unlinked" }` · **404** `not_found` when either entity is missing, soft-deleted or foreign, or there is no such link. (Corrected 2026-10-30, lane H: this said 204, but the route has always answered 200 with this body; the contract follows the code so no consumer that reads the body breaks. The Phase 6 link routes — `/projects/:id/people/:id`, `/projects/:id/decisions/:id`, `/tasks/:id/depends-on/:id` — do answer 204.)
 
 ---
 
@@ -502,7 +502,7 @@ Link a task to a project (`ProjectTaskLink`, idempotent). **201** `{ id, project
 
 ### DELETE /projects/:projectId/tasks/:taskId
 
-Remove the link. **204**.
+Remove the link. **200** `{ projectId, taskId, status: "unlinked" }` · **404** `not_found` when either entity is missing, soft-deleted or foreign, or there is no such link. (Corrected 2026-10-30, lane H: previously documented as 204; see `DELETE /goals/:goalId/projects/:projectId`.)
 
 ### POST /projects/:projectId/people/:personId (Phase 6)
 
