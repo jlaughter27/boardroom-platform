@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
+import { useProfileStore } from './stores/profile.store';
 import { Layout, type ShellOutletContext } from './components/shared/Layout';
 import { LoadingSpinner } from './components/shared/LoadingSpinner';
 import { Toaster } from './components/ui/Toast';
@@ -8,7 +9,6 @@ import { TooltipProvider } from './components/ui/Tooltip';
 import { RouteTransitionArmer } from './hooks/useRouteTransition';
 
 const CommandPalette = lazy(() => import('./components/ui/CommandPalette').then(m => ({ default: m.CommandPalette })));
-import * as api from './lib/api';
 import { ApiError } from './lib/api';
 import { TriangleAlert } from 'lucide-react';
 import { Button } from './components/ui/Button';
@@ -89,7 +89,9 @@ export function OnboardingGate() {
 
   useEffect(() => {
     let cancelled = false;
-    api.getUserProfile()
+    // Always fresh (force): an onboarding that just finished must not be judged on
+    // a cached profile. This also primes the shared profile the dashboard reads (M2-C1).
+    useProfileStore.getState().load({ force: true })
       .then((profile) => {
         if (cancelled) return;
         setState(!profile || !profile.onboardingComplete ? { status: 'onboarding' } : { status: 'ready' });

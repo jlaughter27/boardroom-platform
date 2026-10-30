@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useCortexStore } from '../stores/cortex.store';
 import { useNotificationStore } from '../stores/notification.store';
 import { useCognitiveLoad } from './useCognitiveLoad';
-import * as api from '../lib/api';
+import { useVizStore } from '../stores/viz.store';
 
 export function useNotificationAggregator() {
   const contradictions = useCortexStore((s) => s.contradictions);
@@ -68,8 +68,10 @@ export function useNotificationAggregator() {
   useEffect(() => {
     if (fetchedReviews.current) return;
     fetchedReviews.current = true;
-    api.getPendingReviews().then((reviews) => {
-      for (const r of reviews) {
+    // Through the shared dashboard slice: the banner and the cockpit read the
+    // same request (M2-C1). `load` resolves null on failure (best-effort).
+    void useVizStore.getState().load('pendingReviews').then((reviews) => {
+      for (const r of reviews ?? []) {
         addNotification({
           type: 'outcome_review',
           title: 'Outcome Review Due',
@@ -80,8 +82,6 @@ export function useNotificationAggregator() {
           entityId: r.id,
         });
       }
-    }).catch(() => {
-      // Silently ignore — reviews are best-effort
     });
   }, [addNotification]);
 

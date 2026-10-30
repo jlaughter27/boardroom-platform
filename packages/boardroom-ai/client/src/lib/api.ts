@@ -49,7 +49,38 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
+/**
+ * Identical GETs in flight right now, keyed by full URL (M2-C1: one dashboard
+ * load asked for the same list from several widgets at once). Entries are
+ * removed when the request settles, so this never caches and a failure never
+ * outlives its own request.
+ */
+const inflightGets = new Map<string, Promise<unknown>>();
+
+/** Each joined caller gets its own copy, so one mutating its result cannot change another's. */
+function copyJson<T>(value: T): T {
+  if (value === undefined || value === null || typeof value !== 'object') return value;
+  return typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Only plain GETs coalesce: no body, no custom headers and no AbortSignal (one
+ * caller aborting must not cancel another's request).
+ */
+function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' || options.body != null || options.headers || options.signal) return send<T>(path, options);
+  const key = `/api${path}`;
+  const pending = inflightGets.get(key) as Promise<T> | undefined;
+  if (pending) return pending.then(copyJson);
+  const p = send<T>(path, options).finally(() => {
+    if (inflightGets.get(key) === p) inflightGets.delete(key);
+  });
+  inflightGets.set(key, p);
+  return p;
+}
+
+async function send<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
