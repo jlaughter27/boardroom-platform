@@ -78,6 +78,7 @@ An adversarial e2e run turned malformed input into 500s; each class is now a 4xx
 |---|---|
 | Malformed JSON body, or a bare `null` body (strict `express.json`) | **400** `{ error: "invalid_json", message }` |
 | Body over 1 MB | **413** `{ error: "payload_too_large", message }` |
+| Content under 1 MB whose indexed words exceed Postgres' 1 MB tsvector limit (SQLSTATE 54000 `program_limit_exceeded`, e.g. a ~900 KB markdown table of hyphenated tokens) — any write or FTS query (lane F) | **413** `{ error: "payload_too_large", message: "Content is too large to index …" }` |
 | Other body-parser 4xx (unsupported charset / encoding …) | that status, `{ error: "bad_request", message }` |
 | Prisma unique violation (P2002) not handled by the route | **409** `{ error: "conflict", message }` |
 | Prisma foreign-key violation (P2003), e.g. an unknown `sourceSessionId` on `POST /commitments` | **422** `{ error: "invalid_reference", message }` |

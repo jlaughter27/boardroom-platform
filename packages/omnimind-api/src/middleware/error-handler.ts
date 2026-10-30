@@ -39,12 +39,35 @@ interface MappedClientError {
 }
 
 /**
+ * Lane F — Postgres SQLSTATE 54000 (`program_limit_exceeded`), e.g. "string is
+ * too long for tsvector" when a near-1 MB note's lexemes exceed the 1 MB
+ * tsvector limit (the GIN index on `to_tsvector(content)`, or a raw FTS query).
+ * Prisma surfaces it as `PrismaClientUnknownRequestError` (model queries: the
+ * connector message carries `code: "54000"`) or as `PrismaClientKnownRequestError`
+ * P2010 with `meta.code === '54000'` (raw queries). The input is too big, not
+ * the server broken.
+ */
+function isProgramLimitExceeded(err: unknown): boolean {
+  const e = err as { name?: unknown; code?: unknown; meta?: { code?: unknown } | null; message?: unknown };
+  if (typeof e?.name !== 'string') return false;
+  if (e.name.startsWith('PrismaClientKnownRequestError')) {
+    return e.code === 'P2010' && e.meta?.code === '54000';
+  }
+  if (e.name.startsWith('PrismaClientUnknownRequestError') && typeof e.message === 'string') {
+    return /code: "54000"/.test(e.message) || /string is too long for tsvector/.test(e.message);
+  }
+  return false;
+}
+
+/**
  * Errors that describe a bad request rather than a server fault:
  *  - body-parser (`express.json`): `entity.too.large` → 413 `payload_too_large`,
  *    `entity.parse.failed` (malformed JSON, or a bare `null` body in strict
  *    mode) → 400 `invalid_json`, any other exposed 4xx → that status.
  *  - Prisma P2002 (unique constraint) → 409 `conflict`;
  *    P2003 (foreign key, e.g. an unknown `sourceSessionId`) → 422 `invalid_reference`.
+ *  - Postgres 54000 (content too large to index, see `isProgramLimitExceeded`)
+ *    → 413 `payload_too_large`.
  * Duck-typed so it holds across Prisma client instances and test doubles.
  */
 export function mapClientError(err: unknown): MappedClientError | null {
@@ -59,6 +82,14 @@ export function mapClientError(err: unknown): MappedClientError | null {
     if (e.expose === true && e.status >= 400 && e.status < 500) {
       return { status: e.status, error: 'bad_request', message: (err as Error).message };
     }
+  }
+  if (isProgramLimitExceeded(err)) {
+    return {
+      status: 413,
+      error: 'payload_too_large',
+      message:
+        'Content is too large to index for full-text search (Postgres limits a document to about 1 MB of indexed words); split it into smaller memories',
+    };
   }
   if (typeof e?.code === 'string' && typeof e.name === 'string' && e.name.startsWith('PrismaClientKnownRequestError')) {
     if (e.code === 'P2002') {
