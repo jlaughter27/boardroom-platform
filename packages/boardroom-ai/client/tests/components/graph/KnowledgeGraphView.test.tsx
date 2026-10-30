@@ -304,7 +304,8 @@ describe('KnowledgeGraphView — communities, legend, hover card, settled flag',
   // tab stop: a toolbar with a roving tabindex, arrows / Home / End move.
   it('the legend is a single tab stop; arrow keys, Home and End move focus between chips', () => {
     const onToggleType = vi.fn();
-    render(<KnowledgeGraphView nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} typeFilter={new Set(['project', 'memory'])} onToggleType={onToggleType} />);
+    const outerKeyDown = vi.fn();
+    render(<div onKeyDown={outerKeyDown}><KnowledgeGraphView nodes={nodes} edges={edges} selectedId={null} onSelect={noop} showLabels={false} typeFilter={new Set(['project', 'memory'])} onToggleType={onToggleType} /></div>);
     const legend = screen.getByTestId('graph-legend');
     expect(legend).toHaveAttribute('role', 'toolbar');
     expect(legend).toHaveAccessibleName('Legend and type filter');
@@ -329,6 +330,9 @@ describe('KnowledgeGraphView — communities, legend, hover card, settled flag',
     expect(document.activeElement).toBe(chips[0]);
     fireEvent.keyDown(chips[0], { key: 'End' });
     expect(document.activeElement).toBe(chips[chips.length - 1]);
+    // Arrow keys in the legend move focus only: they do not bubble on to the
+    // canvas's key handler (which pans the graph on arrows).
+    expect(outerKeyDown).not.toHaveBeenCalled();
     // Toggling still works from the keyboard-focused chip; keys do not toggle.
     expect(onToggleType).not.toHaveBeenCalled();
     fireEvent.click(chips[chips.length - 1]);

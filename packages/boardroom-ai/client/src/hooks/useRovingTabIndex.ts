@@ -20,6 +20,8 @@ export function useRovingTabIndex(count: number) {
     else if (e.key === 'End') next = count - 1;
     if (next === null) return;
     e.preventDefault();
+    // Handled here: an ancestor's key handler (the graph canvas pans on arrows) must not also act.
+    e.stopPropagation();
     setActive(next);
     e.currentTarget.querySelectorAll<HTMLElement>('[data-roving-item]')[next]?.focus();
   }, [count, current]);
