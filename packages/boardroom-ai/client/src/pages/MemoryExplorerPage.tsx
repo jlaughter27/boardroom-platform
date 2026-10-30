@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { motion } from 'motion/react';
+import { useSearchParams } from 'react-router-dom';
+import { SearchX } from 'lucide-react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useMemoryStore } from '../stores/memory.store';
 import { MemorySearch } from '../components/memory/MemorySearch';
@@ -12,7 +14,26 @@ import { slideIn } from '../lib/motion';
 
 export default function MemoryExplorerPage() {
   usePageTitle('Memory Explorer');
-  const { selectedMemory, clearSelection, search, memories, error, clearError, hybridActive, filters } = useMemoryStore();
+  const { selectedMemory, clearSelection, search, memories, error, clearError, hybridActive, filters, notFoundId } = useMemoryStore();
+  // `/memory?id=<id>` (and `/memory/:id`, which redirects here — MCP tool
+  // results, the graph inspector, synthesis citations) opens that memory.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepId = searchParams.get('id');
+
+  useEffect(() => {
+    if (deepId) void useMemoryStore.getState().openById(deepId);
+  }, [deepId]);
+
+  const closeDetail = () => {
+    clearSelection();
+    if (deepId) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('id');
+        return next;
+      }, { replace: true });
+    }
+  };
 
   useEffect(() => {
     // The explorer answers queries with hybrid search (semantic + FTS + trigram,
@@ -75,12 +96,28 @@ export default function MemoryExplorerPage() {
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       Memory Detail
                     </p>
-                    <Button variant="ghost" size="sm" onClick={clearSelection}>
+                    <Button variant="ghost" size="sm" onClick={closeDetail}>
                       Close
                     </Button>
                   </div>
                   <MemoryDetail memory={selectedMemory} />
                 </motion.div>
+              ) : notFoundId ? (
+                <div
+                  role="status"
+                  data-testid="memory-not-found"
+                  className="flex flex-col items-center justify-center h-full text-center py-12"
+                >
+                  <SearchX size={40} strokeWidth={1.5} className="text-muted-foreground mb-3" aria-hidden="true" />
+                  <h2 className="text-sm font-medium text-foreground">Memory not found</h2>
+                  <p className="text-muted-foreground text-xs mt-1 max-w-xs">
+                    No memory with id <code className="font-mono break-all">{notFoundId}</code> exists in this
+                    workspace. It may have been archived, merged into another memory, or belong to another account.
+                  </p>
+                  <Button variant="ghost" size="sm" className="mt-3" onClick={closeDetail}>
+                    Dismiss
+                  </Button>
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center py-12">
                   <svg
