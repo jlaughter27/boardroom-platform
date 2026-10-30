@@ -27,6 +27,7 @@
     "e2e:live": "node tests/e2e/live/journey.mjs",
     "pre-deploy": "bash scripts/pre-deploy-check.sh",
     "go-live:mcp": "bash scripts/mcp-go-live.sh",
+    "launch": "bash scripts/launch.sh",
     "test:go-live": "bash scripts/tests/mcp-go-live.test.sh && bash scripts/tests/verify-prod.test.sh",
     "verify:prod": "bash scripts/verify-prod.sh",
     "import:vault": "node scripts/vault-import.mjs",
