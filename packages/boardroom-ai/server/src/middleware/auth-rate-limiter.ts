@@ -38,3 +38,9 @@ function createLimiter(buckets: Map<string, RateBucket>, maxAttempts: number, wi
 export const loginLimiter = createLimiter(loginBuckets, 5, 15 * 60 * 1000);
 // Register: 3 attempts per hour per IP
 export const registerLimiter = createLimiter(registerBuckets, 3, 60 * 60 * 1000);
+
+// Test helper: empties both limiter maps. Not imported by any runtime code path.
+export function __resetAuthRateLimitersForTest(): void {
+  loginBuckets.clear();
+  registerBuckets.clear();
+}

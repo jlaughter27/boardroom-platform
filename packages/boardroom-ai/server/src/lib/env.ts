@@ -9,6 +9,7 @@ export function validateBoardRoomEnv(): void {
     // Lane C — Settings → Connected AI tools. Optional: without them the panel
     // still works but shows a placeholder MCP URL in the install snippets.
     { name: 'OMNIMIND_MCP_PUBLIC_URL', required: false, description: 'Public Streamable-HTTP URL of the OmniMind MCP server (e.g. https://omnimind-mcp-production.up.railway.app/mcp), shown in install snippets' },
+    { name: 'TRUST_PROXY_HOPS', required: false, description: 'Reverse-proxy hops trusted for req.ip / X-Forwarded-For (default 1 in production for Railway\'s edge, 0 elsewhere)' },
     { name: 'APP_PUBLIC_URL', required: false, description: 'Public URL of this BoardRoom app (defaults to the request origin); used by /mcp/tokens/connect-info' },
   ]);
 }

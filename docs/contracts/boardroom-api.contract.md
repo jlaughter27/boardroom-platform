@@ -25,6 +25,12 @@
 // 422 — Validation error
 { error: "validation_failed", details: { field: string, message: string }[] }
 
+// 400 — Malformed JSON request body (express.json parse failure)
+{ error: "invalid_json", message: string }
+
+// 413 — JSON request body over 100 kB
+{ error: "payload_too_large", message: string }
+
 // 502 — OmniMind upstream error
 { error: "upstream_error", message: string, service: "omnimind" }
 
@@ -64,7 +70,10 @@ Sets `boardroom_token` httpOnly cookie.
 
 ### POST /auth/logout
 
-Clears `boardroom_token` cookie.
+Clears `boardroom_token` cookie **and revokes the presented token** (its `jti`)
+until the token's own expiry, so a copy of it is 401 afterwards. Revocation is
+in-process (single instance): it does not survive a BoardRoom restart.
+Other sessions of the same user are not revoked.
 
 **Response 200:** `{ status: "ok" }`
 

@@ -4,6 +4,10 @@ import { createHash } from 'crypto';
 
 const mockPrisma = vi.hoisted(() => ({
   agent: { findFirst: vi.fn(), update: vi.fn() },
+  // Lane G: non-gateway keys look up their tenant's owner. These cases use an
+  // owner-less tenant (unbound, as before); owner binding is covered in
+  // agent-key-owner-binding.test.ts.
+  tenant: { findUnique: vi.fn() },
 }));
 const mockLogger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../../../src/lib/db', () => ({ prisma: mockPrisma }));
@@ -53,6 +57,7 @@ describe('agentContextMiddleware (M-103)', () => {
     __resetAgentContextStateForTest();
     delete process.env.OMNIMIND_REQUIRE_AGENT_KEY;
     mockPrisma.agent.update.mockResolvedValue(AGENT_ROW);
+    mockPrisma.tenant.findUnique.mockResolvedValue({ ownerUserId: null });
   });
   afterEach(() => {
     if (envBackup === undefined) delete process.env.OMNIMIND_REQUIRE_AGENT_KEY; else process.env.OMNIMIND_REQUIRE_AGENT_KEY = envBackup;

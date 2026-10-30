@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { IRouter } from 'express';
-import { hashPassword, createToken, authMiddleware, type AuthRequest } from '../middleware/auth';
+import { hashPassword, createToken, revokeToken, authMiddleware, type AuthRequest } from '../middleware/auth';
 import { loginLimiter, registerLimiter } from '../middleware/auth-rate-limiter';
 import { validateBody } from '../middleware/validate';
 import { RegisterBodySchema, LoginBodySchema } from '@boardroom/shared';
@@ -50,8 +50,11 @@ router.post('/login', loginLimiter, validateBody(LoginBodySchema), async (req, r
   } catch (err) { next(err); }
 });
 
-// POST /auth/logout
-router.post('/logout', (_req, res) => {
+// POST /auth/logout — revoke the presented token (lane G item 1: clearing the
+// cookie alone left a copied token valid for its full 7 days), then clear it.
+router.post('/logout', (req, res) => {
+  const token = req.cookies?.boardroom_token as string | undefined;
+  if (token) revokeToken(token);
   res.clearCookie('boardroom_token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

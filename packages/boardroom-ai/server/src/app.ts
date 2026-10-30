@@ -30,6 +30,8 @@ import { mcpTokensRouter } from './routes/mcp-tokens.routes';
 import { requireSubscription } from './middleware/subscription.middleware';
 import { llmRateLimiter } from './middleware/llm-rate-limiter';
 import { logger } from './lib/logger';
+import { resolveTrustProxy } from './lib/trust-proxy';
+import { mapBodyParserError } from './lib/client-errors';
 
 export interface CreateAppOptions {
   /** Override the client build directory (tests). Defaults to ../../client/dist. */
@@ -62,7 +64,10 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
 
   // B-104: Railway terminates TLS at a single proxy hop. Without this, req.ip is
   // the proxy address and every per-IP limiter becomes one site-wide bucket.
-  app.set('trust proxy', 1);
+  // Lane G: the hop count is TRUST_PROXY_HOPS (default 1 in production, off
+  // elsewhere) — trusting a hop with no proxy in front lets a client-written
+  // X-Forwarded-For rotate the login limiter key. See lib/trust-proxy.ts.
+  app.set('trust proxy', resolveTrustProxy());
 
   // ---------------------------------------------------------------------------
   // 1. Global middleware
@@ -203,6 +208,17 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     const status = (err as Error & { status?: number }).status;
     const upstream = (err as Error & { upstream?: unknown }).upstream;
+
+    // Lane G item 3: body-parser failures are the client's fault — 413
+    // payload_too_large / 400 invalid_json, not a logged internal_error.
+    if (!upstream) {
+      const mapped = mapBodyParserError(err);
+      if (mapped) {
+        logger.warn('Rejected request body', { error: mapped.error, path: req.path, method: req.method });
+        res.status(mapped.status).json({ error: mapped.error, message: mapped.message });
+        return;
+      }
+    }
 
     // Upstream OmniMind errors
     if (upstream) {

@@ -24,8 +24,15 @@
  * full trust. The allow-list is exactly what omnimind-mcp's tools and
  * resources call (see `packages/omnimind-mcp/src/lib/client.ts`).
  *
- * Non-delegated requests (BoardRoom, solo-mode agents, plain gateways) pass
- * through untouched. MUST be mounted right after `agentContextMiddleware`.
+ * Lane G (2026-10-30): an OWNER-BOUND agent context (a non-gateway `omk_`
+ * key whose tenant has an owner — see agent-context path 5) gets the same
+ * userId pinning (403 `user_mismatch`, missing userId filled in on the
+ * user-scoped families) but NOT the route allow-list: it keeps the routes it
+ * had, it just cannot name another user.
+ *
+ * Other requests (BoardRoom, solo-mode header agents, keys whose tenant has
+ * no owner, plain gateways) pass through untouched. MUST be mounted right
+ * after `agentContextMiddleware`.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -120,11 +127,12 @@ export function isDelegatedRouteAllowed(method: string, rawPath: string): boolea
 
 export function delegatedUserIsolation(req: Request, res: Response, next: NextFunction): void {
   const ctx = req.agentContext;
-  if (!ctx?.delegated || !ctx.userId) {
+  if (!(ctx?.delegated || ctx?.ownerBound) || !ctx.userId) {
     next();
     return;
   }
   const userId = ctx.userId;
+  const delegated = ctx.delegated === true;
 
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? (req.body as Record<string, unknown>)
@@ -139,20 +147,23 @@ export function delegatedUserIsolation(req: Request, res: Response, next: NextFu
 
   const mismatch = supplied.find(s => s.value !== userId);
   if (mismatch) {
-    logger.warn('delegated-user-isolation: userId disagrees with delegated principal', {
+    logger.warn('delegated-user-isolation: userId disagrees with the bound user', {
       agentId: ctx.agentId,
+      binding: delegated ? 'delegated' : 'tenant-owner',
       source: mismatch.source,
       path: req.path,
     });
     res.status(403).json({
       error: 'user_mismatch',
-      message: `${mismatch.source} does not match the delegated principal's user`,
+      message: delegated
+        ? `${mismatch.source} does not match the delegated principal's user`
+        : `${mismatch.source} does not match the agent's tenant owner (an agent key acts only for its tenant's owner)`,
       field: mismatch.source,
     });
     return;
   }
 
-  if (!isDelegatedRouteAllowed(req.method, req.path)) {
+  if (delegated && !isDelegatedRouteAllowed(req.method, req.path)) {
     logger.warn('delegated-user-isolation: route is not on the delegated allow-list', {
       agentId: ctx.agentId,
       method: req.method,
