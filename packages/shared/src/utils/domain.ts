@@ -29,7 +29,37 @@ const CONFUSABLES: Readonly<Record<string, string>> = {
   'г': 'r', 'ʀ': 'r', 'ᴦ': 'r', // г ʀ ᴦ
   'у': 'y', 'ү': 'y', 'γ': 'y', 'υ': 'y', 'ʏ': 'y', // у ү γ υ ʏ
   'е': 'e', 'ε': 'e', 'ᴇ': 'e', // е ε ᴇ
+  // Lane F (2026-10-30) — residual lookalikes: Cherokee small letters (input is
+  // lowercased first, so capital Cherokee arrives as U+AB70–ABBF), Armenian,
+  // more Greek / Cyrillic / Latin.
+  '\uAB87': 'm', '\uABA7': 'm', '\u0574': 'm', // Cherokee LU, DI; Armenian men
+  '\uAB75': 'i', '\u01C0': 'i', // Cherokee V; Latin dental click
+  '\u0578': 'n', '\u057C': 'n', '\u03B7': 'n', '\u043F': 'n', // Armenian vo, ra; Greek eta; Cyrillic pe
+  '\uABAA': 's', '\u0282': 's', // Cherokee DU; ʂ
+  '\uAB72': 't', // Cherokee I
+  '\uAB71': 'r', '\uAB81': 'r', // Cherokee E, SMALL LETTER HU
+  '\uAB79': 'y', '\u10E7': 'y', // Cherokee GI; Georgian qar
+  '\uAB7C': 'e', // Cherokee GV
 };
+
+/**
+ * Lane F — digit / symbol / letter substitutions folded only inside the
+ * letters-only skeleton (`minlstry`, `mini5try`, `m1n1stry`, `MINI$TRY`).
+ */
+const SKELETON_FOLD: Readonly<Record<string, string>> = {
+  '1': 'i', 'l': 'i', '|': 'i', '!': 'i', '¡': 'i',
+  '5': 's', '$': 's',
+  '0': 'o', '3': 'e', '7': 't', '+': 't',
+};
+
+/**
+ * Lane F — `ministry` / `ministries` anywhere in the letters-only skeleton:
+ * run-together (`ministrycare`, `tgfcministry`) and split (`min-istry`,
+ * `mini stry`, `m.i.n.i.s.t.r.y`) spellings. `administration`, `minister`,
+ * `ministerial`, `administrivia` never contain these. Fail-closed by design:
+ * a made-up word that contains them (`administry`) is ministry too.
+ */
+const MINISTRY_SKELETON_RE = /ministr(?:y|ie)/;
 
 /**
  * "ministry" / "ministries" as a whole token anywhere in the domain:
@@ -51,8 +81,17 @@ function ministrySkeleton(base: string): string {
   return out;
 }
 
+/** Letters-only skeleton: fold digit / symbol substitutions, drop every non-letter, `rn` → `m`. */
+function lettersSkeleton(skeleton: string): string {
+  let out = '';
+  for (const ch of skeleton) out += SKELETON_FOLD[ch] ?? ch;
+  return out.replace(/[^a-z]/g, '').replace(/rn/g, 'm');
+}
+
 function isMinistryLike(base: string): boolean {
-  return base.length > 0 && MINISTRY_TOKEN_RE.test(ministrySkeleton(base));
+  if (base.length === 0) return false;
+  const skeleton = ministrySkeleton(base);
+  return MINISTRY_TOKEN_RE.test(skeleton) || MINISTRY_SKELETON_RE.test(lettersSkeleton(skeleton));
 }
 
 /**

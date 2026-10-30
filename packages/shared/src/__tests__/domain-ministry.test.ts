@@ -33,12 +33,48 @@ const MINISTRY_SPELLINGS = [
   'church ministry',
 ];
 
-const NOT_MINISTRY = ['business', 'personal', 'ai-systems', 'general', 'administration', 'administry', 'ministerial', 'minister', '', 'mini', 'chemistry'];
+/**
+ * Lane F (adversarial re-test 2026-10-30) — residual bypasses that still got
+ * OpenAI embeddings: run-together words, separators inside the word, digit /
+ * letter substitutions, Cherokee and Armenian lookalikes. Fail-closed: a
+ * letters-only skeleton containing `ministry` / `ministrie` is ministry.
+ */
+const RESIDUAL_BYPASSES = [
+  'ministrycare',
+  'tgfcministry',
+  'min-istry',
+  'mini stry',
+  'm.i.n.i.s.t.r.y',
+  'minlstry', // l for i
+  'mini5try', // 5 for s
+  'm1n1stry', // 1 for i
+  'MINI$TRY', // $ for s
+  'rninistry', // rn for m
+  '\uABA7inistry', // Cherokee small letter DI
+  '\u13B7INISTRY', // Cherokee capital LU (lowercases to U+AB87)
+  'mi\u0578istry', // Armenian vo
+  'mi\u03B7istry', // Greek eta
+  'mini\uABAAtry', // Cherokee small DU for s
+  'tgfc_ministries',
+  'administry', // fail-closed: contains "ministry" (was listed as non-ministry before lane F)
+];
+
+const NOT_MINISTRY = [
+  'business', 'personal', 'Personal', 'ai-systems', 'general', 'administration', 'Administration',
+  'administrative', 'ministerial', 'ministerial-affairs', 'minister', 'prime-minister', 'Ministers',
+  '', 'mini', 'chemistry', 'mini-golf', 'administrator', 'ministro',
+];
 
 describe('normalizeDomain / isMinistryDomain (H2)', () => {
   it.each(MINISTRY_SPELLINGS)('treats %j as ministry', (d) => {
     expect(isMinistryDomain(d)).toBe(true);
     expect(normalizeDomain(d)).toBe('ministry');
+  });
+
+  it.each(RESIDUAL_BYPASSES)('treats residual bypass %j as ministry (lane F)', (d) => {
+    expect(isMinistryDomain(d)).toBe(true);
+    expect(normalizeDomain(d)).toBe('ministry');
+    expect(isMinistryTenant(d)).toBe(true);
   });
 
   it.each(NOT_MINISTRY)('does not treat %j as ministry', (d) => {
