@@ -80,7 +80,7 @@ function mountedPrefixes(): string[] {
 // /ready (M0-A2) is mounted ahead of every auth middleware, like /health is exempted from them.
 const PUBLIC = ['/health', '/ready'];
 const ALLOWED_FAMILIES = ['/memories', '/context', '/decisions', '/tasks', '/goals', '/projects', '/people', '/commitments', '/graph'];
-const FORBIDDEN_FAMILIES = ['/auth', '/oauth', '/admin', '/subscription', '/custom-personas', '/user-profile', '/outcome-reviews', '/relationships', '/cortex'];
+const FORBIDDEN_FAMILIES = ['/auth', '/oauth', '/admin', '/subscription', '/custom-personas', '/user-profile', '/outcome-reviews', '/relationships', '/cortex', '/decision-sessions'];
 /** Prefixes with an exact-route carve-out: everything else under them is forbidden. */
 const PARTIAL: Record<string, { allowed: Array<[string, string]>; forbidden: Array<[string, string]> }> = {
   '/mcp': {
@@ -100,6 +100,7 @@ const PARTIAL: Record<string, { allowed: Array<[string, string]>; forbidden: Arr
 
 /** Representative deeper paths per forbidden family (the ones the review exploited). */
 const FORBIDDEN_SAMPLES: Array<[string, string]> = [
+  ['POST', '/decision-sessions'], ['PATCH', '/decision-sessions/cs1'],
   ['GET', '/auth/user/cuser00000000000000000002'], ['POST', '/auth/login'], ['POST', '/auth/verify'], ['POST', '/auth/register'],
   ['GET', '/oauth/token/google'], ['POST', '/oauth/token'], ['DELETE', '/oauth/token/google'],
   ['GET', '/admin/stats'], ['GET', '/admin/tenants'], ['PATCH', '/admin/tenants/josh-business'], ['POST', '/admin/summarize'],
