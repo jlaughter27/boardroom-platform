@@ -265,29 +265,47 @@ export function checkAmbiguity(sessionId: string) {
 // Entity reads
 // ---------------------------------------------------------------------------
 
+/** Page size OmniMind allows for entity lists (entity.service caps `limit` at 100). */
+export const ENTITY_PAGE_SIZE = 100;
+/** Safety cap on rows read for one entity list. */
+export const ENTITY_LIST_CAP = 1000;
+
+/**
+ * Every row of a paged OmniMind list (`{ items, total }`), page by page with
+ * `limit=100`, until a short page, `total`, or the cap. OmniMind's default page
+ * is 20 — reading only that silently cut people, tasks and commitments.
+ */
+async function fetchAllPages<T>(path: string, params: Record<string, string> = {}, cap = ENTITY_LIST_CAP): Promise<T[]> {
+  const out: T[] = [];
+  for (let offset = 0; out.length < cap; ) {
+    const qs = new URLSearchParams({ ...params, limit: String(ENTITY_PAGE_SIZE), offset: String(offset) });
+    const page = await request<PaginatedResponse<T>>(`${path}?${qs.toString()}`);
+    const items = page.items ?? [];
+    out.push(...items);
+    offset += items.length;
+    if (items.length < ENTITY_PAGE_SIZE || (typeof page.total === 'number' && offset >= page.total)) break;
+  }
+  return out.slice(0, cap);
+}
+
 export async function getGoals(): Promise<Goal[]> {
-  const res = await request<PaginatedResponse<Goal>>('/goals');
-  return res.items;
+  return fetchAllPages<Goal>('/goals');
 }
 
 export async function getProjects(): Promise<Project[]> {
-  const res = await request<PaginatedResponse<Project>>('/projects');
-  return res.items;
+  return fetchAllPages<Project>('/projects');
 }
 
 export async function getTasks(): Promise<Task[]> {
-  const res = await request<PaginatedResponse<Task>>('/tasks');
-  return res.items;
+  return fetchAllPages<Task>('/tasks');
 }
 
 export async function getPeople(): Promise<Person[]> {
-  const res = await request<PaginatedResponse<Person>>('/people');
-  return res.items;
+  return fetchAllPages<Person>('/people');
 }
 
 export async function getDecisions(): Promise<Decision[]> {
-  const res = await request<PaginatedResponse<Decision>>('/decisions');
-  return res.items;
+  return fetchAllPages<Decision>('/decisions');
 }
 
 /** RD-12 — `GET /decisions/:id`: one decision by id (GET /decisions returns only the newest page). */
@@ -296,8 +314,7 @@ export function getDecision(id: string): Promise<Decision> {
 }
 
 export async function getCommitments(): Promise<Commitment[]> {
-  const res = await request<PaginatedResponse<Commitment>>('/commitments');
-  return res.items;
+  return fetchAllPages<Commitment>('/commitments');
 }
 
 export interface UpdateCommitmentInput {

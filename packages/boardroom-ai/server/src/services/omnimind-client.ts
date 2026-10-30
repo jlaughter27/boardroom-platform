@@ -77,6 +77,18 @@ export interface AdminCallOptions {
   adminKey?: string;
 }
 
+/** Paging (and, for /projects, `include=links`) forwarded to an OmniMind list endpoint. */
+export interface ListQuery {
+  limit?: string;
+  offset?: string;
+  include?: string;
+}
+
+function listQs(query: ListQuery): string {
+  const params = Object.entries(query).filter(([, v]) => typeof v === 'string' && v !== '') as Array<[string, string]>;
+  return params.length ? `?${new URLSearchParams(params).toString()}` : '';
+}
+
 export class OmniMindClient {
   private baseUrl: string;
   private _apiKey: string | undefined;
@@ -446,24 +458,24 @@ export class OmniMindClient {
     return this.request('POST', '/tasks', userId, input);
   }
 
-  async listGoals(userId: string) {
-    return this.request('GET', '/goals', userId);
+  async listGoals(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/goals${listQs(query)}`, userId);
   }
 
-  async listProjects(userId: string) {
-    return this.request('GET', '/projects', userId);
+  async listProjects(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/projects${listQs(query)}`, userId);
   }
 
-  async listPeople(userId: string) {
-    return this.request('GET', '/people', userId);
+  async listPeople(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/people${listQs(query)}`, userId);
   }
 
-  async listTasks(userId: string) {
-    return this.request('GET', '/tasks', userId);
+  async listTasks(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/tasks${listQs(query)}`, userId);
   }
 
-  async listDecisions(userId: string) {
-    return this.request('GET', '/decisions', userId);
+  async listDecisions(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/decisions${listQs(query)}`, userId);
   }
 
   /** RD-12 — one decision by id (owner-scoped by OmniMind; 404 otherwise). */
@@ -471,8 +483,8 @@ export class OmniMindClient {
     return this.request('GET', `/decisions/${encodeURIComponent(id)}`, userId);
   }
 
-  async listCommitments(userId: string) {
-    return this.request('GET', '/commitments', userId);
+  async listCommitments(userId: string, query: ListQuery = {}) {
+    return this.request('GET', `/commitments${listQs(query)}`, userId);
   }
 
   async updateGoal(userId: string, id: string, input: unknown) {
