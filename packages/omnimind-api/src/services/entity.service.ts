@@ -50,7 +50,8 @@ export async function listEntities(
   model: EntityModel,
   userId: string,
   filters: { limit?: number; offset?: number; [key: string]: unknown },
-  prisma: PrismaClient
+  prisma: PrismaClient,
+  include?: Record<string, unknown>
 ) {
   const delegate = getDelegate(prisma, model) as any;
   const limit = Math.min((filters.limit as number) ?? 20, 100);
@@ -82,7 +83,7 @@ export async function listEntities(
   }
 
   const [items, total] = await Promise.all([
-    delegate.findMany({ where, take: limit, skip: offset, orderBy: { createdAt: 'desc' } }),
+    delegate.findMany({ where, take: limit, skip: offset, orderBy: { createdAt: 'desc' }, ...(include ? { include } : {}) }),
     delegate.count({ where }),
   ]);
 

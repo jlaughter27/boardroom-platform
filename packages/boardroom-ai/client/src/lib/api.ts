@@ -5,6 +5,7 @@ import type {
   MemoryBudgetReport,
   Goal,
   Project,
+  ProjectWithLinks,
   Task,
   Person,
   Decision,
@@ -292,8 +293,25 @@ export async function getGoals(): Promise<Goal[]> {
   return fetchAllPages<Goal>('/goals');
 }
 
-export async function getProjects(): Promise<Project[]> {
-  return fetchAllPages<Project>('/projects');
+/** Every project with its link ids (`include=links` → `goalIds` / `taskIds`). */
+export async function getProjects(): Promise<ProjectWithLinks[]> {
+  return fetchAllPages<ProjectWithLinks>('/projects', { include: 'links' });
+}
+
+/** C-111 — `POST /goals/:goalId/projects/:projectId` (GoalProjectLink, idempotent). */
+export function linkGoalProject(goalId: string, projectId: string) {
+  return request<{ id: string; goalId: string; projectId: string }>(
+    `/goals/${encodeURIComponent(goalId)}/projects/${encodeURIComponent(projectId)}`,
+    { method: 'POST' },
+  );
+}
+
+/** C-111 — `POST /projects/:projectId/tasks/:taskId` (ProjectTaskLink, idempotent). */
+export function linkProjectTask(projectId: string, taskId: string) {
+  return request<{ id: string; projectId: string; taskId: string }>(
+    `/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`,
+    { method: 'POST' },
+  );
 }
 
 export async function getTasks(): Promise<Task[]> {

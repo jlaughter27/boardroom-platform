@@ -1,8 +1,30 @@
 import { useEffect, useState, useMemo } from 'react';
+import type { Goal, Project, ProjectLinkIds, Task } from '@boardroom/shared';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { GoalNode } from './GoalNode';
 import { EntityForm } from './EntityForm';
 import { Card, Button, Skeleton, EmptyState } from '../ui';
+
+/** A project as the store holds it: link ids present when listed with `include=links`. */
+export type TreeProject = Project & Partial<ProjectLinkIds>;
+
+/**
+ * Goal → project → task grouping from the real links: a project sits under the
+ * goals in its `goalIds` (GoalProjectLink) and lists the tasks in its `taskIds`
+ * (ProjectTaskLink). Missing ids mean no links. Ids of goals / tasks that are
+ * not loaded are ignored.
+ */
+export function buildGoalTree(goals: Goal[], projects: TreeProject[], tasks: Task[]) {
+  const projectsByGoal: Record<string, TreeProject[]> = {};
+  for (const goal of goals) projectsByGoal[goal.id] = [];
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const tasksByProject: Record<string, Task[]> = {};
+  for (const project of projects) {
+    for (const goalId of project.goalIds ?? []) projectsByGoal[goalId]?.push(project);
+    tasksByProject[project.id] = (project.taskIds ?? []).map((id) => taskById.get(id)).filter((t): t is Task => t !== undefined);
+  }
+  return { projectsByGoal, tasksByProject };
+}
 
 export function GoalHierarchy() {
   const { goals, projects, tasks, isLoading, fetchGoals, fetchProjects, fetchTasks } =
@@ -16,21 +38,10 @@ export function GoalHierarchy() {
     fetchTasks();
   }, []);
 
-  const projectsByGoal = useMemo(() => {
-    const map: Record<string, typeof projects> = {};
-    for (const goal of goals) {
-      map[goal.id] = projects.filter((p) => p.domain === goal.domain);
-    }
-    return map;
-  }, [goals, projects]);
-
-  const tasksByProject = useMemo(() => {
-    const map: Record<string, typeof tasks> = {};
-    for (const project of projects) {
-      map[project.id] = tasks;
-    }
-    return map;
-  }, [projects, tasks]);
+  const { projectsByGoal, tasksByProject } = useMemo(
+    () => buildGoalTree(goals, projects, tasks),
+    [goals, projects, tasks],
+  );
 
   function handleAddGoal(data: Record<string, unknown>) {
     createGoal(data);

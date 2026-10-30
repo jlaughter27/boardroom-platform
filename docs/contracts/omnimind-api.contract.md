@@ -503,7 +503,9 @@ Optionally `?include=tasks` to include linked tasks.
 
 ### GET /projects
 
-**Query params:** `status`, `domain`, `limit`, `offset`
+**Query params:** `status`, `domain`, `limit` (default 20, max 100), `offset`, `include`
+
+**Response 200:** `PaginatedResponse<Project>`. With `?include=links` each item is a `ProjectWithLinks` (shared): the `Project` plus `goalIds: string[]` (via `GoalProjectLink`) and `taskIds: string[]` (via `ProjectTaskLink`), counting only goals / tasks that are not soft-deleted. Any other `include` value is ignored. Used by the Goals & Projects tree, which groups projects under the goals they are linked to and tasks under the projects they are linked to.
 
 ### PATCH /projects/:id
 

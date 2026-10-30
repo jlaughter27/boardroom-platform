@@ -34,12 +34,9 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
   }
 
   function handleAddTask(data: Record<string, unknown>) {
-    // TODO(C-111): the task is NOT linked to `project.id` yet. There is no
-    // project→task link endpoint on the BoardRoom server (no ProjectTaskLink
-    // route in entities.routes.ts), and the previous `_projectId` field was
-    // silently stripped by Zod server-side. Once the server exposes a link
-    // endpoint, call it here after createTask resolves.
-    createTask(data);
+    // C-111: created under this project, so link it (ProjectTaskLink) — the
+    // project lists only its linked tasks.
+    createTask(data, project.id);
     setShowAddTask(false);
   }
 

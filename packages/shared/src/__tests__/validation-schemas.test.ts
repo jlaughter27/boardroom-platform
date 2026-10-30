@@ -17,6 +17,7 @@ import {
   GoalSchema,
   CreateGoalRequestSchema,
   ProjectSchema,
+  ProjectWithLinksSchema,
   CreateProjectRequestSchema,
   TaskSchema,
   CreateTaskRequestSchema,
@@ -300,5 +301,25 @@ describe('SynthesisReportSchema.displacement (RD-11)', () => {
     const item: StopItem = StopItemSchema.parse({ title: 'Redesign', action: 'defer' });
     expect([displacementParity, stopItemParity]).toEqual([true, true]);
     expect(parsed.stops[0]).toEqual(item);
+  });
+});
+
+// ── GET /projects?include=links ──
+
+describe('ProjectWithLinksSchema', () => {
+  const project = {
+    id: 'p1', userId: 'u1', title: 'Saturday market stall', status: 'active', deadline: null,
+    successMetrics: [], domain: 'business', version: 1, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
+  };
+
+  it('parses a project with goal / task link ids', () => {
+    const out = ProjectWithLinksSchema.parse({ ...project, goalIds: ['g1'], taskIds: ['t1', 't2'] });
+    expect(out.goalIds).toEqual(['g1']);
+    expect(out.taskIds).toEqual(['t1', 't2']);
+  });
+
+  it('requires both id arrays', () => {
+    expect(ProjectWithLinksSchema.safeParse({ ...project, goalIds: [] }).success).toBe(false);
+    expect(ProjectSchema.safeParse(project).success).toBe(true);
   });
 });

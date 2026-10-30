@@ -70,6 +70,23 @@ describe('entity list getters read every page', () => {
     expect(await api.getCommitments()).toHaveLength(7);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+  it('getProjects asks for link ids (include=links)', async () => {
+    const fetchMock = pagedFetch(rows(3, 'pr'));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.getProjects();
+    expect(new URL(fetchMock.mock.calls[0][0] as string, 'http://localhost').searchParams.get('include')).toBe('links');
+  });
+
+  it('linkGoalProject / linkProjectTask POST the C-111 link routes', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, status: 201, json: async () => ({ id: 'l1' }) }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    await api.linkGoalProject('g 1', 'p1');
+    await api.linkProjectTask('p1', 't1');
+    expect(fetchMock.mock.calls.map(([u, init]) => [u, init?.method])).toEqual([
+      ['/api/goals/g%201/projects/p1', 'POST'],
+      ['/api/projects/p1/tasks/t1', 'POST'],
+    ]);
+  });
 });
 
 describe('entity list getters — errors', () => {

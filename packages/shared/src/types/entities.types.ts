@@ -51,6 +51,17 @@ export interface Project {
   updatedAt: Date;
 }
 
+/** Link ids of a project: `GET /projects?include=links` (and `GET /projects/:id`). */
+export interface ProjectLinkIds {
+  /** Goals linked via GoalProjectLink (not soft-deleted). */
+  goalIds: string[];
+  /** Tasks linked via ProjectTaskLink (not soft-deleted). */
+  taskIds: string[];
+}
+
+/** A project with its GoalProjectLink / ProjectTaskLink ids. */
+export interface ProjectWithLinks extends Project, ProjectLinkIds {}
+
 export interface Task {
   id: string;
   userId: string;
