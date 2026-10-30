@@ -81,6 +81,10 @@ Returns current user from JWT.
 
 ## Decision Sessions
 
+**Persistence (RD-17, 2026-10-30).** Sessions are persisted in OmniMind (`/decision-sessions`, see the OmniMind contract) and BoardRoom keeps an in-memory cache (30-minute idle TTL; an evicted or post-restart session is reloaded from OmniMind on the next request). The session id returned by `POST /sessions` is the OmniMind `decision_sessions` id (a cuid). BoardRoom writes the session through after each meaningful transition — persona round 1 complete, end of dispatch (rebuttals + ledger), CEO synthesis, questionnaire answers, decision commit — coalesced per session (one write per ~500 ms burst, never per streamed token; commit writes immediately). What is persisted: question (with clarifications), mode, status, persona responses, rebuttals, ledger, CEO synthesis, late advisors, project ids, `asOf`, `decisionId`. Not persisted: the core-context block (re-fetched on the next dispatch) and in-flight flags.
+
+**OmniMind unavailable:** `POST /sessions` still answers 201 with a BoardRoom-local id (`session_<n>_<ms>`) and the session works from memory only (lost on restart, as before RD-17); a failed write-through is logged (`[SessionStore] persist failed`), never surfaced to the user. On a cache miss, an id that is not a cuid (a pre-RD-17 or local id) answers 404 without calling OmniMind; an OmniMind 404 answers 404; any other OmniMind failure propagates (5xx) rather than pretending the session does not exist.
+
 ### POST /sessions
 
 Create a new decision session. This is the entry point for all analysis.
@@ -116,9 +120,16 @@ Create a new decision session. This is the entry point for all analysis.
   personaResponses: Record<PersonaId, PersonaResponse>,  // empty until dispatched
   ceoSynthesis: SynthesisReport | null,
   sufficiencyScore: SufficiencyScore | null,
-  createdAt: string
+  createdAt: string,
+  // Phase 6
+  rebuttals: Record<PersonaId, Rebuttal>,
+  ledger: DisagreementLedger,
+  decisionId: string | null,
+  asOf: string | null
 }
 ```
+
+Answers from the cache, else from OmniMind (`GET /decision-sessions/:id`, scoped to the signed-in user). 404 when the session does not exist, is archived, or belongs to another user.
 
 ### GET /sessions
 
@@ -139,6 +150,8 @@ Where `DecisionSessionSummary`:
   createdAt: string
 }
 ```
+
+RD-17: the page comes from OmniMind (`GET /decision-sessions?limit&offset`, `limit` capped at 100); on the first page, sessions that exist only in BoardRoom's memory (created while OmniMind was down) are listed first. If OmniMind is unreachable the list falls back to the in-memory sessions (the pre-RD-17 behaviour).
 
 ---
 
@@ -213,7 +226,7 @@ data: { type: "error", error: string }
 3. Construct CEO prompt with: question + all persona outputs + supporting evidence
 4. Stream CEO response via Anthropic SDK
 5. Validate with `SynthesisReportSchema`
-6. Store in session + persist to OmniMind as DecisionSession
+6. Store in session + persist to OmniMind as DecisionSession (`PATCH /decision-sessions/:id`, status `SYNTHESIZED`)
 
 **Latency target:** 3s
 
