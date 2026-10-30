@@ -31,7 +31,13 @@ export interface DecisionCreateInput {
   constraints: string[];
   status: 'DECIDED';
   reviewAt: Date;
-  sessionId: string;
+  /**
+   * Always null: `decisions.session_id` is an FK to OmniMind's `sessions`
+   * table, and BoardRoom sessions (`session_<n>_<ms>`) live only in BoardRoom's
+   * memory — sending that id failed every real commit on the FK. The session
+   * keeps the link the other way (`SessionState.decisionId`).
+   */
+  sessionId: null;
   probabilitySuccess: number;
   expectedOutcome: string;
   personaForecasts: PersonaForecast[];
@@ -90,7 +96,7 @@ export function buildDecisionInput(session: SessionState, body: DecideBody, now:
     constraints: [],
     status: 'DECIDED',
     reviewAt,
-    sessionId: session.id,
+    sessionId: null,
     probabilitySuccess: body.probabilitySuccess,
     expectedOutcome: body.expectedOutcome,
     personaForecasts: forecasts,
