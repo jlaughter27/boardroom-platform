@@ -200,14 +200,93 @@ export function buildWikilinkResolver(
  */
 export function stripLeadingTitleHeading(md: string, title: string): string {
   if (!md || !title) return md ?? '';
-  const m = /^\s*#\s+(.+?)\s*#*\s*(?:\r?\n|$)/.exec(md);
+  // M7: the pattern backtracks on a long `# ####…` line — a title heading is
+  // short, so only the first 1 KiB is examined (a longer first line never matches).
+  const head = md.length > 1024 ? md.slice(0, 1024) : md;
+  const m = /^\s*#\s+(.+?)\s*#*\s*(?:\r?\n|$)/.exec(head);
+  if (m && head !== md && !/\n$/.test(m[0])) return md;
   if (!m) return md;
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
   if (norm(m[1]) !== norm(title)) return md;
   return md.slice(m[0].length).replace(/^(\s*\r?\n)+/, '');
 }
 
+// ── Render guard (M7) ────────────────────────────────────────────────────────
+
+/** Above this many characters the detail panel shows the content as plain text. */
+export const MARKDOWN_RENDER_MAX_CHARS = 60_000;
+/** Longest run of one markdown punctuation character still rendered as markdown. */
+export const MARKDOWN_MAX_DELIMITER_RUN = 200;
+
+/**
+ * Most `*` emphasis delimiters one paragraph may carry. Unmatched `*` piles up
+ * quadratically in the emphasis resolver: `*a` × 5 000 took ~1.2 s, × 20 000
+ * ~8.6 s; 600 matched bold spans (2 400 `*`) in one paragraph ~0.26 s.
+ */
+export const MARKDOWN_MAX_STARS_PER_PARAGRAPH = 4_000;
+
+/** `* _ [ ] ` ~ # | > -` — the characters whose long runs make the parser super-linear. */
+const DELIMITER_CODES = new Set([...'*_[]`~#|>-'].map((c) => c.charCodeAt(0)));
+const NL = 10;
+const STAR = 42;
+/** A line that starts a new block (list item, heading, table row, quote) ends the paragraph count. */
+const BLOCK_START = /^[ \t]{0,3}(?:[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}[ \t]|\||>)/;
+
+export interface MarkdownRenderGuard {
+  /** true → show as plain pre-wrapped text instead of parsing as markdown. */
+  plain: boolean;
+  reason: 'size' | 'delimiters' | null;
+}
+
+/**
+ * M7 — one memory could freeze the Memory Explorer tab: react-markdown's
+ * parser is super-linear on long runs of emphasis / bracket delimiters
+ * (`*`×20000 + `X` + `*`×20000 hung for > 15 s, `_`×10000 took 12.7 s) and
+ * slow on very large content (1 MB of plain text > 45 s). One linear pass:
+ * content over 60 000 characters, with a run of more than 200 identical
+ * markdown punctuation characters, or with more than 4 000 `*` in one
+ * paragraph is shown as plain text. Real vault notes (≤ ~25 000 characters,
+ * ordinary formatting) still render as markdown.
+ */
+export function markdownRenderGuard(md: string | null | undefined): MarkdownRenderGuard {
+  const s = md ?? '';
+  if (s.length > MARKDOWN_RENDER_MAX_CHARS) return { plain: true, reason: 'size' };
+  let prev = -1;
+  let run = 0;
+  let stars = 0;
+  let lineStart = 0;
+  let lineBlank = true;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === NL) {
+      // A blank line ends the paragraph; so does a line that opens a new block.
+      if (lineBlank) stars = 0;
+      lineStart = i + 1;
+      lineBlank = true;
+      if (lineStart < s.length && BLOCK_START.test(s.slice(lineStart, lineStart + 12))) stars = 0;
+    } else if (c !== 32 && c !== 9 && c !== 13) {
+      lineBlank = false;
+    }
+    if (c === STAR && ++stars > MARKDOWN_MAX_STARS_PER_PARAGRAPH) return { plain: true, reason: 'delimiters' };
+    if (c === prev && DELIMITER_CODES.has(c)) {
+      run += 1;
+      if (run > MARKDOWN_MAX_DELIMITER_RUN) return { plain: true, reason: 'delimiters' };
+    } else {
+      prev = c;
+      run = 1;
+    }
+  }
+  return { plain: false, reason: null };
+}
+
 // ── Plain text (card previews) ───────────────────────────────────────────────
+
+/**
+ * M7 — card previews only need the start of the note; the regex passes below
+ * are not all linear (`[a` × 20 000 took ~750 ms), so they only ever see this
+ * many leading characters.
+ */
+export const PLAIN_TEXT_SOURCE_MAX_CHARS = 4_000;
 
 /**
  * Markdown → one line of plain text for the memory cards' 2-line preview:
@@ -218,7 +297,8 @@ export function markdownToPlainText(md: string, maxLength = 280): string {
   if (!md) return '';
   const lines: string[] = [];
   let inFence = false;
-  for (const raw of md.replace(/\r\n?/g, '\n').split('\n')) {
+  const source = md.length > PLAIN_TEXT_SOURCE_MAX_CHARS ? md.slice(0, PLAIN_TEXT_SOURCE_MAX_CHARS) : md;
+  for (const raw of source.replace(/\r\n?/g, '\n').split('\n')) {
     let line = raw;
     if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; continue; }
     if (inFence) { lines.push(line.trim()); continue; }

@@ -1,5 +1,6 @@
 import { CryptoError, decrypt, encrypt, getEncryptionKeyId, isEncryptionConfigured } from './crypto';
 import { logger } from './logger';
+import { normalizeDomain } from '@boardroom/shared';
 
 /**
  * O-111 — encryption-at-rest for ministry-domain memory content.
@@ -18,10 +19,13 @@ import { logger } from './logger';
 export const ENCRYPTED_CONTENT_PLACEHOLDER = '[encrypted]';
 export const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
-/** Canonical domain form — mirrors the Zod transform in @boardroom/shared. */
-export function normalizeDomain(d: string | null | undefined): string {
-  return (d ?? '').trim().toLowerCase();
-}
+/**
+ * Canonical domain form — the shared helper the Zod transform uses (NFKC,
+ * invisible characters stripped, trim, lowercase; every ministry-like
+ * spelling collapses to `'ministry'`, H2 2026-10-30). Re-exported so the
+ * retrieval layers keep importing it from here.
+ */
+export { normalizeDomain, isMinistryDomain, isMinistryTenant } from '@boardroom/shared';
 
 export interface EncryptedWrite {
   content: string;

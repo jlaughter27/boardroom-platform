@@ -117,4 +117,25 @@ describe('GET /memories/:id/backlinks (RD-1)', () => {
     const res = await request(app).get('/memories/target/backlinks').set({ 'x-api-key': API_KEY });
     expect(res.status).toBe(400);
   });
+
+  it('M5: never lists a ministry source memory, in any spelling or from the ministry tenant', async () => {
+    mockPrisma.memoryEntityLink.findMany.mockResolvedValue(
+      ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'ok'].map((memoryId) => ({ memoryId, linkType: 'wikilink' })),
+    );
+    mockPrisma.memoryEntry.findMany.mockResolvedValue([
+      { id: 'm1', title: 'MINLEAK1 pastoral care note', domain: 'ministry', status: 'CONFIRMED', tenantId: 'josh-personal' },
+      { id: 'm2', title: 'MINLEAK2 capitalised', domain: 'Ministry', status: 'CONFIRMED', tenantId: 'josh-personal' },
+      { id: 'm3', title: 'MINLEAK3 padded', domain: '  MINISTRY ', status: 'CONFIRMED', tenantId: 'josh-business' },
+      { id: 'm4', title: 'MINLEAK4 subdomain', domain: 'ministry/pastoral', status: 'CONFIRMED', tenantId: 'josh-business' },
+      { id: 'm5', title: 'MINLEAK5 lookalike', domain: 'mіnistry', status: 'CONFIRMED', tenantId: 'josh-business' },
+      { id: 'm6', title: 'MINLEAK6 ministry tenant', domain: 'general', status: 'CONFIRMED', tenantId: 'tgfc-ministry' },
+      { id: 'ok', title: 'Board prep', domain: 'business', status: 'CONFIRMED', tenantId: 'josh-business' },
+    ]);
+    const res = await request(app).get('/memories/target/backlinks').set(H);
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain('MINLEAK');
+    expect(res.body.items.map((i: { memoryId: string }) => i.memoryId)).toEqual(['ok']);
+    const srcWhere = mockPrisma.memoryEntry.findMany.mock.calls[0][0].where;
+    expect(srcWhere.NOT).toEqual({ domain: { equals: 'ministry', mode: 'insensitive' } });
+  });
 });

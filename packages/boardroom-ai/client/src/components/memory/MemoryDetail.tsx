@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import type { Memory } from '@boardroom/shared';
 import { MemoryClass, MemoryStatus, Confidence } from '@boardroom/shared';
 import { useMemoryStore } from '../../stores/memory.store';
@@ -7,8 +7,9 @@ import type { MemoryEntityLink } from '../../lib/api';
 import { EntityLinker } from './EntityLinker';
 import { LazyMemoryMarkdown } from './memory-markdown-loader';
 import { MemoryBacklinks } from './MemoryBacklinks';
+import { MemoryPlainText } from './MemoryPlainText';
 import { useMemoryWikilinks } from './use-memory-wikilinks';
-import { stripLeadingTitleHeading } from '../../lib/markdown';
+import { markdownRenderGuard, stripLeadingTitleHeading } from '../../lib/markdown';
 
 interface MemoryDetailProps {
   memory: Memory;
@@ -109,6 +110,7 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
 
   // RD-1: [[wikilinks]] resolve through the outgoing link rows, then by title.
   const { resolve: resolveWikilink, open: openMemory, byId: linkedById } = useMemoryWikilinks(memory, entityLinks);
+  const renderGuard = useMemo(() => markdownRenderGuard(memory.content), [memory.content]);
 
   function refreshLinks() {
     api.getMemoryLinks(memory.id).then(links => {
@@ -253,6 +255,9 @@ export function MemoryDetail({ memory }: MemoryDetailProps) {
             rows={6}
             className="w-full mt-1 bg-card border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40 resize-y"
           />
+        ) : renderGuard.plain ? (
+          // M7: very large or pathological content would freeze the tab in the markdown parser.
+          <MemoryPlainText className="mt-1" content={memory.content ?? ''} />
         ) : (
           <Suspense fallback={<MarkdownSkeleton />}>
             <LazyMemoryMarkdown

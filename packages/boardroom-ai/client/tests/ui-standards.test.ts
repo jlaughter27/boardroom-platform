@@ -410,6 +410,14 @@ describe('memory markdown (RD-1)', () => {
     expect(hits, `\n${hits.join('\n')}\n`).toEqual([]);
   });
 
+  it('M7: the plain-text fallback is used only behind markdownRenderGuard', () => {
+    const users = scan((line, rel) => /<MemoryPlainText\b/.test(line) && rel !== 'components/memory/MemoryPlainText.tsx');
+    expect(users.map((h) => h.split(':')[0])).toEqual(['components/memory/MemoryDetail.tsx']);
+    const detail = readFileSync(join(SRC, 'components/memory/MemoryDetail.tsx'), 'utf8');
+    expect(detail).toMatch(/markdownRenderGuard\(memory\.content\)/);
+    expect(detail).toMatch(/renderGuard\.plain \? \(/);
+  });
+
   it('memory cards build their preview with markdownToPlainText', () => {
     const src = readFileSync(join(SRC, 'components/memory/MemoryCard.tsx'), 'utf8');
     expect(src).toMatch(/markdownToPlainText\(/);

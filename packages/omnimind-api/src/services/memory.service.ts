@@ -4,7 +4,7 @@ import { budgetStatus } from '../memory/validation/budget-enforcer';
 import { SOURCE_WEIGHTS, SourceType, DOMAIN_MEMORY_BUDGETS, type MemoryBudgetReport } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
-import { decryptMemory, encryptMemoryContent, normalizeDomain } from '../lib/memory-crypto';
+import { decryptMemory, encryptMemoryContent, normalizeDomain, isMinistryTenant } from '../lib/memory-crypto';
 import { HttpError } from '../middleware/error-handler';
 import type { AgentContext } from '../middleware/agent-context';
 import { prisma as defaultPrisma } from '../lib/db';
@@ -32,6 +32,16 @@ const MINISTRY_DEFERRED_MSG =
   'Re-enable via Phase 6 (Ollama + encryption rollout) when ready.';
 
 const DEDUP_THRESHOLD = 0.92;
+
+/**
+ * H2 (2026-10-30) — a write whose effective tenant is the ministry tenant is
+ * a ministry write whatever its `domain` says (an MCP token bound to
+ * tgfc-ministry stored pastoral text as `general`). Read per call so tests and
+ * operators can set `OMNIMIND_MINISTRY_TENANT_ID`.
+ */
+function inMinistryTenant(tenantId: string | null | undefined): boolean {
+  return isMinistryTenant(tenantId, process.env.OMNIMIND_MINISTRY_TENANT_ID || undefined);
+}
 
 // WS-6 F-101 — domain normalization (defense-in-depth for callers that bypass
 // Zod) now lives in lib/memory-crypto.ts so the retrieval layers share it.
@@ -147,8 +157,11 @@ export async function createMemory(
   // the refusal check below + the write below both see the canonical value.
   input = { ...input, domain: normalizeDomain(input.domain) };
 
-  // Ministry domain is explicitly deferred (Phase 6+). Refuse at the boundary.
-  if (input.domain === 'ministry') {
+  // Ministry domain is explicitly deferred (Phase 6+). Refuse at the boundary —
+  // before validation, dedup embedding, the INSERT or the OpenAI outbox row.
+  // `normalizeDomain` maps every ministry-like spelling to 'ministry' (H2), and
+  // any write into the ministry tenant is ministry regardless of domain.
+  if (input.domain === 'ministry' || inMinistryTenant(agentContext?.tenantId)) {
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
   }
 
@@ -602,7 +615,13 @@ export async function updateMemory(
   if (typeof input.domain === 'string') {
     input = { ...input, domain: normalizeDomain(input.domain) };
   }
-  if (normalizeDomain(existing.domain) === 'ministry' || input.domain === 'ministry') {
+  const existingTenant = (existing as { tenantId?: string | null }).tenantId;
+  if (
+    normalizeDomain(existing.domain) === 'ministry' ||
+    input.domain === 'ministry' ||
+    inMinistryTenant(existingTenant) ||
+    inMinistryTenant(agentContext?.tenantId)
+  ) {
     throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
   }
 

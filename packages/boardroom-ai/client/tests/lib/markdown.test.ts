@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildWikilinkResolver,
+  markdownRenderGuard,
   markdownToPlainText,
   memoryLinkKeys,
   parseWikilink,
@@ -19,6 +20,15 @@ describe('stripLeadingTitleHeading', () => {
     expect(stripLeadingTitleHeading('## Pricing playbook\nBody', 'Pricing playbook')).toBe('## Pricing playbook\nBody');
     expect(stripLeadingTitleHeading('Intro\n# Pricing playbook', 'Pricing playbook')).toBe('Intro\n# Pricing playbook');
     expect(stripLeadingTitleHeading('', 'x')).toBe('');
+  });
+
+  it('M7: still strips the title of a large note, and a huge `# ####…` first line returns fast and unchanged', () => {
+    const big = '# Pricing playbook\n\n' + 'body '.repeat(20_000);
+    expect(stripLeadingTitleHeading(big, 'Pricing playbook')).toBe('body '.repeat(20_000));
+    const evil = '# ' + '#'.repeat(200_000) + 'x';
+    const t = performance.now();
+    expect(stripLeadingTitleHeading(evil, 'x')).toBe(evil);
+    expect(performance.now() - t).toBeLessThan(100);
   });
 });
 
@@ -121,5 +131,59 @@ describe('markdownToPlainText (card previews)', () => {
 
   it('handles empty input', () => {
     expect(markdownToPlainText('')).toBe('');
+  });
+
+  it('M7: stays fast on pathological input (only the leading characters are scanned)', () => {
+    for (const md of ['[a'.repeat(500_000), '[a]('.repeat(250_000), '*'.repeat(1_000_000), 'x'.repeat(1_000_000), '# ' + '#'.repeat(200_000)]) {
+      const t = performance.now();
+      const out = markdownToPlainText(md, 200);
+      expect(performance.now() - t).toBeLessThan(250);
+      expect(out.length).toBeLessThanOrEqual(200);
+    }
+  });
+});
+
+describe('markdownRenderGuard (M7)', () => {
+  it('renders ordinary notes, including a ~25k-character vault note, as markdown', () => {
+    const vault = Array.from({ length: 300 }, (_, i) =>
+      `## Section ${i}\n- item **bold** _em_ [[Link ${i}]] \`code\`\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n---\n`).join('\n').slice(0, 25_000);
+    expect(vault.length).toBe(25_000);
+    expect(markdownRenderGuard(vault)).toEqual({ plain: false, reason: null });
+    expect(markdownRenderGuard('# Title\n\n' + '-'.repeat(80) + '\n\n```ts\nconst a = 1;\n```')).toEqual({ plain: false, reason: null });
+    expect(markdownRenderGuard('')).toEqual({ plain: false, reason: null });
+    expect(markdownRenderGuard(null)).toEqual({ plain: false, reason: null });
+  });
+
+  it('falls back to plain text for very large content', () => {
+    expect(markdownRenderGuard('lorem ipsum '.repeat(6_000))).toEqual({ plain: true, reason: 'size' });
+  });
+
+  it.each([
+    ['stars', '*'.repeat(20_000) + 'X' + '*'.repeat(20_000)],
+    ['underscores', '_'.repeat(10_000) + 'X'],
+    ['brackets', '['.repeat(5_000) + 'X' + ']'.repeat(5_000)],
+    ['backticks', '`'.repeat(500)],
+    ['quotes', '>'.repeat(5_000) + ' x'],
+  ])('falls back to plain text for a long run of %s', (_name, md) => {
+    expect(markdownRenderGuard(md)).toEqual({ plain: true, reason: 'delimiters' });
+  });
+
+  it.each([
+    ['*a', '*a'.repeat(20_000)],
+    ['** a', '** a'.repeat(10_000)],
+  ])('falls back to plain text for a paragraph dense with unmatched %j emphasis delimiters', (_name, md) => {
+    expect(markdownRenderGuard(md)).toEqual({ plain: true, reason: 'delimiters' });
+  });
+
+  it('a long list of bold items is not one paragraph (still markdown)', () => {
+    const list = Array.from({ length: 600 }, (_, i) => `- **Item ${i}** with _note_ and [[Link ${i}]]`).join('\n');
+    expect(markdownRenderGuard(list)).toEqual({ plain: false, reason: null });
+  });
+
+  it('is linear: 1 MB is classified in well under 50 ms', () => {
+    const t = performance.now();
+    markdownRenderGuard('ab*_ '.repeat(11_000));
+    markdownRenderGuard('x'.repeat(1_000_000));
+    expect(performance.now() - t).toBeLessThan(50);
   });
 });

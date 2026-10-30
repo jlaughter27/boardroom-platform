@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { COGNITIVE_LOAD } from '@boardroom/shared';
+import { COGNITIVE_LOAD, isMinistryDomain } from '@boardroom/shared';
 import type {
   LoadDomainRow,
   LoadFlag,
@@ -29,7 +29,6 @@ import type {
 
 const DAY_MS = 86_400_000;
 const UNASSIGNED = 'unassigned';
-const MINISTRY = 'ministry';
 
 export interface LoadInput {
   projects: Array<{ id: string; title: string; status: string; domain: string }>;
@@ -218,7 +217,8 @@ export function computeLoad(input: LoadInput, now: Date, opts: ComputeLoadOption
 
   // Stop candidates — active, domain-assigned, non-ministry projects; fewest open items first
   const eligible: LoadStopCandidate[] = activeProjects
-    .filter(p => { const d = normDomain(p.domain); return d !== MINISTRY && d !== UNASSIGNED; })
+    // M2: shared ministry test (ministry/*, ministries, lookalikes), not just an exact 'ministry'.
+    .filter(p => !isMinistryDomain(p.domain) && normDomain(p.domain) !== UNASSIGNED)
     .map(p => ({
       projectId: p.id,
       title: p.title,

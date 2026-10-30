@@ -125,6 +125,8 @@ Use when you need to recall who someone is — their role, relationship to Josh,
 
 **Ministry domain is air-gapped from OpenAI.** If Ollama is unavailable, writes to `domain: 'ministry'` are refused. Do not retry with a different domain — wait for Ollama to come back up.
 
+**Every spelling counts as ministry (2026-10-30).** `Ministry`, `ministry` with zero-width characters, full-width or accented letters, Cyrillic / Greek lookalikes, `ministries`, `ministry/<anything>`, `ministry-<anything>` and `tgfc-ministry` are all normalized to `ministry` and refused with `MINISTRY_DEFERRED`. **In the `tgfc-ministry` tenant every write is a ministry write:** `memory_write` with no `domain` defaults to `ministry` there (not `general`), `decision_log` with no `domain` defaults to `ministry` (not `business`), and an explicit `general` / `business` / `personal` domain is treated as `ministry` too — so, while the ministry path is deferred, a token bound to `tgfc-ministry` cannot store memories or decisions. Reads are unchanged.
+
 ---
 
 ## Fact Quality Rules

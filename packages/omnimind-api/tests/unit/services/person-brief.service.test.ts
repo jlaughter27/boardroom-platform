@@ -381,3 +381,48 @@ describe('totality, scoping, no LLM', () => {
     expect(r.attendeeMatches).toEqual([{ key: '0:0', personId: null, ambiguous: false, method: null }]);
   });
 });
+
+describe('M1: delegations (owedBy STAKEHOLDER) are things they owe you, not you', () => {
+  const p = person('p1', 'Pat Partner');
+  const c = (id: string, extra: Record<string, unknown>) => ({ id, description: `Item ${id}`, deadline: null, createdAt: ago(10), stakeholderId: 'p1', status: 'OPEN', deletedAt: null, owedBy: 'USER', ...extra });
+
+  it('youOwe holds owedBy USER only; a delegation to Pat appears in theyOwe and counts there', async () => {
+    const prisma = makePrisma({
+      people: [p],
+      commitments: [
+        c('mine', { deadline: ahead(2) }),
+        c('deleg', { owedBy: 'STAKEHOLDER', description: 'Pat sends the term sheet', deadline: ago(3) }),
+      ],
+      tasks: [{ id: 't1', title: 'Pat drafts the memo', owner: 'Pat Partner', status: 'pending', deadline: ahead(5), priority: 0 }],
+    });
+    const r = await buildPersonBriefs(U, body([att('0:0', 'Pat Partner')]), prisma, NOW);
+    const b = r.briefs.p1;
+    expect(b.youOwe.map(x => x.id)).toEqual(['mine']);
+    expect(b.counts).toMatchObject({ youOwe: 1, youOweOverdue: 0, theyOwe: 2 });
+    expect(b.theyOwe.map(x => x.id)).toEqual(['deleg', 't1']);
+    expect(b.theyOwe[0]).toEqual({ id: 'deleg', title: 'Pat sends the term sheet', deadline: ago(3).toISOString(), status: 'overdue' });
+    expect(b.headline).toBe('You owe Pat 1 · Pat owes you 2 · last touch 10d ago');
+    expect(PersonBriefsResponseSchema.safeParse(r).success).toBe(true);
+  });
+
+  it('a lone delegation reads "Pat owes you 1" — never "You owe Pat"', async () => {
+    const prisma = makePrisma({ people: [p], commitments: [c('deleg', { owedBy: 'STAKEHOLDER', deadline: ahead(4) })] });
+    const r = await buildPersonBriefs(U, body([att('0:0', 'Pat Partner')]), prisma, NOW);
+    const b = r.briefs.p1;
+    expect(b.youOwe).toEqual([]);
+    expect(b.theyOwe).toEqual([{ id: 'deleg', title: 'Item deleg', deadline: ahead(4).toISOString(), status: 'open' }]);
+    expect(b.counts).toMatchObject({ youOwe: 0, youOweOverdue: 0, theyOwe: 1 });
+    expect(b.headline).toBe('Pat owes you 1 · last touch 10d ago');
+  });
+
+  it('a failing commitment query keeps task-based theyOwe and drops delegations', async () => {
+    const prisma = makePrisma({
+      people: [p],
+      tasks: [{ id: 't1', title: 'T', owner: 'Pat Partner', status: 'pending', deadline: null, priority: 0 }],
+    });
+    prisma.commitment.findMany.mockRejectedValue(new Error('boom'));
+    const r = await buildPersonBriefs(U, body([att('0:0', 'Pat Partner')]), prisma, NOW);
+    expect(r.partial).toBe(true);
+    expect(r.briefs.p1.theyOwe.map(x => x.id)).toEqual(['t1']);
+  });
+});

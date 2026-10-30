@@ -28,7 +28,8 @@ import { getCapsules } from './reflection.service';
  * matches them to live `Person` rows with exact / first+last-token / title
  * tiers only (no fuzzy tier — a wrong person in a pastoral context does real
  * damage) and builds one brief per matched person from existing rows:
- * open commitments (you owe), tasks owned by them (they owe), related
+ * open commitments the user owes them (you owe), tasks owned by them plus
+ * open delegations to them (they owe, M1), related
  * decisions, explicitly linked memories and the nightly person capsule.
  *
  * No LLM call, nothing persisted, nothing cached. Every query is user-scoped
@@ -213,6 +214,8 @@ export async function buildPersonBriefs(
   const memoriesBy = new Map<string, PersonBriefMemory[]>();
   const memoryNewest = new Map<string, Date>();
   const youOweBy = new Map<string, Array<PersonBriefYouOwe & { createdAt: Date; deadlineDate: Date | null }>>();
+  /** M1 — open delegations (owedBy STAKEHOLDER): the person owes the user; merged into theyOwe. */
+  const delegatedBy = new Map<string, Array<PersonBriefTheyOwe & { priority: number; deadlineDate: Date | null; createdAt: Date }>>();
   const theyOweBy = new Map<string, Array<PersonBriefTheyOwe & { priority: number; deadlineDate: Date | null }>>();
   const decisionsBy = new Map<string, Map<string, PersonBriefDecision & { createdAt: Date }>>();
   const capsuleBy = new Map<string, PersonBrief['capsule']>();
@@ -269,14 +272,31 @@ export async function buildPersonBriefs(
       memoryNewest.clear();
     }
 
-    // ── youOwe: Commitment rows only (stakeholderId = "I owe them") ────────────
+    // ── youOwe: Commitment rows owed BY THE USER (owedBy USER) ──────────────────
+    // M1: a delegation (owedBy STAKEHOLDER, stakeholder = that person) is
+    // something the person owes the user — it goes to theyOwe, never youOwe.
     try {
       const rows = await prisma.commitment.findMany({
         where: { userId, deletedAt: null, status: 'OPEN', stakeholderId: { in: P } },
-        select: { id: true, description: true, deadline: true, createdAt: true, stakeholderId: true },
+        select: { id: true, description: true, deadline: true, createdAt: true, stakeholderId: true, owedBy: true },
       });
       for (const c of rows) {
         if (!c.stakeholderId || !pset.has(c.stakeholderId)) continue;
+        if (c.owedBy === 'STAKEHOLDER') {
+          const overdue = c.deadline !== null && c.deadline.getTime() < now.getTime();
+          const list = delegatedBy.get(c.stakeholderId) ?? [];
+          list.push({
+            id: c.id,
+            title: c.description,
+            deadline: c.deadline ? c.deadline.toISOString() : null,
+            status: overdue ? 'overdue' : 'open',
+            priority: 0,
+            deadlineDate: c.deadline,
+            createdAt: c.createdAt,
+          });
+          delegatedBy.set(c.stakeholderId, list);
+          continue;
+        }
         const list = youOweBy.get(c.stakeholderId) ?? [];
         list.push({
           id: c.id,
@@ -300,6 +320,7 @@ export async function buildPersonBriefs(
     } catch (err) {
       fail('youOwe', err);
       youOweBy.clear();
+      delegatedBy.clear();
     }
 
     // ── theyOwe: open tasks whose free-text owner names the person ─────────────
@@ -425,7 +446,15 @@ export async function buildPersonBriefs(
     if (!p) continue;
     const memories = memoriesBy.get(pid) ?? [];
     const youOwe = youOweBy.get(pid) ?? [];
-    const theyOwe = theyOweBy.get(pid) ?? [];
+    const delegated = delegatedBy.get(pid) ?? [];
+    // M1: delegations join task-owned items; same order (deadline asc, nulls
+    // last, then priority desc, then id) so the capped list is deterministic.
+    const theyOwe = [...(theyOweBy.get(pid) ?? []), ...delegated].sort((a, b) => {
+      const ad = a.deadlineDate?.getTime() ?? Infinity;
+      const bd = b.deadlineDate?.getTime() ?? Infinity;
+      if (ad !== bd) return ad - bd;
+      return b.priority - a.priority || idOrder(a.id, b.id);
+    });
     const decisions = [...(decisionsBy.get(pid)?.values() ?? [])].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || idOrder(a.id, b.id));
     const counts: PersonBriefCounts = {
       ...emptyCounts(),
@@ -435,7 +464,7 @@ export async function buildPersonBriefs(
       theyOwe: theyOwe.length,
       decisions: decisions.length,
     };
-    const newestCommitment = youOwe.reduce<Date | null>((best, c) => maxDate(best, c.createdAt), null);
+    const newestCommitment = [...youOwe, ...delegated].reduce<Date | null>((best, c) => maxDate(best, c.createdAt), null);
     const lastInteraction = maxDate(p.lastContactAt, memoryNewest.get(pid), newestCommitment);
     briefs[pid] = {
       personId: pid,

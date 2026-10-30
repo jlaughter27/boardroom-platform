@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   normalizeDomain,
   isMinistryDomain,
+  isMinistryTenant,
   McpIdempotencyKeySchema,
   McpCursorSchema,
   McpMemoryWriteOutputSchema,
@@ -89,6 +90,26 @@ export const DomainSchema = z
   .transform(s => normalizeDomain(s))
   .refine(s => s.length > 0, { message: 'domain cannot be empty after trim' });
 
+/**
+ * H2 (2026-10-30) — true when this session's tenant (the token's tenant on the
+ * hosted gateway, `OMNIMIND_MCP_TENANT_ID` for stdio) is the ministry tenant
+ * (`OMNIMIND_MINISTRY_TENANT_ID`, default `tgfc-ministry`). Every write there is
+ * a ministry write whatever its `domain`, so it hits the MINISTRY_DEFERRED gate.
+ */
+export function isMinistryTenantCtx(ctx: Pick<AgentContext, 'tenantId'>, env: NodeJS.ProcessEnv = process.env): boolean {
+  return isMinistryTenant(ctx.tenantId, env.OMNIMIND_MINISTRY_TENANT_ID?.trim() || undefined);
+}
+
+/**
+ * H2 — the domain a write lands in: always `'ministry'` in the ministry tenant
+ * (so the gate applies and audit redaction kicks in), else the caller's
+ * normalized domain, else `fallback`.
+ */
+export function effectiveWriteDomain(ctx: Pick<AgentContext, 'tenantId'>, domain: string | undefined, fallback: string): string {
+  if (isMinistryTenantCtx(ctx)) return 'ministry';
+  return domain ?? fallback;
+}
+
 export const MINISTRY_DEFERRED_MESSAGE =
   'Ministry-domain memories are deferred. Use a non-ministry domain. Ministry path will return in Phase 6+.';
 
@@ -135,7 +156,7 @@ export const CONSOLIDATE_MAX_LIMIT = 50;
 
 const MemoryWriteInput = z.object({
   content: z.string().min(1).max(10000).describe('The memory content to store'),
-  domain: DomainSchema.default('general').describe('Domain context: business, personal, ministry, technical'),
+  domain: DomainSchema.optional().describe('Domain context: business, personal, ministry, technical. Defaults to general (ministry in the ministry tenant, where writes are deferred).'),
   tags: z.array(z.string()).default([]).describe('Tags for retrieval'),
   importance: z.number().min(0).max(1).default(0.5).describe('Importance score 0-1'),
   userId: z.string().describe('The user ID this memory belongs to'),
@@ -180,7 +201,7 @@ function refused(error: 'MINISTRY_DEFERRED' | 'FACT_EXTRACTOR_UNAVAILABLE', mess
   return { ok: false, error, message, created: [], updated: [], skipped: 0 };
 }
 
-type MemoryWriteParsedInput = z.infer<typeof MemoryWriteInput>;
+type MemoryWriteParsedInput = Omit<z.infer<typeof MemoryWriteInput>, 'domain'> & { domain: string };
 
 interface FactWriteTally {
   created: string[];
@@ -238,7 +259,10 @@ export function memoryWriteTool(client: OmniMindClient, ctx: AgentContext, opts:
     annotations: ADDITIVE_WRITE_ANNOTATIONS,
     async execute(raw: unknown): Promise<MemoryWriteResult> {
       requireScope(ctx, 'memory:write');
-      const input = parseInput(MemoryWriteInput, raw);
+      const parsed = parseInput(MemoryWriteInput, raw);
+      // H2: no silent 'general' default in the ministry tenant — the effective
+      // domain there is 'ministry', so the refusal below applies.
+      const input: MemoryWriteParsedInput = { ...parsed, domain: effectiveWriteDomain(ctx, parsed.domain, 'general') };
       const writeOpts = input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined;
 
       // Ministry domain is explicitly deferred (Phase 6+). F-212: the refusal
