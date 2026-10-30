@@ -191,6 +191,17 @@ describe('<CommitmentNudgesWidget /> — RD-12 Waiting on others', () => {
     expect(screen.getByText('Do mine1').closest('li')).toHaveTextContent('to Ava');
   });
 
+  it('a delegation due next week still shows under "Waiting on others" (waitingLater), with no overdue/due-soon chip', async () => {
+    const later = { ...com('del9', new Date(Date.now() + 7 * day).toISOString(), 'p2'), description: 'Book the hall', owedBy: 'STAKEHOLDER', stakeholderName: 'Pat Example' } as never;
+    vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [], dueSoon: [], waitingLater: [later] });
+    render(<CommitmentNudgesWidget />);
+    const waiting = await screen.findByTestId('waiting-on-others');
+    expect(waiting).toHaveTextContent('Book the hall');
+    expect(waiting).toHaveTextContent('from Pat Example');
+    expect(waiting).not.toHaveTextContent('overdue');
+    expect(waiting).not.toHaveTextContent('due soon');
+  });
+
   it('mount makes exactly one nudges request; the commitments-changed event triggers one reload', async () => {
     vi.mocked(api.getCommitmentNudges).mockResolvedValue({ overdue: [delegation()], dueSoon: [] });
     render(<CommitmentNudgesWidget />);

@@ -153,6 +153,9 @@ export type CommitmentNudgeRow = Commitment & { stakeholderName: string | null }
 export interface CommitmentNudges {
   dueSoon: CommitmentNudgeRow[];
   overdue: CommitmentNudgeRow[];
+  /** RD-12 follow-up: open delegations due after the nudge horizon, so a delegation never
+   *  disappears from "Waiting on others" just because its date is more than 3 days away. */
+  waitingLater: CommitmentNudgeRow[];
 }
 
 const NUDGE_INCLUDE = { stakeholder: { select: { name: true } } } as const;
@@ -176,12 +179,19 @@ export function buildDueSoonWhere(userId: string, now: Date, horizonDays = NUDGE
   return { userId, deletedAt: null, status: 'OPEN', deadline: { gte: now, lte: horizon } };
 }
 
+/** Open delegations (others owe the user) due after the horizon, or with no deadline. */
+export function buildWaitingLaterWhere(userId: string, now: Date, horizonDays = NUDGE_HORIZON_DAYS): Prisma.CommitmentWhereInput {
+  const horizon = new Date(now.getTime() + horizonDays * 86_400_000);
+  return { userId, deletedAt: null, status: 'OPEN', owedBy: 'STAKEHOLDER', OR: [{ deadline: { gt: horizon } }, { deadline: null }] };
+}
+
 export async function getCommitmentNudges(userId: string, prisma: PrismaClient, now: Date = new Date()): Promise<CommitmentNudges> {
-  const [overdueRows, dueSoonRows] = await Promise.all([
+  const [overdueRows, dueSoonRows, waitingLaterRows] = await Promise.all([
     prisma.commitment.findMany({ where: buildOverdueWhere(userId, now), orderBy: { deadline: 'asc' }, take: 50, include: NUDGE_INCLUDE }),
     prisma.commitment.findMany({ where: buildDueSoonWhere(userId, now), orderBy: { deadline: 'asc' }, take: 50, include: NUDGE_INCLUDE }),
+    prisma.commitment.findMany({ where: buildWaitingLaterWhere(userId, now), orderBy: [{ deadline: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }], take: 50, include: NUDGE_INCLUDE }),
   ]);
-  const nudges: CommitmentNudges = { dueSoon: dueSoonRows.map(toNudgeRow), overdue: overdueRows.map(toNudgeRow) };
+  const nudges: CommitmentNudges = { dueSoon: dueSoonRows.map(toNudgeRow), overdue: overdueRows.map(toNudgeRow), waitingLater: waitingLaterRows.map(toNudgeRow) };
   setCachedNudges(userId, nudges);
   return nudges;
 }

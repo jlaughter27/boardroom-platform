@@ -74,6 +74,18 @@ describe('core context (Phase 6)', () => {
     expect(block).toContain('- Keep burn under 20k\n- No hires before Q2');
   });
 
+  it('does not repeat the counterparty when the description already names them (e2e 2026-10-30)', () => {
+    const input = baseInput();
+    input.commitments = [
+      { id: 'c3', description: 'Deliver the pricing brief to Marco', deadline: '2026-10-06', personName: 'Marco Ruiz' },
+      { id: 'c4', description: 'Send the deck', deadline: '2026-10-07', personName: 'Marco Ruiz' },
+    ];
+    const block = renderCoreBlock(input);
+    expect(block).toContain('- Deliver the pricing brief to Marco — due 2026-10-06');
+    expect(block).not.toContain('to Marco to Marco Ruiz');
+    expect(block).toContain('- Send the deck to Marco Ruiz — due 2026-10-07');
+  });
+
   it('caps goals at 8, lowest level first', () => {
     const input = baseInput();
     input.goals = Array.from({ length: 12 }, (_, i) => ({
@@ -241,7 +253,7 @@ describe('core context (Phase 6)', () => {
       expect(constraintsAt).toBeGreaterThan(-1);
       expect(loadAt).toBeGreaterThan(constraintsAt);
       expect(block).toContain('- No hires before Q2\n\n## Current load');
-      expect(block.endsWith('  - Podcast relaunch (business; 1 open tasks, 0 open commitments)\n')).toBe(true);
+      expect(block.endsWith('  - Podcast relaunch (business; 1 open task, 0 open commitments)\n')).toBe(true);
       expect(block).not.toContain('Choir retreat');
       expect(block).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     });

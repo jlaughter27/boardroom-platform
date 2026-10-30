@@ -190,6 +190,7 @@ export function CommitmentNudgesWidget() {
     setData({
       overdue: snapshot.overdue.filter((c) => c.id !== id),
       dueSoon: snapshot.dueSoon.filter((c) => c.id !== id),
+      waitingLater: (snapshot.waitingLater ?? []).filter((c) => c.id !== id),
     });
     try {
       await api.updateCommitment(id, patch);
@@ -207,7 +208,7 @@ export function CommitmentNudgesWidget() {
           return row && !list.some((c) => c.id === id) ? [...list, row] : list;
         };
         return cur
-          ? { overdue: put(cur.overdue, snapshot.overdue), dueSoon: put(cur.dueSoon, snapshot.dueSoon) }
+          ? { overdue: put(cur.overdue, snapshot.overdue), dueSoon: put(cur.dueSoon, snapshot.dueSoon), waitingLater: put(cur.waitingLater ?? [], snapshot.waitingLater ?? []) }
           : snapshot;
       });
       useToastStore.getState().addToast(e instanceof Error ? e.message : 'Could not update the commitment', 'error');
@@ -253,9 +254,9 @@ export function CommitmentNudgesWidget() {
 
   // Quietly disappear when the endpoint is unavailable or there is nothing to nudge.
   const mine = parts?.mine ?? { overdue: [], dueSoon: [] };
-  const waiting = parts?.waiting ?? { overdue: [], dueSoon: [] };
+  const waiting = parts?.waiting ?? { overdue: [], dueSoon: [], later: [] };
   const mineTotal = mine.overdue.length + mine.dueSoon.length;
-  const waitingTotal = waiting.overdue.length + waiting.dueSoon.length;
+  const waitingTotal = waiting.overdue.length + waiting.dueSoon.length + waiting.later.length;
   const total = mineTotal + waitingTotal;
   const onHorizon = allCommitments.data
     ? (() => { const h = horizon(allCommitments.data, (c) => c.deadline, isOpenCommitment, HORIZON_DAYS); return h.overdue.length + h.upcoming.length; })()
@@ -295,7 +296,7 @@ export function CommitmentNudgesWidget() {
             </div>
           </div>
           <ul className="divide-y divide-border">
-            {[...waiting.overdue.map((c) => [c, true] as const), ...waiting.dueSoon.map((c) => [c, false] as const)].map(([c, isOver]) => (
+            {[...waiting.overdue.map((c) => [c, true] as const), ...waiting.dueSoon.map((c) => [c, false] as const), ...waiting.later.map((c) => [c, false] as const)].map(([c, isOver]) => (
               <WaitingRow
                 key={c.id}
                 commitment={c}

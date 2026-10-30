@@ -645,7 +645,7 @@ SQL only. OPEN commitments due within 3 days or overdue. Precomputed daily by
 
 **GET /commitments** gains `?owedBy=USER|STAKEHOLDER` (`where.owedBy`); any other value → `422 validation_failed` (field `owedBy`). M1-B1's `commitment_list`, `status_get.snapshot.pendingCommitments` and `counts.commitments` should call `?owedBy=USER`.
 
-**GET /commitments/nudges** rows gain `owedBy` and `stakeholderName: string | null` (the counterparty's name; no nested `stakeholder` object). Shape: `{ dueSoon: CommitmentNudgeItem[], overdue: CommitmentNudgeItem[] }` (shared `CommitmentNudgeItemSchema`). Overdue / due-soon rules, the 50-row caps and the cache are unchanged; delegations take part like any OPEN row.
+**GET /commitments/nudges** rows gain `owedBy` and `stakeholderName: string | null` (the counterparty's name; no nested `stakeholder` object). Shape: `{ dueSoon: CommitmentNudgeItem[], overdue: CommitmentNudgeItem[] }` (shared `CommitmentNudgeItemSchema`). Overdue / due-soon rules, the 50-row caps and the cache are unchanged; delegations take part like any OPEN row. **`waitingLater`** (added 2026-10-30, after the real-vault e2e): OPEN delegations (`owedBy = STAKEHOLDER`) due after the 3-day horizon or undated, ordered by deadline (nulls last), capped at 50 — so "Waiting on others" shows every open delegation, not only urgent ones. Optional in `CommitmentNudgesResponse` so older servers keep working.
 
 **Readers**
 

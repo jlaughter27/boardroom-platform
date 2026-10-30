@@ -141,6 +141,14 @@ describe('partitionNudges', () => {
     expect(res.mine.dueSoon.map((c) => c.id)).toEqual(['c']);
     expect(res.waiting.overdue.map((c) => c.id)).toEqual(['b']);
     expect(res.waiting.dueSoon.map((c) => c.id)).toEqual(['d']);
+    expect(res.waiting.later).toEqual([]);
+  });
+
+  it('waitingLater delegations land in waiting.later (an older server without the field → [])', () => {
+    const row = (id: string, owedBy?: 'USER' | 'STAKEHOLDER') => ({ id, owedBy, stakeholderName: null } as unknown as CommitmentNudgeItem);
+    const res = partitionNudges({ overdue: [], dueSoon: [], waitingLater: [row('e', 'STAKEHOLDER')] });
+    expect(res.waiting.later.map((c) => c.id)).toEqual(['e']);
+    expect(res.mine.overdue).toEqual([]);
   });
 });
 

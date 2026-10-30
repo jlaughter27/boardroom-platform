@@ -118,7 +118,10 @@ export function renderCoreBlock(input: CoreContextInput): string {
   );
   if (commitments.length === 0) lines.push('- (none)');
   for (const c of commitments) {
-    const who = c.personName ? ` to ${c.personName}` : '';
+    // Skip the counterparty when the description already names them ("Deliver the brief to Marco" + Marco Ruiz).
+    const first = c.personName?.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    const named = first.length > 1 && new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(c.description);
+    const who = c.personName && !named ? ` to ${c.personName}` : '';
     const due = c.deadline ? ` — due ${c.deadline}` : '';
     lines.push(`- ${c.description}${who}${due}`);
   }

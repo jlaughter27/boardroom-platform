@@ -283,7 +283,7 @@ export function renderLoadSection(s: LoadSnapshot, opts: RenderLoadOptions): str
   if (opts.includeCandidates && s.stopCandidates.length > 0) {
     lines.push('- active projects you could pause (fewest open items first):');
     for (const c of s.stopCandidates) {
-      lines.push(`  - ${oneLine(c.title)} (${c.domain}; ${c.openTasks} open tasks, ${c.openCommitments} open commitments)`);
+      lines.push(`  - ${oneLine(c.title)} (${c.domain}; ${c.openTasks} open ${c.openTasks === 1 ? 'task' : 'tasks'}, ${c.openCommitments} open ${c.openCommitments === 1 ? 'commitment' : 'commitments'})`);
     }
     if (s.omittedCandidates > 0) lines.push(`  - +${s.omittedCandidates} more not listed`);
   }

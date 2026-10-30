@@ -5,6 +5,7 @@ vi.mock('../../../src/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn
 import {
   buildOverdueWhere,
   buildDueSoonWhere,
+  buildWaitingLaterWhere,
   getCommitmentNudges,
   getCachedNudges,
   invalidateNudgeCache,
@@ -18,6 +19,23 @@ const day = 86_400_000;
 describe('commitment nudges (Phase 6, SQL only)', () => {
   it('overdue = OPEN, not deleted, deadline < now', () => {
     expect(buildOverdueWhere('u1', now)).toEqual({ userId: 'u1', deletedAt: null, status: 'OPEN', deadline: { lt: now } });
+  });
+
+  it('waitingLater = OPEN delegations (owedBy STAKEHOLDER) due after the horizon or undated', () => {
+    const horizon = new Date(now.getTime() + NUDGE_HORIZON_DAYS * day);
+    expect(buildWaitingLaterWhere('u1', now)).toEqual({
+      userId: 'u1', deletedAt: null, status: 'OPEN', owedBy: 'STAKEHOLDER',
+      OR: [{ deadline: { gt: horizon } }, { deadline: null }],
+    });
+  });
+
+  it('a delegation due next week is returned in waitingLater, never dropped (real-vault e2e 2026-10-30)', async () => {
+    const later = { id: 'd9', description: 'Send the rota', status: 'OPEN', owedBy: 'STAKEHOLDER', deadline: new Date(now.getTime() + 7 * day), stakeholder: { name: 'Pat Example' } };
+    const prisma = { commitment: { findMany: vi.fn().mockImplementation(({ where }: any) => Promise.resolve(where.OR ? [later] : [])) } } as any;
+    const res = await getCommitmentNudges('u1', prisma, now);
+    expect(res.waitingLater).toEqual([expect.objectContaining({ id: 'd9', stakeholderName: 'Pat Example' })]);
+    expect(res.overdue).toEqual([]);
+    expect(res.dueSoon).toEqual([]);
   });
 
   it('dueSoon = OPEN, not deleted, now <= deadline <= now + 3 days', () => {
@@ -37,7 +55,7 @@ describe('commitment nudges (Phase 6, SQL only)', () => {
       vi.clearAllMocks();
       invalidateNudgeCache('u1');
       mockPrisma.commitment.findMany.mockImplementation(({ where }: any) =>
-        Promise.resolve(where.deadline.lt ? [overdueRow] : [soonRow]),
+        Promise.resolve(where.OR ? [] : where.deadline.lt ? [overdueRow] : [soonRow]),
       );
     });
 
@@ -45,8 +63,9 @@ describe('commitment nudges (Phase 6, SQL only)', () => {
       const res = await getCommitmentNudges('u1', mockPrisma, now);
       expect(res.overdue).toEqual([{ ...overdueRow, stakeholderName: null }]);
       expect(res.dueSoon).toEqual([{ ...soonRow, stakeholderName: null }]);
-      expect(mockPrisma.commitment.findMany).toHaveBeenCalledTimes(2);
-      for (const call of mockPrisma.commitment.findMany.mock.calls) {
+      expect(res.waitingLater).toEqual([]);
+      expect(mockPrisma.commitment.findMany).toHaveBeenCalledTimes(3);
+      for (const call of mockPrisma.commitment.findMany.mock.calls.slice(0, 2)) {
         expect(call[0].orderBy).toEqual({ deadline: 'asc' });
         expect(call[0].where.status).toBe('OPEN');
         expect(call[0].where.deletedAt).toBeNull();
@@ -55,7 +74,7 @@ describe('commitment nudges (Phase 6, SQL only)', () => {
 
     it('RD-12: includes the stakeholder name and flattens it to stakeholderName (null-safe, no nested key)', async () => {
       mockPrisma.commitment.findMany.mockImplementation(({ where }: any) =>
-        Promise.resolve(where.deadline.lt
+        Promise.resolve(where.OR ? [] : where.deadline.lt
           ? [{ ...overdueRow, owedBy: 'STAKEHOLDER', stakeholderId: 'p1', stakeholder: { name: 'Sam Rivera' } }]
           : [{ ...soonRow, owedBy: 'USER', stakeholderId: null, stakeholder: null }]),
       );

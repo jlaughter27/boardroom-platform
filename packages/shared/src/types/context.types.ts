@@ -64,6 +64,8 @@ export interface EntityChangesResponse {
 export interface CommitmentNudgesResponse {
   dueSoon: CommitmentNudgeItem[];
   overdue: CommitmentNudgeItem[];
+  /** Open delegations due after the nudge horizon (or undated). Optional for older servers. */
+  waitingLater?: CommitmentNudgeItem[];
 }
 
 // ── Interactive memo (PATCH /cortex/memo/:id/items/:itemKey) ──

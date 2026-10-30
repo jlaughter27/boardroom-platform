@@ -122,7 +122,8 @@ export function delegationDueLabel(deadline: Date | string | null, now: Date | n
 
 export interface NudgePartition {
   mine: { overdue: CommitmentNudgeItem[]; dueSoon: CommitmentNudgeItem[] };
-  waiting: { overdue: CommitmentNudgeItem[]; dueSoon: CommitmentNudgeItem[] };
+  /** `later`: open delegations due after the nudge horizon — still shown, without a chip. */
+  waiting: { overdue: CommitmentNudgeItem[]; dueSoon: CommitmentNudgeItem[]; later: CommitmentNudgeItem[] };
 }
 
 /** What the user owes vs what others owe the user, from one nudges response. */
@@ -130,7 +131,7 @@ export function partitionNudges(res: CommitmentNudgesResponse): NudgePartition {
   const mine = (c: CommitmentNudgeItem) => !isDelegation(c);
   return {
     mine: { overdue: res.overdue.filter(mine), dueSoon: res.dueSoon.filter(mine) },
-    waiting: { overdue: res.overdue.filter(isDelegation), dueSoon: res.dueSoon.filter(isDelegation) },
+    waiting: { overdue: res.overdue.filter(isDelegation), dueSoon: res.dueSoon.filter(isDelegation), later: (res.waitingLater ?? []).filter(isDelegation) },
   };
 }
 

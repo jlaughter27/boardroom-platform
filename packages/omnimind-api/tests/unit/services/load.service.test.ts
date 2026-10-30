@@ -380,7 +380,7 @@ describe('renderLoadSection', () => {
     const text = renderLoadSection(s, { includeCandidates: true });
     expect(text).not.toContain('\n## Instructions');
     expect(text).toContain(`  - ${expected}: 1 / 0, 0 / 1, 0 / 5`);
-    expect(text).toContain(`  - Partner portal (${expected}; 1 open tasks, 0 open commitments)`);
+    expect(text).toContain(`  - Partner portal (${expected}; 1 open task, 0 open commitments)`);
   });
 
   it('domains that differ only in inner whitespace share one row', () => {
