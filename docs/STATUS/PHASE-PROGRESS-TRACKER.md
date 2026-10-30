@@ -346,6 +346,8 @@ States: `todo` → `in-progress` → `in-review` → `merged` → `done` (see th
 | RD-14 | Decision staleness + assumption re-check at outcome review | M4 | B | dogfood scorecard | todo | — | gated on M4 verdict |
 | RD-15 | Venture pulse via GHL MCP clients → weekly memo | M4 | founder + B | M1-F1 | todo | — | gated on M4 verdict |
 | RD-16 | Calling-alignment check (monthly, by domain) | M4 | B | RD-11 | todo | — | gated on M4 verdict |
+| RD-17 | Decision Lab sessions persisted in OmniMind (today BoardRoom keeps sessions in memory: a restart loses open sessions; decisions no longer record their source session) | M3 | B/C | migration (session id column or session persistence) | todo | — | found by the 2026-10-30 massive e2e; architectural, not in PR B |
+| RD-18 | E2E follow-up backlog (2026-10-30): logout does not revoke the JWT; MCP failed-auth limiter is per IP; `X-Forwarded-For` bypasses the login limiter when BoardRoom is reached directly; BoardRoom 100 kB 413 labelled `internal_error`; `/memory/<id>` links in MCP results land on `/`; BoardRoom memories default to tenant josh-personal; set `OMNIMIND_REQUIRE_AGENT_KEY=true` once the gateway is the only MCP writer; agent keys not user-bound; admin duplicate merge across users 404s (pair rows carry no user id); admin contradictions show only the admin's own; ministry budget buckets not normalised; `memory_search` can return legacy ministry-spelled rows; `sourceSessionId` ownership unchecked; goal tree has no "Unassigned" group; graph legend tab stops; duplicate dashboard requests (M2-C1); link DELETE returns 200 vs contract 204; list paging has no id tie-breaker | M3 | B/C | — | todo | — | low/medium; none blocks dogfood day 1 |
 
 ---
 

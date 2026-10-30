@@ -6,6 +6,21 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-30 — Phase 8 real-data — Massive end-to-end test of PR B; every high finding fixed
+
+**Branch:** `claude/amazing-mccarthy-grvem2` (PR #30) | **Status:** Pushed, CI green; merge only after M0-F1 | **Tests:** shared 331, mcp 289, api 1,696, server 417, client 717; e2e 78/78 (+E2E-12 decision commit, +E2E-13 project links); private real-vault journey 28/28; MCP smoke 20 tools
+
+Four e2e lanes (real vault on a fresh stack; every suite + upgrade-path migration; adversarial security; UI/mobile/a11y in Chromium), then six fix lanes (A–F) in isolated worktrees, an adversarial re-test of the fixes, and a final real-vault run on the merged head.
+
+- **Security:** admin via an e-mail case variant (emails normalised, case-insensitive lookups); one user could open BoardRoom's shared circuit breaker for everyone — first via malformed queries (now 4xx, never counted), then via OmniMind's deliberate 503 `MINISTRY_DEFERRED` (refusals carry `x-omnimind-refusal: 1` and never trip or retry); ministry gate bypasses (NFKC, zero-width, lookalikes, letters-only skeleton; the tgfc-ministry tenant is refused for every domain; ministry rows kept out of core context, backlinks and admin lists); prompt-injected titles flattened to one line in core context.
+- **Data correctness:** decision commit failed on real Postgres (BoardRoom's in-memory session id hit the decisions FK); entity lists stopped at 20 rows (proxy dropped `limit`; client now pages); Goals & Projects tree grouped by domain instead of links (`GET /projects?include=links`); person briefs listed delegations under "You owe"; delegations due > 3 days out vanished from "Waiting on others" (`waitingLater`); OmniMind 500s on bad input now 4xx (413/400/409/422, NUL and depth guards, tsvector-too-long → 413); junk displacement stops dropped.
+- **Rate limits:** reads no longer billed to the write bucket for agents; an agent acting for a user now gets its own per-user bucket — the final real-vault run showed MCP searches emptying the shared bucket and blanking the same user's dashboard.
+- **UI:** dashboard and phone layouts no longer scroll sideways; toasts clear of sheets; tapping a memory on a phone shows it; keyboard focus in the token and memory flows; Memory Explorer no longer freezes on pathological markdown or a long unbroken token; admin panel works end to end; static assets compressed (brotli/gzip, SSE excluded) with immutable caching for hashed files; truthful dashboard copy.
+- **Test de-flakes:** MCP front-door, ConnectedToolsPanel and GraphPage tests poll instead of sleeping.
+- **Deferred:** RD-17 Decision Lab session persistence; RD-18 follow-up backlog (tracker).
+
+---
+
 ## 2026-10-30 — Phase 8 real-data — PR #29 merged (RD-11, RD-13); RD-12 delegation briefs in PR B
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** #29 merged as `9b98a48`; PR B open (merge after M0-F1) | **Tests:** shared 198, mcp 276, api 1,518, server 349, client 653; e2e 67/67
