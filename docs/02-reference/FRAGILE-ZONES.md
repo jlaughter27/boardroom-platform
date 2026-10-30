@@ -45,7 +45,7 @@ The middleware stack in `packages/boardroom-ai/server/src/index.ts` has a strict
 ### The sequence (do not reorder):
 
 ```
-0. app.set('trust proxy', 1)  — before anything reads req.ip
+0. app.set('trust proxy', resolveTrustProxy())  — before anything reads req.ip (TRUST_PROXY_HOPS; 1 in production)
 1. Global middleware (helmet, CORS, **Stripe webhook with express.raw()**, JSON parser, cookie parser)
 2. API prefix rewriting (/api/* → /*)
 3. Public BROWSER-NAVIGATED GETs: /health + both OAuth callbacks (direct handlers)
@@ -71,6 +71,8 @@ The stack lives in `server/src/app.ts` (`createApp()`); `index.ts` only calls it
 **OAuth callbacks as direct handlers:** `app.get('/calendar/callback', optionalAuthMiddleware, calendarCallback)` — not `app.get(path, router)`, which hands the router the unstripped URL and never matches (B-107).
 
 **OAuth callbacks (and /health) BEFORE the SPA fallback (step 3 above step 4):** Google redirects the user's *browser* to `/calendar/callback?code=…&state=…` with `Accept: text/html`. That is exactly what the SPA predicate matches (GET, not `/api/`, prefers HTML), so when the callbacks were registered *below* the `app.get('*')` fallback the handler never ran, the user saw the SPA shell, and the OAuth token was never stored (review finding R-B-02). Any public route a browser *navigates* to (not `fetch()`es) must be registered above the fallback; fetch-driven public routes (`/auth/*`) can stay below it because they send a JSON Accept. The auth wall stays below both. `app-middleware-order.test.ts` sends the callbacks with a real browser Accept header and asserts they reach the handler (400 invalid state), not index.html.
+
+**`trust proxy` = exactly the hops really in front (step 0):** `lib/trust-proxy.ts` reads `TRUST_PROXY_HOPS` — unset means `1` in production (Railway's single edge, which appends the real client as the right-most `X-Forwarded-For` entry) and off everywhere else. Never set it to `true` (trusts every hop = the client-written left-most entry) or a count larger than the real proxy chain: the login/register limiters key on `req.ip`, and a trusted hop that is not a real proxy lets the caller choose a fresh bucket per request by rotating `X-Forwarded-For` (lane G item 2). `0` = socket peer only (with Railway in front that collapses everyone into one bucket — B-104). Covered by `tests/integration/trust-proxy-login-limiter.test.ts`.
 
 **Cookie parser BEFORE auth middleware:** Auth reads JWT from `req.cookies.boardroom_token`. Without cookie parser running first, `req.cookies` is undefined.
 
@@ -213,6 +215,7 @@ The MCP endpoint is **`https://<mcp-host>/mcp`** — that is what `OMNIMIND_MCP_
 | Browser-navigated public GETs (`/health`, OAuth callbacks) | Must be registered ABOVE the SPA fallback (step 3), or Google's redirect gets index.html (R-B-02) |
 | `abortOnClose()` in `sessions.routes.ts` | Listens on `res.on('close')`, never `req.on('close')` — the request emits `close` as soon as express.json() drains the body (R-B-01) |
 | Cookie name `boardroom_token` | Grep all usages before changing |
+| `TRUST_PROXY_HOPS` (boardroom-ai) | Default 1 in production, off elsewhere; integer only — never `true`, never more hops than real proxies, or `X-Forwarded-For` rotates the login rate-limit key |
 | `OMNIMIND_API_KEY` | Must match in both services |
 | Shared package `composite: true` | Required for project references |
 | `OMNIMIND_MCP_ALLOWED_HOSTS` (omnimind-mcp) | Exact bare public host; `/health` passes regardless, so a green deploy can still 403 every client |
