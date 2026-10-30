@@ -44,7 +44,10 @@ export default function MemoryExplorerPage() {
             description="Linking memories to people, goals, or projects improves AI context during decisions."
             action={{
               label: 'Review Memories',
-              onClick: () => search({ status: 'ACTIVE' }),
+              // Every live memory: no status filter, so the server default
+              // (everything but ARCHIVED) applies. `ACTIVE` is not a
+              // MemoryStatus — sending it was a 422 (a 500 before 2026-10-30).
+              onClick: () => search({}),
             }}
             dismissKey="nudge-unlinked-memories"
             variant="suggestion"
