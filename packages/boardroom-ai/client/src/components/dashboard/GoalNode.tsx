@@ -45,12 +45,9 @@ export function GoalNode({ goal, projects, tasksByProject }: GoalNodeProps) {
   }
 
   function handleAddProject(data: Record<string, unknown>) {
-    // TODO(C-111): the project is NOT linked to `goal.id` yet. There is no
-    // goal→project link endpoint on the BoardRoom server (entities.routes.ts
-    // has no `/goals/:id/projects` or GoalProjectLink route), and the previous
-    // `_goalId` field was silently stripped by Zod server-side. Once the server
-    // exposes a link endpoint, call it here after createProject resolves.
-    createProject(data);
+    // C-111: created under this goal, so link it (GoalProjectLink) — the tree
+    // groups projects by their links.
+    createProject(data, goal.id);
     setShowAddProject(false);
   }
 

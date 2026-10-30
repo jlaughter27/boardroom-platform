@@ -8,12 +8,14 @@ import type {
   Person,
   Decision,
   Commitment,
+  ProjectLinkIds,
 } from '@boardroom/shared';
 import { useToastStore } from '../components/ui/Toast';
 
 interface EntitiesState {
   goals: Goal[];
-  projects: Project[];
+  /** Listed with `include=links`: `goalIds` / `taskIds` drive the Goals & Projects tree. */
+  projects: Array<Project & Partial<ProjectLinkIds>>;
   tasks: Task[];
   people: Person[];
   decisions: Decision[];
@@ -35,11 +37,13 @@ interface EntitiesState {
   updateGoal: (id: string, input: Partial<GoalInput>) => Promise<void>;
   deleteGoal: (id: string) => Promise<void>;
 
-  createProject: (input: Partial<ProjectInput>) => Promise<void>;
+  /** `goalId`: also link the new project to that goal (GoalProjectLink). */
+  createProject: (input: Partial<ProjectInput>, goalId?: string) => Promise<void>;
   updateProject: (id: string, input: Partial<ProjectInput>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 
-  createTask: (input: Partial<TaskInput>) => Promise<void>;
+  /** `projectId`: also link the new task to that project (ProjectTaskLink). */
+  createTask: (input: Partial<TaskInput>, projectId?: string) => Promise<void>;
   updateTask: (id: string, input: Partial<TaskInput>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
 
@@ -167,10 +171,11 @@ export const useEntitiesStore = create<EntitiesState>((set, get) => ({
   },
 
   // Project mutations
-  createProject: async (input) => {
+  createProject: async (input, goalId) => {
     const toast = useToastStore.getState().addToast;
     try {
-      await api.createProject(input);
+      const created = await api.createProject(input);
+      if (goalId) await api.linkGoalProject(goalId, created.id);
       await get().fetchProjects();
       toast('Project created', 'success');
     } catch (err) {
@@ -202,10 +207,14 @@ export const useEntitiesStore = create<EntitiesState>((set, get) => ({
   },
 
   // Task mutations
-  createTask: async (input) => {
+  createTask: async (input, projectId) => {
     const toast = useToastStore.getState().addToast;
     try {
-      await api.createTask(input);
+      const created = await api.createTask(input);
+      if (projectId) {
+        await api.linkProjectTask(projectId, created.id);
+        await get().fetchProjects(); // the link lives on the project's taskIds
+      }
       await get().fetchTasks();
       toast('Task created', 'success');
     } catch (err) {

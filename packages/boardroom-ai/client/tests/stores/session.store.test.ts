@@ -176,6 +176,39 @@ describe('useSessionStore debate + commit', () => {
     expect(addToast).toHaveBeenCalledWith('Decision committed', 'success');
   });
 
+  it('commitDecision upstream failure: plain commitError for the commit card, never the raw "OmniMind POST /decisions: 500"', async () => {
+    vi.mocked(api.commitDecision).mockRejectedValue(new api.ApiError('OmniMind POST /decisions: 500', 502, { error: 'upstream_error' }));
+    let result: Decision | null = null;
+    await act(async () => {
+      result = await useSessionStore.getState().commitDecision({ chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+    });
+    expect(result).toBeNull();
+    const s = useSessionStore.getState();
+    expect(s.isCommitting).toBe(false);
+    expect(s.commitError).toBe('Your decision was not saved. Your answers are still here — try again in a moment.');
+    expect(s.commitError).not.toMatch(/OmniMind|POST|\/decisions|500/);
+
+    // A retry clears it; a successful commit leaves it null.
+    vi.mocked(api.commitDecision).mockResolvedValue({ id: 'd1', status: 'DECIDED' } as unknown as Decision);
+    await act(async () => {
+      await useSessionStore.getState().commitDecision({ chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+    });
+    expect(useSessionStore.getState().commitError).toBeNull();
+  });
+
+  it('commitDecision: a lost (404) session and a network failure also give plain commit-card errors', async () => {
+    vi.mocked(api.commitDecision).mockRejectedValue(new api.ApiError('Session not found', 404, { error: 'not_found' }));
+    await act(async () => { await useSessionStore.getState().commitDecision({ chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 }); });
+    expect(useSessionStore.getState().commitError).toBe('This session is no longer available, so the decision could not be saved. Start a new decision to commit it.');
+
+    vi.mocked(api.commitDecision).mockRejectedValue(new TypeError('Failed to fetch'));
+    await act(async () => { await useSessionStore.getState().commitDecision({ chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 }); });
+    expect(useSessionStore.getState().commitError).toBe('Your decision was not saved. Your answers are still here — try again in a moment.');
+
+    act(() => useSessionStore.getState().clearCommitError());
+    expect(useSessionStore.getState().commitError).toBeNull();
+  });
+
   it('commitDecision surfaces errors and returns null', async () => {
     vi.mocked(api.commitDecision).mockRejectedValue(new Error('expectedOutcome is required'));
     let result: Decision | null = null;

@@ -55,19 +55,25 @@ describe('decision-commit — builders', () => {
     expect(buildAssumptions({ synthesis: null })).toEqual([]);
   });
 
-  it('buildDecisionInput: mode from session, decidedAt now, reviewAt default +30d, status DECIDED, sessionId set', () => {
+  it('buildDecisionInput: mode from session, decidedAt now, reviewAt default +30d, status DECIDED, no FK sessionId', () => {
     const now = new Date('2026-10-02T12:00:00Z');
     const input = buildDecisionInput(session({ mode: 'premortem' }), { chosenPath: 'Hire now', expectedOutcome: 'Ship Q3', probabilitySuccess: 0.65 }, now);
     expect(input).toMatchObject({
       title: 'Should I hire a senior engineer now?',
       chosenPath: 'Hire now', expectedOutcome: 'Ship Q3', probabilitySuccess: 0.65,
-      status: 'DECIDED', sessionId: 'session_1', mode: 'premortem', decidedAt: now,
+      status: 'DECIDED', sessionId: null, mode: 'premortem', decidedAt: now,
       rationale: 'speed vs runway',
     });
     expect(input.reviewAt.getTime()).toBe(now.getTime() + 30 * 86_400_000);
     expect(input.options.map(o => o.path)).toEqual(['Hire now', 'Hire now, phased']);
     expect(input.personaForecasts).toHaveLength(2);
     expect(input.assumptions).toHaveLength(2);
+  });
+
+  it('never sends the in-memory BoardRoom session id: decisions.session_id is an FK to OmniMind sessions', () => {
+    const input = buildDecisionInput(session({ id: 'session_3_1761830000000' }), { chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+    expect(input.sessionId).toBeNull();
+    expect(JSON.stringify(input)).not.toContain('session_3_1761830000000');
   });
 
   it('explicit reviewAt + rationale win over defaults', () => {
@@ -88,7 +94,7 @@ describe('decision-commit — commitDecision', () => {
     const decision = await commitDecision(s, { chosenPath: 'Hire now', expectedOutcome: 'x', probabilitySuccess: 0.7 }, omnimind as any);
     expect(decision.id).toBe('dec_1');
     expect(s.decisionId).toBe('dec_1');
-    expect(omnimind.createDecision).toHaveBeenCalledWith('u1', expect.objectContaining({ sessionId: 'session_1', personaForecasts: expect.any(Array) }));
+    expect(omnimind.createDecision).toHaveBeenCalledWith('u1', expect.objectContaining({ sessionId: null, personaForecasts: expect.any(Array) }));
     expect(omnimind.linkProjectDecision).toHaveBeenCalledTimes(2);
     expect(omnimind.linkProjectDecision).toHaveBeenCalledWith('u1', 'proj_1', 'dec_1');
     expect(omnimind.linkProjectDecision).toHaveBeenCalledWith('u1', 'proj_2', 'dec_1');

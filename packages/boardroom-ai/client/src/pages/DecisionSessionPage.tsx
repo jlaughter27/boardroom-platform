@@ -53,9 +53,10 @@ export default function DecisionSessionPage() {
     currentSession, personaResponses, personaStreaming, streamingPersonas,
     synthesis, synthesisStreaming, isDispatching, isSynthesizing,
     sufficiency, simulation, isSimulating, error, errorStatus,
-    rebuttals, rebuttingPersonas, committedDecision, isCommitting,
+    rebuttals, rebuttingPersonas, committedDecision, isCommitting, commitError,
     personaErrors, dispatchScope, synthesisWithout,
     createSession, dispatch, retryPersona, synthesize, checkAmbiguity, runSimulation, commitDecision, reset, clearError,
+    clearCommitError,
   } = useSessionStore();
 
   // Loader keyed on the route id (C-107): navigating A → B must not render A's
@@ -437,7 +438,9 @@ export default function DecisionSessionPage() {
                   personaResponses={personaResponses}
                   committed={committedDecision}
                   isCommitting={isCommitting}
+                  error={commitError}
                   onCommit={commitDecision}
+                  onClearError={clearCommitError}
                 />
               </motion.div>
             )}

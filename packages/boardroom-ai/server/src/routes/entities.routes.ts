@@ -9,7 +9,7 @@ import type { AuthRequest } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { llmRateLimiter } from '../middleware/llm-rate-limiter';
 import { requireSubscription } from '../middleware/subscription.middleware';
-import { omnimindClient } from '../services/omnimind-client';
+import { omnimindClient, type ListQuery } from '../services/omnimind-client';
 import {
   CreateGoalRequestSchema, UpdateGoalRequestSchema,
   CreateProjectRequestSchema, UpdateProjectRequestSchema,
@@ -48,6 +48,21 @@ const UpdateProfileSchema = z.object({
   dashboardLayout: z.record(z.unknown()).optional(),
   onboardingComplete: z.boolean().optional(),
 }).strict();
+
+// OmniMind pages every entity list (default 20, max 100). Forward the
+// browser's paging so it can read past the first page; malformed values are
+// dropped (OmniMind default), limit is clamped to OmniMind's max.
+const OMNIMIND_MAX_PAGE = 100;
+function listQuery(query: Record<string, unknown>, opts: { includeLinks?: boolean } = {}): ListQuery {
+  const out: ListQuery = {};
+  const int = (v: unknown): number | null => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null);
+  const limit = int(query.limit);
+  if (limit !== null && limit >= 1) out.limit = String(Math.min(limit, OMNIMIND_MAX_PAGE));
+  const offset = int(query.offset);
+  if (offset !== null) out.offset = String(offset);
+  if (opts.includeLinks && query.include === 'links') out.include = 'links';
+  return out;
+}
 
 // Phase 6 — proxy body schemas
 const ReflectBodySchema = z.object({
@@ -114,7 +129,7 @@ router.get('/context/capsules', async (req: AuthRequest, res, next) => {
 
 router.get('/goals', async (req: AuthRequest, res, next) => {
   try {
-    const data = await omnimindClient.listGoals(req.auth!.userId);
+    const data = await omnimindClient.listGoals(req.auth!.userId, listQuery(req.query));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -157,7 +172,7 @@ router.post('/goals/:goalId/projects/:projectId', async (req: AuthRequest, res, 
 
 router.get('/projects', async (req: AuthRequest, res, next) => {
   try {
-    const data = await omnimindClient.listProjects(req.auth!.userId);
+    const data = await omnimindClient.listProjects(req.auth!.userId, listQuery(req.query, { includeLinks: true }));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -225,7 +240,7 @@ router.delete('/projects/:projectId/decisions/:decisionId', async (req: AuthRequ
 
 router.get('/tasks', async (req: AuthRequest, res, next) => {
   try {
-    const data = await omnimindClient.listTasks(req.auth!.userId);
+    const data = await omnimindClient.listTasks(req.auth!.userId, listQuery(req.query));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -272,7 +287,7 @@ router.delete('/tasks/:taskId/depends-on/:otherTaskId', async (req: AuthRequest,
 
 router.get('/people', async (req: AuthRequest, res, next) => {
   try {
-    const data = await omnimindClient.listPeople(req.auth!.userId);
+    const data = await omnimindClient.listPeople(req.auth!.userId, listQuery(req.query));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -312,7 +327,7 @@ router.delete('/people/:id', async (req: AuthRequest, res, next) => {
 
 router.get('/decisions', async (req: AuthRequest, res, next) => {
   try {
-    const data = await omnimindClient.listDecisions(req.auth!.userId);
+    const data = await omnimindClient.listDecisions(req.auth!.userId, listQuery(req.query));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -362,7 +377,7 @@ router.get('/decisions/:id', async (req: AuthRequest, res, next) => {
 
 router.get('/commitments', async (req: AuthRequest, res, next) => {
   try {
-    const data = await omnimindClient.listCommitments(req.auth!.userId);
+    const data = await omnimindClient.listCommitments(req.auth!.userId, listQuery(req.query));
     res.json(data);
   } catch (err) { next(err); }
 });

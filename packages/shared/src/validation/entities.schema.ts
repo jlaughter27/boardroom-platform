@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { boundedDate } from './bounds.schema';
+import type { ProjectWithLinks } from '../types/entities.types';
 
 /** Largest value a Postgres `integer` column (Person.interactionFrequency) can hold. */
 const INT4_MAX = 2_147_483_647;
@@ -111,6 +112,17 @@ export const ProjectSchema = z.object({
 });
 
 export type ProjectInput = z.infer<typeof ProjectSchema>;
+
+/** `GET /projects?include=links` item: the project plus its goal / task link ids. */
+export const ProjectWithLinksSchema = ProjectSchema.extend({
+  goalIds: z.array(z.string()).describe('Goals linked via GoalProjectLink'),
+  taskIds: z.array(z.string()).describe('Tasks linked via ProjectTaskLink'),
+});
+
+// CLAUDE rule 10 — compile-time parity with the interface.
+type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type AssertParity<T extends true> = T;
+export type ProjectWithLinksSchemaParity = AssertParity<MutuallyAssignable<z.infer<typeof ProjectWithLinksSchema>, ProjectWithLinks>>;
 
 export const CreateProjectRequestSchema = z.object({
   title: z.string().min(1).describe('Project title'),
