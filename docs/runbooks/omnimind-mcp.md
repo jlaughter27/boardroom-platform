@@ -141,6 +141,8 @@ curl -s -X DELETE -H "x-admin-key: $OMNIMIND_ADMIN_KEY" https://omnimind-api-pro
 
 `omt_` tokens are unaffected: each token names its tenant at minting time.
 
+**Owners also bind agent keys (lane G).** A non-gateway `omk_` agent key (stdio / Claude Code / legacy static identity — any agent row *without* `mcp:delegate`) acts **only for its tenant's owner**: an `x-user-id`, `?userId=` or `body.userId` naming anyone else is `403 user_mismatch`, and a missing one is filled in with the owner on the entity routes. A tenant with **no** owner leaves its keys unbound (one `agent tenant has no owner` warning per tenant in the API log) — set the owner to close that. The owner is cached for 60 s, so a change binds keys already in use within a minute. The gateway is not affected (delegated principals are pinned by `x-mcp-principal`). This binds the *agent identity*; the shared `x-api-key` itself still reaches every user without agent headers, so keep it server-side only.
+
 ---
 
 ## 3. Deploy the MCP service on Railway
