@@ -15,6 +15,7 @@ import { rateLimiter, stopRateLimiterCleanup } from './middleware/rate-limiter';
 import { agentRateLimiter, stopAgentRateLimiterCleanup } from './middleware/agent-rate-limiter';
 import { requireAdminKey } from './middleware/admin-auth';
 import { errorHandler } from './middleware/error-handler';
+import { inputGuard } from './middleware/input-guard';
 import { healthRouter, readyRouter } from './routes/health.routes';
 import { memoriesRouter } from './routes/memories.routes';
 import { peopleRouter } from './routes/people.routes';
@@ -78,6 +79,9 @@ app.use(delegatedUserIsolation);
 app.use(agentScopeEnforcer);
 app.use(rateLimiter);
 app.use(agentRateLimiter);
+// Robustness fixes 2026-10-30: NUL (U+0000) in body / query / path and JSON
+// nested past 32 levels → 422 before any route (Postgres cannot store NUL).
+app.use(inputGuard);
 
 // Routes
 app.use('/health', healthRouter);

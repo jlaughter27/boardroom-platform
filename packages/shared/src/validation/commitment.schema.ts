@@ -2,6 +2,10 @@
 
 import { z } from 'zod';
 import { CommitmentOwedBy, CommitmentStatus } from '../types/commitment.types';
+import { boundedDate, queryNativeEnum, queryNonNegativeInt, queryFlag } from './bounds.schema';
+
+/** Longest id accepted in a request body (cuids are 25 chars). */
+const ID_MAX_LENGTH = 128;
 
 // ── Status Schema ──
 
@@ -46,11 +50,11 @@ export const CommitmentLinksInputSchema = z.object({
 export const CreateCommitmentRequestSchema = z.object({
   description: z.string().min(1).describe('What was committed to'),
   stakeholderId: z.string().nullable().optional().describe(COUNTERPARTY_DESCRIBE),
-  deadline: z.coerce.date().nullable().optional().describe('Target completion date'),
+  deadline: boundedDate().nullable().optional().describe('Target completion date'),
   status: CommitmentStatusSchema.optional().describe('Lifecycle status'),
-  sourceSessionId: z.string().nullable().optional().describe('Boardroom session where commitment originated'),
+  sourceSessionId: z.string().max(ID_MAX_LENGTH).nullable().optional().describe('Boardroom session where commitment originated'),
   linkedProjectId: z.string().nullable().optional().describe('Associated project ID'),
-  completedAt: z.coerce.date().nullable().optional().describe('When the commitment was completed'),
+  completedAt: boundedDate().nullable().optional().describe('When the commitment was completed'),
   owedBy: CommitmentOwedBySchema.optional(),
   links: CommitmentLinksInputSchema.optional().describe('CommitmentLink rows to create with the commitment'),
 });
@@ -62,11 +66,11 @@ export type CreateCommitmentRequestInput = z.infer<typeof CreateCommitmentReques
 export const UpdateCommitmentRequestSchema = z.object({
   description: z.string().min(1).optional().describe('What was committed to'),
   stakeholderId: z.string().nullable().optional().describe('Person this commitment was made to'),
-  deadline: z.coerce.date().nullable().optional().describe('Target completion date'),
+  deadline: boundedDate().nullable().optional().describe('Target completion date'),
   status: CommitmentStatusSchema.optional().describe('Lifecycle status'),
-  sourceSessionId: z.string().nullable().optional().describe('Boardroom session where commitment originated'),
+  sourceSessionId: z.string().max(ID_MAX_LENGTH).nullable().optional().describe('Boardroom session where commitment originated'),
   linkedProjectId: z.string().nullable().optional().describe('Associated project ID'),
-  completedAt: z.coerce.date().nullable().optional().describe('When the commitment was completed'),
+  completedAt: boundedDate().nullable().optional().describe('When the commitment was completed'),
 });
 
 export type UpdateCommitmentRequestInput = z.infer<typeof UpdateCommitmentRequestSchema>;
@@ -78,3 +82,16 @@ export const CommitmentNudgeItemSchema = CommitmentSchema.extend({
 });
 
 export type CommitmentNudgeItemInput = z.infer<typeof CommitmentNudgeItemSchema>;
+
+// ── GET /commitments query (robustness fixes 2026-10-30) — matches ListCommitmentsQuery ──
+
+export const ListCommitmentsQuerySchema = z.object({
+  status: queryNativeEnum(CommitmentStatus),
+  // RD-12: unchanged contract — an empty or unknown owedBy is a 422.
+  owedBy: z.nativeEnum(CommitmentOwedBy, { errorMap: () => ({ message: 'owedBy must be USER or STAKEHOLDER' }) }).optional(),
+  overdue: queryFlag().describe('true = OPEN with a past deadline'),
+  limit: queryNonNegativeInt().describe('Page size (the service caps it at 100)'),
+  offset: queryNonNegativeInt(),
+});
+
+export type ListCommitmentsQueryInput = z.infer<typeof ListCommitmentsQuerySchema>;

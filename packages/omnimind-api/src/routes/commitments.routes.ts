@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Router as IRouter } from 'express';
-import { CreateCommitmentRequestSchema, UpdateCommitmentRequestSchema } from '@boardroom/shared';
+import { CreateCommitmentRequestSchema, ListCommitmentsQuerySchema, UpdateCommitmentRequestSchema } from '@boardroom/shared';
 import { prisma } from '../lib/db';
 import { idempotent } from '../middleware/idempotency';
 import * as commitmentService from '../services/commitment.service';
@@ -43,19 +43,24 @@ router.get('/', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
-    // RD-12: optional direction filter.
-    const owedByRaw = req.query.owedBy;
-    if (owedByRaw !== undefined && owedByRaw !== 'USER' && owedByRaw !== 'STAKEHOLDER') {
-      res.status(422).json({ error: 'validation_failed', details: [{ field: 'owedBy', message: 'owedBy must be USER or STAKEHOLDER' }] });
+    // RD-12 owedBy direction filter + robustness fixes 2026-10-30: status,
+    // limit and offset are validated too (they used to reach Prisma raw → 500).
+    const parsedQuery = ListCommitmentsQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      res.status(422).json({
+        error: 'validation_failed',
+        details: parsedQuery.error.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
+      });
       return;
     }
+    const query = parsedQuery.data;
 
     const result = await commitmentService.listCommitments(userId, {
-      owedBy: owedByRaw,
-      status: req.query.status as string | undefined,
-      overdue: req.query.overdue === 'true',
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
-      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
+      owedBy: query.owedBy,
+      status: query.status,
+      overdue: query.overdue,
+      limit: query.limit,
+      offset: query.offset,
     }, prisma);
 
     res.json(result);
