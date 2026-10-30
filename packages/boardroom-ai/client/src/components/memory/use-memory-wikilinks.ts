@@ -29,10 +29,27 @@ export async function openMemoryInExplorer(id: string, known?: Memory): Promise<
       return;
     }
   }
+  focusOpenedMemory();
+}
+
+/** Below `lg` the detail panel stacks under the list (it can sit thousands of px down). */
+const STACKED_QUERY = '(max-width: 1023.98px)';
+
+/**
+ * After a memory is opened (card click/Enter, wikilink, backlink): bring the
+ * detail into view and move focus to its title. Side by side (`lg` and up) the
+ * title is already on screen, so `nearest` is a no-op; stacked on a phone the
+ * whole panel (its "Memory Detail" bar and Close) scrolls to the top of the
+ * pane — otherwise a tap there changes nothing visible.
+ */
+export function focusOpenedMemory(): void {
   requestAnimationFrame(() => {
     const title = document.querySelector<HTMLElement>('[data-testid="memory-detail"] [data-memory-title]');
-    title?.scrollIntoView({ block: 'nearest' });
-    title?.focus({ preventScroll: true });
+    if (!title) return;
+    const stacked = typeof window.matchMedia === 'function' && window.matchMedia(STACKED_QUERY).matches;
+    const panel = stacked ? title.closest<HTMLElement>('[data-memory-panel]') : null;
+    (panel ?? title).scrollIntoView({ block: stacked ? 'start' : 'nearest' });
+    title.focus({ preventScroll: true });
   });
 }
 

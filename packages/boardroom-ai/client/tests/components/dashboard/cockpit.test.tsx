@@ -74,7 +74,7 @@ describe('<CockpitRow />', () => {
     await waitFor(() => expect(screen.getByTestId('tile-spend')).not.toHaveAttribute('aria-busy'));
     expect(screen.getByTestId('tile-memories').textContent).toContain('1');
     expect(screen.getByTestId('tile-commitments')).toBeInTheDocument();
-    expect(screen.getByTestId('tile-reviews').textContent).toContain('all outcomes reviewed');
+    expect(screen.getByTestId('tile-reviews').textContent).toContain('none due');
     expect(screen.queryByTestId('tile-decisions')).toBeNull();
     expect(api.getLlmUsageSummary).toHaveBeenCalledWith(62);
   });

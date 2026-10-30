@@ -76,6 +76,8 @@ export function delegationRoutes(baseSession) {
     { method: 'POST', path: '/commitments', handler: (req) => ({ status: 201, body: { id: 'c-new', userId: USER_ID, status: 'OPEN', createdAt: iso(NOW), completedAt: null, sourceSessionId: null, ...(req.json ?? {}) } }) },
     { method: 'POST', path: '/people', handler: (req) => ({ status: 201, body: { id: 'p-new', userId: USER_ID, role: null, domains: [], ...(req.json ?? {}) } }) },
     { method: 'GET', path: '/sessions/s-delegate', handler: () => ({ body: session }) },
+    // The session page loads its committed decision by id (RD-12) — without this Delegate stays disabled.
+    { method: 'GET', path: '/decisions/d-delegate', handler: () => ({ body: committedDecision }) },
     { method: 'GET', path: '/decisions', handler: (req) => ({ body: paged(refererHas(req, 's-delegate') ? [committedDecision, ...fixtureData.decisions] : fixtureData.decisions) }) },
   ];
 }

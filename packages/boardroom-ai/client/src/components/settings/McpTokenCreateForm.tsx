@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { McpScopesSchema, type McpScope } from '@boardroom/shared';
 import { Button, Input, Badge } from '../ui';
 import { ApiError, createMcpToken } from '../../lib/api';
@@ -114,6 +114,14 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<McpTokenCreateResponse | null>(null);
+  // Keyboard flow (a11y): opening the form puts focus on its first field; once the
+  // token is created the form unmounts under the focused submit button, so focus
+  // moves to the one-time reveal panel instead of falling to <body>.
+  const firstFieldRef = useRef<HTMLSelectElement>(null);
+  const createdRef = useRef<HTMLDivElement>(null);
+  const createdHeadingId = useId();
+  useEffect(() => { firstFieldRef.current?.focus(); }, []);
+  useEffect(() => { if (created) createdRef.current?.focus(); }, [created]);
 
   const writeScopes = useMemo(() => readWriteScopes(options), [options]);
   const scopes = preset === 'read' ? [READ_SCOPE] : preset === 'write' ? writeScopes : customScopes;
@@ -171,9 +179,15 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
     // their own block (CopyField: overflow-x-auto <pre> with a fade edge) and
     // never push the page sideways; prose identifiers wrap (`break-all`). M1-D3.
     return (
-      <div className="min-w-0 space-y-5" data-testid="mcp-token-created">
+      <div
+        ref={createdRef}
+        tabIndex={-1}
+        aria-labelledby={createdHeadingId}
+        className="min-w-0 space-y-5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid="mcp-token-created"
+      >
         <div className="min-w-0 rounded-xl border border-warning/40 bg-warning-muted p-4 space-y-3">
-          <p className="text-sm font-medium text-foreground">
+          <p id={createdHeadingId} className="text-sm font-medium text-foreground">
             Copy your token now. For security it is shown once and cannot be retrieved again.
           </p>
           <CopyField label="Token" value={created.token} secret data-testid="mcp-raw-token" />
@@ -205,7 +219,7 @@ export function McpTokenCreateForm({ options, connectInfo, connectInfoError = nu
         <div className="flex flex-col gap-1.5">
           <label htmlFor="mcp-client" className="text-sm font-medium text-muted-foreground">AI client</label>
           {/* ui-standards: allow select — labelled form fields (htmlFor) covered by ConnectedToolsPanel tests; migrates with the settings-forms pass */}
-          <select id="mcp-client" value={clientId} onChange={(e) => pickClient(e.target.value as McpClientId)} className={selectClass}>
+          <select ref={firstFieldRef} id="mcp-client" value={clientId} onChange={(e) => pickClient(e.target.value as McpClientId)} className={selectClass}>
             {MCP_CLIENTS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
           <p className="text-xs text-muted-foreground">{getClientMeta(clientId).hint}. This only shapes the install snippet.</p>

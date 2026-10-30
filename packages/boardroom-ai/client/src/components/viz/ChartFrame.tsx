@@ -12,22 +12,29 @@ export interface DataTableSpec {
  * The WCAG twin of every chart: an off-screen table with the same values.
  * Tooltips enhance, never gate — this is what a screen reader (and a reader
  * who cannot see the fill) gets.
+ *
+ * The visually-hidden box is a 1 px clipped `<div>`, not the `<table>`: a
+ * table ignores `width: 1px` and `overflow: hidden` (it sizes to its content),
+ * so an `sr-only` table stays 200–400 px wide and widens whatever scroll pane
+ * it sits in. The wrapper clips it, so it can never affect layout.
  */
 export function DataTable({ caption, columns, rows, className }: DataTableSpec & { className?: string }) {
   return (
-    <table className={cn('sr-only', className)} data-viz-table>
-      <caption>{caption}</caption>
-      <thead>
-        <tr>{columns.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr>
-      </thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i}>
-            {r.map((cell, j) => (j === 0 ? <th key={j} scope="row">{cell}</th> : <td key={j}>{cell}</td>))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="sr-only" data-viz-table-wrap>
+      <table className={className} data-viz-table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>{columns.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((cell, j) => (j === 0 ? <th key={j} scope="row">{cell}</th> : <td key={j}>{cell}</td>))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
