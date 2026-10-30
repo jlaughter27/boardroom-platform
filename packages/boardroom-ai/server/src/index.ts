@@ -4,6 +4,7 @@ import './lib/otel';
 import { createApp } from './app';
 import { logger } from './lib/logger';
 import { validateBoardRoomEnv } from './lib/env';
+import { sessionStore } from './routes/sessions.routes';
 
 if (process.env.NODE_ENV !== 'test') {
   validateBoardRoomEnv();
@@ -21,8 +22,12 @@ const server = app.listen(port, () => {
 
 const shutdown = () => {
   logger.info('Shutting down BoardRoom AI...');
-  server.close(() => {
-    process.exit(0);
+  // RD-17: write through any coalesced Decision Lab session state before exit
+  // (flushAll never throws; a failed write is logged).
+  void sessionStore.flushAll().finally(() => {
+    server.close(() => {
+      process.exit(0);
+    });
   });
 };
 

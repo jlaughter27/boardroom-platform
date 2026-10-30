@@ -77,7 +77,11 @@ describe('POST /sessions/:id/dispatch — optional { personaIds } (M1-C2)', () =
     const id = await createSession();
     expect((await dispatch(id)).status).toBe(200);
     expect((await dispatch(id, {})).status).toBe(200);
-    expect(state.dispatches).toEqual([{ sessionId: id, options: {} }, { sessionId: id, options: {} }]);
+    // RD-17: every dispatch carries the session store's round-1 persistence hook.
+    expect(state.dispatches).toEqual([
+      { sessionId: id, options: { onRoundComplete: expect.any(Function) } },
+      { sessionId: id, options: { onRoundComplete: expect.any(Function) } },
+    ]);
   });
 
   it('{personaIds:["critic"]} reaches the orchestrator as a retry of the Critic only', async () => {
@@ -85,7 +89,7 @@ describe('POST /sessions/:id/dispatch — optional { personaIds } (M1-C2)', () =
     const res = await dispatch(id, { personaIds: ['critic'] });
     expect(res.status).toBe(200);
     await res.text();
-    expect(state.dispatches).toEqual([{ sessionId: id, options: { personaIds: ['critic'] } }]);
+    expect(state.dispatches).toEqual([{ sessionId: id, options: { personaIds: ['critic'], onRoundComplete: expect.any(Function) } }]);
   });
 
   it('accepts an active custom persona of the user', async () => {

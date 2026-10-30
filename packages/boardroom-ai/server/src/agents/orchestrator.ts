@@ -73,12 +73,22 @@ export interface SessionState {
    * debate round. Their view was never rebutted; the CEO is told so.
    */
   lateAdvisors?: PersonaId[];
+  /**
+   * RD-17 — true when `id` is an OmniMind `decision_sessions` id (the session is
+   * persisted there). A decision commit links to the session only then.
+   */
+  persisted?: boolean;
 }
 
 /** Options for `CEOOrchestrator.dispatch`. */
 export interface DispatchOptions {
   /** Re-run only these advisors (Retry on a failed card). Never re-runs the debate round. */
   personaIds?: PersonaId[];
+  /**
+   * RD-17 — called once round 1 is mapped onto the session (before the debate
+   * round), so the session store can persist the persona round. Must not throw.
+   */
+  onRoundComplete?: () => void;
 }
 
 /** Display name for a persona id (built-in config name, else the id). */
@@ -317,6 +327,7 @@ export class CEOOrchestrator {
         personaCount++;
       }
     }
+    try { options.onRoundComplete?.(); } catch { /* persistence hook must never break the stream */ }
 
     if (retryIds) {
       // M1-C2 — a retry NEVER re-runs the debate round (it would re-bill every
