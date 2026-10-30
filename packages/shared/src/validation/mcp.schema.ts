@@ -59,7 +59,21 @@ export const McpCommitmentItemSchema = z.object({
   status: z.string().optional(),
   stakeholderId: z.string().nullable().optional(),
   linkedProjectId: z.string().nullable().optional(),
+  /** RD-12 — direction; missing means USER. */
+  owedBy: z.enum(['USER', 'STAKEHOLDER']).optional(),
+  /** RD-12 — counterparty name from the nudges include. */
+  stakeholderName: z.string().nullable().optional(),
 }).passthrough();
+
+/** RD-12 — one open delegation (something another person owes the user). */
+export const McpDelegationItemSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  personId: z.string().nullable(),
+  personName: z.string().nullable(),
+  deadline: z.string().nullable(),
+  daysOverdue: z.number().int().nonnegative(),
+});
 
 /** ContextCapsule on the wire (ISO strings; Phase 6 adds sourceMemoryIds / version). */
 export const McpContextCapsuleSchema = z.object({
@@ -222,6 +236,12 @@ export const McpStatusGetOutputSchema = z.object({
     overdue: z.array(McpCommitmentItemSchema),
     error: z.string().optional(),
   }),
+  /** RD-12 — owedBy=STAKEHOLDER rows from the same nudges call. `error` mirrors commitmentsDueSoon.error. */
+  delegations: z.object({
+    overdue: z.array(McpDelegationItemSchema),
+    dueSoon: z.array(McpDelegationItemSchema),
+    error: z.string().optional(),
+  }),
 });
 
 // ── graph_neighborhood ──
@@ -239,6 +259,7 @@ export const McpGraphNeighborhoodOutputSchema = z.object({
 
 export type McpMemoryItem = z.infer<typeof McpMemoryItemSchema>;
 export type McpCommitmentItem = z.infer<typeof McpCommitmentItemSchema>;
+export type McpDelegationItem = z.infer<typeof McpDelegationItemSchema>;
 export type McpContextCapsule = z.infer<typeof McpContextCapsuleSchema>;
 export type McpMemoryWriteOutput = z.infer<typeof McpMemoryWriteOutputSchema>;
 export type McpMemorySearchOutput = z.infer<typeof McpMemorySearchOutputSchema>;

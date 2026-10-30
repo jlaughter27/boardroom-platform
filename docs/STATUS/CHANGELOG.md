@@ -6,6 +6,16 @@ Format: `## YYYY-MM-DD — Phase X — Action`
 
 ---
 
+## 2026-10-30 — Phase 8 real-data — PR #29 merged (RD-11, RD-13); RD-12 delegation briefs in PR B
+
+**Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** #29 merged as `9b98a48`; PR B open (merge after M0-F1) | **Tests:** shared 198, mcp 276, api 1,518, server 349, client 653; e2e 67/67
+
+- **RD-12 Delegation briefs** integrated on top of RD-11/RD-13: one-click Delegate from a committed decision's next actions or a task, a brief built only from fields the founder ticks (never stored), share/copy then record `Commitment.owedBy = STAKEHOLDER`; "Waiting on others" in the dashboard nudges (copy check-in, new date, received, drop), MCP `status_get` `delegations` block (tool count stays 20), Doer/core context, digest, memo and capsules worded "waiting on". Migration `20261024014904_commitment_owed_by` is additive (enum + NOT NULL DEFAULT 'USER').
+- **Integration fix:** RD-11's load query now filters `owedBy: USER` — work others owe the founder never counts toward his load (test added). RD-12's e2e renamed E2E-11 (E2E-10 is the load check).
+- **Deps:** systeminformation 5.33.15 → 5.33.19 via override (GHSA-3f7j-7jwc-fxfj, Windows-only command injection, published after #29's CI run).
+
+---
+
 ## 2026-10-24 — Phase 8 real-data — Stage 2b founder-leverage features: RD-11 load check + RD-13 meeting prep (PR A), RD-12 built
 
 **Branch:** `claude/amazing-mccarthy-grvem2` | **Status:** Pushed, PR A open | **Tests:** shared 183, mcp 272, api 1,465, server 341, client 599; e2e 65/65 (+E2E-10 load check, +person briefs); MCP smoke 20 tools

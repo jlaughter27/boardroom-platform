@@ -1,13 +1,18 @@
 import { useState } from 'react';
+import { UserRoundPlus } from 'lucide-react';
 import type { Task } from '@boardroom/shared';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { StatusBadge, PriorityDot } from './StatusBadge';
+import { DelegateDialog } from '../delegation/DelegateDialog';
 
 interface TaskNodeProps {
   task: Task;
+  /** RD-12 — the parent project, so a delegation links it and can cite it in the brief. */
+  project?: { id: string; title: string };
 }
 
-export function TaskNode({ task }: TaskNodeProps) {
+export function TaskNode({ task, project }: TaskNodeProps) {
+  const [delegating, setDelegating] = useState(false);
   const { updateTask, deleteTask } = useEntitiesStore();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
@@ -97,6 +102,26 @@ export function TaskNode({ task }: TaskNodeProps) {
         <span className="text-xs text-muted-foreground">{deadlineStr}</span>
       )}
       <StatusBadge status={task.status} />
+
+      {/* RD-12 — Delegate (always visible on open tasks; the ::after pad makes a 44 px touch target without moving the icon) */}
+      {task.status !== 'done' && (
+        <button
+          type="button"
+          onClick={() => setDelegating(true)}
+          aria-label={`Delegate: ${task.title}`}
+          title="Delegate"
+          className="relative flex-shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md after:absolute after:-inset-2 after:content-[''] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <UserRoundPlus size={15} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      )}
+      {delegating && (
+        <DelegateDialog
+          open={delegating}
+          onClose={() => setDelegating(false)}
+          source={{ what: task.title, task: { id: task.id, title: task.title, deadline: task.deadline }, project }}
+        />
+      )}
 
       {/* Delete action */}
       {hovered && (

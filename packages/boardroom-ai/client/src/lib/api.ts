@@ -290,6 +290,11 @@ export async function getDecisions(): Promise<Decision[]> {
   return res.items;
 }
 
+/** RD-12 — `GET /decisions/:id`: one decision by id (GET /decisions returns only the newest page). */
+export function getDecision(id: string): Promise<Decision> {
+  return request<Decision>(`/decisions/${encodeURIComponent(id)}`);
+}
+
 export async function getCommitments(): Promise<Commitment[]> {
   const res = await request<PaginatedResponse<Commitment>>('/commitments');
   return res.items;
@@ -1339,4 +1344,28 @@ export function getMcpTokenOptions() {
 /** `GET /mcp/tokens/connect-info` → MCP URL, app URL and whether OAuth is on. */
 export function getMcpConnectInfo() {
   return request<McpConnectInfo>('/mcp/tokens/connect-info');
+}
+
+// ---------------------------------------------------------------------------
+// RD-12 — delegations (POST /commitments with owedBy + links)
+// ---------------------------------------------------------------------------
+
+/** Mirrors shared `CreateCommitmentRequestSchema` for the Delegate dialog. */
+export interface CreateCommitmentInput {
+  description: string;
+  stakeholderId: string;
+  /** ISO — the chosen date's end of UTC day (`endOfUtcDay`). */
+  deadline: string;
+  owedBy: 'USER' | 'STAKEHOLDER';
+  linkedProjectId?: string;
+  links?: { decisionId?: string; taskId?: string };
+}
+
+/** `POST /commitments` → 201 Commitment. One key per dialog open, so a retry or double-submit records one row. */
+export function createCommitment(input: CreateCommitmentInput, idempotencyKey: string) {
+  return request<Commitment>('/commitments', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(input),
+  });
 }

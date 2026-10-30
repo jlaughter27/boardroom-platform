@@ -75,7 +75,9 @@ export async function loadLoadInput(userId: string, prisma: PrismaClient, now: D
       },
     }),
     prisma.commitment.findMany({
-      where: { userId, deletedAt: null, status: 'OPEN' },
+      // RD-12: delegations (owedBy STAKEHOLDER) are work others owe the founder;
+      // they never count toward his own load.
+      where: { userId, deletedAt: null, status: 'OPEN', owedBy: 'USER' },
       select: { id: true, deadline: true, linkedProjectId: true, project: { select: { id: true, domain: true, deletedAt: true } } },
     }),
     prisma.decision.count({

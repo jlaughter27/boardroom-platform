@@ -43,14 +43,35 @@ describe('commitment nudges (Phase 6, SQL only)', () => {
 
     it('runs both queries ordered by deadline asc and splits into {dueSoon, overdue}', async () => {
       const res = await getCommitmentNudges('u1', mockPrisma, now);
-      expect(res.overdue).toEqual([overdueRow]);
-      expect(res.dueSoon).toEqual([soonRow]);
+      expect(res.overdue).toEqual([{ ...overdueRow, stakeholderName: null }]);
+      expect(res.dueSoon).toEqual([{ ...soonRow, stakeholderName: null }]);
       expect(mockPrisma.commitment.findMany).toHaveBeenCalledTimes(2);
       for (const call of mockPrisma.commitment.findMany.mock.calls) {
         expect(call[0].orderBy).toEqual({ deadline: 'asc' });
         expect(call[0].where.status).toBe('OPEN');
         expect(call[0].where.deletedAt).toBeNull();
       }
+    });
+
+    it('RD-12: includes the stakeholder name and flattens it to stakeholderName (null-safe, no nested key)', async () => {
+      mockPrisma.commitment.findMany.mockImplementation(({ where }: any) =>
+        Promise.resolve(where.deadline.lt
+          ? [{ ...overdueRow, owedBy: 'STAKEHOLDER', stakeholderId: 'p1', stakeholder: { name: 'Sam Rivera' } }]
+          : [{ ...soonRow, owedBy: 'USER', stakeholderId: null, stakeholder: null }]),
+      );
+      const res = await getCommitmentNudges('u1', mockPrisma, now);
+      for (const call of mockPrisma.commitment.findMany.mock.calls) {
+        expect(call[0].include).toEqual({ stakeholder: { select: { name: true } } });
+        expect(call[0].take).toBe(50);
+      }
+      // where-builders unchanged
+      expect(mockPrisma.commitment.findMany.mock.calls.map((c: any) => c[0].where)).toEqual(
+        expect.arrayContaining([buildOverdueWhere('u1', now), buildDueSoonWhere('u1', now)]),
+      );
+      expect(res.overdue[0]).toMatchObject({ id: 'c1', owedBy: 'STAKEHOLDER', stakeholderName: 'Sam Rivera' });
+      expect(res.dueSoon[0]).toMatchObject({ id: 'c2', owedBy: 'USER', stakeholderName: null });
+      expect(res.overdue[0]).not.toHaveProperty('stakeholder');
+      expect(res.dueSoon[0]).not.toHaveProperty('stakeholder');
     });
 
     it('refreshes the in-process nudge list the daily job also writes', async () => {

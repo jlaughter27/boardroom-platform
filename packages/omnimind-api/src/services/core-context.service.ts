@@ -67,10 +67,15 @@ export interface CoreContextInput {
   constraints: string[];
   /** RD-11 — load snapshot; absent/null for tenant-scoped callers or when the computation failed. */
   load?: LoadSnapshot | null;
+  /** RD-12 — open delegations (others owe the user); section emitted only when non-empty. */
+  delegations?: CoreContextCommitment[];
 }
 
 const ymd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
 const byTitle = <T extends { title: string; id: string }>(a: T, b: T) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+/** RD-12 — the same ordering the commitments section uses (deadline, description, id). */
+const compareCommitments = (a: CoreContextCommitment, b: CoreContextCommitment) =>
+  (a.deadline ?? '9999-99-99').localeCompare(b.deadline ?? '9999-99-99') || a.description.localeCompare(b.description) || a.id.localeCompare(b.id);
 
 /**
  * Pure renderer. Same input → same string. Exported for unit tests.
@@ -118,6 +123,16 @@ export function renderCoreBlock(input: CoreContextInput): string {
     lines.push(`- ${c.description}${who}${due}`);
   }
 
+  // RD-12 — "waiting on", never "to". Omitted entirely when empty so a
+  // no-delegation block stays byte-identical (prefix-cache stable).
+  const delegations = [...(input.delegations ?? [])].sort(compareCommitments);
+  if (delegations.length > 0) {
+    lines.push('', `## Waiting on others (due within ${CORE_CONTEXT_COMMITMENT_HORIZON_DAYS} days)`);
+    for (const d of delegations) {
+      lines.push(`- ${d.personName ?? 'someone'}: ${d.description}${d.deadline ? ` — due ${d.deadline}` : ''}`);
+    }
+  }
+
   lines.push('', '## Standing constraints');
   const constraints = [...new Set(input.constraints.map(s => s.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   if (constraints.length === 0) lines.push('- (none recorded)');
@@ -156,7 +171,7 @@ export async function loadCoreContextInput(
           return null;
         });
 
-  const [profile, goals, commitments, constraintMemories, load] = await Promise.all([
+  const [profile, goals, commitments, constraintMemories, load, delegations] = await Promise.all([
     prisma.userProfile.findUnique({ where: { userId } }),
     prisma.goal.findMany({
       where: { userId, deletedAt: null, status: 'active', level: { lte: 1 } },
@@ -165,7 +180,7 @@ export async function loadCoreContextInput(
       take: CORE_CONTEXT_MAX_GOALS * 2, // over-fetch; renderer sorts + slices deterministically
     }),
     prisma.commitment.findMany({
-      where: { userId, deletedAt: null, status: 'OPEN', deadline: { not: null, lte: horizon } },
+      where: { userId, deletedAt: null, status: 'OPEN', deadline: { not: null, lte: horizon }, owedBy: 'USER' },
       include: { stakeholder: { select: { name: true } } },
       orderBy: { deadline: 'asc' },
       take: 20,
@@ -180,6 +195,13 @@ export async function loadCoreContextInput(
       take: 10,
     }),
     loadPromise,
+    // RD-12 — delegations: same window, own cap, own section.
+    prisma.commitment.findMany({
+      where: { userId, deletedAt: null, status: 'OPEN', deadline: { not: null, lte: horizon }, owedBy: 'STAKEHOLDER' },
+      include: { stakeholder: { select: { name: true } } },
+      orderBy: { deadline: 'asc' },
+      take: 5,
+    }),
   ]);
 
   const riskProfile = (profile?.riskProfile && typeof profile.riskProfile === 'object' && !Array.isArray(profile.riskProfile))
@@ -215,6 +237,12 @@ export async function loadCoreContextInput(
     })),
     constraints: constraintMemories.map(m => m.title),
     load,
+    delegations: (delegations ?? []).map(c => ({
+      id: c.id,
+      description: c.description,
+      deadline: ymd(c.deadline),
+      personName: c.stakeholder?.name ?? null,
+    })),
   };
 }
 

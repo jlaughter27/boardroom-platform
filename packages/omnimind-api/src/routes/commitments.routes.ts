@@ -23,6 +23,14 @@ router.post('/', idempotent('commitments.create'), async (req, res, next) => {
       });
       return;
     }
+    // RD-12: a delegation must name who owes it.
+    if (parseResult.data.owedBy === 'STAKEHOLDER' && !parseResult.data.stakeholderId) {
+      res.status(422).json({
+        error: 'validation_failed',
+        details: [{ field: 'stakeholderId', message: 'stakeholderId is required when owedBy is STAKEHOLDER' }],
+      });
+      return;
+    }
 
     const commitment = await commitmentService.createCommitment(userId, parseResult.data, prisma);
     res.status(201).json(commitment);
@@ -35,7 +43,15 @@ router.get('/', async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) { res.status(400).json({ error: 'validation_failed', details: [{ field: 'x-user-id', message: 'Missing x-user-id header' }] }); return; }
 
+    // RD-12: optional direction filter.
+    const owedByRaw = req.query.owedBy;
+    if (owedByRaw !== undefined && owedByRaw !== 'USER' && owedByRaw !== 'STAKEHOLDER') {
+      res.status(422).json({ error: 'validation_failed', details: [{ field: 'owedBy', message: 'owedBy must be USER or STAKEHOLDER' }] });
+      return;
+    }
+
     const result = await commitmentService.listCommitments(userId, {
+      owedBy: owedByRaw,
       status: req.query.status as string | undefined,
       overdue: req.query.overdue === 'true',
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,

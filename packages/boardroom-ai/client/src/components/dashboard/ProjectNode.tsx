@@ -155,7 +155,7 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
       {expanded && (
         <div className="mt-1 space-y-0.5">
           {tasks.map((task) => (
-            <TaskNode key={task.id} task={task} />
+            <TaskNode key={task.id} task={task} project={{ id: project.id, title: project.title }} />
           ))}
           {tasks.length === 0 && !showAddTask && (
             <p className="text-xs text-bg-active pl-16 py-1">No tasks yet</p>

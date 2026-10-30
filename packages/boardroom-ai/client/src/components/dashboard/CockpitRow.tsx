@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Commitment, Decision, LlmUsageSummary, Memory, OutcomeReviewNudge } from '@boardroom/shared';
+import { isDelegation } from '@boardroom/shared';
 import { useVizSlice } from '../../stores/viz.store';
 import { StatTile, type StatDelta } from '../viz/StatTile';
 import { countByWeek, dueWithin, horizon, monthToDate, periodDelta, toTime, type DateLike } from '../viz/aggregate';
@@ -9,7 +10,8 @@ import { formatUsd } from '../viz/scales';
 const TREND_WEEKS = 8;
 const DUE_DAYS = 7;
 
-const isOpenCommitment = (c: Commitment) => c.status === 'OPEN';
+// RD-12: delegations never count toward the user's own commitments tile.
+const isOpenCommitment = (c: Commitment) => c.status === 'OPEN' && !isDelegation(c);
 const roundFormat = (n: number) => String(Math.round(n));
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 
 import type { ContextCapsule } from './context-capsule.types';
 import type { Decision } from './decision.types';
-import type { Commitment } from './commitment.types';
+import type { Commitment, CommitmentNudgeItem } from './commitment.types';
 import type { MemoryApiRecord } from './memory.types';
 
 // ── Core context (GET /context/core) ──
@@ -62,8 +62,8 @@ export interface EntityChangesResponse {
 // ── Commitment nudges (GET /commitments/nudges) ──
 
 export interface CommitmentNudgesResponse {
-  dueSoon: Commitment[];
-  overdue: Commitment[];
+  dueSoon: CommitmentNudgeItem[];
+  overdue: CommitmentNudgeItem[];
 }
 
 // ── Interactive memo (PATCH /cortex/memo/:id/items/:itemKey) ──

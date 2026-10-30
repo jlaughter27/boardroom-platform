@@ -371,6 +371,8 @@ model Commitment {
   deletedAt       DateTime?        @map("deleted_at")
   createdAt       DateTime         @default(now()) @map("created_at")
   completedAt     DateTime?        @map("completed_at")
+  /// RD-12: USER = the user owes the counterparty; STAKEHOLDER = the counterparty (stakeholderId) owes the user.
+  owedBy          CommitmentOwedBy @default(USER) @map("owed_by")
 
   session         Session?         @relation(fields: [sourceSessionId], references: [id])
   stakeholder     Person?          @relation(fields: [stakeholderId], references: [id])
@@ -379,6 +381,11 @@ model Commitment {
 
   @@index([userId, status])
   @@map("commitments")
+}
+
+enum CommitmentOwedBy {
+  USER
+  STAKEHOLDER
 }
 
 enum CommitmentStatus {

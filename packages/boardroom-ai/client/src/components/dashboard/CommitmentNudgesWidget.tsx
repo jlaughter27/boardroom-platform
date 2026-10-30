@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Commitment } from '@boardroom/shared';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { Commitment, CommitmentNudgeItem } from '@boardroom/shared';
+import { endOfUtcDay } from '@boardroom/shared';
 import * as api from '../../lib/api';
+import { copyToClipboard } from '../settings/CopyField';
+import { addDaysYmd, COMMITMENTS_CHANGED_EVENT, composeCheckIn, delegationDueLabel, isPickableYmd, localYmd, partitionNudges } from '../../lib/delegation';
 import { useEntitiesStore } from '../../stores/entities.store';
 import { useVizSlice, useVizStore } from '../../stores/viz.store';
 import type { CommitmentNudgesResponse } from '../../types/debate';
@@ -53,6 +56,96 @@ function NudgeRow({ commitment, personName, overdue, onDone, busy }: RowProps) {
   );
 }
 
+interface WaitingRowProps {
+  commitment: CommitmentNudgeItem;
+  personName: string;
+  overdue: boolean;
+  busy: boolean;
+  onCheckIn(c: CommitmentNudgeItem, name: string): void;
+  onNewDate(id: string, ymd: string): void;
+  onReceived(id: string): void;
+  onDrop(id: string): void;
+}
+
+const ROW_ACTION = 'h-7 inline-flex items-center justify-center rounded-md border border-border px-2.5 text-xs text-foreground hover:bg-muted disabled:opacity-50 transition-colors';
+
+/** RD-12 — something another person owes the user: "from {name} · 2 days overdue". */
+function WaitingRow({ commitment, personName, overdue, busy, onCheckIn, onNewDate, onReceived, onDrop }: WaitingRowProps) {
+  const descId = useId();
+  const hintId = useId();
+  const [picking, setPicking] = useState(false);
+  // The typed date is held here and saved only on Enter, Save or leaving the
+  // picker: a date input that is still being typed reports values such as
+  // 0002-12-25 as soon as the first year digit lands.
+  const [value, setValue] = useState('');
+  const [invalid, setInvalid] = useState(false);
+  const savedRef = useRef(false);
+  const minYmd = addDaysYmd(localYmd(new Date()), 1);
+  const open = () => { savedRef.current = false; setValue(''); setInvalid(false); setPicking(true); };
+  const close = () => { setPicking(false); setValue(''); setInvalid(false); };
+  const save = () => {
+    if (savedRef.current) return;
+    if (!isPickableYmd(value, minYmd)) { setInvalid(true); return; }
+    savedRef.current = true;
+    onNewDate(commitment.id, value);
+    close();
+  };
+  return (
+    <li className="py-2" data-testid="waiting-row">
+      <p id={descId} className="text-sm text-foreground leading-snug">{commitment.description}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        from <span className="text-foreground">{personName}</span> ·{' '}
+        <span className={overdue ? 'text-danger' : ''}>{delegationDueLabel(commitment.deadline, Date.now())}</span>
+      </p>
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
+        <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={() => onCheckIn(commitment, personName)}>Copy check-in</button>
+        {picking ? (
+          <div
+            className="flex min-w-0 items-center gap-1"
+            onBlur={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              if (isPickableYmd(value, minYmd)) save(); else close();
+            }}
+          >
+            <input
+              type="date"
+              autoFocus
+              min={minYmd}
+              value={value}
+              aria-label={`New date for ${commitment.description}`}
+              aria-invalid={invalid || undefined}
+              aria-describedby={invalid ? hintId : undefined}
+              className="h-7 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+              onChange={(e) => { setValue(e.target.value); setInvalid(false); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); save(); }
+                else if (e.key === 'Escape') { e.preventDefault(); close(); }
+              }}
+            />
+            <button
+              type="button"
+              className={ROW_ACTION}
+              aria-label="Save new date"
+              // Keep focus in the input so the picker's blur does not close it before the click lands.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={save}
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={open}>New date</button>
+        )}
+        <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={() => onReceived(commitment.id)} title="They delivered: mark it completed">Received</button>
+        <button type="button" className={ROW_ACTION} aria-describedby={descId} disabled={busy} onClick={() => onDrop(commitment.id)} title="No longer needed: mark it deferred">Drop</button>
+      </div>
+      {picking && invalid && (
+        <p id={hintId} className="mt-1 text-xs text-danger" data-testid="new-date-hint">Pick a date from tomorrow on.</p>
+      )}
+    </li>
+  );
+}
+
 /**
  * Commitment follow-through nudges (Phase 6): open commitments due within 3
  * days or overdue, from `GET /commitments/nudges`. SQL-only on the server,
@@ -66,14 +159,23 @@ export function CommitmentNudgesWidget() {
   // Every open commitment (cached 60 s) feeds the 14-day horizon above the nudge list.
   const allCommitments = useVizSlice('commitments');
 
+  // RD-12: one nudges request on mount (as before) and one more only after a
+  // delegation write announces itself with `boardroom:commitments-changed`.
+  const [alive] = useState(() => ({ current: true }));
+  const reload = useCallback(() => {
+    return api.getCommitmentNudges()
+      .then((res) => { if (alive.current) { setData(res); setError(null); } })
+      .catch((e: unknown) => { if (alive.current) setError(e instanceof Error ? e.message : 'Could not load nudges'); })
+      .finally(() => { if (alive.current) setLoading(false); });
+  }, [alive]);
+
   useEffect(() => {
-    let cancelled = false;
-    api.getCommitmentNudges()
-      .then((res) => { if (!cancelled) setData(res); })
-      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load nudges'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    alive.current = true;
+    void reload();
     if (people.length === 0) void fetchPeople();
-    return () => { cancelled = true; };
+    const onChanged = () => { void reload(); };
+    window.addEventListener(COMMITMENTS_CHANGED_EVENT, onChanged);
+    return () => { alive.current = false; window.removeEventListener(COMMITMENTS_CHANGED_EVENT, onChanged); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -81,7 +183,7 @@ export function CommitmentNudgesWidget() {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   /** Optimistic: drop the row now, PATCH, and put it back (with a toast) if the server says no. */
-  const markDone = useCallback(async (id: string) => {
+  const resolveRow = useCallback(async (id: string, patch: api.UpdateCommitmentInput, okMessage: string) => {
     const snapshot = data;
     if (!snapshot) return;
     setBusyIds((s) => new Set(s).add(id));
@@ -90,8 +192,8 @@ export function CommitmentNudgesWidget() {
       dueSoon: snapshot.dueSoon.filter((c) => c.id !== id),
     });
     try {
-      await api.updateCommitment(id, { status: 'COMPLETED', completedAt: new Date().toISOString() });
-      useToastStore.getState().addToast('Commitment marked done', 'success');
+      await api.updateCommitment(id, patch);
+      useToastStore.getState().addToast(okMessage, 'success');
       // Drop the dot from the horizon without waiting for a refetch, then refresh the cache.
       const viz = useVizStore.getState();
       if (viz.commitments.data) {
@@ -100,7 +202,7 @@ export function CommitmentNudgesWidget() {
       void viz.load('commitments', true);
     } catch (e: unknown) {
       setData((cur) => {
-        const put = (list: Commitment[], from: Commitment[]) => {
+        const put = (list: CommitmentNudgeItem[], from: CommitmentNudgeItem[]) => {
           const row = from.find((c) => c.id === id);
           return row && !list.some((c) => c.id === id) ? [...list, row] : list;
         };
@@ -114,6 +216,31 @@ export function CommitmentNudgesWidget() {
     }
   }, [data]);
 
+  const markDone = useCallback((id: string) => resolveRow(id, { status: 'COMPLETED', completedAt: new Date().toISOString() }, 'Commitment marked done'), [resolveRow]);
+  // RD-12 — delegation row actions.
+  const markReceived = useCallback((id: string) => resolveRow(id, { status: 'COMPLETED', completedAt: new Date().toISOString() }, 'Marked received'), [resolveRow]);
+  const dropDelegation = useCallback((id: string) => resolveRow(id, { status: 'DEFERRED' }, 'Delegation dropped'), [resolveRow]);
+  const copyCheckIn = useCallback(async (c: CommitmentNudgeItem, name: string) => {
+    if (!c.deadline) return;
+    const ok = await copyToClipboard(composeCheckIn({ name, description: c.description, deadline: c.deadline }, Date.now()));
+    useToastStore.getState().addToast(ok ? 'Check-in copied' : 'Could not copy the check-in', ok ? 'success' : 'error');
+  }, []);
+  const setNewDate = useCallback(async (id: string, ymd: string) => {
+    // Never move a delegation into the past (or to a half-typed year), whatever the caller sent.
+    if (!isPickableYmd(ymd, addDaysYmd(localYmd(new Date()), 1))) return;
+    setBusyIds((s) => new Set(s).add(id));
+    try {
+      await api.updateCommitment(id, { deadline: endOfUtcDay(ymd).toISOString() });
+      useToastStore.getState().addToast('New date saved', 'success');
+      await reload();
+    } catch (e: unknown) {
+      useToastStore.getState().addToast(e instanceof Error ? e.message : 'Could not change the date', 'error');
+    } finally {
+      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+    }
+  }, [reload]);
+  const parts = useMemo(() => (data ? partitionNudges(data) : null), [data]);
+
   if (loading) {
     return (
       <Card className="border-t-2 border-t-warning">
@@ -125,7 +252,11 @@ export function CommitmentNudgesWidget() {
   }
 
   // Quietly disappear when the endpoint is unavailable or there is nothing to nudge.
-  const total = data ? data.overdue.length + data.dueSoon.length : 0;
+  const mine = parts?.mine ?? { overdue: [], dueSoon: [] };
+  const waiting = parts?.waiting ?? { overdue: [], dueSoon: [] };
+  const mineTotal = mine.overdue.length + mine.dueSoon.length;
+  const waitingTotal = waiting.overdue.length + waiting.dueSoon.length;
+  const total = mineTotal + waitingTotal;
   const onHorizon = allCommitments.data
     ? (() => { const h = horizon(allCommitments.data, (c) => c.deadline, isOpenCommitment, HORIZON_DAYS); return h.overdue.length + h.upcoming.length; })()
     : 0;
@@ -138,22 +269,48 @@ export function CommitmentNudgesWidget() {
           Commitments to keep
         </h3>
         <div className="flex gap-1.5">
-          {data && data.overdue.length > 0 && <Badge variant="danger">{data.overdue.length} overdue</Badge>}
-          {data && data.dueSoon.length > 0 && <Badge variant="warning">{data.dueSoon.length} due soon</Badge>}
+          {mine.overdue.length > 0 && <Badge variant="danger">{mine.overdue.length} overdue</Badge>}
+          {mine.dueSoon.length > 0 && <Badge variant="warning">{mine.dueSoon.length} due soon</Badge>}
           {onHorizon > 0 && <Badge variant="default">{onHorizon} in {HORIZON_DAYS} d</Badge>}
         </div>
       </div>
       {onHorizon > 0 && allCommitments.data && (
         <CommitmentHorizon commitments={allCommitments.data} nameById={nameById} className="mb-3 border-b border-border pb-3" />
       )}
-      {data && total > 0 && <ul className="divide-y divide-border">
-        {data.overdue.map((c) => (
+      {mineTotal > 0 && <ul className="divide-y divide-border">
+        {mine.overdue.map((c) => (
           <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue onDone={markDone} busy={busyIds.has(c.id)} />
         ))}
-        {data.dueSoon.map((c) => (
+        {mine.dueSoon.map((c) => (
           <NudgeRow key={c.id} commitment={c} personName={c.stakeholderId ? nameById.get(c.stakeholderId) ?? null : null} overdue={false} onDone={markDone} busy={busyIds.has(c.id)} />
         ))}
       </ul>}
+      {waitingTotal > 0 && (
+        <section className={mineTotal > 0 || onHorizon > 0 ? 'mt-3 border-t border-border pt-3' : ''} data-testid="waiting-on-others">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-1">
+            <h3 className="whitespace-nowrap text-sm font-medium text-muted-foreground uppercase tracking-wide">Waiting on others</h3>
+            <div className="flex gap-1.5 whitespace-nowrap">
+              {waiting.overdue.length > 0 && <Badge variant="danger">{waiting.overdue.length} overdue</Badge>}
+              {waiting.dueSoon.length > 0 && <Badge variant="warning">{waiting.dueSoon.length} due soon</Badge>}
+            </div>
+          </div>
+          <ul className="divide-y divide-border">
+            {[...waiting.overdue.map((c) => [c, true] as const), ...waiting.dueSoon.map((c) => [c, false] as const)].map(([c, isOver]) => (
+              <WaitingRow
+                key={c.id}
+                commitment={c}
+                personName={c.stakeholderName ?? (c.stakeholderId ? nameById.get(c.stakeholderId) : undefined) ?? 'someone'}
+                overdue={isOver}
+                busy={busyIds.has(c.id)}
+                onCheckIn={copyCheckIn}
+                onNewDate={setNewDate}
+                onReceived={markReceived}
+                onDrop={dropDelegation}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
     </Card>
   );
 }

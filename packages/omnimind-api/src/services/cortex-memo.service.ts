@@ -33,7 +33,7 @@ export async function generateWeeklyMemo(userId: string, prisma: PrismaClient): 
     prisma.decision.findMany({ where: { userId, deletedAt: null, createdAt: { gte: weekStart } }, orderBy: { createdAt: 'desc' }, take: CORTEX_CONFIG.memoMaxDecisionsToAnalyze }),
     prisma.goal.findMany({ where: { userId, deletedAt: null, status: 'active' } }),
     prisma.task.findMany({ where: { userId, deletedAt: null, status: { not: 'done' } } }),
-    prisma.commitment.findMany({ where: { userId, deletedAt: null, status: 'OPEN' } }),
+    prisma.commitment.findMany({ where: { userId, status: 'OPEN', deletedAt: null }, include: { stakeholder: { select: { name: true } } } }),
     prisma.thinkingPattern.findMany({ where: { userId }, orderBy: { confidence: 'desc' }, take: 5 }),
     prisma.contradictionAlert.findMany({ where: { userId, status: 'ACTIVE' } }),
     findDecisionsAwaitingReview(userId, prisma, now),
@@ -66,6 +66,13 @@ export async function generateWeeklyMemo(userId: string, prisma: PrismaClient): 
     logger.warn('[cortex-memo] load unavailable', { userId, message: err instanceof Error ? err.message : String(err) });
   }
 
+  // RD-12: delegations (others owe the user) get their own section, worded "waiting on".
+  const ownCommitments = commitments.filter(c => c.owedBy !== 'STAKEHOLDER');
+  const delegations = commitments.filter(c => c.owedBy === 'STAKEHOLDER');
+  const waitingOnOthers = delegations.length
+    ? `\n\n## Waiting on Others (${delegations.length})\n${delegations.map(c => `- Waiting on ${c.stakeholder?.name ?? 'someone'}: ${c.description}${c.deadline ? ` due ${c.deadline.toISOString().split('T')[0]}` : ''}`).join('\n')}`
+    : '';
+
   // Build prompt context
   const context = `
 ## Decisions This Week (${decisions.length})
@@ -80,8 +87,8 @@ ${goals.map(g => `- ${g.title} (${g.status})${g.deadline ? ` due ${g.deadline.to
 ## Open Tasks (${tasks.length})
 ${tasks.map(t => `- ${t.title}${t.deadline ? ` due ${t.deadline.toISOString().split('T')[0]}` : ''}`).join('\n').slice(0, 1000) || 'None'}
 
-## Open Commitments (${commitments.length})
-${commitments.map(c => `- ${c.description}${c.deadline ? ` due ${c.deadline.toISOString().split('T')[0]}` : ''}`).join('\n') || 'None'}
+## Open Commitments (${ownCommitments.length})
+${ownCommitments.map(c => `- ${c.description}${c.deadline ? ` due ${c.deadline.toISOString().split('T')[0]}` : ''}`).join('\n') || 'None'}${waitingOnOthers}
 
 ## Known Thinking Patterns
 ${patterns.map(p => `- ${p.pattern} (${p.patternType}, confidence: ${p.confidence})`).join('\n') || 'None detected yet'}

@@ -223,9 +223,14 @@ export interface CommitmentRecord {
   status?: string;
   stakeholderId?: string | null;
   linkedProjectId?: string | null;
+  /** RD-12 — direction; missing means USER. */
+  owedBy?: 'USER' | 'STAKEHOLDER';
+  /** RD-12 — counterparty name (GET /commitments/nudges rows). */
+  stakeholderName?: string | null;
   [extra: string]: unknown;
 }
 
+/** RD-12 — GET /commitments/nudges rows carry the counterparty name and direction. */
 export interface CommitmentNudges {
   dueSoon: CommitmentRecord[];
   overdue: CommitmentRecord[];

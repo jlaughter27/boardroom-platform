@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import type { Commitment } from '@boardroom/shared';
+import { isDelegation } from '@boardroom/shared';
 import { useChartTheme } from '../viz/hooks';
 import { horizon, startOfUtcDay, DAY_MS, type HorizonItem } from '../viz/aggregate';
 import { ChartFrame } from '../viz/ChartFrame';
@@ -10,7 +11,8 @@ import { relativeDue } from './CommitmentNudgesWidget';
 export const HORIZON_DAYS = 14;
 const MAX_PEOPLE = 5;
 
-export const isOpenCommitment = (c: Commitment) => c.status === 'OPEN';
+/** Open and owed BY the user — delegations (RD-12) are someone else's load, not on the user's horizon. */
+export const isOpenCommitment = (c: Commitment) => c.status === 'OPEN' && !isDelegation(c);
 
 /** People → categorical slot in a stable order (most commitments first, then name); the tail folds into "Others". */
 export function personSlots(items: Commitment[], nameById: Map<string, string>, palette: readonly string[]): { order: string[]; color: Record<string, string>; label: Record<string, string> } {

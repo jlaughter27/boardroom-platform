@@ -17,6 +17,7 @@ import {
   CreatePersonRequestSchema, UpdatePersonRequestSchema,
   CreateMemoryRequestSchema, UpdateMemoryRequestSchema,
   UpdateCommitmentRequestSchema,
+  CreateCommitmentRequestSchema,
 } from '@boardroom/shared';
 
 // B-113 — local schemas where shared has none
@@ -345,6 +346,16 @@ router.get('/decisions/changes', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// RD-12 — one decision by id: a committed session resolves its decision here,
+// since GET /decisions returns only the newest page. Declared after the
+// literal /decisions/* paths above so they keep matching first.
+router.get('/decisions/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.getDecision(req.auth!.userId, req.params.id);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // ---------------------------------------------------------------------------
 // Commitments
 // ---------------------------------------------------------------------------
@@ -361,6 +372,20 @@ router.get('/commitments/nudges', async (req: AuthRequest, res, next) => {
   try {
     const data = await omnimindClient.getCommitmentNudges(req.auth!.userId);
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+// RD-12 — record a delegation (or any commitment). OmniMind owns the
+// ownership checks and the Idempotency-Key replay; the header is forwarded.
+// The browser body is narrower than OmniMind's: sourceSessionId (not
+// ownership-checked upstream), status and completedAt are stripped, so a
+// browser user can neither attach a commitment to another user's session nor
+// create one already completed.
+const BrowserCreateCommitmentSchema = CreateCommitmentRequestSchema.omit({ sourceSessionId: true, status: true, completedAt: true });
+router.post('/commitments', validateBody(BrowserCreateCommitmentSchema), async (req: AuthRequest, res, next) => {
+  try {
+    const data = await omnimindClient.createCommitment(req.auth!.userId, req.body, req.get('Idempotency-Key') ?? undefined);
+    res.status(201).json(data);
   } catch (err) { next(err); }
 });
 
