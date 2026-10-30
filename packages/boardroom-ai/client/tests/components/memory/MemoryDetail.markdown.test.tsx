@@ -156,6 +156,31 @@ describe('MemoryDetail markdown + wikilinks + backlinks (RD-1)', () => {
   });
 });
 
+describe('MemoryDetail render guard (M7)', () => {
+  it('shows pathological content as plain pre-wrapped text with a note, quickly', () => {
+    const evil = mem('m-evil', 'Stars', '*'.repeat(20_000) + 'X' + '*'.repeat(20_000));
+    const t = performance.now();
+    render(<MemoryDetail memory={evil} />);
+    const plain = screen.getByTestId('memory-plain-content');
+    expect(performance.now() - t).toBeLessThan(2_000);
+    expect(plain).toHaveTextContent('Shown as plain text (very large or unusual formatting).');
+    expect(plain.textContent).toContain('X');
+    expect(screen.queryByTestId('memory-markdown')).toBeNull();
+    expect(screen.queryByTestId('memory-markdown-loading')).toBeNull();
+  });
+
+  it('shows a 1 MB memory as plain text', () => {
+    render(<MemoryDetail memory={mem('m-big', 'Big', 'Plain notes about the plan.\n'.repeat(37_000))} />);
+    expect(screen.getByTestId('memory-plain-content')).toBeInTheDocument();
+  });
+
+  it('ordinary notes still render as markdown', async () => {
+    renderSelected();
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-plain-content')).toBeNull();
+  });
+});
+
 describe('MemoryCard preview (RD-1)', () => {
   it('strips markdown syntax and keeps wikilink labels', () => {
     render(<MemoryCard memory={PLAYBOOK} isSelected={false} onClick={vi.fn()} />);
