@@ -196,9 +196,11 @@ describe('GraphPage', () => {
     expect(screen.queryByLabelText('Focus history')).not.toBeInTheDocument();
 
     click('memory:b', 2);
-    await flush();
-    expect(screen.getByTestId('location')).toHaveTextContent('/graph?focus=memory%3Ab');
-    expect(screen.getByTestId('graph-summary')).toHaveTextContent('local 2° around memory:b');
+    // Poll rather than sleep a fixed 20 ms: under a loaded full-suite run the focus
+    // (URL → neighbourhood → rAF-deferred centre) can land later than one short sleep.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/graph?focus=memory%3Ab'));
+    await waitFor(() => expect(screen.getByTestId('graph-summary')).toHaveTextContent('local 2° around memory:b'));
+    await waitFor(() => expect(registry.centerAt).toHaveBeenCalled());
     expect(ids()).toHaveLength(4); // task:t is 3 hops away
     expect(ids()).not.toContain('task:t');
     expect(registry.reheat).toHaveBeenCalledTimes(reheatsAfterLoad + 1);
