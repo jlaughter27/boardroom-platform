@@ -52,13 +52,13 @@ describe('OmniMindClient', () => {
     const opts = { adminKey: 'adm-secret' };
     const calls: Array<[() => Promise<unknown>, string, string]> = [
       [() => client.getAdminStats({ includeAllTenants: 'true' }, opts), 'GET', '/admin/stats?includeAllTenants=true'],
-      [() => client.getAdminAgents(opts), 'GET', '/admin/agents'],
+      [() => client.getAdminAgents({ includeAllTenants: 'true' }, opts), 'GET', '/admin/agents?includeAllTenants=true'],
       [() => client.getAdminAudit({ limit: '5' }, opts), 'GET', '/admin/audit?limit=5'],
       [() => client.getAdminMemories({ q: 'x' }, opts), 'GET', '/admin/memories?q=x'],
       [() => client.getAdminContradictions({}, opts), 'GET', '/admin/contradictions?'],
       [() => client.triggerAdminSummarize(opts), 'POST', '/admin/summarize'],
       [() => client.getAdminDuplicates({ threshold: '0.9' }, opts), 'GET', '/admin/duplicates?threshold=0.9'],
-      [() => client.mergeAdminDuplicates({ keepId: 'a' }, opts), 'POST', '/admin/duplicates/merge'],
+      [() => client.mergeAdminDuplicates({ keepId: 'a' }, { includeAllTenants: 'true' }, opts), 'POST', '/admin/duplicates/merge?includeAllTenants=true'],
       [() => client.triggerAdminDecay(opts), 'POST', '/admin/decay/run'],
     ];
     for (const [i, [run, method, path]] of calls.entries()) {

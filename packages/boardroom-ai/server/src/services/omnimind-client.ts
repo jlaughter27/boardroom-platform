@@ -733,8 +733,9 @@ export class OmniMindClient {
     return this.request('GET', `/admin/stats${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminAgents(options: AdminCallOptions = {}) {
-    return this.request('GET', '/admin/agents', undefined, undefined, this.adminHeaders(options));
+  async getAdminAgents(params?: Record<string, string>, options: AdminCallOptions = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/agents${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
   async getAdminAudit(params?: Record<string, string>, options: AdminCallOptions = {}) {
@@ -761,8 +762,9 @@ export class OmniMindClient {
     return this.request('GET', `/admin/duplicates${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async mergeAdminDuplicates(body: Record<string, unknown>, options: AdminCallOptions = {}) {
-    return this.request('POST', '/admin/duplicates/merge', undefined, body, this.adminHeaders(options));
+  async mergeAdminDuplicates(body: Record<string, unknown>, params?: Record<string, string>, options: AdminCallOptions = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('POST', `/admin/duplicates/merge${qs}`, undefined, body, this.adminHeaders(options));
   }
 
   async triggerAdminDecay(options: AdminCallOptions = {}) {

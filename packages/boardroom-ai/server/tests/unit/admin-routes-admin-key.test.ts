@@ -36,6 +36,8 @@ const prevAdminKey = process.env.OMNIMIND_ADMIN_KEY;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
+  // requireAdmin (app.ts) runs before this router with an authenticated caller.
+  app.use((req: any, _res, next) => { req.auth = { userId: 'admin-user-1', email: 'ops@example.test' }; next(); });
   app.use('/admin', adminRouter);
   app.use((err: any, _req: any, res: any, _next: any) => { res.status(err.status ?? 500).json({ error: 'internal_error' }); });
   await new Promise<void>((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
@@ -93,7 +95,50 @@ describe('BoardRoom /admin proxy (M6)', () => {
     process.env.OMNIMIND_ADMIN_KEY = 'adm-secret';
     await fetch(`${base}/admin/audit?agentId=a1&limit=5&includeAllTenants=true`);
     expect(client.getAdminAudit).toHaveBeenCalledWith({ includeAllTenants: 'true', agentId: 'a1', limit: '5' }, { adminKey: 'adm-secret' });
-    await fetch(`${base}/admin/duplicates/merge`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keepId: 'k' }) });
-    expect(client.mergeAdminDuplicates).toHaveBeenCalledWith({ keepId: 'k' }, { adminKey: 'adm-secret' });
+  });
+});
+
+// Lane F (2026-10-30) — with the admin key sent, OmniMind answered 400
+// `tenant_scope_required` to /stats, /agents, /audit, /memories, /duplicates
+// (and merge) and 400 `user_scope_required` to /contradictions: BoardRoom has
+// no agent context, so the admin-wide views must opt in to
+// `includeAllTenants=true` server-side (the browser never knows about tenancy),
+// and /contradictions is scoped to the signed-in admin's userId.
+describe('BoardRoom /admin proxy scoping (lane F)', () => {
+  const ALL = { includeAllTenants: 'true' };
+  const KEY = { adminKey: 'adm-secret' };
+  beforeEach(() => { process.env.OMNIMIND_ADMIN_KEY = 'adm-secret'; });
+
+  it.each([
+    ['/admin/stats', 'getAdminStats', ALL],
+    ['/admin/agents', 'getAdminAgents', ALL],
+    ['/admin/audit', 'getAdminAudit', ALL],
+    ['/admin/memories', 'getAdminMemories', ALL],
+    ['/admin/duplicates', 'getAdminDuplicates', ALL],
+    ['/admin/audit?toolName=memory_write&limit=10', 'getAdminAudit', { ...ALL, toolName: 'memory_write', limit: '10' }],
+    ['/admin/memories?q=plan&domain=business&offset=25', 'getAdminMemories', { ...ALL, domain: 'business', q: 'plan', offset: '25' }],
+    ['/admin/duplicates?threshold=0.9', 'getAdminDuplicates', { ...ALL, threshold: '0.9' }],
+  ])('GET %s sends includeAllTenants=true without the browser asking', async (path, fn, params) => {
+    const res = await fetch(`${base}${path}`);
+    expect(res.status).toBe(200);
+    expect(client[fn]).toHaveBeenCalledWith(params, KEY);
+  });
+
+  it('a browser-supplied includeAllTenants=false cannot narrow the admin view into a 400', async () => {
+    await fetch(`${base}/admin/stats?includeAllTenants=false`);
+    expect(client.getAdminStats).toHaveBeenCalledWith(ALL, KEY);
+  });
+
+  it("GET /admin/contradictions is scoped to the signed-in admin's userId", async () => {
+    await fetch(`${base}/admin/contradictions?limit=20&userId=someone-else`);
+    expect(client.getAdminContradictions).toHaveBeenCalledWith({ userId: 'admin-user-1', limit: '20' }, KEY);
+  });
+
+  it('POST /admin/duplicates/merge opts in to all tenants and attributes the merge to the signed-in admin', async () => {
+    await fetch(`${base}/admin/duplicates/merge`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ keepId: 'k', archiveId: 'a', userId: 'spoofed' }),
+    });
+    expect(client.mergeAdminDuplicates).toHaveBeenCalledWith({ keepId: 'k', archiveId: 'a', userId: 'admin-user-1' }, ALL, KEY);
   });
 });
