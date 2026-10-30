@@ -41,7 +41,8 @@ The MCP service is built from `packages/omnimind-mcp/Dockerfile` (no Prisma, no 
 |----------|-------------|--------|
 | `JWT_SECRET` | Secret for JWT signing | Generate with `openssl rand -hex 32` |
 | `OMNIMIND_API_KEY` | Must match omnimind-api's value exactly | Same value as above |
-| `ADMIN_EMAILS` | Comma-separated allowlist for `/admin` in BoardRoom. **Unset → `/admin` is 403 for everyone (fail-closed).** | e.g. `joshlaughter27@gmail.com` |
+| `ADMIN_EMAILS` | Comma-separated allowlist for `/admin` in BoardRoom. **Unset → `/admin` is 403 for everyone (fail-closed).** Register each address before go-live (see below). | e.g. `joshlaughter27@gmail.com` |
+| `OMNIMIND_ADMIN_KEY` | **Same value as omnimind-api's.** Sent as `x-admin-key` by the admin panel (`/api/admin/*`) and the cross-user LLM cost widget (`/api/usage/llm/summary`). Unset → those routes answer `503 admin_key_not_configured` / `503 admin_disabled` instead of calling OmniMind | Same value as above |
 | `LLM_RATE_LIMIT_PER_HOUR` / `LLM_RATE_LIMIT_WINDOW_MS` | Per-user token bucket on every LLM endpoint (defaults 60 / 1h) | optional |
 | `OMNIMIND_API_URL` | URL to reach OmniMind | `https://omnimind-api-production.up.railway.app` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | console.anthropic.com |
@@ -211,7 +212,7 @@ The step-by-step is `docs/runbooks/omnimind-mcp.md` (§0–§7 in that order —
 Required before/at the first deploy of the remediation branch:
 
 1. **Rotate the five leaked secrets** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `JWT_SECRET`, `OMNIMIND_API_KEY`, `ENCRYPTION_KEY`) on Railway. They are recoverable from git history (`.env.deploy`, commit `0c3700a`). `ENCRYPTION_KEY` must now be 64 hex chars; rotating it makes previously encrypted OAuth tokens undecryptable (users re-connect Google) — there are no encrypted ministry rows yet (gate still on).
-2. Set `OMNIMIND_ADMIN_KEY` (omnimind-api) and `ADMIN_EMAILS` (boardroom-ai).
+2. Set `OMNIMIND_ADMIN_KEY` (omnimind-api **and** boardroom-ai, same value — the admin panel forwards it) and `ADMIN_EMAILS` (boardroom-ai; register each address first).
 3. `UPDATE tenants SET owner_user_id = '<your user cuid>' WHERE id IN ('josh-personal','josh-business','tgfc-ministry');` — session summaries are skipped (logged once per tenant) until this is set.
 4. For each legacy stdio MCP agent config, add `OMNIMIND_MCP_AGENT_KEY=<omk key from keygen>`. The hosted HTTP service instead uses the gateway agent key + `OMNIMIND_MCP_TOKEN_AUTH=true` + `OMNIMIND_MCP_ALLOWED_HOSTS=<public host>` (see "MCP live checklist"); the single static `OMNIMIND_MCP_API_KEY` is only for a personal self-run HTTP instance (which carries its own agent key as `OMNIMIND_MCP_STATIC_AGENT_KEY`).
 5. Point the Stripe webhook at `https://<boardroom-host>/subscription/webhook` (it now lives before the auth wall; signature verification is active).

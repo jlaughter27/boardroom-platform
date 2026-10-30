@@ -72,6 +72,11 @@ class CircuitBreaker {
   }
 }
 
+/** M6 — per-call admin credential for OmniMind's `/admin/*` (sent as `x-admin-key`). */
+export interface AdminCallOptions {
+  adminKey?: string;
+}
+
 export class OmniMindClient {
   private baseUrl: string;
   private _apiKey: string | undefined;
@@ -680,46 +685,52 @@ export class OmniMindClient {
     return this.request<{ status: string; dbConnected: boolean }>('GET', '/health');
   }
 
-  // Admin (no userId — cross-agent views)
-  async getAdminStats(params?: Record<string, string>) {
+  // Admin (no userId — cross-agent views). M6: OmniMind mounts /admin/* behind
+  // `requireAdminKey`, so every call carries `x-admin-key` (BoardRoom's
+  // OMNIMIND_ADMIN_KEY, resolved by admin.routes.ts — 503 there when unset).
+  private adminHeaders(options: AdminCallOptions): Record<string, string> | undefined {
+    return options.adminKey ? { 'x-admin-key': options.adminKey } : undefined;
+  }
+
+  async getAdminStats(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/stats${qs}`);
+    return this.request('GET', `/admin/stats${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminAgents() {
-    return this.request('GET', '/admin/agents');
+  async getAdminAgents(options: AdminCallOptions = {}) {
+    return this.request('GET', '/admin/agents', undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminAudit(params?: Record<string, string>) {
+  async getAdminAudit(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/audit${qs}`);
+    return this.request('GET', `/admin/audit${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminMemories(params?: Record<string, string>) {
+  async getAdminMemories(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/memories${qs}`);
+    return this.request('GET', `/admin/memories${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminContradictions(params?: Record<string, string>) {
+  async getAdminContradictions(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/contradictions${qs}`);
+    return this.request('GET', `/admin/contradictions${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async triggerAdminSummarize() {
-    return this.request('POST', '/admin/summarize');
+  async triggerAdminSummarize(options: AdminCallOptions = {}) {
+    return this.request('POST', '/admin/summarize', undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminDuplicates(params?: Record<string, string>) {
+  async getAdminDuplicates(params?: Record<string, string>, options: AdminCallOptions = {}) {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request('GET', `/admin/duplicates${qs}`);
+    return this.request('GET', `/admin/duplicates${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async mergeAdminDuplicates(body: Record<string, unknown>) {
-    return this.request('POST', '/admin/duplicates/merge', undefined, body);
+  async mergeAdminDuplicates(body: Record<string, unknown>, options: AdminCallOptions = {}) {
+    return this.request('POST', '/admin/duplicates/merge', undefined, body, this.adminHeaders(options));
   }
 
-  async triggerAdminDecay() {
-    return this.request('POST', '/admin/decay/run');
+  async triggerAdminDecay(options: AdminCallOptions = {}) {
+    return this.request('POST', '/admin/decay/run', undefined, undefined, this.adminHeaders(options));
   }
 
   // ---------------------------------------------------------------------------

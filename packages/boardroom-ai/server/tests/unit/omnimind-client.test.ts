@@ -46,6 +46,32 @@ describe('OmniMindClient', () => {
     expect(opts.headers['x-admin-key']).toBeUndefined();
   });
 
+  // M6 (2026-10-30) — OmniMind /admin/* is behind x-admin-key; without it every admin panel call was 401 → 502.
+  it('every admin call sends x-admin-key (and never displaces x-api-key)', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    const opts = { adminKey: 'adm-secret' };
+    const calls: Array<[() => Promise<unknown>, string, string]> = [
+      [() => client.getAdminStats({ includeAllTenants: 'true' }, opts), 'GET', '/admin/stats?includeAllTenants=true'],
+      [() => client.getAdminAgents(opts), 'GET', '/admin/agents'],
+      [() => client.getAdminAudit({ limit: '5' }, opts), 'GET', '/admin/audit?limit=5'],
+      [() => client.getAdminMemories({ q: 'x' }, opts), 'GET', '/admin/memories?q=x'],
+      [() => client.getAdminContradictions({}, opts), 'GET', '/admin/contradictions?'],
+      [() => client.triggerAdminSummarize(opts), 'POST', '/admin/summarize'],
+      [() => client.getAdminDuplicates({ threshold: '0.9' }, opts), 'GET', '/admin/duplicates?threshold=0.9'],
+      [() => client.mergeAdminDuplicates({ keepId: 'a' }, opts), 'POST', '/admin/duplicates/merge'],
+      [() => client.triggerAdminDecay(opts), 'POST', '/admin/decay/run'],
+    ];
+    for (const [i, [run, method, path]] of calls.entries()) {
+      await run();
+      const [url, init] = fetchSpy.mock.calls[i];
+      expect(url, path).toBe(`http://test:3333${path}`);
+      expect(init.method, path).toBe(method);
+      expect(init.headers['x-admin-key'], path).toBe('adm-secret');
+      expect(init.headers['x-api-key'], path).toBe('test-key');
+      expect(init.headers['x-user-id'], path).toBeUndefined();
+    }
+  });
+
   it('omits x-user-id when userId is not provided', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,
