@@ -250,6 +250,10 @@ export async function createMemory(
     (SOURCE_WEIGHTS as Record<string, number>)[input.sourceType] ?? SOURCE_WEIGHTS.MANUAL;
   const sourceWeight = agentContext?.sourceWeight ?? fallbackSourceWeight;
 
+  // Lane H (2026-10-30): a write without agent context (BoardRoom UI, jobs)
+  // goes to the user's own default tenant instead of the column default.
+  const writeTenant = agentContext ? agentContext.tenantId : await defaultWriteTenant(userId, prisma);
+
   const memory = await prisma.memoryEntry.create({
     data: {
       userId,
@@ -277,7 +281,7 @@ export async function createMemory(
       // WS-4: agent_id is now NOT NULL. Non-MCP callers default to 'boardroom-ai'
       // (the service-layer counterpart to the migration's 'legacy' DB default).
       agentId: agentContext?.agentId ?? 'boardroom-ai',
-      ...(agentContext ? { tenantId: agentContext.tenantId } : {}),
+      ...(writeTenant ? { tenantId: writeTenant } : {}),
       // O-111: overrides `content` with the placeholder when encrypted.
       ...(encrypted ?? {}),
     },
@@ -302,6 +306,49 @@ export async function createMemory(
       ...budgetWarning(true),
     },
   };
+}
+
+/**
+ * `memory_entries.tenant_id` column default (schema.prisma `MemoryEntry.tenantId
+ * @default`, migration 20260509000000_mcp_phase_1). Named here only so a user
+ * who owns that tenant keeps writing into it exactly as before.
+ */
+export const MEMORY_TENANT_COLUMN_DEFAULT = 'josh-personal';
+
+/**
+ * Lane H (2026-10-30) — the tenant a write WITHOUT agent context lands in.
+ * Previously every such write (every BoardRoom UI memory) took the column
+ * default, one founder's tenant, whoever the user was — so another user's MCP
+ * token (bound to a tenant they own) could never see their BoardRoom memories.
+ *
+ *   1. the user owns the column-default tenant → undefined (column default;
+ *      the founder's data path is unchanged byte for byte);
+ *   2. else the user's OLDEST owned non-ministry tenant (createdAt, then id) —
+ *      the same "oldest owned tenant" rule OAuth auto-link uses; the ministry
+ *      tenant is never picked (that would turn a UI write into a refused
+ *      ministry write);
+ *   3. else (no owned tenant) → undefined: the column default, as before. The
+ *      column is NOT NULL, so "untenanted" needs a migration and the ADR-017 /
+ *      M1-F7 default-tenant decision — out of scope here.
+ *
+ * A lookup failure falls back to (3) and is logged; it never fails the write.
+ * Returns undefined on Prisma doubles without a `tenant` delegate (unit tests).
+ */
+export async function defaultWriteTenant(userId: string, prismaClient: PrismaClient): Promise<string | undefined> {
+  const tenants = (prismaClient as unknown as { tenant?: { findMany?: unknown } }).tenant;
+  if (!tenants || typeof tenants.findMany !== 'function') return undefined;
+  try {
+    const owned = await prismaClient.tenant.findMany({
+      where: { ownerUserId: userId },
+      select: { id: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    if (!Array.isArray(owned) || owned.some(t => t.id === MEMORY_TENANT_COLUMN_DEFAULT)) return undefined;
+    return owned.find(t => !inMinistryTenant(t.id))?.id;
+  } catch (err) {
+    logger.warn('[memory] default write tenant lookup failed — using the column default', { error: (err as Error).message });
+    return undefined;
+  }
 }
 
 /**
