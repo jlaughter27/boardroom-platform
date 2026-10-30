@@ -11,6 +11,7 @@ import { idempotent } from '../middleware/idempotency';
 import * as decisionService from '../services/decision.service';
 import { getCalibrationReport } from '../services/calibration.service';
 import { scheduleReviews } from '../services/outcome-review.service';
+import { prepareDecisionSessionLink } from '../services/decision-session.service';
 
 const router: IRouter = Router();
 
@@ -27,6 +28,13 @@ router.post('/', idempotent('decisions.create'), async (req, res, next) => {
     const parseResult = CreateDecisionRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
       res.status(422).json({ error: 'validation_failed', details: zodDetails(parseResult.error.issues) });
+      return;
+    }
+
+    // RD-17: a Decision Lab session link must name this user's live session.
+    const { decisionSessionId } = parseResult.data;
+    if (decisionSessionId && !(await prepareDecisionSessionLink(userId, decisionSessionId, prisma))) {
+      res.status(422).json({ error: 'invalid_reference', message: 'decisionSessionId does not name a decision session of this user' });
       return;
     }
 

@@ -304,6 +304,11 @@ model Decision {
   assumptions  DecisionAssumption[]
   projectLinks DecisionProjectLink[]
 
+  // RD-17 — the Decision Lab session this decision was committed from (one
+  // decision per session). `sessionId` above is the legacy meeting-session FK.
+  decisionSessionId String?          @unique @map("decision_session_id")
+  decisionSession   DecisionSession? @relation(fields: [decisionSessionId], references: [id], onDelete: SetNull)
+
   // Phase 6 — decision loop: forecast at commit time, scored at review time
   expectedOutcome    String?  @map("expected_outcome")
   probabilitySuccess Float?   @map("probability_success")
@@ -348,11 +353,27 @@ model DecisionSession {
   roomId         String?  @map("room_id")
   createdAt      DateTime @default(now()) @map("created_at")
 
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room Room? @relation(fields: [roomId], references: [id])
+  // RD-17 — persisted Decision Lab state (BoardRoom writes through; see
+  // docs/contracts/omnimind-api.contract.md "Decision Sessions").
+  mode      String?
+  status    DecisionSessionStatus @default(OPEN)
+  state     Json?
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room     Room?     @relation(fields: [roomId], references: [id])
+  decision Decision?
 
   @@index([userId, createdAt])
   @@map("decision_sessions")
+}
+
+enum DecisionSessionStatus {
+  OPEN
+  DISPATCHED
+  SYNTHESIZED
+  DECIDED
 }
 
 // ============================================================

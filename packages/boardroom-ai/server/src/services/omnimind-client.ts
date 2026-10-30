@@ -8,6 +8,30 @@ import type {
 } from '@boardroom/shared';
 import { PersonBriefsResponseSchema, OMNIMIND_REFUSAL_CODES, OMNIMIND_REFUSAL_HEADER } from '@boardroom/shared';
 import type { PersonBriefsRequest, PersonBriefsResponse } from '@boardroom/shared';
+import type {
+  CreateDecisionSessionRequest,
+  UpdateDecisionSessionRequest,
+  DecisionSession,
+  DecisionSessionSummary,
+} from '@boardroom/shared';
+
+/** RD-17 — a DecisionSession as it arrives over HTTP (dates are ISO strings). */
+export interface DecisionSessionWire extends Omit<DecisionSession, 'createdAt' | 'updatedAt'> {
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionSessionSummaryWire extends Omit<DecisionSessionSummary, 'createdAt' | 'updatedAt'> {
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionSessionListWire {
+  items: DecisionSessionSummaryWire[];
+  total: number;
+  offset: number;
+  limit: number;
+}
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
 function getApiKey(): string {
@@ -294,6 +318,34 @@ export class OmniMindClient {
 
   async createDecision(userId: string, input: unknown) {
     return this.request('POST', '/decisions', userId, input);
+  }
+
+  // ---------------------------------------------------------------------------
+  // RD-17 — persisted Decision Lab sessions (`/decision-sessions`)
+  // ---------------------------------------------------------------------------
+
+  async createDecisionSession(userId: string, input: CreateDecisionSessionRequest) {
+    return this.request<DecisionSessionWire>('POST', '/decision-sessions', userId, input);
+  }
+
+  async getDecisionSession(userId: string, id: string) {
+    return this.request<DecisionSessionWire>('GET', `/decision-sessions/${encodeURIComponent(id)}`, userId);
+  }
+
+  async listDecisionSessions(userId: string, query: { limit?: number; offset?: number } = {}) {
+    const params = Object.entries(query)
+      .filter(([, v]) => typeof v === 'number')
+      .map(([k, v]): [string, string] => [k, String(v)]);
+    const qs = params.length ? `?${new URLSearchParams(params).toString()}` : '';
+    return this.request<DecisionSessionListWire>('GET', `/decision-sessions${qs}`, userId);
+  }
+
+  async updateDecisionSession(userId: string, id: string, input: UpdateDecisionSessionRequest) {
+    return this.request<DecisionSessionWire>('PATCH', `/decision-sessions/${encodeURIComponent(id)}`, userId, input);
+  }
+
+  async archiveDecisionSession(userId: string, id: string) {
+    return this.request<{ id: string; status: 'archived' }>('DELETE', `/decision-sessions/${encodeURIComponent(id)}`, userId);
   }
 
   async getCalibration(userId: string, params?: Record<string, string>) {

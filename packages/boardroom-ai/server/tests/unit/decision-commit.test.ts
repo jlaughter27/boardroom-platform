@@ -70,10 +70,16 @@ describe('decision-commit — builders', () => {
     expect(input.assumptions).toHaveLength(2);
   });
 
-  it('never sends the in-memory BoardRoom session id: decisions.session_id is an FK to OmniMind sessions', () => {
-    const input = buildDecisionInput(session({ id: 'session_3_1761830000000' }), { chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+  it('a memory-only session (OmniMind was down at create) never sends its local id', () => {
+    const input = buildDecisionInput(session({ id: 'session_3_1761830000000', persisted: false }), { chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
     expect(input.sessionId).toBeNull();
+    expect(input.decisionSessionId).toBeNull();
     expect(JSON.stringify(input)).not.toContain('session_3_1761830000000');
+  });
+
+  it('RD-17: a persisted session links the decision via decisionSessionId (sessionId stays the legacy null)', () => {
+    const input = buildDecisionInput(session({ id: 'ckq0decisionsession00001', persisted: true }), { chosenPath: 'Wait', expectedOutcome: 'x', probabilitySuccess: 0.5 });
+    expect(input).toMatchObject({ sessionId: null, decisionSessionId: 'ckq0decisionsession00001' });
   });
 
   it('explicit reviewAt + rationale win over defaults', () => {
@@ -94,9 +100,38 @@ describe('decision-commit — commitDecision', () => {
     const decision = await commitDecision(s, { chosenPath: 'Hire now', expectedOutcome: 'x', probabilitySuccess: 0.7 }, omnimind as any);
     expect(decision.id).toBe('dec_1');
     expect(s.decisionId).toBe('dec_1');
-    expect(omnimind.createDecision).toHaveBeenCalledWith('u1', expect.objectContaining({ sessionId: null, personaForecasts: expect.any(Array) }));
+    expect(omnimind.createDecision).toHaveBeenCalledWith('u1', expect.objectContaining({ sessionId: null, decisionSessionId: null, personaForecasts: expect.any(Array) }));
     expect(omnimind.linkProjectDecision).toHaveBeenCalledTimes(2);
     expect(omnimind.linkProjectDecision).toHaveBeenCalledWith('u1', 'proj_1', 'dec_1');
     expect(omnimind.linkProjectDecision).toHaveBeenCalledWith('u1', 'proj_2', 'dec_1');
+  });
+
+  it('RD-17: a persisted session sends its id as decisionSessionId', async () => {
+    const s = session({ id: 'ckq0decisionsession00002', persisted: true, projectIds: [] });
+    const omnimind = { createDecision: vi.fn().mockResolvedValue({ id: 'dec_2' }), linkProjectDecision: vi.fn() };
+    await commitDecision(s, { chosenPath: 'Hire now', expectedOutcome: 'x', probabilitySuccess: 0.7 }, omnimind as any);
+    expect(omnimind.createDecision).toHaveBeenCalledTimes(1);
+    expect(omnimind.createDecision.mock.calls[0][1]).toMatchObject({ sessionId: null, decisionSessionId: 'ckq0decisionsession00002' });
+  });
+
+  it('RD-17: OmniMind 422 invalid_reference on the link → one retry without it; the commit succeeds', async () => {
+    const s = session({ id: 'ckq0decisionsession00003', persisted: true, projectIds: [] });
+    const refused = Object.assign(new Error('OmniMind POST /decisions: 422'), { status: 422, upstream: { error: 'invalid_reference' } });
+    const omnimind = {
+      createDecision: vi.fn().mockRejectedValueOnce(refused).mockResolvedValueOnce({ id: 'dec_3' }),
+      linkProjectDecision: vi.fn(),
+    };
+    const decision = await commitDecision(s, { chosenPath: 'Hire now', expectedOutcome: 'x', probabilitySuccess: 0.7 }, omnimind as any);
+    expect(decision.id).toBe('dec_3');
+    expect(omnimind.createDecision).toHaveBeenCalledTimes(2);
+    expect(omnimind.createDecision.mock.calls[1][1]).toMatchObject({ decisionSessionId: null });
+  });
+
+  it('other upstream failures are not retried', async () => {
+    const s = session({ id: 'ckq0decisionsession00004', persisted: true, projectIds: [] });
+    const validation = Object.assign(new Error('422'), { status: 422, upstream: { error: 'validation_failed' } });
+    const omnimind = { createDecision: vi.fn().mockRejectedValue(validation), linkProjectDecision: vi.fn() };
+    await expect(commitDecision(s, { chosenPath: 'Hire now', expectedOutcome: 'x', probabilitySuccess: 0.7 }, omnimind as any)).rejects.toBe(validation);
+    expect(omnimind.createDecision).toHaveBeenCalledTimes(1);
   });
 });

@@ -574,11 +574,18 @@ Remove the dependency. **204** · **404**.
   question: string,        // required
   options?: object[],      // DecisionOption[]
   constraints?: string[],
-  sessionId?: string
+  sessionId?: string,          // legacy: FK to the meeting `sessions` table (Room → Session); BoardRoom never sends it
+  decisionSessionId?: string | null  // RD-17: the Decision Lab session (`/decision-sessions`) this decision was committed from
 }
 ```
 
-**Response 201:** Created `Decision` object
+**Response 201:** Created `Decision` object (every `Decision` response carries `decisionSessionId: string | null`).
+
+**RD-17 (2026-10-30) — `decisionSessionId`.** Links the decision to the Decision Lab session it came from (`decisions.decision_session_id` → `decision_sessions.id`, `ON DELETE SET NULL`, **unique**: one decision per session). Rules:
+- The id must name a decision session of the **same user** that is not archived → otherwise **422** `{ error: "invalid_reference", message }` (no existence leak across users).
+- A second decision for the same session → **409** `{ error: "conflict", message }`. A **soft-deleted** decision releases its session: creating a new decision for that session clears the deleted decision's link first.
+- `PATCH /decisions/:id` ignores `decisionSessionId` (stripped like any unknown key; the link is set at commit time only).
+- `sessionId` keeps its legacy meaning (meeting `sessions` FK; an unknown id → 422 `invalid_reference`).
 
 ### GET /decisions/:id
 
@@ -616,6 +623,51 @@ invalidated since), `DecisionProjectLink` / `GoalProjectLink` / `ProjectPersonLi
 commitments), plus the entity's capsule.
 
 **Response 200:** `{ since, memories: MemoryApiRecord[], decisions: Decision[], commitments: Commitment[], capsule: ContextCapsule|null }`
+
+---
+
+## Decision Sessions (RD-17, 2026-10-30)
+
+Persisted Decision Lab sessions. BoardRoom owns the session flow (persona dispatch, debate, CEO synthesis, commit) and keeps an in-memory cache; OmniMind stores the snapshot so a session survives a BoardRoom restart. Model: `DecisionSession` (`decision_sessions`, ADR-005), migration `20261030000000_decision_session_state` (additive: `mode`, `status`, `state`, `updated_at`, `deleted_at`, and `decisions.decision_session_id`).
+
+**Caller:** BoardRoom only. Any request with an agent context (`x-agent-key`, the legacy agent header triple, or a delegated MCP principal) → **403** `{ error: "agent_context_unsupported" }`. Every query is scoped by `x-user-id` (missing → 400 `validation_failed`) and excludes archived rows (`deleted_at IS NULL`); another user's id answers **404**, never 403.
+
+**Size limit:** the serialized `personaResponses` + `state` of one request may not exceed **512 kB** (`DECISION_SESSION_STATE_MAX_BYTES`, UTF-8 bytes of their JSON) → **413** `{ error: "payload_too_large", message }`. Bodies over 1 MB are refused by the parser with the same 413. Session content is never embedded (no OpenAI call), so ministry-domain questions need no special path here.
+
+Shared types: `DecisionSession`, `DecisionSessionSummary`, `DecisionSessionListResponse`, `CreateDecisionSessionRequest`, `UpdateDecisionSessionRequest`, `DecisionSessionStatus` (`OPEN | DISPATCHED | SYNTHESIZED | DECIDED`); schemas `CreateDecisionSessionRequestSchema`, `UpdateDecisionSessionRequestSchema`, `ListDecisionSessionsQuerySchema`, `DecisionSessionSchema`. Unknown body keys → 422.
+
+### POST /decision-sessions
+
+```typescript
+{
+  question: string,                      // 1..400 000 chars (grows with questionnaire clarifications)
+  mode?: string | null,                  // UserMode, ≤ 40 chars
+  status?: DecisionSessionStatus,        // default OPEN
+  personaResponses?: Record<string, unknown>,  // round-1 PersonaResponse per persona id
+  ceoSynthesis?: string | null,          // ≤ 20 000 chars — the CEO recommendation text (the full report lives in state)
+  state?: Record<string, unknown> | null // BoardRoom's opaque snapshot (rebuttals, ledger, synthesis, asOf, …)
+}
+```
+
+**Response 201:** `DecisionSession`
+
+### GET /decision-sessions
+
+**Query:** `limit` (1..100, default 20), `offset` (≥ 0, default 0); anything else malformed → 422.
+
+**Response 200:** `{ items: DecisionSessionSummary[], total, offset, limit }`, newest `createdAt` first, where `DecisionSessionSummary = { id, question, mode, status, personaCount, hasSynthesis, decisionId, createdAt, updatedAt }` (`personaCount` = keys of `personaResponses`; `hasSynthesis` = status `SYNTHESIZED` or `DECIDED`, or `ceoSynthesis` set). The list never ships `state`.
+
+### GET /decision-sessions/:id
+
+**Response 200:** `DecisionSession = { id, userId, roomId, question, mode, status, personaResponses, ceoSynthesis, state, decisionId, createdAt, updatedAt }`. `decisionId` is the non-deleted `Decision` whose `decisionSessionId` is this session, else `null`. **404** `not_found` when missing, archived or another user's.
+
+### PATCH /decision-sessions/:id
+
+Body: any non-empty subset of the POST fields (empty body → 422). Replaces each given field (no deep merge; `state` is a whole snapshot). **200** `DecisionSession` · **404** · **413** · **422**.
+
+### DELETE /decision-sessions/:id
+
+Archive (soft delete: `deleted_at = now()`). **200** `{ id, status: "archived" }` · **404** (already archived, missing, other user). A decision linked to an archived session keeps its `decisionSessionId`; new decisions can no longer link to it.
 
 ---
 

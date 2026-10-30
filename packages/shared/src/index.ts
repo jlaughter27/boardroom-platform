@@ -43,6 +43,7 @@ export * from './constants/model-config';
 export * from './constants/graph-config';
 export * from './constants/meeting-brief-config';
 export * from './constants/omnimind-http';
+export * from './constants/decision-session-config';
 
 // Utilities
 // NOTE (S-103): `hashing` (Node `crypto`) and `env-validator` (`process.env`)

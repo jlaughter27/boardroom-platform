@@ -67,7 +67,9 @@ describe('E2E-12: commit a decision from a BoardRoom session', () => {
       body: JSON.stringify(input),
     });
     const body = await res.json();
-    expect({ status: res.status, body }).toMatchObject({ status: 201, body: { sessionId: null } });
+    // RD-17: a memory-only session (no OmniMind row) carries no session link; a
+    // persisted one links via decisionSessionId — see E2E-14.
+    expect({ status: res.status, body }).toMatchObject({ status: 201, body: { sessionId: null, decisionSessionId: null } });
   });
 
   it('commitDecision through the real OmniMindClient creates the row and links projects', async () => {
@@ -84,7 +86,7 @@ describe('E2E-12: commit a decision from a BoardRoom session', () => {
       const row = await harness.prisma.decision.findUnique({ where: { id: decision.id }, include: { assumptions: true, projectLinks: true } });
       expect(row).toMatchObject({
         userId: TEST_USER_ID, status: 'DECIDED', chosenPath: 'Open the stall in March',
-        probabilitySuccess: 0.65, mode: 'decide', sessionId: null,
+        probabilitySuccess: 0.65, mode: 'decide', sessionId: null, decisionSessionId: null,
       });
       expect(row!.assumptions.map((a) => a.text)).toEqual(['Saturday footfall holds through spring']);
       expect(row!.projectLinks.map((l) => l.projectId)).toEqual([project.id]);
