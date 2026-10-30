@@ -25,8 +25,20 @@
 
 - **C1 — account e-mails are case-insensitive.** `POST /auth/register` stores `lower(trim(email))` and answers `409 conflict` when any existing row matches case-insensitively (legacy mixed-case rows included); `POST /auth/login` and `POST /auth/verify` look the address up exact-first, then case-insensitively (oldest row wins). BoardRoom's `RegisterBodySchema` / `LoginBodySchema` canonicalise the address before forwarding. No migration: `users.email` stays `@unique` as typed.
 - **M6 — BoardRoom sends `x-admin-key` on `/admin/*`.** No OmniMind change: BoardRoom's admin proxy now forwards its own `OMNIMIND_ADMIN_KEY` (same value as OmniMind's) on every `/admin/*` call; when it is unset BoardRoom answers `503 admin_key_not_configured` without calling OmniMind (previously an upstream 401 surfaced as 502).
-- **Lane F — admin panel scoping + ministry exclusion.** BoardRoom calls `/admin/*` without agent context, so its admin proxy (server-side; the browser never sends tenancy) adds `?includeAllTenants=true` to `GET /admin/stats`, `/admin/agents`, `/admin/audit`, `/admin/memories`, `/admin/duplicates` and `POST /admin/duplicates/merge` (previously each answered `400 tenant_scope_required`), and scopes `GET /admin/contradictions` with `?userId=<signed-in admin>` (previously `400 user_scope_required`); the merge body's `userId` is the signed-in admin's. OmniMind change: `GET /admin/memories` and `GET /admin/duplicates` **exclude** ministry rows — domain ministry in any spelling (`isMinistryDomain`) or tenant = ministry tenant (`isMinistryTenant`, `OMNIMIND_MINISTRY_TENANT_ID`) — the same exclude policy as backlinks and the core-context block. The canonical spellings are filtered in SQL; legacy spellings are dropped after the query and `total` is reduced by the rows dropped from the page. An explicit ministry `?domain=` / `?tenantId=` filter on `/admin/memories` answers an empty page. `/admin/duplicates` never returns the side columns it uses for this check.
+- **Lane F — admin panel scoping + ministry exclusion.** BoardRoom calls `/admin/*` without agent context, so its admin proxy (server-side; the browser never sends tenancy) adds `?includeAllTenants=true` to `GET /admin/stats`, `/admin/agents`, `/admin/audit`, `/admin/memories`, `/admin/duplicates` and `POST /admin/duplicates/merge` (previously each answered `400 tenant_scope_required`), and scopes `GET /admin/contradictions` with `?userId=<signed-in admin>` (previously `400 user_scope_required`); the merge body's `userId` is the signed-in admin's (**both superseded by lane H below**). OmniMind change: `GET /admin/memories` and `GET /admin/duplicates` **exclude** ministry rows — domain ministry in any spelling (`isMinistryDomain`) or tenant = ministry tenant (`isMinistryTenant`, `OMNIMIND_MINISTRY_TENANT_ID`) — the same exclude policy as backlinks and the core-context block. The canonical spellings are filtered in SQL; legacy spellings are dropped after the query and `total` is reduced by the rows dropped from the page. An explicit ministry `?domain=` / `?tenantId=` filter on `/admin/memories` answers an empty page. `/admin/duplicates` never returns the side columns it uses for this check.
 - **L3 — agent rate buckets bill reads first.** `GET`/`HEAD` (and the POST reads above) always count against the agent's `read` bucket; the `decision` bucket (`AGENT_RATE_DECISION`, 100/h) now only counts decision writes (`POST`/`PATCH`/`DELETE` on a `decision` path). Previously `GET /decisions` spent the decision budget.
+
+### Fix lane H (2026-10-30)
+
+From the adversarial e2e of 2026-10-30. No new endpoints, no schema change.
+
+- **Admin duplicate merge across users.** Every `GET /admin/duplicates` pair now carries **`user_id`** — the one user both memories belong to (pairs are only formed within one user: `a.user_id = b.user_id` in both the tenant-scoped and the all-tenants query). `POST /admin/duplicates/merge` body `{ keepId, archiveId, userId }` (strings ≤ 128, `keepId ≠ archiveId`, else `400`) acts for that **pair owner**: both memories must be `userId`'s, live, in the caller's tenant (unless `?includeAllTenants=true`) and not ministry (domain in any spelling or the ministry tenant), else **`404 not_found`** — one answer for missing / other user / other tenant / ministry; only then is `archiveId` archived. BoardRoom's admin proxy validates the body (`400 validation_failed`) and forwards the browser-supplied `userId` — the pair's `user_id` — instead of the signed-in admin's (that 404'd every pair the admin did not own). The proxy is admin-only (`requireAdmin`).
+- **Admin contradictions, all users.** `GET /admin/contradictions?includeAllTenants=true` is the all-users view and wins over a stray `x-user-id` header (an explicit `?userId=` still narrows it). Every view (all-users or one user) **excludes** alerts naming a ministry project — an alert's `entityA` / `entityB` carry a project `title`; when that user's project of the same title (case-insensitive, soft-deleted included) has a ministry-like domain, or the entity itself carries a ministry `domain` / `tenantId`, the alert is dropped and `total` is reduced by the rows dropped from the page. Ordered `detectedAt desc, id desc`. BoardRoom's admin proxy now requests the all-users view (`?includeAllTenants=true`, browser `?userId=` ignored).
+- **Ministry exclusion on memory reads.** Legacy rows stored before the write gate was hardened can carry a ministry spelling (`Ministry `, `ministry/pastoral`, lookalikes) or sit in the ministry tenant. `GET /memories`, `POST /memories/search` (MCP `memory_search` / `search`), `POST /memories/search-similar` (MCP dedup), `POST /context/for-persona`, `GET /graph` (memory nodes, `stats.memoryTotal`) and `GET /graph/backlinks/:nodeId` (a ministry memory node → 404, ministry memory backlinks dropped) now **exclude** them, with the backlinks (M5) policy: a row whose `domain` is ministry in any spelling (`isMinistryDomain`) is never returned to anyone; a row in the ministry tenant (`isMinistryTenant`, `OMNIMIND_MINISTRY_TENANT_ID`) is never returned to a caller outside that tenant (BoardRoom has no tenant, so it is outside). Canonical forms are filtered in SQL (`domain` equal to / starting with `ministry`, case-insensitive; `tenant_id <> <ministry tenant>`); every other spelling is dropped after the query, and list totals are reduced by the rows dropped from the page. `/context/for-persona` re-reads `{ id, domain, tenantId }` for the ranked memory ids and drops ministry ones before packaging and recall reinforcement. The graph previously returned ministry memory titles (documented as intentional because no content is shipped); it no longer does — the title of a pastoral note is itself sensitive, and no contract consumer needs it. `GET /graph/unlinked-mentions` is unchanged (ministry rows match on title only, title-only snippet).
+- **Budget buckets** — `GET /memories/budget` groups by `normalizeDomain`; every ministry spelling folds into one `ministry` row.
+- **BoardRoom memory writes go to the user's own tenant** — see *Tenant of the new row* under `POST /memories`.
+- **Stable paging.** Every offset-paged list orders by an `id` tie-breaker after its sort key: `GET /memories` (`<sortBy> <sortOrder>, id desc`), `GET /goals`, `/projects`, `/tasks`, `/people`, `/decisions`, `/commitments` (`createdAt desc, id desc`), and `GET /admin/contradictions` (`detectedAt desc, id desc`). Rows with equal timestamps no longer shift between pages. (Other paged admin / cortex / outcome-review lists are unchanged.)
+- **Commitment `sourceSessionId` ownership** — see *Referenced rows must be the caller's* under `POST /commitments`: a foreign or missing session → `404 not_found` (entity `session`) before the write.
 
 ## Error Responses
 
@@ -168,6 +180,8 @@ Create a memory. Runs sync validation pipeline (schema → temporal → budget).
 
 **Near-duplicate auto-supersede:** on an agent write (agent headers present), a live memory in the caller's tenant with cosine similarity > 0.92 is **updated in place** (title and content replaced, tags merged) and the response is `{ id: <existing id>, status: "updated" }`. `dedup: false` skips that search and always creates — for bulk importers that key their own rows (`scripts/vault-import.mjs` syncs by vault path) and must not let one note overwrite another. BoardRoom writes (no agent headers) never dedup.
 
+**Tenant of the new row (lane H, 2026-10-30):** an agent write is stamped with the agent's tenant. A write **without** agent context (BoardRoom UI, jobs) used to take the column default (`tenant_id DEFAULT 'josh-personal'`, one founder's tenant) whoever the user was, so another user's MCP token — bound to a tenant they own — never saw their BoardRoom memories. Now: if the user owns the column-default tenant, or owns no tenant, the column default stays (unchanged); otherwise the row goes to the user's **oldest owned non-ministry tenant** (`tenants.owner_user_id = userId`, `created_at asc, id asc` — the rule OAuth auto-link uses; the ministry tenant is never picked). A failed lookup falls back to the column default and never fails the write. Making a tenant-less user's rows truly untenanted needs a migration (the column is `NOT NULL`) and the ADR-017 / M1-F7 default-tenant decision.
+
 **Response 201:**
 ```typescript
 {
@@ -205,7 +219,7 @@ Read-only per-domain standing against the soft budgets. Must be matched before `
   domains: Array<{ domain: string, count: number, limit: number, over: boolean }>   // over = count > limit
 }
 ```
-Every configured domain is listed (count 0 included, `default` omitted), configured domains first in config order, then any other domain the user has live rows in, alphabetically. Counts are live rows (`deletedAt` null, status not `ARCHIVED`).
+Every configured domain is listed (count 0 included, `default` omitted), configured domains first in config order, then any other domain the user has live rows in, alphabetically. Counts are live rows (`deletedAt` null, status not `ARCHIVED`). **Buckets are canonical (lane H, 2026-10-30):** rows are grouped by the shared `normalizeDomain`, so legacy spellings fold together (`Business` + `business` → `business`) and every ministry-like spelling (`Ministry`, `  MINISTRY `, `ministry/pastoral`, lookalikes) counts in the one `ministry` row; no domain appears twice.
 
 **Errors:** 400 missing `x-user-id` · 403 `tenant_mismatch`.
 
@@ -245,6 +259,7 @@ Before this, a single-keyword query scored ~0.42 flat across the top 10 and the 
 ```
 
 **Tenant:** from `req.agentContext` (MCP). A BoardRoom call (no agent context) searches all of the user's tenants, like `/context/for-persona`.
+**Ministry (lane H, 2026-10-30):** never returns a ministry row — see *Ministry exclusion on memory reads* under Fix lane H. A ministry `domain` filter (any spelling) answers `{ items: [], nextCursor: null }`.
 **Errors:** 400 `invalid_cursor` · 422 validation.
 
 ### GET /memories/:id
@@ -282,6 +297,10 @@ Validated by `ListMemoriesQuerySchema` (2026-10-30): an invalid value → **422*
 ```
 
 **Invalidated rows (2026-10-03):** rows with `invalidAt` set (superseded / consolidated away) are hidden by default. `?includeInvalidated=true` opts back in (provenance / audit views). `POST /memories/search-similar` and the create-time dedup never return or merge into invalidated rows.
+
+**Ordering (lane H, 2026-10-30):** `ORDER BY <sortBy> <sortOrder>, id DESC` — the `id` tie-breaker keeps rows with an equal sort key from shifting between offset pages.
+
+**Ministry (lane H, 2026-10-30):** ministry rows are excluded and `total` is reduced by the rows dropped from the page (*Ministry exclusion on memory reads* under Fix lane H). A ministry `?domain=` (any spelling), or a `?tenantId=` naming the ministry tenant from a caller outside it (admin cross-tenant reads included), answers an empty page.
 
 ### PATCH /memories/:id
 
@@ -453,7 +472,7 @@ Link a project to a goal (`GoalProjectLink`, idempotent on the unique pair). Bot
 
 ### DELETE /goals/:goalId/projects/:projectId
 
-Remove the link. **204**.
+Remove the link. **200** `{ goalId, projectId, status: "unlinked" }` · **404** `not_found` when either entity is missing, soft-deleted or foreign, or there is no such link. (Corrected 2026-10-30, lane H: this said 204, but the route has always answered 200 with this body; the contract follows the code so no consumer that reads the body breaks. The Phase 6 link routes — `/projects/:id/people/:id`, `/projects/:id/decisions/:id`, `/tasks/:id/depends-on/:id` — do answer 204.)
 
 ---
 
@@ -484,7 +503,7 @@ Link a task to a project (`ProjectTaskLink`, idempotent). **201** `{ id, project
 
 ### DELETE /projects/:projectId/tasks/:taskId
 
-Remove the link. **204**.
+Remove the link. **200** `{ projectId, taskId, status: "unlinked" }` · **404** `not_found` when either entity is missing, soft-deleted or foreign, or there is no such link. (Corrected 2026-10-30, lane H: previously documented as 204; see `DELETE /goals/:goalId/projects/:projectId`.)
 
 ### POST /projects/:projectId/people/:personId (Phase 6)
 
@@ -687,6 +706,8 @@ Archive (soft delete: `deleted_at = now()`). **200** `{ id, status: "archived" }
 ```
 
 **Response 201:** Created `Commitment` object
+
+**Referenced rows must be the caller's (lane H, 2026-10-30):** `sourceSessionId` is a foreign key to an OmniMind `Session` row, owned through `sessions.created_by`. On `POST` and `PATCH /commitments/:id` it must name a live (`deleted_at` null) session created by `x-user-id`, else **404 `{ error: "not_found", entity: "session" }`** before any write — one answer for missing and foreign (no existence leak), the same rule as `stakeholderId` / `linkedProjectId` / `links` (RD-12). Previously only its length (≤ 128) was checked. A database foreign-key violation that still occurs (e.g. a row deleted concurrently) maps to `422 invalid_reference`. `Decision.sessionId` (also a `Session` foreign key) is not ownership-checked yet (follow-up, tied to the Decision Lab session-persistence work).
 
 ### GET /commitments/:id
 
@@ -999,7 +1020,7 @@ Response 200: { status: "deleted" }
 
 ### GET /graph
 
-Bulk, read-only projection of the entity graph for the Obsidian-style graph view. One request returns every Goal, Project, Task, Person, Decision and Commitment the user owns (not soft-deleted), the top-N memories by importance, and every link between them. Node ids are namespaced `<type>:<refId>`; edges whose endpoints were filtered out are dropped server-side. No memory `content` is returned, only titles.
+Bulk, read-only projection of the entity graph for the Obsidian-style graph view. One request returns every Goal, Project, Task, Person, Decision and Commitment the user owns (not soft-deleted), the top-N memories by importance, and every link between them. Node ids are namespaced `<type>:<refId>`; edges whose endpoints were filtered out are dropped server-side. No memory `content` is returned, only titles. Ministry memories (domain in any spelling, or the ministry tenant for a caller outside it) are not returned at all and not counted in `stats.memoryTotal` (lane H, 2026-10-30).
 
 **Query params:** `types` (comma-separated subset of `goal,project,task,person,decision,commitment,memory`; default all) · `domain` (keeps nodes in that domain plus their domain-less neighbours) · `memoryLimit` (integer 0–1000, default 200 — `KNOWLEDGE_GRAPH_MEMORY_LIMIT` in shared; anything else → `422 validation_failed`; RD-6, was 0–500 / 150) · `includeArchived` (`true` to include ARCHIVED memories)
 
@@ -1100,7 +1121,7 @@ From the adversarial e2e run of 2026-10-30. No new endpoints; behaviour changes 
 - **Embeddings never fall back to OpenAI for ministry (H2).** `embedMemory` and the backfill route ministry-like domains and rows in the ministry tenant to the local embedder only; when it is unavailable the row is skipped, never sent to OpenAI.
 - **Meeting-prep briefs (M1, `POST /people/briefs`).** `youOwe` lists commitments with `owedBy: USER` only. Open delegations (`owedBy: STAKEHOLDER`, stakeholder = that person) appear in `theyOwe` (`{ id, title: description, deadline, status: 'open' | 'overdue' }`, merged with task-owned items, deadline asc → priority desc → id), count in `counts.theyOwe`, and the headline reads "Pat owes you 1". Response shape unchanged.
 - **Core context (M2 / M3, `GET /context/core`).** Constraint memories use a case-insensitive `NOT domain = 'ministry'` filter plus the shared `isMinistryDomain` / ministry-tenant post-filter (over-fetch 30, keep 10). Goals in a ministry-like domain, ministry projects under a goal, and commitments / delegations tied to a ministry project or to a person with a ministry-like domain are left out; load pause candidates use `isMinistryDomain`. Every user-controlled string in the block (profile fields, goal / project titles, commitment / delegation descriptions, person names, constraint titles) is collapsed to one line (control-character / line-separator runs → one space) and capped at 200 code points (`…`), so embedded newlines cannot fake a `## Profile` section or a `</core-context>` line. A block whose strings carry no control characters and fit the cap is byte-identical to before (pinned hashes unchanged). **One deliberate exception (commitment counterparty, `b2e0225`):** an "Open commitments" line is `- {description} to {personName} — due YYYY-MM-DD` *unless* the description already names the counterparty — the first whitespace-separated token of `personName` (after one-line collapsing), lowercased, at least 2 code points long, occurs in the description as a whole word (`\b…\b`, case-insensitive, regex metacharacters escaped) — in which case ` to {personName}` is omitted: `Deliver the brief to Marco` + `Marco Ruiz` → `- Deliver the brief to Marco — due …`, not `… to Marco to Marco Ruiz`. A one-letter first token never suppresses it; a missing `personName` renders no ` to …` as before. Every block holding such a commitment changed bytes (and `hash`, so the persona prompt-cache prefix) once when this shipped; all other blocks are unchanged.
-- **Backlinks (M5, `GET /memories/:id/backlinks`).** A source memory with a ministry-like domain is never listed (case-insensitive DB filter + `isMinistryDomain`), and a source in the ministry tenant is not listed to a caller outside that tenant. The knowledge graph (intentional, documented) and the per-domain budget bucketing are unchanged; bucketing ministry-like spellings under `ministry` in `GET /memories/budget` is a follow-up.
+- **Backlinks (M5, `GET /memories/:id/backlinks`).** A source memory with a ministry-like domain is never listed (case-insensitive DB filter + `isMinistryDomain`), and a source in the ministry tenant is not listed to a caller outside that tenant. The knowledge graph (intentional, documented) and the per-domain budget bucketing are unchanged; bucketing ministry-like spellings under `ministry` in `GET /memories/budget` is a follow-up. (Both done by lane H, 2026-10-30: the graph now excludes ministry memories and the budget buckets by `normalizeDomain` — see Fix lane H.)
 
 ---
 

@@ -1026,6 +1026,8 @@ export interface DuplicatePair {
   b_id: string;
   b_title: string;
   b_created: string;
+  /** Lane H — the user both memories belong to; the merge runs for this user. */
+  user_id: string;
   cosine: number;
 }
 

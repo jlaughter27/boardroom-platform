@@ -6,7 +6,6 @@ import { ErrorBanner } from '../components/shared/ErrorBanner';
 import { fadeIn } from '../lib/motion';
 import * as api from '../lib/api';
 import type { AdminStats, AdminAgent, AdminAuditEntry, AdminMemory, AdminContradiction, DuplicatePair } from '../lib/api';
-import { useAuthStore } from '../stores/auth.store';
 
 type Tab = 'overview' | 'memories' | 'audit' | 'agents' | 'contradictions' | 'duplicates';
 
@@ -372,7 +371,6 @@ function DuplicatesTab() {
   const [error, setError] = useState<string | null>(null);
   const [merging, setMerging] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(0.85);
-  const userId = useAuthStore((s) => s.user?.userId);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -384,14 +382,11 @@ function DuplicatesTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleMerge(keepId: string, archiveId: string) {
-    if (!userId) {
-      setError('Not signed in — cannot attribute merge.');
-      return;
-    }
+  // Lane H (2026-10-30): pairs span users; the merge runs for the pair's owner.
+  async function handleMerge(keepId: string, archiveId: string, ownerUserId: string) {
     setMerging(archiveId);
     try {
-      await api.mergeAdminDuplicates(keepId, archiveId, userId);
+      await api.mergeAdminDuplicates(keepId, archiveId, ownerUserId);
       setPairs((prev) => prev.filter((p) => !(p.a_id === keepId && p.b_id === archiveId) && !(p.a_id === archiveId && p.b_id === keepId)));
     } catch (e) {
       setError((e as Error).message);
@@ -441,7 +436,7 @@ function DuplicatesTab() {
                     size="sm"
                     variant="secondary"
                     disabled={merging === p.b_id}
-                    onClick={() => handleMerge(p.a_id, p.b_id)}
+                    onClick={() => handleMerge(p.a_id, p.b_id, p.user_id)}
                     className="text-xs"
                   >
                     {merging === p.b_id ? 'Merging…' : 'Keep A'}
@@ -450,7 +445,7 @@ function DuplicatesTab() {
                     size="sm"
                     variant="secondary"
                     disabled={merging === p.a_id}
-                    onClick={() => handleMerge(p.b_id, p.a_id)}
+                    onClick={() => handleMerge(p.b_id, p.a_id, p.user_id)}
                     className="text-xs"
                   >
                     {merging === p.a_id ? 'Merging…' : 'Keep B'}

@@ -22,8 +22,8 @@ export function buildCommitmentLinks(links?: CommitmentLinksBody | null): Array<
   return rows;
 }
 
-type OwnedEntity = 'person' | 'project' | 'decision' | 'task';
-const ENTITY_LABEL: Record<OwnedEntity, string> = { person: 'Person', project: 'Project', decision: 'Decision', task: 'Task' };
+type OwnedEntity = 'person' | 'project' | 'decision' | 'task' | 'session';
+const ENTITY_LABEL: Record<OwnedEntity, string> = { person: 'Person', project: 'Project', decision: 'Decision', task: 'Task', session: 'Session' };
 
 function notFound(entity: OwnedEntity): HttpError {
   return new HttpError(404, { code: 'not_found', error: 'not_found', entity, message: `${ENTITY_LABEL[entity]} not found` });
@@ -32,14 +32,24 @@ function notFound(entity: OwnedEntity): HttpError {
 /**
  * Every referenced row must belong to the caller and not be soft-deleted.
  * A miss is a 404 naming the entity (never a 403: no existence leak).
+ *
+ * Lane H (2026-10-30): `sourceSessionId` is a foreign key to an OmniMind
+ * `Session`, owned through `created_by` (a Session has no `user_id`); it used
+ * to be length-checked only, so a commitment could point at another user's
+ * session.
  */
 export async function assertOwned(
   prisma: PrismaClient,
   userId: string,
-  refs: { stakeholderId?: unknown; linkedProjectId?: unknown; links?: CommitmentLinksBody | null },
+  refs: { stakeholderId?: unknown; linkedProjectId?: unknown; sourceSessionId?: unknown; links?: CommitmentLinksBody | null },
 ): Promise<void> {
   const where = (id: string) => ({ where: { id, userId, deletedAt: null }, select: { id: true } });
   const checks: Array<Promise<void>> = [];
+  if (typeof refs.sourceSessionId === 'string' && refs.sourceSessionId) {
+    const id = refs.sourceSessionId;
+    checks.push(prisma.session.findFirst({ where: { id, createdBy: userId, deletedAt: null }, select: { id: true } })
+      .then(r => { if (!r) throw notFound('session'); }));
+  }
   if (typeof refs.stakeholderId === 'string' && refs.stakeholderId) {
     const id = refs.stakeholderId;
     checks.push(prisma.person.findFirst(where(id)).then(r => { if (!r) throw notFound('person'); }));
@@ -68,7 +78,7 @@ export async function createCommitment(
   // write the CommitmentLink rows in the same create (one data builder, so a
   // later tenant stamp applies to delegations too).
   const { links, ...rest } = data as Record<string, unknown> & { links?: CommitmentLinksBody | null };
-  await assertOwned(prisma, userId, { stakeholderId: rest.stakeholderId, linkedProjectId: rest.linkedProjectId, links });
+  await assertOwned(prisma, userId, { stakeholderId: rest.stakeholderId, linkedProjectId: rest.linkedProjectId, sourceSessionId: rest.sourceSessionId, links });
   const linkRows = buildCommitmentLinks(links);
   const created = await prisma.commitment.create({
     data: { ...rest, userId, ...(linkRows.length ? { commitmentLinks: { create: linkRows } } : {}) } as any,
@@ -113,7 +123,8 @@ export async function listCommitments(
       where,
       take: limit,
       skip: offset,
-      orderBy: { createdAt: 'desc' },
+      // Lane H (2026-10-30): `id` breaks createdAt ties so offset pages are stable.
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }),
     prisma.commitment.count({ where }),
   ]);
@@ -131,8 +142,8 @@ export async function updateCommitment(
     where: { id, userId, deletedAt: null },
   });
   if (!existing) return null;
-  // RD-12 hardening: a re-pointed counterparty or project must be the caller's own.
-  await assertOwned(prisma, userId, { stakeholderId: data.stakeholderId, linkedProjectId: data.linkedProjectId });
+  // RD-12 hardening: a re-pointed counterparty, project or (lane H) source session must be the caller's own.
+  await assertOwned(prisma, userId, { stakeholderId: data.stakeholderId, linkedProjectId: data.linkedProjectId, sourceSessionId: data.sourceSessionId });
 
   const updated = await prisma.commitment.update({
     where: { id },

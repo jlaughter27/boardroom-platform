@@ -1,4 +1,5 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
+import { isHiddenMinistryRow, ministryExclusionWhere } from '../lib/ministry-read';
 import type {
   KnowledgeGraph,
   KnowledgeGraphEdge,
@@ -22,8 +23,9 @@ import { KNOWLEDGE_GRAPH_MEMORY_LIMIT, normalizeDomain } from '@boardroom/shared
  *    stats.memoryLimitHit tells the UI the layer was truncated
  *  - tenant scoping applies to memories when an agent context is present
  *    (entities are user-scoped only, matching the rest of the API)
- *  - no memory content is returned, only titles — ministry rows therefore
- *    never surface ciphertext or plaintext content through this endpoint
+ *  - no memory content is returned, only titles; ministry memories (domain in
+ *    any spelling, or the ministry tenant for a caller outside it) are not
+ *    returned at all (lane H, 2026-10-30 — previously their titles were)
  */
 
 const DEFAULT_MEMORY_LIMIT = KNOWLEDGE_GRAPH_MEMORY_LIMIT.DEFAULT;
@@ -75,9 +77,11 @@ export async function getKnowledgeGraph(
     ...alive,
     ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
     ...(opts.includeArchived ? {} : { status: { not: 'ARCHIVED' as const } }),
+    // Lane H — canonical ministry forms excluded in SQL; other spellings below.
+    AND: ministryExclusionWhere(opts.tenantId) as Prisma.MemoryEntryWhereInput[],
   };
 
-  const [goals, projects, tasks, people, decisions, commitments, memories, memoryTotal] = await Promise.all([
+  const [goals, projects, tasks, people, decisions, commitments, memoryRows, memoryCount] = await Promise.all([
     wanted.has('goal')
       ? prisma.goal.findMany({
           where: alive,
@@ -117,14 +121,19 @@ export async function getKnowledgeGraph(
     includeMemories
       ? prisma.memoryEntry.findMany({
           where: memoryWhere,
-          select: { id: true, title: true, domain: true, importance: true, status: true, memoryClass: true, createdAt: true },
-          orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, title: true, domain: true, tenantId: true, importance: true, status: true, memoryClass: true, createdAt: true },
+          orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           take: memoryLimit,
         })
       : [],
     // Same filter, no cap: lets the UI say "Showing 200 of N memories" (RD-6).
     includeMemories ? prisma.memoryEntry.count({ where: memoryWhere }) : 0,
   ]);
+  // Lane H (2026-10-30) — legacy ministry spellings the SQL filter cannot see
+  // (`Ministry `, `ministry/pastoral`, lookalikes) never become nodes; the
+  // total drops them too.
+  const memories = memoryRows.filter(m => !isHiddenMinistryRow(m, opts.tenantId));
+  const memoryTotal = Math.max(0, memoryCount - (memoryRows.length - memories.length));
 
   // ── Nodes ─────────────────────────────────────────────────────────────────
   const nodes = new Map<string, KnowledgeGraphNode>();
@@ -358,13 +367,16 @@ export async function getBacklinks(
     deletedAt: null,
     ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
     ...(opts.includeArchived ? {} : { status: { not: 'ARCHIVED' as const } }),
+    // Lane H — a ministry memory is neither a node nor a backlink here.
+    AND: ministryExclusionWhere(opts.tenantId) as Prisma.MemoryEntryWhereInput[],
   };
-  const memorySelect = { id: true, title: true, domain: true, importance: true, status: true, memoryClass: true, createdAt: true } as const;
+  const memorySelect = { id: true, title: true, domain: true, tenantId: true, importance: true, status: true, memoryClass: true, createdAt: true } as const;
+  const shown = (m: { domain: string; tenantId: string }) => !isHiddenMinistryRow(m, opts.tenantId);
 
   let node: KnowledgeGraphNode | undefined;
   if (type === 'memory') {
     const m = await prisma.memoryEntry.findFirst({ where: { ...memoryWhere, id: refId }, select: memorySelect });
-    if (!m) return null;
+    if (!m || !shown(m)) return null;
     node = memoryNode(m);
     nodes.set(node.id, node);
 
@@ -394,7 +406,7 @@ export async function getBacklinks(
         where: { ...memoryWhere, id: { in: Array.from(new Set(links.map(l => l.memoryId))) } },
         select: memorySelect,
       });
-      const byId = new Map(memories.map(m => [m.id, m]));
+      const byId = new Map(memories.filter(shown).map(m => [m.id, m]));
       for (const l of links) {
         const m = byId.get(l.memoryId);
         if (!m) continue; // archived / other tenant / deleted

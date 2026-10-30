@@ -238,16 +238,21 @@ router.get('/memories', async (req, res, next) => {
 // F-210: ContradictionAlert is keyed by user, not tenant. Default to the
 // caller's user scope (x-user-id, or ?userId=); a cross-user listing requires
 // an explicit ?includeAllTenants=true opt-in.
+// Lane H (2026-10-30): the explicit opt-in is the all-users view and wins over
+// a stray x-user-id header (an explicit ?userId= still narrows it). Alerts
+// naming a ministry project (an alert's entities are project titles; that
+// user's project has a ministry domain in any spelling) are excluded from every
+// view, and `total` is reduced by the rows dropped from the page.
 router.get('/contradictions', async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string ?? '50', 10) || 50, 200);
     const offset = parseInt(req.query.offset as string ?? '0', 10) || 0;
 
     const headerUser = req.headers['x-user-id'];
+    const queryUser = typeof req.query.userId === 'string' && req.query.userId ? req.query.userId : null;
     const userId =
-      (typeof req.query.userId === 'string' && req.query.userId) ||
-      (typeof headerUser === 'string' && headerUser) ||
-      null;
+      queryUser ??
+      (wantsAllTenants(req) ? null : (typeof headerUser === 'string' && headerUser) || null);
 
     let where: { resolvedAt: null; userId?: string };
     if (userId) {
@@ -264,16 +269,43 @@ router.get('/contradictions', async (req, res, next) => {
     const [alerts, total] = await Promise.all([
       prisma.contradictionAlert.findMany({
         where,
-        orderBy: { detectedAt: 'desc' },
+        orderBy: [{ detectedAt: 'desc' }, { id: 'desc' }],
         take: limit,
         skip: offset,
       }),
       prisma.contradictionAlert.count({ where }),
     ]);
 
-    res.json({ alerts, total, offset, limit });
+    const visible = await dropMinistryAlerts(alerts);
+    res.json({ alerts: visible, total: Math.max(0, total - (alerts.length - visible.length)), offset, limit });
   } catch (err) { next(err); }
 });
+
+type AlertRow = { userId: string; entityA: unknown; entityB: unknown };
+
+function entityField(entity: unknown, key: 'title' | 'domain' | 'tenantId'): string | null {
+  if (!entity || typeof entity !== 'object') return null;
+  const v = (entity as Record<string, unknown>)[key];
+  return typeof v === 'string' ? v : null;
+}
+
+/** Lane H — drop alerts whose entity is ministry or names a ministry project of the alert's user. */
+async function dropMinistryAlerts<T extends AlertRow>(alerts: T[]): Promise<T[]> {
+  if (alerts.length === 0) return alerts;
+  const userIds = [...new Set(alerts.map((a) => a.userId))];
+  const projects = await prisma.project.findMany({
+    where: { userId: { in: userIds } },
+    select: { userId: true, title: true, domain: true },
+  });
+  const key = (userId: string, title: string) => JSON.stringify([userId, title.trim().toLowerCase()]);
+  const ministryTitles = new Set(projects.filter((p) => isMinistryDomain(p.domain)).map((p) => key(p.userId, p.title)));
+  const isMinistryEntity = (userId: string, entity: unknown): boolean => {
+    if (isMinistryRow(entityField(entity, 'domain'), entityField(entity, 'tenantId'))) return true;
+    const title = entityField(entity, 'title');
+    return !!title && ministryTitles.has(key(userId, title));
+  };
+  return alerts.filter((a) => !isMinistryEntity(a.userId, a.entityA) && !isMinistryEntity(a.userId, a.entityB));
+}
 
 
 // POST /admin/summarize — trigger session summarizer manually
@@ -288,6 +320,9 @@ router.post('/summarize', async (_req, res, next) => {
 // GET /admin/duplicates — list memory pairs with cosine similarity above threshold.
 // WS-6 F-102 — tenant-scoped by default; ?includeAllTenants=true requires
 // explicit opt-in (and is still bounded by the caller's API key auth).
+// Lane H (2026-10-30) — a pair is only ever formed within one user
+// (`a.user_id = b.user_id` in both queries) and carries that owner as
+// `user_id`; POST /admin/duplicates/merge must be called with it.
 router.get('/duplicates', async (req, res, next) => {
   try {
     const threshold = Math.max(0, Math.min(1, parseFloat((req.query.threshold as string) ?? '0.85')));
@@ -297,7 +332,7 @@ router.get('/duplicates', async (req, res, next) => {
     type PairRow = {
       a_id: string; a_title: string; a_created: Date; a_domain: string; a_tenant: string;
       b_id: string; b_title: string; b_created: Date; b_domain: string; b_tenant: string;
-      cosine: number;
+      user_id: string; cosine: number;
     };
     const rows = tenantId
       ? await prisma.$queryRaw<PairRow[]>`
@@ -312,6 +347,7 @@ router.get('/duplicates', async (req, res, next) => {
             a.tenant_id AS a_tenant,
             b.domain   AS b_domain,
             b.tenant_id AS b_tenant,
+            a.user_id  AS user_id,
             1 - (a.embedding <=> b.embedding) AS cosine
           FROM "memory_entries" a
           JOIN "memory_entries" b
@@ -343,6 +379,7 @@ router.get('/duplicates', async (req, res, next) => {
             a.tenant_id AS a_tenant,
             b.domain   AS b_domain,
             b.tenant_id AS b_tenant,
+            a.user_id  AS user_id,
             1 - (a.embedding <=> b.embedding) AS cosine
           FROM "memory_entries" a
           JOIN "memory_entries" b
@@ -373,25 +410,41 @@ router.get('/duplicates', async (req, res, next) => {
 // WS-6 F-102 — verify the archive target belongs to the caller's tenant before
 // any soft-delete. Cross-tenant merges are refused with 404 (deliberate — don't
 // reveal existence of memories in other tenants).
+// Lane H (2026-10-30) — `userId` is the PAIR OWNER (`user_id` from
+// GET /admin/duplicates), not the operator: the route is admin-gated and the
+// list spans users. Both memories must be that user's, live and non-ministry
+// (domain in any spelling, or the ministry tenant), else 404 — one answer for
+// "missing", "other user", "other tenant" and "ministry".
+const MergeBodySchema = z.object({
+  keepId: z.string().min(1).max(128),
+  archiveId: z.string().min(1).max(128),
+  userId: z.string().min(1).max(128),
+});
+
 router.post('/duplicates/merge', async (req, res, next) => {
   try {
-    const { keepId, archiveId, userId } = req.body as { keepId: string; archiveId: string; userId: string };
-    if (!keepId || !archiveId || !userId) {
-      res.status(400).json({ error: 'keepId, archiveId, and userId are required' });
+    const parsed = MergeBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success || parsed.data.keepId === parsed.data.archiveId) {
+      res.status(400).json({ error: 'keepId, archiveId (different ids) and userId are required strings' });
       return;
     }
+    const { keepId, archiveId, userId } = parsed.data;
 
     // F-104: same opt-in rule as the read routes — no agent context means the
     // caller must say ?includeAllTenants=true to touch rows outside a tenant.
     const callerTenant = resolveTenantFilter(req);
 
-    const targetWhere: Record<string, unknown> = { id: archiveId, userId, deletedAt: null };
-    if (callerTenant) targetWhere.tenantId = callerTenant;
-
-
-    const target = await prisma.memoryEntry.findFirst({ where: targetWhere });
-    if (!target) {
-      // Don't distinguish "not found" from "wrong tenant" — same response in both.
+    const scoped = (id: string): Record<string, unknown> => ({
+      id, userId, deletedAt: null, ...(callerTenant ? { tenantId: callerTenant } : {}),
+    });
+    const [target, kept] = await Promise.all([
+      prisma.memoryEntry.findFirst({ where: scoped(archiveId) }),
+      prisma.memoryEntry.findFirst({ where: scoped(keepId) }),
+    ]);
+    const mergeable = (m: { domain?: string | null; tenantId?: string | null } | null): boolean =>
+      !!m && !isMinistryRow(m.domain, m.tenantId);
+    if (!mergeable(target) || !mergeable(kept)) {
+      // Don't distinguish "not found" from "wrong user / tenant / ministry" — same response.
       res.status(404).json({ error: 'not_found', message: 'Memory not found' });
       return;
     }
@@ -401,7 +454,7 @@ router.post('/duplicates/merge', async (req, res, next) => {
       data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
     });
 
-    logger.info('[admin] Duplicate merge: archived older memory', { keepId, archiveId, tenantId: callerTenant });
+    logger.info('[admin] Duplicate merge: archived older memory', { keepId, archiveId, userId, tenantId: callerTenant });
     res.json({ status: 'ok', kept: keepId, archived: archiveId });
   } catch (err) { next(err); }
 });
