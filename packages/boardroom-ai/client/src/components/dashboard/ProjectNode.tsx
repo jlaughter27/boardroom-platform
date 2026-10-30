@@ -4,6 +4,7 @@ import { useEntitiesStore } from '../../stores/entities.store';
 import { StatusBadge, DomainBadge } from './StatusBadge';
 import { TaskNode } from './TaskNode';
 import { EntityForm } from './EntityForm';
+import { TreeChevron } from './GoalNode';
 
 interface ProjectNodeProps {
   project: Project;
@@ -52,22 +53,12 @@ export function ProjectNode({ project, tasks }: ProjectNodeProps) {
         onMouseLeave={() => setHovered(false)}
       >
         {/* Expand/collapse */}
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-muted-foreground hover:text-muted-foreground transition-colors flex-shrink-0"
-        >
-          <svg
-            className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`}
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fillRule="evenodd"
-              d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
+        <TreeChevron
+          title={project.title}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+        />
 
         {/* Project icon */}
         <span className="text-muted-foreground flex-shrink-0">

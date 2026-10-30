@@ -75,6 +75,20 @@ describe('GoalHierarchy', () => {
     expect(await screen.findByText('Project p1')).toBeInTheDocument();
     expect(screen.queryByText('Project p2')).toBeNull();
   });
+
+  // Lane I · item 3 — the goal / project chevrons were unnamed icon buttons.
+  it('goal and project chevrons are named "Expand/Collapse <title>" and carry aria-expanded', async () => {
+    render(<GoalHierarchy />);
+    const goalToggle = screen.getByRole('button', { name: 'Expand Goal g1' });
+    expect(goalToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(goalToggle);
+    expect(screen.getByRole('button', { name: 'Collapse Goal g1' })).toHaveAttribute('aria-expanded', 'true');
+    const projectToggle = await screen.findByRole('button', { name: 'Expand Project p1' });
+    expect(projectToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(projectToggle);
+    expect(screen.getByRole('button', { name: 'Collapse Project p1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByText('Task t1')).toBeInTheDocument();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

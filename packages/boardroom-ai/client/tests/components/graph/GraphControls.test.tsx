@@ -81,4 +81,19 @@ describe('GraphControls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Projects/ }));
     expect((onChange.mock.calls[1][0] as GraphFilters).types.has('project')).toBe(true);
   });
+
+  // Lane I · item 3 — the type chips (legend + filter) were seven tab stops.
+  it('the node-type chips are one tab stop with arrow-key navigation', () => {
+    setup();
+    const group = screen.getByRole('toolbar', { name: 'Node types' });
+    const chips = Array.from(group.querySelectorAll('button'));
+    expect(chips).toHaveLength(NODE_TYPES.length);
+    expect(chips.filter((b) => b.tabIndex === 0)).toHaveLength(1);
+    chips[0].focus();
+    fireEvent.keyDown(chips[0], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(chips[1]);
+    fireEvent.keyDown(chips[1], { key: 'End' });
+    expect(document.activeElement).toBe(chips[chips.length - 1]);
+    expect(chips.filter((b) => b.tabIndex === 0)).toEqual([chips[chips.length - 1]]);
+  });
 });

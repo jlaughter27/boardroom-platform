@@ -5,6 +5,7 @@ import { Select } from '../ui/Select';
 import { NODE_TYPES, TYPE_LABEL, TYPE_SHAPE, TYPE_SINGULAR } from './graph-theme';
 import { ShapeGlyph } from './ShapeGlyph';
 import { EDGE_TYPES, EDGE_TYPE_LABEL } from './graph-filters';
+import { useRovingTabIndex } from '../../hooks/useRovingTabIndex';
 
 export interface GraphFilters {
   types: Set<KnowledgeGraphNodeType>;
@@ -40,6 +41,8 @@ export function GraphControls({ filters, onChange, counts, edgeCounts, domains, 
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [showEdgeTypes, setShowEdgeTypes] = useState(false);
+  // Type chips (legend + filter) are one tab stop; arrows move between them.
+  const typeRoving = useRovingTabIndex(NODE_TYPES.length);
   const localRef = useRef<HTMLInputElement>(null);
   const inputRef = (searchRef as React.RefObject<HTMLInputElement>) ?? localRef;
 
@@ -220,13 +223,14 @@ export function GraphControls({ filters, onChange, counts, edgeCounts, domains, 
       </div>
 
       {/* Type chips double as legend + filter */}
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Node types">
-        {NODE_TYPES.map((t) => {
+      <div className="flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Node types" onKeyDown={typeRoving.onKeyDown}>
+        {NODE_TYPES.map((t, i) => {
           const on = filters.types.has(t);
           return (
             <button
               key={t}
               type="button"
+              {...typeRoving.itemProps(i)}
               onClick={() => toggleType(t)}
               aria-pressed={on}
               className={cn(
@@ -234,7 +238,7 @@ export function GraphControls({ filters, onChange, counts, edgeCounts, domains, 
                 on ? 'border-border bg-card text-foreground' : 'border-transparent bg-muted text-muted-foreground line-through decoration-muted-foreground/60',
               )}
             >
-              <span style={{ color: `var(--color-entity-${t})`, opacity: on ? 1 : 0.4 }}>
+              <span aria-hidden="true" style={{ color: `var(--color-entity-${t})`, opacity: on ? 1 : 0.4 }}>
                 <ShapeGlyph shape={TYPE_SHAPE[t]} color="currentColor" size={11} />
               </span>
               <span>{TYPE_LABEL[t]}</span>
