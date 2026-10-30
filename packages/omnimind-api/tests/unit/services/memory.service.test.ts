@@ -354,6 +354,12 @@ describe('Memory Service', () => {
   });
 
   describe('searchMemories', () => {
+    // Lane H (2026-10-30): ministry exclusion in SQL + `id` tie-breaker on every page.
+    const MINISTRY_EXCLUSION = [
+      { NOT: { domain: { startsWith: 'ministry', mode: 'insensitive' } } },
+      { NOT: { tenantId: 'tgfc-ministry' } },
+    ];
+
     it('should search with default parameters', async () => {
       // WS-7: searchMemories passes each row through decryptMemory(),
       // which calls normalizeDomain(mem.domain). Include `domain` on each.
@@ -374,8 +380,9 @@ describe('Memory Service', () => {
           deletedAt: null,
           invalidAt: null,
           status: { not: 'ARCHIVED' },
+          AND: MINISTRY_EXCLUSION,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 20,
         skip: 0,
       });
@@ -420,8 +427,9 @@ describe('Memory Service', () => {
             { title: { contains: 'search term', mode: 'insensitive' } },
             { content: { contains: 'search term', mode: 'insensitive' } },
           ],
+          AND: MINISTRY_EXCLUSION,
         },
-        orderBy: { title: 'asc' },
+        orderBy: [{ title: 'asc' }, { id: 'desc' }],
         take: 50,
         skip: 10,
       });

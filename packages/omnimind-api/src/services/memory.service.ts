@@ -4,7 +4,7 @@ import { budgetStatus } from '../memory/validation/budget-enforcer';
 import { SOURCE_WEIGHTS, SourceType, DOMAIN_MEMORY_BUDGETS, type MemoryBudgetReport } from '@boardroom/shared';
 import { embedMemory, generateEmbeddingWithRetry, getEmbeddingStatus } from './embedding.service';
 import { logger } from '../lib/logger';
-import { decryptMemory, encryptMemoryContent, normalizeDomain, isMinistryTenant } from '../lib/memory-crypto';
+import { decryptMemory, encryptMemoryContent, normalizeDomain, isMinistryDomain, isMinistryTenant } from '../lib/memory-crypto';
 import { HttpError } from '../middleware/error-handler';
 import type { AgentContext } from '../middleware/agent-context';
 import { prisma as defaultPrisma } from '../lib/db';
@@ -14,6 +14,7 @@ import { fulltextSearch } from '../retrieval/fulltext-search';
 import { trigramSearch } from '../retrieval/trigram-search';
 import { semanticSearch } from '../retrieval/semantic-search';
 import { rankAndDeduplicate } from '../retrieval/ranker';
+import { isHiddenMinistryRow, ministryExclusionWhere } from '../lib/ministry-read';
 
 export type { AgentContext };
 // O-111: single decrypt entry point shared with the retrieval layers.
@@ -499,10 +500,22 @@ export async function searchMemories(
   const limit = Math.min(filters.limit ?? 20, 100);
   const offset = filters.offset ?? 0;
 
+  // Lane H (2026-10-30): ministry rows are never listed to a non-ministry
+  // caller (the caller's tenant is its agent context; BoardRoom has none) —
+  // an explicit ministry domain / tenant filter can only answer an empty page.
+  const callerTenant = agentContext?.tenantId;
+  if (
+    (filters.domain && isMinistryDomain(filters.domain)) ||
+    (filters.tenantId && isHiddenMinistryRow({ tenantId: filters.tenantId }, callerTenant))
+  ) {
+    return { items: [], total: 0, offset, limit };
+  }
+
   const where: Prisma.MemoryEntryWhereInput = {
     userId,
     deletedAt: null,
     ...(filters.includeInvalidated ? {} : { invalidAt: null }),
+    AND: ministryExclusionWhere(callerTenant) as Prisma.MemoryEntryWhereInput[],
   };
 
   // Tenant resolution precedence:
@@ -538,19 +551,23 @@ export async function searchMemories(
 
   const sortBy = filters.sortBy ?? 'createdAt';
   const sortOrder = filters.sortOrder ?? 'desc';
-  const orderBy: Prisma.MemoryEntryOrderByWithRelationInput = {
-    [sortBy]: sortOrder,
-  };
+  // Lane H: `id` breaks ties so rows with an equal sort key cannot shift
+  // between pages (offset paging over a non-unique key is not stable).
+  const orderBy: Prisma.MemoryEntryOrderByWithRelationInput[] = [
+    { [sortBy]: sortOrder },
+    { id: 'desc' },
+  ];
 
   const [rawItems, total] = await Promise.all([
     prisma.memoryEntry.findMany({ where, orderBy, take: limit, skip: offset }),
     prisma.memoryEntry.count({ where }),
   ]);
 
-  const items = rawItems.map(m => decryptMemory(m));
+  // Legacy ministry spellings the SQL filter cannot see; `total` drops them too.
+  const visibleRows = rawItems.filter(m => !isHiddenMinistryRow(m, callerTenant));
+  const items = visibleRows.map(m => decryptMemory(m));
 
-
-  return { items, total, offset, limit };
+  return { items, total: Math.max(0, total - (rawItems.length - visibleRows.length)), offset, limit };
 }
 
 // Update memory (partial)
@@ -756,7 +773,15 @@ export async function getMemoryBudget(
     },
     _count: { _all: true },
   });
-  const counts = new Map<string, number>(groups.map(g => [g.domain, g._count._all]));
+  // Lane H (2026-10-30): bucket by the canonical domain — legacy rows written
+  // before the domain was normalized (`Business`, `  MINISTRY `,
+  // `ministry/pastoral`) fold into one row each, every ministry-like spelling
+  // into `ministry` (shared `normalizeDomain`).
+  const counts = new Map<string, number>();
+  for (const g of groups) {
+    const d = normalizeDomain(g.domain);
+    counts.set(d, (counts.get(d) ?? 0) + g._count._all);
+  }
   const configured = Object.keys(DOMAIN_MEMORY_BUDGETS).filter(d => d !== 'default');
   const others = [...counts.keys()].filter(d => !configured.includes(d)).sort();
   return {
@@ -847,6 +872,11 @@ export async function hybridSearchMemories(
   const tenantId = agentContext?.tenantId;
   const scope = { tenantId, includeAllTenants: !tenantId, includeArchived, asOf };
 
+  // Lane H (2026-10-30): ministry rows never reach this endpoint (MCP
+  // `memory_search`), legacy spellings included — an explicit ministry domain
+  // filter can only answer nothing, so don't even embed the query.
+  if (domain === 'ministry') return { items: [], nextCursor: null };
+
   const queryEmbedding = await generateEmbeddingWithRetry(query, domain).catch(() => null);
 
   const [structured, fts, trigram, semantic] = await Promise.all([
@@ -883,6 +913,8 @@ export async function hybridSearchMemories(
     ...(params.tags && params.tags.length > 0 ? { tags: { hasEvery: params.tags } } : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     status: params.status ? (params.status as any) : { not: 'ARCHIVED' },
+    // Lane H — canonical ministry forms in SQL; other spellings dropped below.
+    AND: ministryExclusionWhere(tenantId) as Prisma.MemoryEntryWhereInput[],
   };
   const rows = await prisma.memoryEntry.findMany({ where });
   const byId = new Map(rows.map(r => [r.id, r]));
@@ -891,6 +923,7 @@ export async function hybridSearchMemories(
   for (const r of ranked) {
     const row = byId.get(r.id);
     if (!row) continue;
+    if (isHiddenMinistryRow(row, tenantId)) continue; // legacy spellings (`Ministry `, `ministry/pastoral`, lookalikes)
     if (!isTemporallyValid(row, asOf)) continue; // defense in depth — the layers filter too
     const dec = tryDecryptMemory(row);
     if (!dec) continue; // logged by memory-crypto; never surface ciphertext

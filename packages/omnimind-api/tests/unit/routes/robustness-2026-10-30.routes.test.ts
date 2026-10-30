@@ -78,7 +78,7 @@ describe('H1b — GET /memories query validation', () => {
       .set(H);
     expect(res.status).toBe(200);
     const args = mockPrisma.memoryEntry.findMany.mock.calls[0][0];
-    expect(args).toMatchObject({ orderBy: { importance: 'asc' }, take: 20, skip: 0 });
+    expect(args).toMatchObject({ orderBy: [{ importance: 'asc' }, { id: 'desc' }], take: 20, skip: 0 });
     expect(args.where).toMatchObject({ status: 'CONFIRMED', memoryClass: 'DECISION', tags: { hasEvery: ['a', 'b'] } });
     expect(args.where).not.toHaveProperty('invalidAt');
   });

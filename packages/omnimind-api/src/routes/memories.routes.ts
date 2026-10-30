@@ -9,6 +9,7 @@ import { isAdminRequest } from '../middleware/admin-auth';
 import { idempotent } from '../middleware/idempotency';
 import { entityExists, normalizeLinkEntityType, LEGACY_LINK_ENTITY_TYPES, linkMemoriesBatch } from '../services/unlinked-mentions.service';
 import { getMemoryBacklinks } from '../services/memory-backlinks.service';
+import { isHiddenMinistryRow } from '../lib/ministry-read';
 
 // Phase 6 (A2) — PATCH /memories/:id gains `supersedes: <oldMemoryId>`
 // (old row → invalidAt=now, supersededBy=:id; :id.consolidatedFrom += old).
@@ -116,6 +117,7 @@ router.post('/search-similar', async (req, res, next) => {
             AND status != 'ARCHIVED'
             AND invalid_at IS NULL
             AND superseded_by IS NULL
+            AND lower(domain) NOT LIKE 'ministry%'
             AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
           ORDER BY embedding <=> ${embedding}::vector
           LIMIT ${safeLimit}
@@ -136,12 +138,16 @@ router.post('/search-similar', async (req, res, next) => {
             AND status != 'ARCHIVED'
             AND invalid_at IS NULL
             AND superseded_by IS NULL
+            AND lower(domain) NOT LIKE 'ministry%'
             AND 1 - (embedding <=> ${embedding}::vector) >= ${safeThreshold}
           ORDER BY embedding <=> ${embedding}::vector
           LIMIT ${safeLimit}
         `;
 
-    const memories = rows.map(r => ({
+    // Lane H (2026-10-30): no ministry row (any domain spelling, or the
+    // ministry tenant for a caller outside it) is ever a dedup candidate or a
+    // result; `ministry%` is excluded in SQL above, the rest here.
+    const memories = rows.filter(r => !isHiddenMinistryRow({ domain: r.domain, tenantId: r.tenant_id }, tenantId)).map(r => ({
       id: r.id,
       title: r.title,
       content: r.content,
