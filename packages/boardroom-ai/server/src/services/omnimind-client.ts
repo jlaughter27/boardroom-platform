@@ -6,7 +6,7 @@ import type {
   McpTokenOptions,
   MemoryBacklinksResponse,
 } from '@boardroom/shared';
-import { PersonBriefsResponseSchema } from '@boardroom/shared';
+import { PersonBriefsResponseSchema, OMNIMIND_REFUSAL_CODES, OMNIMIND_REFUSAL_HEADER } from '@boardroom/shared';
 import type { PersonBriefsRequest, PersonBriefsResponse } from '@boardroom/shared';
 const OMNIMIND_URL = process.env.OMNIMIND_API_URL ?? 'http://localhost:3333';
 
@@ -27,6 +27,23 @@ const RETRY_BASE_MS = 100;
 const BREAKER_THRESHOLD = Number(process.env.OMNIMIND_BREAKER_THRESHOLD) || 5;
 const BREAKER_COOLDOWN_MS = Number(process.env.OMNIMIND_BREAKER_COOLDOWN_MS) || 15_000;
 const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+/**
+ * Lane F — a deliberate OmniMind refusal answered with a 5xx (503
+ * `MINISTRY_DEFERRED`, 503 `admin_disabled`): OmniMind is healthy and answered
+ * on purpose. Marked by the `x-omnimind-refusal: 1` header, or — for an OmniMind
+ * build that predates the header — by a known refusal code in the JSON body.
+ * Never retried, never counted toward the shared breaker: one user replaying a
+ * refused write must not open the breaker for every user (and login).
+ * A 503 with an infra code (`agent_lookup_failed`: DB down) has neither and counts.
+ */
+function isDeliberateRefusal(res: Response, upstream: unknown): boolean {
+  const headers = (res as { headers?: Headers }).headers;
+  if (headers && typeof headers.get === 'function' && headers.get(OMNIMIND_REFUSAL_HEADER) === '1') return true;
+  const body = upstream as { code?: unknown; error?: unknown } | null;
+  const code = typeof body?.code === 'string' ? body.code : typeof body?.error === 'string' ? body.error : undefined;
+  return code !== undefined && OMNIMIND_REFUSAL_CODES.includes(code);
+}
 
 // ---------------------------------------------------------------------------
 // Circuit breaker — in-memory, per-process (no Redis).
@@ -178,13 +195,15 @@ export class OmniMindClient {
 
         if (!res.ok) {
           const error = await res.json().catch(() => ({ error: 'upstream_error' }));
+          const refusal = isDeliberateRefusal(res, error);
           const err = Object.assign(new Error(`OmniMind ${method} ${path}: ${res.status}`), {
             status: res.status,
             upstream: error,
+            ...(refusal && { refusal: true }),
           });
 
-          // Retry gateway errors (502/503/504) for idempotent methods
-          if (isIdempotent && RETRYABLE_STATUS.has(res.status) && attempt < maxAttempts) {
+          // Retry gateway errors (502/503/504) for idempotent methods — never a deliberate refusal.
+          if (isIdempotent && !refusal && RETRYABLE_STATUS.has(res.status) && attempt < maxAttempts) {
             lastError = err;
             await this.backoff(attempt);
             continue;
@@ -200,7 +219,7 @@ export class OmniMindClient {
         if (res.status === 204) return undefined as T;
         return res.json() as Promise<T>;
       } catch (err: unknown) {
-        const error = err as Error & { status?: number; code?: string };
+        const error = err as Error & { status?: number; code?: string; refusal?: boolean };
 
         // 4xx: client-side error — throw immediately, don't trip breaker.
         // The server responded correctly; the request was bad.
@@ -214,7 +233,8 @@ export class OmniMindClient {
         // answered: it is not counted, or one user replaying a request that
         // 500s could open the shared breaker for every user (H1).
         if (error.status && error.status >= 500) {
-          if (RETRYABLE_STATUS.has(error.status)) this.breaker.recordFailure();
+          // A deliberate refusal (MINISTRY_DEFERRED, …) is OmniMind answering: not counted.
+          if (RETRYABLE_STATUS.has(error.status) && !error.refusal) this.breaker.recordFailure();
           throw error;
         }
 
@@ -713,8 +733,9 @@ export class OmniMindClient {
     return this.request('GET', `/admin/stats${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async getAdminAgents(options: AdminCallOptions = {}) {
-    return this.request('GET', '/admin/agents', undefined, undefined, this.adminHeaders(options));
+  async getAdminAgents(params?: Record<string, string>, options: AdminCallOptions = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('GET', `/admin/agents${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
   async getAdminAudit(params?: Record<string, string>, options: AdminCallOptions = {}) {
@@ -741,8 +762,9 @@ export class OmniMindClient {
     return this.request('GET', `/admin/duplicates${qs}`, undefined, undefined, this.adminHeaders(options));
   }
 
-  async mergeAdminDuplicates(body: Record<string, unknown>, options: AdminCallOptions = {}) {
-    return this.request('POST', '/admin/duplicates/merge', undefined, body, this.adminHeaders(options));
+  async mergeAdminDuplicates(body: Record<string, unknown>, params?: Record<string, string>, options: AdminCallOptions = {}) {
+    const qs = params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request('POST', `/admin/duplicates/merge${qs}`, undefined, body, this.adminHeaders(options));
   }
 
   async triggerAdminDecay(options: AdminCallOptions = {}) {

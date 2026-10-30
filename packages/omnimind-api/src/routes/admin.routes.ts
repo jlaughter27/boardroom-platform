@@ -2,7 +2,12 @@ import { Router, type IRouter, type Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { logger } from '../lib/logger';
-import { AdminTenantOwnerUpdateRequestSchema } from '@boardroom/shared';
+import {
+  AdminTenantOwnerUpdateRequestSchema,
+  MINISTRY_TENANT_ID_DEFAULT,
+  isMinistryDomain,
+  isMinistryTenant,
+} from '@boardroom/shared';
 import { HttpError } from '../middleware/error-handler';
 import { summarizeRecentSessions } from '../services/session-summarizer.service';
 
@@ -40,6 +45,21 @@ function resolveTenantFilter(req: Request): string | null {
   });
 }
 
+/**
+ * Lane F (2026-10-30) — ministry data sovereignty on the cross-user admin
+ * views. `GET /admin/memories` and `GET /admin/duplicates` never list a
+ * ministry row (domain in any spelling — shared `isMinistryDomain` — or a row
+ * in the ministry tenant — `isMinistryTenant`): excluded, not redacted, the
+ * same policy as backlinks and the core-context block. The canonical forms are
+ * filtered in SQL; legacy spellings (`ministry/pastoral`, lookalikes) after it.
+ */
+function ministryTenantId(): string {
+  return process.env.OMNIMIND_MINISTRY_TENANT_ID || MINISTRY_TENANT_ID_DEFAULT;
+}
+
+function isMinistryRow(domain: string | null | undefined, tenantId: string | null | undefined): boolean {
+  return isMinistryDomain(domain) || isMinistryTenant(tenantId, ministryTenantId());
+}
 
 // GET /admin/stats — aggregate counts (tenant-scoped by default, ?includeAllTenants=true for global)
 router.get('/stats', async (req, res, next) => {
@@ -158,7 +178,19 @@ router.get('/memories', async (req, res, next) => {
     const contextTenant = resolveTenantFilter(req);
     const effectiveTenantId = query.tenantId ?? contextTenant ?? undefined;
 
-    const where: Record<string, unknown> = { deletedAt: null };
+    // Lane F — an explicit ministry filter can only ever answer an empty page.
+    if ((query.domain && isMinistryDomain(query.domain)) || isMinistryRow(null, effectiveTenantId)) {
+      res.json({ memories: [], total: 0, offset: query.offset, limit: query.limit });
+      return;
+    }
+
+    const where: Record<string, unknown> = {
+      deletedAt: null,
+      AND: [
+        { NOT: { domain: { equals: 'ministry', mode: 'insensitive' } } },
+        { NOT: { tenantId: ministryTenantId() } },
+      ],
+    };
     if (query.agentId) where.agentId = query.agentId;
     if (effectiveTenantId) where.tenantId = effectiveTenantId;
     if (query.domain) where.domain = query.domain;
@@ -194,7 +226,11 @@ router.get('/memories', async (req, res, next) => {
       prisma.memoryEntry.count({ where }),
     ]);
 
-    res.json({ memories, total, offset: query.offset, limit: query.limit });
+    // Legacy spellings the SQL filter cannot see (`ministry/pastoral`, lookalikes).
+    const visible = memories.filter((m) => !isMinistryRow(m.domain, m.tenantId));
+    const dropped = memories.length - visible.length;
+
+    res.json({ memories: visible, total: Math.max(0, total - dropped), offset: query.offset, limit: query.limit });
   } catch (err) { next(err); }
 });
 
@@ -256,13 +292,15 @@ router.get('/duplicates', async (req, res, next) => {
   try {
     const threshold = Math.max(0, Math.min(1, parseFloat((req.query.threshold as string) ?? '0.85')));
     const tenantId = resolveTenantFilter(req);
+    const ministryTenant = ministryTenantId();
 
-    const pairs = tenantId
-      ? await prisma.$queryRaw<Array<{
-          a_id: string; a_title: string; a_created: Date;
-          b_id: string; b_title: string; b_created: Date;
-          cosine: number;
-        }>>`
+    type PairRow = {
+      a_id: string; a_title: string; a_created: Date; a_domain: string; a_tenant: string;
+      b_id: string; b_title: string; b_created: Date; b_domain: string; b_tenant: string;
+      cosine: number;
+    };
+    const rows = tenantId
+      ? await prisma.$queryRaw<PairRow[]>`
           SELECT
             a.id       AS a_id,
             a.title    AS a_title,
@@ -270,6 +308,10 @@ router.get('/duplicates', async (req, res, next) => {
             b.id       AS b_id,
             b.title    AS b_title,
             b.created_at AS b_created,
+            a.domain   AS a_domain,
+            a.tenant_id AS a_tenant,
+            b.domain   AS b_domain,
+            b.tenant_id AS b_tenant,
             1 - (a.embedding <=> b.embedding) AS cosine
           FROM "memory_entries" a
           JOIN "memory_entries" b
@@ -280,16 +322,16 @@ router.get('/duplicates', async (req, res, next) => {
             AND b.embedding IS NOT NULL
             AND a.deleted_at IS NULL
             AND b.deleted_at IS NULL
+            AND lower(a.domain) <> 'ministry'
+            AND lower(b.domain) <> 'ministry'
+            AND a.tenant_id <> ${ministryTenant}
+            AND b.tenant_id <> ${ministryTenant}
             AND a.tenant_id = ${tenantId}
             AND 1 - (a.embedding <=> b.embedding) > ${threshold}
           ORDER BY cosine DESC
           LIMIT 100
         `
-      : await prisma.$queryRaw<Array<{
-          a_id: string; a_title: string; a_created: Date;
-          b_id: string; b_title: string; b_created: Date;
-          cosine: number;
-        }>>`
+      : await prisma.$queryRaw<PairRow[]>`
           SELECT
             a.id       AS a_id,
             a.title    AS a_title,
@@ -297,6 +339,10 @@ router.get('/duplicates', async (req, res, next) => {
             b.id       AS b_id,
             b.title    AS b_title,
             b.created_at AS b_created,
+            a.domain   AS a_domain,
+            a.tenant_id AS a_tenant,
+            b.domain   AS b_domain,
+            b.tenant_id AS b_tenant,
             1 - (a.embedding <=> b.embedding) AS cosine
           FROM "memory_entries" a
           JOIN "memory_entries" b
@@ -306,10 +352,19 @@ router.get('/duplicates', async (req, res, next) => {
             AND b.embedding IS NOT NULL
             AND a.deleted_at IS NULL
             AND b.deleted_at IS NULL
+            AND lower(a.domain) <> 'ministry'
+            AND lower(b.domain) <> 'ministry'
+            AND a.tenant_id <> ${ministryTenant}
+            AND b.tenant_id <> ${ministryTenant}
             AND 1 - (a.embedding <=> b.embedding) > ${threshold}
           ORDER BY cosine DESC
           LIMIT 100
         `;
+    // Lane F — legacy ministry spellings the SQL filter cannot see; the side
+    // columns are only for this check and never leave the service.
+    const pairs = rows
+      .filter((r) => !isMinistryRow(r.a_domain, r.a_tenant) && !isMinistryRow(r.b_domain, r.b_tenant))
+      .map(({ a_domain: _ad, a_tenant: _at, b_domain: _bd, b_tenant: _bt, ...pair }) => pair);
     res.json({ pairs, threshold });
   } catch (err) { next(err); }
 });

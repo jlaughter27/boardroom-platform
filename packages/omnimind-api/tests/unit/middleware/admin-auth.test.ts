@@ -13,7 +13,7 @@ describe('requireAdminKey (F-104)', () => {
   beforeEach(() => {
     __resetAdminAuthForTest();
     req = { path: '/stats', headers: {}, ip: '1.2.3.4' };
-    res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() };
+    res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis(), setHeader: vi.fn().mockReturnThis() };
     next = vi.fn();
   });
   afterEach(() => {
@@ -49,6 +49,8 @@ describe('requireAdminKey (F-104)', () => {
     requireAdminKey(req as Request, res as Response, next);
     expect(res.status).toHaveBeenCalledWith(503);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'admin_disabled' }));
+    // Lane F — a deliberate refusal: callers must not count it toward a breaker.
+    expect(res.setHeader).toHaveBeenCalledWith('x-omnimind-refusal', '1');
     expect(next).not.toHaveBeenCalled();
   });
 

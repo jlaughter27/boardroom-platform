@@ -162,7 +162,7 @@ export async function createMemory(
   // `normalizeDomain` maps every ministry-like spelling to 'ministry' (H2), and
   // any write into the ministry tenant is ministry regardless of domain.
   if (input.domain === 'ministry' || inMinistryTenant(agentContext?.tenantId)) {
-    throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
+    throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG }, { refusal: true });
   }
 
   // WS-4.2 — Strict sourceType validation. Reject unknown values at the boundary
@@ -622,7 +622,7 @@ export async function updateMemory(
     inMinistryTenant(existingTenant) ||
     inMinistryTenant(agentContext?.tenantId)
   ) {
-    throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG });
+    throw new HttpError(503, { code: 'MINISTRY_DEFERRED', message: MINISTRY_DEFERRED_MSG }, { refusal: true });
   }
 
   // Propagate agent context onto the update — this is the path that the dedup
