@@ -113,7 +113,8 @@ export async function listCommitments(
       where,
       take: limit,
       skip: offset,
-      orderBy: { createdAt: 'desc' },
+      // Lane H (2026-10-30): `id` breaks createdAt ties so offset pages are stable.
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }),
     prisma.commitment.count({ where }),
   ]);

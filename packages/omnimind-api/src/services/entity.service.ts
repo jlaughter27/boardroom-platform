@@ -83,7 +83,8 @@ export async function listEntities(
   }
 
   const [items, total] = await Promise.all([
-    delegate.findMany({ where, take: limit, skip: offset, orderBy: { createdAt: 'desc' }, ...(include ? { include } : {}) }),
+    // Lane H (2026-10-30): `id` breaks createdAt ties so offset pages are stable.
+    delegate.findMany({ where, take: limit, skip: offset, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...(include ? { include } : {}) }),
     delegate.count({ where }),
   ]);
 
