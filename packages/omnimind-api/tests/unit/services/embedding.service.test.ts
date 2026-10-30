@@ -183,10 +183,25 @@ describe('embedding.service.ts', () => {
       // round-trip. Update the test expectation to match.
       expect(mockPrisma.memoryEntry.findUnique).toHaveBeenCalledWith({
         where: { id: 'non-existent-id' },
-        select: { id: true, title: true, content: true, domain: true },
+        select: { id: true, title: true, content: true, domain: true, tenantId: true },
       });
       // Should not proceed to generate embedding
       expect(mockOpenAIClient.embeddings.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['ministry/pastoral', null],
+      ['ministry\u200b', null],
+      ['m\u0456nistry', null],
+      ['ministries', null],
+      ['general', 'tgfc-ministry'],
+    ])('H2: embedMemory never sends domain %j (tenant %j) to OpenAI', async (domain, tenantId) => {
+      mockPrisma.memoryEntry.findUnique.mockResolvedValue({ id: 'm', title: 'T', content: 'pastoral', domain, tenantId });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+      await embedMemory('m');
+      expect(mockOpenAIClient.embeddings.create).not.toHaveBeenCalled();
+      expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
     });
 
     it('should generate and store embedding for found memory', async () => {
@@ -207,7 +222,7 @@ describe('embedding.service.ts', () => {
       // WS-7: embedMemory now also selects `domain` (see comment above).
       expect(mockPrisma.memoryEntry.findUnique).toHaveBeenCalledWith({
         where: { id: 'memory-123' },
-        select: { id: true, title: true, content: true, domain: true },
+        select: { id: true, title: true, content: true, domain: true, tenantId: true },
       });
       
       expect(mockOpenAIClient.embeddings.create).toHaveBeenCalledWith({
@@ -340,6 +355,25 @@ describe('embedding.service.ts', () => {
       expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('/api/embeddings'), expect.anything());
       expect(result.processed).toBe(1);
       expect(mockLogger.warn).toHaveBeenCalledWith('Backfill embedding failed after retries', { memoryId: 'mem-ministry' });
+      fetchSpy.mockRestore();
+    });
+
+    it('H2: lookalike / sub-domain / ministry-tenant rows are never sent to OpenAI', async () => {
+      const mockMemories = [
+        { id: 'mem-sub', title: 'M', content: 'pastoral', domain: 'ministry/pastoral', tenantId: null },
+        { id: 'mem-cyr', title: 'M', content: 'pastoral', domain: 'm\u0456nistry', tenantId: null },
+        { id: 'mem-zw', title: 'M', content: 'pastoral', domain: 'ministry\u200b', tenantId: null },
+        { id: 'mem-tenant', title: 'M', content: 'pastoral', domain: 'general', tenantId: 'tgfc-ministry' },
+      ];
+      mockPrisma.memoryEntry.count.mockResolvedValue(4);
+      mockPrisma.$queryRaw.mockResolvedValue(mockMemories);
+      mockOpenAIClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [0.1] }] });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const result = await backfillEmbeddings('user-123', 50);
+
+      expect(mockOpenAIClient.embeddings.create).not.toHaveBeenCalled();
+      expect(result.processed).toBe(0);
       fetchSpy.mockRestore();
     });
 

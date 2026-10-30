@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { MemoryClass, MemoryStatus, Confidence, SourceType } from '../types/memory.types';
+import { normalizeDomain } from '../utils/domain';
 
 // ── Enum Schemas ──
 
@@ -103,14 +104,16 @@ const noNul = (s: string) => !s.includes('\u0000');
  * Normalize domain values so refusal gates (e.g. ministry) cannot be bypassed
  * by case variation or padding. WS-6 F-101.
  *
- * Trim whitespace, lowercase, reject empty. The downstream refusal check
- * (`memory.service.ts`) compares against `'ministry'` (lowercase) — anything
- * that should be refused MUST normalize to that form here.
+ * Shared `normalizeDomain` (H2, 2026-10-30): NFKC, strip zero-width/format
+ * characters, trim, lowercase, and collapse every ministry-like spelling
+ * (lookalikes, `ministries`, `ministry/*`, `tgfc-ministry`) to `'ministry'`.
+ * The downstream refusal check (`memory.service.ts`) compares against
+ * `'ministry'` — anything that should be refused MUST normalize to that form here.
  */
 const DomainSchema = z
   .string()
   .min(1)
-  .transform(s => s.trim().toLowerCase())
+  .transform(s => normalizeDomain(s))
   .refine(s => s.length > 0, { message: 'domain cannot be empty after trim' });
 
 export const CreateMemoryRequestSchema = z.object({
